@@ -1,0 +1,3 @@
+services:
+  dashboard:
+    image: escala-ici-dashboard:3k-c1-staging

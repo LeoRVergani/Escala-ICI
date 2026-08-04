@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.spa.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "../../node_modules/.cache/tsconfig.dashboard.tsbuildinfo"
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "../../components/**/*.ts",
+    "../../components/**/*.tsx",
+    "../../lib/**/*.ts",
+    "../../packages/contrato/src/**/*.ts"
+  ]
+}

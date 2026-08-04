@@ -1,0 +1,11 @@
+[
+  { "uid": "SUBSTITUA_UID_01", "login": "aleilima", "nome": "Alessandra Lima", "turnoPadrao": "MD" },
+  { "uid": "SUBSTITUA_UID_02", "login": "ivcarvalho", "nome": "Igor Carvalho", "turnoPadrao": "MD" },
+  { "uid": "SUBSTITUA_UID_03", "login": "alamancio", "nome": "André Lamancio", "turnoPadrao": "M" },
+  { "uid": "SUBSTITUA_UID_04", "login": "altaborda", "nome": "Alexandre Taborda", "turnoPadrao": "M" },
+  { "uid": "SUBSTITUA_UID_05", "login": "lvergani", "nome": "Leonardo Vergani", "turnoPadrao": "M" },
+  { "uid": "SUBSTITUA_UID_06", "login": "cestradioto", "nome": "Carlos Estradioto", "turnoPadrao": "T" },
+  { "uid": "SUBSTITUA_UID_07", "login": "thaisvribeiro", "nome": "Thais Ribeiro", "turnoPadrao": "T" },
+  { "uid": "SUBSTITUA_UID_08", "login": "dschlottag", "nome": "Daniel Schlottag", "turnoPadrao": "N" },
+  { "uid": "SUBSTITUA_UID_09", "login": "luizneto", "nome": "Luiz Neto", "turnoPadrao": "N" }
+]

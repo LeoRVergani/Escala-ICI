@@ -1,0 +1,16 @@
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    environment: 'node',
+    include: [
+      'packages/contrato/test/**/*.test.ts',
+      'lib/**/*.test.ts',
+    ],
+  },
+  resolve: {
+    alias: {
+      '@': new URL('.', import.meta.url).pathname,
+    },
+  },
+});

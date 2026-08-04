@@ -1,0 +1,29 @@
+{
+  "name": "@escala-ici/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/DashboardApp.tsx",
+  "scripts": {
+    "dev": "vite --config vite.config.ts",
+    "dev:emulator": "vite --config vite.config.ts --mode emulator --host 127.0.0.1 --port 4173",
+    "dev:emulator:lan": "vite --config vite.config.ts --mode emulator --host 0.0.0.0 --port 4173",
+    "build": "vite build --config vite.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@escala-ici/contrato": "file:../../packages/contrato",
+    "firebase": "12.1.0",
+    "lucide-react": "0.468.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "xlsx": "0.18.5"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "typescript": "5.9.3",
+    "vite": "8.0.13"
+  }
+}

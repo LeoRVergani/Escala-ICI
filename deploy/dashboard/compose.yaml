@@ -1,0 +1,32 @@
+services:
+  dashboard:
+    image: escala-ici-dashboard:3k-c1
+    build:
+      context: ../..
+      dockerfile: deploy/dashboard/Dockerfile
+      args:
+        VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY:-}
+        VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN:-}
+        VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID:-}
+        VITE_FIREBASE_APP_ID: ${VITE_FIREBASE_APP_ID:-}
+        VITE_FIREBASE_ENVIRONMENT: ${VITE_FIREBASE_ENVIRONMENT:-}
+        VITE_ALLOW_OFFICIAL_FIRESTORE_WRITE: ${VITE_ALLOW_OFFICIAL_FIRESTORE_WRITE:-false}
+        VITE_FIREBASE_USE_EMULATORS: ${VITE_FIREBASE_USE_EMULATORS:-false}
+        VITE_FIREBASE_LAN_MODE: ${VITE_FIREBASE_LAN_MODE:-false}
+        VITE_FIREBASE_LAN_HOST: ${VITE_FIREBASE_LAN_HOST:-}
+        VITE_FIREBASE_AUTH_EMULATOR_URL: ${VITE_FIREBASE_AUTH_EMULATOR_URL:-http://127.0.0.1:9099}
+        VITE_FIREBASE_FIRESTORE_EMULATOR_HOST: ${VITE_FIREBASE_FIRESTORE_EMULATOR_HOST:-127.0.0.1}
+        VITE_FIREBASE_FIRESTORE_EMULATOR_PORT: ${VITE_FIREBASE_FIRESTORE_EMULATOR_PORT:-8080}
+        VITE_DASHBOARD_URL: ${VITE_DASHBOARD_URL:-http://localhost:4173}
+        VITE_EMPLOYEE_APP_URL: ${VITE_EMPLOYEE_APP_URL:-http://localhost:4174}
+        FIREBASE_STAGING_CONFIRMATION: ${FIREBASE_STAGING_CONFIRMATION:-}
+    ports:
+      - "${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:4173:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped

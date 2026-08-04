@@ -1,0 +1,144 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    function eu() {
+      return get(
+        /databases/$(database)/documents/usuarios/$(request.auth.uid)
+      ).data;
+    }
+
+    function minhaEquipe() {
+      return eu().equipeId;
+    }
+
+    function souGestor() {
+      return autenticado() && eu().nivelHierarquico <= 5;
+    }
+
+    match /config/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /usuarios/{uid} {
+      allow read: if autenticado()
+        && (
+          request.auth.uid == uid
+          || resource.data.equipeId == minhaEquipe()
+        );
+
+      allow update: if autenticado()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly(['nome']);
+
+      allow create: if souGestor()
+        && request.resource.data.equipeId == minhaEquipe();
+
+      allow delete: if false;
+    }
+
+    match /equipes/{equipeId} {
+      allow read: if autenticado();
+      allow write: if false;
+    }
+
+    match /tiposTurno/{docId} {
+      allow read: if autenticado();
+      allow write: if souGestor()
+        && request.resource.data.equipeId == minhaEquipe();
+    }
+
+    match /turnosMes/{docId} {
+      allow read: if autenticado()
+        && resource.data.equipeId == minhaEquipe()
+        && (
+          resource.data.status == 'PUBLICADA'
+          || souGestor()
+        );
+
+      allow create: if souGestor()
+        && request.resource.data.equipeId == minhaEquipe()
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.status == 'PUBLICADA';
+
+      allow update: if souGestor()
+        && resource.data.equipeId == minhaEquipe()
+        && request.resource.data.equipeId == resource.data.equipeId
+        && request.resource.data.usuarioUid == resource.data.usuarioUid
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.status == 'PUBLICADA';
+
+      allow delete: if souGestor()
+        && resource.data.equipeId == minhaEquipe();
+    }
+
+    match /rascunhosTurnosMes/{docId} {
+      allow read: if souGestor()
+        && resource.data.equipeId == minhaEquipe();
+
+      allow create, update: if souGestor()
+        && request.resource.data.equipeId == minhaEquipe()
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.status == 'RASCUNHO';
+
+      allow delete: if souGestor()
+        && resource.data.equipeId == minhaEquipe();
+    }
+
+    match /publicacoesEscala/{id} {
+      allow read: if souGestor()
+        && (
+          resource == null
+          || resource.data.equipeId == minhaEquipe()
+        );
+      allow create, update: if souGestor()
+        && request.resource.data.equipeId == minhaEquipe();
+      allow delete: if false;
+    }
+
+    match /historicoPublicacoes/{id} {
+      allow read: if souGestor()
+        && resource.data.equipeId == minhaEquipe();
+      allow create: if souGestor()
+        && request.resource.data.equipeId == minhaEquipe();
+      allow update, delete: if false;
+    }
+
+    match /versoesEscala/{id} {
+      allow read: if souGestor()
+        && resource.data.equipeId == minhaEquipe();
+      allow create: if souGestor()
+        && request.resource.data.equipeId == minhaEquipe()
+        && request.resource.data.status == 'PUBLICADA';
+      allow update, delete: if false;
+    }
+
+    match /eventosEscala/{id} {
+      allow read: if autenticado()
+        && resource.data.equipeId == minhaEquipe()
+        && (
+          souGestor()
+          || resource.data.usuarioUid == request.auth.uid
+        );
+      allow create: if souGestor()
+        && request.resource.data.equipeId == minhaEquipe()
+        && request.resource.data.publicadoPor == request.auth.uid
+        && request.resource.data.alteracoes is list;
+      allow update, delete: if false;
+    }
+
+    match /importacoes/{id} {
+      allow read: if souGestor();
+      allow create: if souGestor()
+        && request.resource.data.enviadoPor == request.auth.uid
+        && request.resource.data.equipeId == minhaEquipe();
+      allow update, delete: if false;
+    }
+  }
+}

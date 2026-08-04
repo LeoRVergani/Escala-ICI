@@ -1,0 +1,31 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "turnosMes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "equipeId", "order": "ASCENDING" },
+        { "fieldPath": "competencia", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "turnosMes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "usuarioUid", "order": "ASCENDING" },
+        { "fieldPath": "competencia", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "turnosMes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "usuarioUid", "order": "ASCENDING" },
+        { "fieldPath": "competencia", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

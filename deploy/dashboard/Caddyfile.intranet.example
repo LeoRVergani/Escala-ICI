@@ -1,0 +1,7 @@
+# Exemplo para Caddy instalado diretamente no host da VM.
+# Substitua o nome e os caminhos pelos valores emitidos pela PKI corporativa.
+escala-ici-dashboard.seudominio.interno {
+  tls /etc/pki/tls/certs/escala-ici-dashboard.crt /etc/pki/tls/private/escala-ici-dashboard.key
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:4173
+}

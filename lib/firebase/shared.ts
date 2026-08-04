@@ -1,0 +1,50 @@
+import type { Usuario } from '../modelos';
+import { obterFirebase } from './client';
+import { resolverPoliticaFirebase } from './environment';
+
+const politica = resolverPoliticaFirebase(
+  import.meta.env,
+  typeof window === 'undefined' ? undefined : window.location.hostname,
+);
+
+export const escritaOficialHabilitada = politica.escritaOficial;
+export const emuladoresLaboratorioHabilitados = politica.emuladoresLaboratorio;
+export const emuladoresLocaisHabilitados = emuladoresLaboratorioHabilitados;
+export const escritaAdministrativaHabilitada = politica.escritaAdministrativa;
+
+export function exigirFirebase() {
+  const firebase = obterFirebase();
+  if (firebase === null) {
+    throw new Error('Firebase ainda não foi configurado.');
+  }
+  return firebase;
+}
+
+export function exigirEscritaAdministrativaHabilitada(): void {
+  if (!escritaAdministrativaHabilitada) {
+    throw new Error(
+      'A escrita está bloqueada. Use o laboratório local/LAN autorizado ou habilite explicitamente a escrita oficial no ambiente administrativo.',
+    );
+  }
+}
+
+export function lerUsuario(
+  uid: string,
+  dados: Record<string, unknown>,
+): Usuario {
+  return {
+    uid,
+    login: String(dados.login ?? ''),
+    loginAliases: Array.isArray(dados.loginAliases)
+      ? dados.loginAliases.filter((login): login is string => typeof login === 'string')
+      : [],
+    nome: String(dados.nome ?? ''),
+    email: String(dados.email ?? ''),
+    cargo: String(dados.cargo ?? ''),
+    equipeId: String(dados.equipeId ?? ''),
+    gestorUid: typeof dados.gestorUid === 'string' ? dados.gestorUid : null,
+    nivelHierarquico: Number(dados.nivelHierarquico ?? 6),
+    turnoPadrao: String(dados.turnoPadrao ?? ''),
+    ativo: dados.ativo !== false,
+  };
+}

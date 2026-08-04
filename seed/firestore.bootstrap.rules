@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function souGestor() {
+      return request.auth != null
+        && get(
+          /databases/$(database)/documents/usuarios/$(request.auth.uid)
+        ).data.nivelHierarquico <= 5;
+    }
+
+    match /{documento=**} {
+      allow read, write: if souGestor();
+    }
+  }
+}
