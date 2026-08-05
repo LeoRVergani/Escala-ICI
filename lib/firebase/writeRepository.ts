@@ -28,6 +28,7 @@ import { gerarUuid } from '../uuid';
 import { fatiarEmLotes } from './batches';
 import { removerUndefined } from './sanitizar';
 import {
+  ambienteFirebaseAtual,
   escritaAdministrativaHabilitada,
   escritaOficialHabilitada,
   exigirEscritaAdministrativaHabilitada,
@@ -178,6 +179,11 @@ export async function publicarEscalas(
     where('competencia', '==', competencia),
   ));
   const documentosAtivos = ativos.docs.map((snapshot) => snapshot.data() as TurnosMes);
+  const rascunhosAtuais = await getDocs(query(
+    collection(db, 'rascunhosTurnosMes'),
+    where('equipeId', '==', equipeId),
+    where('competencia', '==', competencia),
+  ));
   const alteracoes = calcularAlteracoesEscala(documentosAtivos, documentos);
   if (revisaoAtual > 0 && alteracoes.length === 0) {
     throw new Error('Nenhuma alteração foi encontrada em relação à revisão publicada.');
@@ -205,67 +211,99 @@ export async function publicarEscalas(
     publicadoEm,
   };
 
-  for (const [indice, lote] of fatiarEmLotes(documentos, 100).entries()) {
-    const batch = writeBatch(db);
-    for (const documento of lote) {
-      const publicado: TurnosMes = {
-        ...documento,
-        status: 'PUBLICADA',
-        publicadoPor,
-        publicadoEm,
-        atualizadoEm: publicadoEm,
-      };
-      batch.set(
-        doc(db, 'turnosMes', idDocumento(equipeId, documento.usuarioUid, competencia)),
-        removerUndefined(publicado),
-      );
-      batch.set(
-        doc(db, 'versoesEscala', idDocumentoVersao(chavePublicacao, revisao, documento.usuarioUid)),
-        removerUndefined({ ...publicado, chavePublicacao, revisao }),
-      );
-      const alteracoesDoUsuario = alteracoesPorUsuario.get(documento.usuarioUid);
-      if (alteracoesDoUsuario !== undefined) {
-        const evento = criarEventoEscala(publicacao, documento.usuarioUid, alteracoesDoUsuario);
-        batch.set(doc(db, 'eventosEscala', evento.id), removerUndefined(evento));
-      }
-      batch.delete(doc(
-        db,
-        'rascunhosTurnosMes',
-        idDocumento(equipeId, documento.usuarioUid, competencia),
-      ));
-    }
-    if (indice === 0) {
-      batch.set(doc(db, 'historicoPublicacoes', publicacao.id), removerUndefined(publicacao));
-      batch.set(estadoRef, removerUndefined({
-        id: chavePublicacao,
-        equipeId,
-        competencia,
-        revisaoAtual: revisao,
-        ultimaPublicacaoId: publicacao.id,
-        atualizadoPor: publicadoPor,
-        atualizadoEm: publicadoEm,
-      }));
-    }
-    await batch.commit();
+  if (ambienteFirebaseAtual !== 'producao') {
+    console.info('[publicarEscalas] plano de escrita', {
+      equipeId,
+      competencia,
+      totalDocumentos: documentos.length,
+      turnosMesIds: documentos.map((documento) =>
+        idDocumento(equipeId, documento.usuarioUid, competencia)),
+      versoesEscalaIds: documentos.map((documento) =>
+        idDocumentoVersao(chavePublicacao, revisao, documento.usuarioUid)),
+      eventosIds: [...alteracoesPorUsuario.keys()].map((usuarioUid) =>
+        `${publicacao.id}_${usuarioUid}`),
+      rascunhosParaExcluirIds: rascunhosAtuais.docs.map((snapshot) => snapshot.id),
+      estadoPublicacaoId: chavePublicacao,
+      historicoId: publicacao.id,
+    });
   }
 
-  for (const lote of fatiarEmLotes(documentosRemovidos, 150)) {
-    const batch = writeBatch(db);
-    for (const snapshot of lote) {
-      const usuarioUid = String(snapshot.data().usuarioUid ?? '');
-      batch.delete(snapshot.ref);
-      batch.delete(doc(
-        db,
-        'rascunhosTurnosMes',
-        idDocumento(equipeId, usuarioUid, competencia),
-      ));
-      const alteracoesDoUsuario = alteracoesPorUsuario.get(usuarioUid);
-      if (alteracoesDoUsuario !== undefined) {
-        const evento = criarEventoEscala(publicacao, usuarioUid, alteracoesDoUsuario);
-        batch.set(doc(db, 'eventosEscala', evento.id), removerUndefined(evento));
+  try {
+    for (const [indice, lote] of fatiarEmLotes(documentos, 100).entries()) {
+      const batch = writeBatch(db);
+      for (const documento of lote) {
+        const publicado: TurnosMes = {
+          ...documento,
+          status: 'PUBLICADA',
+          publicadoPor,
+          publicadoEm,
+          atualizadoEm: publicadoEm,
+        };
+        batch.set(
+          doc(db, 'turnosMes', idDocumento(equipeId, documento.usuarioUid, competencia)),
+          removerUndefined(publicado),
+        );
+        batch.set(
+          doc(db, 'versoesEscala', idDocumentoVersao(chavePublicacao, revisao, documento.usuarioUid)),
+          removerUndefined({ ...publicado, chavePublicacao, revisao }),
+        );
+        const alteracoesDoUsuario = alteracoesPorUsuario.get(documento.usuarioUid);
+        if (alteracoesDoUsuario !== undefined) {
+          const evento = criarEventoEscala(publicacao, documento.usuarioUid, alteracoesDoUsuario);
+          batch.set(doc(db, 'eventosEscala', evento.id), removerUndefined(evento));
+        }
       }
+      if (indice === 0) {
+        batch.set(doc(db, 'historicoPublicacoes', publicacao.id), removerUndefined(publicacao));
+        batch.set(estadoRef, removerUndefined({
+          id: chavePublicacao,
+          equipeId,
+          competencia,
+          revisaoAtual: revisao,
+          ultimaPublicacaoId: publicacao.id,
+          atualizadoPor: publicadoPor,
+          atualizadoEm: publicadoEm,
+        }));
+      }
+      await batch.commit();
     }
-    await batch.commit();
+
+    for (const lote of fatiarEmLotes(documentosRemovidos, 150)) {
+      const batch = writeBatch(db);
+      for (const snapshot of lote) {
+        const usuarioUid = String(snapshot.data().usuarioUid ?? '');
+        batch.delete(snapshot.ref);
+        const alteracoesDoUsuario = alteracoesPorUsuario.get(usuarioUid);
+        if (alteracoesDoUsuario !== undefined) {
+          const evento = criarEventoEscala(publicacao, usuarioUid, alteracoesDoUsuario);
+          batch.set(doc(db, 'eventosEscala', evento.id), removerUndefined(evento));
+        }
+      }
+      await batch.commit();
+    }
+
+    // A publicação substitui o rascunho da competência inteira: limpa todos
+    // os rascunhos existentes em vez de tentar apagar por usuarioUid, o que
+    // falhava (permission-denied) sempre que algum colaborador publicado ou
+    // removido não tinha rascunho persistido — `resource` inexistente faz a
+    // regra de delete negar o batch inteiro.
+    for (const lote of fatiarEmLotes(rascunhosAtuais.docs, 450)) {
+      const batch = writeBatch(db);
+      for (const snapshot of lote) {
+        batch.delete(snapshot.ref);
+      }
+      await batch.commit();
+    }
+  } catch (erro) {
+    if (ambienteFirebaseAtual !== 'producao') {
+      console.error('[publicarEscalas] falha ao publicar', {
+        codigo: (erro as { code?: string } | null)?.code,
+        equipeId,
+        competencia,
+        totalDocumentos: documentos.length,
+      });
+    }
+    throw erro;
   }
   return publicacao;
 }

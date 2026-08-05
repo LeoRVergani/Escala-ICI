@@ -199,6 +199,23 @@ describe('regras Firestore do Escala ICI', () => {
     ));
   });
 
+  it('recusa delete de rascunho inexistente e reforça por que publicarEscalas() precisa checar existência antes', async () => {
+    const gestor = ambiente.authenticatedContext(usuarios.gestor.uid).firestore();
+    await assertFails(deleteDoc(doc(gestor, 'rascunhosTurnosMes', 'rascunho-nunca-existiu')));
+  });
+
+  it('permite ao gestor apagar rascunho existente da própria equipe, mas não de outra equipe', async () => {
+    const gestor = ambiente.authenticatedContext(usuarios.gestor.uid).firestore();
+    const externo = ambiente.authenticatedContext(usuarios.externo.uid).firestore();
+    await assertFails(deleteDoc(doc(externo, 'rascunhosTurnosMes', 'rascunho-soc')));
+    await assertSucceeds(deleteDoc(doc(gestor, 'rascunhosTurnosMes', 'rascunho-soc')));
+  });
+
+  it('impede colaborador comum de apagar rascunho', async () => {
+    const db = ambiente.authenticatedContext(usuarios.colaborador.uid).firestore();
+    await assertFails(deleteDoc(doc(db, 'rascunhosTurnosMes', 'rascunho-soc')));
+  });
+
   it('reserva histórico e rollback para o gestor da própria equipe', async () => {
     const gestor = ambiente.authenticatedContext(usuarios.gestor.uid).firestore();
     const colaborador = ambiente.authenticatedContext(usuarios.colaborador.uid).firestore();
