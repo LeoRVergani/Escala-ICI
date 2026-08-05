@@ -422,6 +422,23 @@ export async function excluirRascunho(documento: TurnosMes): Promise<void> {
   ));
 }
 
+/**
+ * Inclui um colaborador na grade/rascunho da competência (Fase 3K-D2A).
+ * Só adiciona — nunca decide se o colaborador continua ativo no sistema,
+ * isso é responsabilidade exclusiva do cadastro de usuário.
+ */
+export async function adicionarMembroRascunho(documento: TurnosMes): Promise<void> {
+  exigirEscritaAdministrativaHabilitada();
+  if (documento.status !== 'RASCUNHO') {
+    throw new Error('Somente rascunhos podem ser incluídos diretamente na grade.');
+  }
+  const { db } = exigirFirebase();
+  await setDoc(
+    doc(db, 'rascunhosTurnosMes', idDocumento(documento.equipeId, documento.usuarioUid, documento.competencia)),
+    { ...documento, importacaoId: documento.importacaoId ?? null, publicadoPor: null, publicadoEm: null },
+  );
+}
+
 export async function atualizarNome(uid: string, nome: string): Promise<void> {
   exigirEscritaAdministrativaHabilitada();
   const { db } = exigirFirebase();

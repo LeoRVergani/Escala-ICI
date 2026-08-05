@@ -159,10 +159,28 @@ test('a fase 3J-A consolida a fidelidade visual do app em todas as larguras', as
   assert.match(estilos, /today-meta > span:not\(\.live-badge\)[\s\S]*display: none/);
   assert.match(estilos, /employee-calendar-panel\[data-mode="calendario"\] \.calendar-grid[\s\S]*width: 100%/);
   assert.match(estilos, /employee-calendar-panel\[data-mode="agenda"\] \.selected-day-card[\s\S]*display: block/);
-  assert.match(estilos, /product-app \.shift-chip\[data-code="MD"\][\s\S]*color: #5b2fa5/);
-  assert.match(estilos, /product-app \.shift-chip\[data-code="M"\][\s\S]*color: #087f94/);
-  assert.match(estilos, /product-app \.shift-chip\[data-code="T"\][\s\S]*color: #c65f05/);
   assert.doesNotMatch(estilos, /transform: rotate\(38deg\)/);
+});
+
+test('a fase 3K-D2A unifica as cores por período em um único token, sem produto duplicado', async () => {
+  const [estilos, app] = await Promise.all([
+    ler('app/globals.css'),
+    ler('apps/app/src/EmployeeApp.tsx'),
+  ]);
+
+  // Tokens: fonte única, herdada por qualquer elemento com data-code.
+  assert.match(estilos, /--periodo-md-text: #4338ca/);
+  assert.match(estilos, /--periodo-m-text: #0891b2/);
+  assert.match(estilos, /--periodo-t-text: #c2410c/);
+  assert.match(estilos, /--periodo-n-text: #1d4ed8/);
+  assert.match(estilos, /\.shift-chip\[data-code\] \{[\s\S]*var\(--periodo-text/);
+
+  // O App não duplica mais uma paleta própria por código de turno.
+  assert.doesNotMatch(estilos, /\.app-shell\.product-app \.shift-chip\[data-code="MD"\]\s*\{/);
+
+  // Os cards de jornada herdam a cor do período via data-code.
+  assert.match(app, /className="today-hero"[\s\S]*data-code=\{turnoDestaque\?\.codigo/);
+  assert.match(app, /className="panel next-shift-card" data-code=\{turno\?\.codigo/);
 });
 
 test('a fase 3J-B mantém rascunho, publicação e rollback fora do App', async () => {
@@ -358,4 +376,33 @@ test('a fase 3K-D2 fortalece a base da troca de escala com elegibilidade dos par
   for (const mutacao of ['writeBatch', 'setDoc', 'updateDoc', 'deleteDoc', 'firebase/firestore']) {
     assert.doesNotMatch(troca, new RegExp(mutacao), mutacao);
   }
+});
+
+test('a fase 3K-D2A separa a presença na grade do cadastro do usuário e mantém tudo fora do App', async () => {
+  const [app, gradeMembros, dashboard, scheduleGrid] = await Promise.all([
+    ler('apps/app/src/EmployeeApp.tsx'),
+    ler('lib/gradeMembros.ts'),
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('components/ScheduleGrid.tsx'),
+  ]);
+
+  // Módulo puro: monta/reorganiza documentos, nunca decide sobre o cadastro do usuário.
+  for (const mutacao of ['writeBatch', 'setDoc', 'updateDoc', 'deleteDoc', 'firebase/firestore']) {
+    assert.doesNotMatch(gradeMembros, new RegExp(mutacao), mutacao);
+  }
+  assert.doesNotMatch(gradeMembros, /usuarios\//);
+
+  // Remover da grade nunca é excluir o usuário do sistema.
+  assert.match(gradeMembros, /removerMembroGrade/);
+  assert.doesNotMatch(gradeMembros, /excluirUsuario|deletarUsuario/);
+
+  // O Dashboard oferece o fluxo de adicionar/remover e agrupa por período.
+  assert.match(dashboard, /adicionarMembroRascunho/);
+  assert.match(dashboard, /criarMembroGrade/);
+  assert.match(dashboard, /confirmarRemocaoMembroGrade/);
+  assert.match(dashboard, /agruparPorPeriodo/);
+  assert.match(scheduleGrid, /agruparGradePorPeriodo/);
+
+  // O App continua sem qualquer caminho de escrita na grade.
+  assert.doesNotMatch(app, /gradeMembros|adicionarMembroRascunho/);
 });

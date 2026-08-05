@@ -153,6 +153,7 @@ function TurnoHoje({ contexto }: { contexto: ContextoJornada }) {
     <article
       className="today-hero"
       data-state={trabalhando ? contexto.estado : 'DESCANSO'}
+      data-code={turnoDestaque?.codigo ?? ''}
     >
       <header className="today-card-heading">
         <span>Seu turno hoje</span>
@@ -1007,7 +1008,7 @@ export function EmployeeApp() {
               <strong>{(totais?.df ?? 0) + (totais?.du ?? 0)}</strong>
               <small>{totais?.df ?? 0} DF · {totais?.du ?? 0} DU</small>
             </article>
-            <article className="metric-next-shift" data-tone="shift">
+            <article className="metric-next-shift" data-tone="shift" data-code={contextoHoje.proximoTurno?.codigo ?? ''}>
               <span>Próximo turno</span>
               <div>
                 <i><IconeTurno codigo={contextoHoje.proximoTurno?.codigo ?? ''} /></i>

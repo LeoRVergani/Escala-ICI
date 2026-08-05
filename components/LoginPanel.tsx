@@ -1,6 +1,6 @@
 'use client';
 
-import { LoaderCircle, LockKeyhole } from 'lucide-react';
+import { Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 
 import { GESTOR_DEMO, USUARIOS_DEMO } from '@/lib/demoIdentidades';
@@ -40,6 +40,7 @@ export function LoginPanel({
 }: LoginPanelProps) {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [mostrarSenha, setMostrarSenha] = useState(false);
   const [erroEnvio, setErroEnvio] = useState('');
   const [carregando, setCarregando] = useState(false);
   const sessao = useRestauracaoSessao({
@@ -89,10 +90,6 @@ export function LoginPanel({
             preparado para Firebase Spark.
           </p>
         </div>
-        <div className="login-hero-copy login-hero-copy-compact">
-          <h1>Escalas claras para equipes que não podem parar.</h1>
-          <p>Consulte sua escala com rapidez e segurança.</p>
-        </div>
         <div className="login-feature">
           <LockKeyhole size={20} />
           <span>Autenticação por e-mail e permissões protegidas no Firestore</span>
@@ -108,25 +105,40 @@ export function LoginPanel({
           </div>
           <label>
             E-mail
-            <input
-              type="email"
-              value={email}
-              onChange={(evento) => setEmail(evento.target.value)}
-              placeholder="nome@empresa.com"
-              required
-              disabled={!firebaseConfigurado || verificandoSessao}
-            />
+            <span className="login-field-input">
+              <Mail size={17} aria-hidden="true" />
+              <input
+                type="email"
+                value={email}
+                onChange={(evento) => setEmail(evento.target.value)}
+                placeholder="seu@email.com"
+                required
+                disabled={!firebaseConfigurado || verificandoSessao}
+              />
+            </span>
           </label>
           <label>
             Senha
-            <input
-              type="password"
-              value={senha}
-              onChange={(evento) => setSenha(evento.target.value)}
-              placeholder="••••••••"
-              required
-              disabled={!firebaseConfigurado || verificandoSessao}
-            />
+            <span className="login-field-input">
+              <LockKeyhole size={17} aria-hidden="true" />
+              <input
+                type={mostrarSenha ? 'text' : 'password'}
+                value={senha}
+                onChange={(evento) => setSenha(evento.target.value)}
+                placeholder="Digite sua senha"
+                required
+                disabled={!firebaseConfigurado || verificandoSessao}
+              />
+              <button
+                className="login-toggle-senha"
+                type="button"
+                onClick={() => setMostrarSenha((atual) => !atual)}
+                aria-label={mostrarSenha ? 'Ocultar senha' : 'Mostrar senha'}
+                disabled={!firebaseConfigurado || verificandoSessao}
+              >
+                {mostrarSenha ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
+            </span>
           </label>
           <label className="login-trusted-device">
             <input

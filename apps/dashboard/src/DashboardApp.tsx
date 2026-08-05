@@ -30,6 +30,7 @@ import {
   ShieldCheck,
   Trash2,
   UploadCloud,
+  UserMinus,
   UserPlus,
   Users,
   X,
@@ -64,6 +65,7 @@ import {
   listarUsuarios,
 } from '@/lib/firebase/readRepository';
 import {
+  adicionarMembroRascunho,
   escritaAdministrativaHabilitada,
   excluirRascunho,
   publicarEscalas,
@@ -74,6 +76,12 @@ import {
 } from '@/lib/firebase/writeRepository';
 import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
+import {
+  adicionarMembroGrade,
+  criarMembroGrade,
+  membroJaNaGrade,
+  removerMembroGrade,
+} from '@/lib/gradeMembros';
 import { mapaLogins, normalizarAliasesPlanilha, novoUsuario, validarEdicaoUsuario } from '@/lib/importUsers';
 import type { EventoEscala, LinhaConciliacao, PublicacaoEscala, Usuario } from '@/lib/modelos';
 
@@ -144,6 +152,8 @@ export function DashboardApp() {
   const [errosFormularioUsuario, setErrosFormularioUsuario] = useState<string[]>([]);
   const [novoAliasDraft, setNovoAliasDraft] = useState('');
   const [descarteRascunhoPendente, setDescarteRascunhoPendente] = useState(false);
+  const [membroGradeDraft, setMembroGradeDraft] = useState<{ usuarioUid: string; turnoPadrao: string } | null>(null);
+  const [removerMembroPendente, setRemoverMembroPendente] = useState<TurnosMes | null>(null);
   const inputArquivo = useRef<HTMLInputElement>(null);
   const escritaBloqueada = !modoDemo && !escritaAdministrativaHabilitada;
   const conciliacaoBloqueiaPublicacao = publicacaoBloqueadaPorConciliacao(linhasConciliacao);
@@ -775,6 +785,73 @@ export function DashboardApp() {
     }
   }
 
+  function abrirAdicionarMembroGrade() {
+    setMembroGradeDraft({ usuarioUid: '', turnoPadrao: 'M' });
+  }
+
+  function fecharAdicionarMembroGrade() {
+    setMembroGradeDraft(null);
+  }
+
+  async function confirmarAdicionarMembroGrade() {
+    if (membroGradeDraft === null || resultado === null || usuario === null) {
+      return;
+    }
+    if (escritaBloqueada) {
+      setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
+      return;
+    }
+    const colaborador = usuarios.find((item) => item.uid === membroGradeDraft.usuarioUid);
+    if (colaborador === undefined) {
+      setMensagem('Selecione um colaborador cadastrado.');
+      return;
+    }
+    if (membroJaNaGrade(resultado.documentos, colaborador.uid)) {
+      setMensagem('Este colaborador já está na grade desta competência.');
+      return;
+    }
+    const referencia = {
+      equipeId: usuario.equipeId,
+      competencia: resultado.documentos[0]?.competencia ?? '2026-08',
+      periodoInicio: resultado.periodoInicio,
+      periodoFim: resultado.periodoFim,
+    };
+    const membro = criarMembroGrade(colaborador, membroGradeDraft.turnoPadrao, referencia, catalogo);
+    try {
+      if (!modoDemo) {
+        await adicionarMembroRascunho(membro);
+      }
+      setResultado((atual) => (atual === null ? atual : {
+        ...atual,
+        documentos: adicionarMembroGrade(atual.documentos, membro),
+      }));
+      setMensagem(`${colaborador.nome} incluído(a) na grade desta competência.`);
+      setMembroGradeDraft(null);
+    } catch (falha) {
+      setMensagem(mensagemErroFirebase(falha, 'Não foi possível incluir o colaborador na grade.'));
+    }
+  }
+
+  async function confirmarRemocaoMembroGrade() {
+    if (removerMembroPendente === null) {
+      return;
+    }
+    const documento = removerMembroPendente;
+    setRemoverMembroPendente(null);
+    try {
+      if (!modoDemo) {
+        await excluirRascunho(documento);
+      }
+      setResultado((atual) => (atual === null ? atual : {
+        ...atual,
+        documentos: removerMembroGrade(atual.documentos, documento.usuarioUid),
+      }));
+      setMensagem('Colaborador removido da grade desta competência.');
+    } catch (falha) {
+      setMensagem(mensagemErroFirebase(falha, 'Não foi possível remover o colaborador da grade. Se a escala já foi publicada, não é possível remover por aqui.'));
+    }
+  }
+
   async function descartarRascunho() {
     setDescarteRascunhoPendente(false);
     if (resultado === null) {
@@ -1257,15 +1334,32 @@ export function DashboardApp() {
       {tela === 'grade' && (
         <section>
           <header className="page-heading">
-            <div><p className="eyebrow">Revisão completa</p><h1>Grade da equipe</h1><p>Clique em uma célula para editar o rascunho.</p></div>
-            <button
-              className="primary-button"
-              type="button"
-              disabled={!documentos.length || escritaBloqueada}
-              onClick={() => void salvar()}
-            >
-              <Save size={16} /> Salvar alterações
-            </button>
+            <div>
+              <p className="eyebrow">Revisão completa</p>
+              <h1>Grade da equipe</h1>
+              <p>Clique em uma célula para editar o rascunho.</p>
+            </div>
+            <div className="grade-header-actions">
+              <span className={`status-badge ${publicados.length === documentos.length && documentos.length ? 'success' : 'warning'}`}>
+                {publicados.length === documentos.length && documentos.length ? 'Revisão publicada' : 'Rascunho não publicado'}
+              </span>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={escritaBloqueada || !usuarios.length}
+                onClick={abrirAdicionarMembroGrade}
+              >
+                <UserPlus size={16} /> Adicionar colaborador
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                disabled={!documentos.length || escritaBloqueada}
+                onClick={() => void salvar()}
+              >
+                <Save size={16} /> Salvar alterações
+              </button>
+            </div>
           </header>
           <article className="panel grid-panel">
             <div className="toolbar">
@@ -1281,7 +1375,9 @@ export function DashboardApp() {
               usuarios={usuarios}
               catalogo={catalogo}
               filtroTurno={filtroTurno}
+              agruparPorPeriodo
               onEditar={(documento, data, dia) => setCelulaEditando({ documento, data, dia })}
+              onRemover={(documento) => setRemoverMembroPendente(documento)}
             />
           </article>
         </section>
@@ -1478,6 +1574,100 @@ export function DashboardApp() {
               <button className="primary-button danger-button" type="button" disabled={processando} onClick={() => void descartarRascunho()}>
                 {processando ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
                 Descartar rascunho
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {membroGradeDraft && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={fecharAdicionarMembroGrade}>
+          <section
+            className="edit-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-membro-title"
+            onMouseDown={(evento) => evento.stopPropagation()}
+          >
+            <div className="panel-title">
+              <div>
+                <p className="eyebrow">Grade desta competência</p>
+                <h2 id="add-membro-title">Adicionar colaborador à grade</h2>
+                <p>O colaborador entra como rascunho, sem nenhum dia preenchido ainda.</p>
+              </div>
+              <button className="icon-button" type="button" onClick={fecharAdicionarMembroGrade} aria-label="Fechar"><X size={18} /></button>
+            </div>
+            <div className="user-form-grid">
+              <label className="user-form-full">
+                Colaborador
+                <select
+                  value={membroGradeDraft.usuarioUid}
+                  onChange={(evento) => setMembroGradeDraft({ ...membroGradeDraft, usuarioUid: evento.target.value })}
+                >
+                  <option value="">Selecionar usuário cadastrado…</option>
+                  {usuarios
+                    .filter((item) => !membroJaNaGrade(documentos, item.uid))
+                    .map((item) => (
+                      <option key={item.uid} value={item.uid}>
+                        {item.nome}{item.ativo ? '' : ' (inativo)'}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="user-form-full">
+                Período / turno base
+                <select
+                  value={membroGradeDraft.turnoPadrao}
+                  onChange={(evento) => setMembroGradeDraft({ ...membroGradeDraft, turnoPadrao: evento.target.value })}
+                >
+                  {Object.values(catalogo).map((tipo) => (
+                    <option key={tipo.codigo} value={tipo.codigo}>{tipo.descricao}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="rollback-actions">
+              <button className="secondary-button" type="button" onClick={fecharAdicionarMembroGrade}>Cancelar</button>
+              <button
+                className="primary-button"
+                type="button"
+                disabled={!membroGradeDraft.usuarioUid}
+                onClick={() => void confirmarAdicionarMembroGrade()}
+              >
+                <UserPlus size={16} /> Adicionar à grade
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {removerMembroPendente && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setRemoverMembroPendente(null)}>
+          <section
+            className="edit-modal rollback-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="remove-membro-title"
+            onMouseDown={(evento) => evento.stopPropagation()}
+          >
+            <div className="panel-title">
+              <div>
+                <p className="eyebrow">Ação local, o cadastro do usuário não é afetado</p>
+                <h2 id="remove-membro-title">
+                  Remover {usuarios.find((item) => item.uid === removerMembroPendente.usuarioUid)?.nome
+                    ?? removerMembroPendente.login} da grade?
+                </h2>
+                <p>
+                  Remove apenas o colaborador desta competência. O usuário continua
+                  cadastrado e pode ser incluído de novo quando for preciso.
+                </p>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setRemoverMembroPendente(null)} aria-label="Fechar"><X size={18} /></button>
+            </div>
+            <div className="rollback-actions">
+              <button className="secondary-button" type="button" onClick={() => setRemoverMembroPendente(null)}>Cancelar</button>
+              <button className="primary-button danger-button" type="button" onClick={() => void confirmarRemocaoMembroGrade()}>
+                <UserMinus size={16} /> Remover da grade
               </button>
             </div>
           </section>
