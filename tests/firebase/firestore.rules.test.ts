@@ -143,6 +143,18 @@ describe('regras Firestore do Escala ICI', () => {
     await assertFails(getDoc(doc(db, 'turnosMes', 'publicada-codb-noc')));
   });
 
+  it('permite ao colaborador ler a escala publicada de um colega com usuarioUid desatualizado (a leitura de equipe não depende de usuarioUid == auth.uid)', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(
+        doc(db, 'turnosMes', 'publicada-uid-antigo'),
+        escala('usuario-provisorio-antigo', 'EQ_COSI_SOC', 'PUBLICADA'),
+      );
+    });
+    const db = ambiente.authenticatedContext(usuarios.colega.uid).firestore();
+    await assertSucceeds(getDoc(doc(db, 'turnosMes', 'publicada-uid-antigo')));
+  });
+
   it('impede que colaborador crie ou publique documentos', async () => {
     const db = ambiente.authenticatedContext(usuarios.colaborador.uid).firestore();
     await assertFails(setDoc(

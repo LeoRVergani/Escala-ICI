@@ -28,6 +28,21 @@ test('o app do colaborador não incorpora operações administrativas', async ()
   assert.match(login, /authRepository/);
 });
 
+test('a tela de Usuários do Dashboard não expõe UID técnico ao gestor', async () => {
+  const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
+
+  for (const proibido of [
+    'Vincular ao UID',
+    'UID do Authentication',
+    'UID do Firebase Authentication',
+    'Consolidar com UID real',
+    'Unir cadastros duplicados',
+    'vincularUsuarioAoUid',
+  ]) {
+    assert.doesNotMatch(dashboard, new RegExp(proibido), proibido);
+  }
+});
+
 test('os dois produtos possuem entradas Vite independentes', async () => {
   const arquivos = await Promise.all([
     ler('apps/dashboard/index.html'),
@@ -470,10 +485,12 @@ test('a fase 3K-D2C corrige o vínculo entre o UID do Authentication e usuarios/
   assert.doesNotMatch(writeRepo, /vincularUsuarioAoUid[\s\S]{0,900}deleteDoc/);
   assert.match(writeRepo, /substituidoPorUid: uidNovoLimpo/);
 
-  // Contrato e Dashboard: campo novo e ação de vincular.
+  // Contrato mantém o campo; o Dashboard não expõe mais a ação de UID na
+  // UI (decisão de produto: o gestor não deve manipular UID manualmente),
+  // mas a função interna continua disponível caso volte a ser necessária.
   assert.match(modelos, /substituidoPorUid/);
-  assert.match(dashboard, /abrirVincularUid/);
-  assert.match(dashboard, /confirmarVincularUid/);
+  assert.doesNotMatch(dashboard, /abrirVincularUid/);
+  assert.doesNotMatch(dashboard, /confirmarVincularUid/);
 });
 
 test('ajustes rápidos: grade sem contagem no título do grupo, células vazias editáveis e input do login sem sobreposição', async () => {

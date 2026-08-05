@@ -76,14 +76,36 @@ describe('validação de edição de usuário', () => {
     expect(erros).toContain('Informe o login usado na planilha.');
   });
 
-  it('recusa login já usado por outro colaborador da equipe', () => {
+  it('recusa login já usado por outro colaborador ativo da equipe', () => {
     const erros = validarEdicaoUsuario({ ...gestora, login: 'colega.login' }, equipe);
-    expect(erros).toContain('Este login já está em uso por outro colaborador da equipe.');
+    expect(erros).toContain('Este login já está em uso por outro colaborador ativo da equipe.');
   });
 
   it('recusa nível hierárquico inválido', () => {
     const erros = validarEdicaoUsuario({ ...gestora, nivelHierarquico: 0 }, equipe);
     expect(erros).toContain('Informe um nível hierárquico válido.');
+  });
+
+  it('ignora conflito de login com cadastro inativo', () => {
+    const equipeComInativo: Usuario[] = [
+      { ...gestora },
+      { ...gestora, uid: 'uid-inativo', login: 'colega.login', ativo: false },
+    ];
+    expect(validarEdicaoUsuario({ ...gestora, login: 'colega.login' }, equipeComInativo)).toEqual([]);
+  });
+
+  it('ignora conflito de login com cadastro já substituído', () => {
+    const equipeComSubstituido: Usuario[] = [
+      { ...gestora },
+      {
+        ...gestora,
+        uid: 'uid-antigo',
+        login: 'colega.login',
+        ativo: true,
+        substituidoPorUid: 'algum-uid',
+      },
+    ];
+    expect(validarEdicaoUsuario({ ...gestora, login: 'colega.login' }, equipeComSubstituido)).toEqual([]);
   });
 });
 

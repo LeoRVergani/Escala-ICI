@@ -72,8 +72,12 @@ export function validarEdicaoUsuario(
   if (editado.login.trim() === '') {
     erros.push('Informe o login usado na planilha.');
   }
-  if (usuariosDaEquipe.some((outro) => outro.uid !== editado.uid && outro.login === editado.login)) {
-    erros.push('Este login já está em uso por outro colaborador da equipe.');
+  if (usuariosDaEquipe.some((outro) =>
+    outro.uid !== editado.uid
+    && outro.login === editado.login
+    && outro.ativo
+    && !outro.substituidoPorUid)) {
+    erros.push('Este login já está em uso por outro colaborador ativo da equipe.');
   }
   if (!Number.isInteger(editado.nivelHierarquico) || editado.nivelHierarquico < 1) {
     erros.push('Informe um nível hierárquico válido.');

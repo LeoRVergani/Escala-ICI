@@ -76,7 +76,6 @@ import {
   salvarRascunho,
   salvarUsuario,
   salvarUsuarios,
-  vincularUsuarioAoUid,
 } from '@/lib/firebase/writeRepository';
 import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
@@ -255,8 +254,6 @@ export function DashboardApp() {
   const [membroGradeDraft, setMembroGradeDraft] = useState<{ usuarioUid: string; turnoPadrao: string } | null>(null);
   const [removerMembroPendente, setRemoverMembroPendente] = useState<TurnosMes | null>(null);
   const [alertasAbertos, setAlertasAbertos] = useState(false);
-  const [vincularDraft, setVincularDraft] = useState<{ usuarioAntigo: Usuario; uidNovo: string } | null>(null);
-  const [errosVincular, setErrosVincular] = useState<string[]>([]);
   const inputArquivo = useRef<HTMLInputElement>(null);
   const escritaBloqueada = !modoDemo && !escritaAdministrativaHabilitada;
   const conciliacaoBloqueiaPublicacao = publicacaoBloqueadaPorConciliacao(linhasConciliacao);
@@ -899,52 +896,6 @@ export function DashboardApp() {
       setUsuarios((atuais) => atuais.map((existente) => (existente.uid === item.uid ? atualizado : existente)));
     } catch (falha) {
       setMensagem(mensagemErroFirebase(falha, 'Não foi possível atualizar o status do usuário.', ambienteFirebaseAtual));
-    }
-  }
-
-  function abrirVincularUid(usuarioAntigo: Usuario) {
-    setVincularDraft({ usuarioAntigo, uidNovo: '' });
-    setErrosVincular([]);
-  }
-
-  function fecharVincularUid() {
-    setVincularDraft(null);
-    setErrosVincular([]);
-  }
-
-  async function confirmarVincularUid() {
-    if (vincularDraft === null) {
-      return;
-    }
-    if (escritaBloqueada) {
-      setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
-      return;
-    }
-    const uidNovo = vincularDraft.uidNovo.trim();
-    if (uidNovo === '') {
-      setErrosVincular(['Informe o UID do Firebase Authentication.']);
-      return;
-    }
-    try {
-      let usuarioNovo: Usuario;
-      if (modoDemo) {
-        usuarioNovo = {
-          ...vincularDraft.usuarioAntigo,
-          uid: uidNovo,
-          pendenteVinculo: false,
-          substituidoPorUid: null,
-          atualizadoEm: new Date().toISOString(),
-        };
-      } else {
-        usuarioNovo = await vincularUsuarioAoUid(vincularDraft.usuarioAntigo, uidNovo);
-      }
-      setUsuarios((atuais) => atuais.map((item) => (item.uid === vincularDraft.usuarioAntigo.uid
-        ? { ...vincularDraft.usuarioAntigo, ativo: false, substituidoPorUid: uidNovo }
-        : item)).concat(usuarioNovo));
-      setMensagem(`${usuarioNovo.nome} agora está vinculado(a) ao UID informado. O cadastro antigo ficou inativo.`);
-      fecharVincularUid();
-    } catch (falha) {
-      setErrosVincular([mensagemErroFirebase(falha, 'Não foi possível vincular o usuário ao UID informado.', ambienteFirebaseAtual)]);
     }
   }
 
@@ -1601,14 +1552,14 @@ export function DashboardApp() {
                         <td>
                           <span className={`status-badge ${item.ativo ? 'success' : 'neutral'}`}>{item.ativo ? 'Ativo' : 'Inativo'}</span>
                           {item.pendenteVinculo && (
-                            <span className="status-badge warning" title="UID provisório: ainda não corresponde a uma conta do Firebase Authentication.">
+                            <span className="status-badge warning" title="Este cadastro ainda não tem uma conta de acesso confirmada.">
                               Pendente de vínculo
                             </span>
                           )}
                           {item.substituidoPorUid && (
                             <span
                               className="status-badge neutral"
-                              title={`Substituído pelo cadastro com UID ${item.substituidoPorUid}`}
+                              title="Substituído por outro cadastro ativo."
                             >
                               Substituído
                             </span>
@@ -1641,17 +1592,6 @@ export function DashboardApp() {
                             >
                               <Power size={15} />
                             </button>
-                            {item.pendenteVinculo && !item.substituidoPorUid && (
-                              <button
-                                className="icon-button"
-                                type="button"
-                                title="Vincular ao UID do Authentication"
-                                disabled={escritaBloqueada}
-                                onClick={() => abrirVincularUid(item)}
-                              >
-                                <Link2 size={15} />
-                              </button>
-                            )}
                           </div>
                         </td>
                       </tr>
@@ -2038,53 +1978,6 @@ export function DashboardApp() {
         </div>
       )}
 
-      {vincularDraft && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={fecharVincularUid}>
-          <section
-            className="edit-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="vincular-uid-title"
-            onMouseDown={(evento) => evento.stopPropagation()}
-          >
-            <div className="panel-title">
-              <div>
-                <p className="eyebrow">Corrigir vínculo com o Firebase Authentication</p>
-                <h2 id="vincular-uid-title">Vincular {vincularDraft.usuarioAntigo.nome} ao UID real</h2>
-                <p>
-                  Cria um novo cadastro em <code>usuarios/&#123;UID informado&#125;</code> com os
-                  mesmos dados (aliases, equipe, cargo, login, turno e status). O cadastro atual
-                  fica marcado como inativo e vinculado — nada é apagado.
-                </p>
-              </div>
-              <button className="icon-button" type="button" onClick={fecharVincularUid} aria-label="Fechar"><X size={18} /></button>
-            </div>
-            <label className="publication-reason">
-              UID do Firebase Authentication
-              <textarea
-                value={vincularDraft.uidNovo}
-                onChange={(evento) => setVincularDraft({ ...vincularDraft, uidNovo: evento.target.value })}
-                placeholder="Cole aqui o UID copiado do Firebase Authentication"
-                rows={2}
-                autoFocus
-              />
-            </label>
-            {errosVincular.length > 0 && (
-              <div className="alert error">
-                <ul>
-                  {errosVincular.map((erro) => <li key={erro}>{erro}</li>)}
-                </ul>
-              </div>
-            )}
-            <div className="rollback-actions">
-              <button className="secondary-button" type="button" onClick={fecharVincularUid}>Cancelar</button>
-              <button className="primary-button" type="button" onClick={() => void confirmarVincularUid()}>
-                <Link2 size={16} /> Vincular
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
     </AppFrame>
   );
 }

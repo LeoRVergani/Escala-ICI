@@ -637,7 +637,7 @@ export function EmployeeApp() {
   }, [competenciaAtiva, equipeUsuario, listenersLiberados, usuarioUid]);
 
   const escalasDoUsuario = documentos.filter(
-    (documento) => documento.usuarioUid === usuario?.uid,
+    (documento) => documento.login === usuario?.login,
   );
   const minhaEscala = selecionarEscalaPorData(escalasDoUsuario, dataHoje);
 
@@ -658,7 +658,7 @@ export function EmployeeApp() {
     .filter(({ jornada }) => jornada.trabalha)
     .filter(({ jornada }) => filtroTurno === 'TODOS' || jornada.codigo === filtroTurno)
     .filter(({ documento }) => {
-      const pessoa = usuarios.find((item) => item.uid === documento.usuarioUid);
+      const pessoa = usuarios.find((item) => item.login === documento.login);
       return `${pessoa?.nome ?? ''} ${documento.login}`
         .toLowerCase()
         .includes(busca.toLowerCase());
@@ -718,7 +718,7 @@ export function EmployeeApp() {
         let minha: TurnosMes | null = null;
         for (const competencia of competenciasCandidatas(dataHoje)) {
           minha = await carregarMinhaEscala(
-            autenticado.uid,
+            autenticado.login,
             autenticado.equipeId,
             competencia,
           );
@@ -733,7 +733,7 @@ export function EmployeeApp() {
           metadados,
         ]);
         setDocumentos(
-          minha && !equipe.some((item) => item.usuarioUid === minha.usuarioUid)
+          minha && !equipe.some((item) => item.login === minha.login)
             ? [minha, ...equipe]
             : equipe,
         );
@@ -741,7 +741,7 @@ export function EmployeeApp() {
         setUsuarios(usuariosRemotos);
         setCompetenciaAtiva(competencia);
         if (minha === null) {
-          setErro('Nenhuma escala individual publicada foi encontrada para o período atual.');
+          setErro('Nenhuma escala publicada foi encontrada para o seu login neste período.');
         }
       }
     } catch (falha) {
@@ -805,7 +805,7 @@ export function EmployeeApp() {
   }
 
   const mensagemErro = erro || sessao.erro;
-  const nomes = Object.fromEntries(usuarios.map((item) => [item.uid, item.nome]));
+  const nomes = Object.fromEntries(usuarios.map((item) => [item.login, item.nome]));
   const datas = Object.keys(minhaEscala?.dias ?? {}).sort();
   const dataHojeFormatada = formatarData(dataHoje, {
     weekday: 'long',
@@ -934,19 +934,19 @@ export function EmployeeApp() {
                     </header>
                     <div>
                       {pessoas.length ? pessoas.map(({ documento, jornada }) => (
-                        <article key={documento.usuarioUid}>
+                        <article key={documento.login}>
                           <span className="avatar">
-                            {(nomes[documento.usuarioUid] ?? documento.login)
+                            {(nomes[documento.login] ?? documento.login)
                               .split(' ')
                               .map((parte) => parte[0])
                               .slice(0, 2)
                               .join('')}
                           </span>
                           <div>
-                            <strong>{nomes[documento.usuarioUid] ?? documento.login}</strong>
+                            <strong>{nomes[documento.login] ?? documento.login}</strong>
                             <small>{jornada.inicio}–{jornada.fim} · {documento.login}</small>
                           </div>
-                          {documento.usuarioUid === usuario.uid
+                          {documento.login === usuario.login
                             ? <CheckCircle2 size={17} aria-label="Você" />
                             : <Clock3 size={16} />}
                         </article>

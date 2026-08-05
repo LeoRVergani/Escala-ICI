@@ -128,15 +128,22 @@ export async function carregarEstadoPublicacao(
   return snapshot.exists() ? snapshot.data() as EstadoPublicacaoEscala : null;
 }
 
+/**
+ * Busca pelo `login` corporativo, não pelo `usuarioUid`: o login é o
+ * identificador funcional único da pessoa na empresa, enquanto o
+ * `usuarioUid` gravado na escala publicada pode ficar preso a um UID
+ * antigo/provisório de importação, diferente do UID atual do Firebase
+ * Authentication.
+ */
 export async function carregarMinhaEscala(
-  usuarioUid: string,
+  login: string,
   equipeId: string,
   competencia: string,
 ): Promise<TurnosMes | null> {
   const { db } = exigirFirebase();
   const resultado = await getDocs(query(
     collection(db, 'turnosMes'),
-    where('usuarioUid', '==', usuarioUid),
+    where('login', '==', login),
     where('equipeId', '==', equipeId),
     where('competencia', '==', competencia),
     where('status', '==', 'PUBLICADA'),
