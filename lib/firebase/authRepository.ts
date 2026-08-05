@@ -17,14 +17,38 @@ import {
 } from './client';
 import { exigirFirebase, lerUsuario } from './shared';
 
-async function carregarUsuario(uid: string): Promise<Usuario> {
-  const { auth, db } = exigirFirebase();
+/**
+ * Fase 3K-D2C — mensagens distintas para os três casos que antes chegavam
+ * como o mesmo "não está cadastrado": sem perfil, perfil inativo, ou (fora
+ * daqui — ver `EmployeeApp.autenticar`) perfil ativo sem escala publicada
+ * no período atual.
+ */
+export const MENSAGEM_SEM_PERFIL_FIRESTORE =
+  'Seu usuário autenticado não está cadastrado no Firestore. Peça ao gestor da sua equipe para vincular seu acesso pelo Dashboard, em Usuários.';
+export const MENSAGEM_PERFIL_INATIVO =
+  'Seu perfil está cadastrado, mas está inativo. Peça ao gestor da sua equipe para reativar seu acesso.';
+
+async function resolverUsuarioAutenticado(uid: string): Promise<Usuario> {
+  const { db } = exigirFirebase();
   const snapshot = await getDoc(doc(db, 'usuarios', uid));
   if (!snapshot.exists()) {
-    await signOut(auth);
-    throw new Error('Seu usuário autenticado não está cadastrado no Firestore.');
+    throw new Error(MENSAGEM_SEM_PERFIL_FIRESTORE);
   }
-  return lerUsuario(snapshot.id, snapshot.data());
+  const usuario = lerUsuario(snapshot.id, snapshot.data());
+  if (!usuario.ativo) {
+    throw new Error(MENSAGEM_PERFIL_INATIVO);
+  }
+  return usuario;
+}
+
+async function carregarUsuario(uid: string): Promise<Usuario> {
+  const { auth } = exigirFirebase();
+  try {
+    return await resolverUsuarioAutenticado(uid);
+  } catch (falha) {
+    await signOut(auth);
+    throw falha;
+  }
 }
 
 export async function entrarComEmail(
@@ -33,18 +57,18 @@ export async function entrarComEmail(
   manterConectado: boolean,
 ): Promise<Usuario> {
   configurarCachePersistente(manterConectado);
-  const { auth, db } = exigirFirebase();
+  const { auth } = exigirFirebase();
   await setPersistence(
     auth,
     manterConectado ? browserLocalPersistence : browserSessionPersistence,
   );
   const credencial = await signInWithEmailAndPassword(auth, email, senha);
-  const snapshot = await getDoc(doc(db, 'usuarios', credencial.user.uid));
-  if (!snapshot.exists()) {
+  try {
+    return await resolverUsuarioAutenticado(credencial.user.uid);
+  } catch (falha) {
     await signOut(auth);
-    throw new Error('Seu usuário autenticado não está cadastrado no Firestore.');
+    throw falha;
   }
-  return lerUsuario(snapshot.id, snapshot.data());
 }
 
 export function observarSessao(

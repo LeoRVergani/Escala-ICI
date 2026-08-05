@@ -14,6 +14,8 @@ import {
   AlertTriangle,
   ArrowUpRight,
   Ban,
+  Bell,
+  BellRing,
   CheckCircle2,
   FileSpreadsheet,
   Filter,
@@ -73,9 +75,15 @@ import {
   salvarRascunho,
   salvarUsuario,
   salvarUsuarios,
+  vincularUsuarioAoUid,
 } from '@/lib/firebase/writeRepository';
 import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
+import {
+  construirIndiceAlertasGrade,
+  gerarAlertasEscala,
+  type AlertaEscala,
+} from '@/lib/alertasEscala';
 import {
   adicionarMembroGrade,
   criarMembroGrade,
@@ -86,6 +94,95 @@ import { mapaLogins, normalizarAliasesPlanilha, novoUsuario, validarEdicaoUsuari
 import type { EventoEscala, LinhaConciliacao, PublicacaoEscala, Usuario } from '@/lib/modelos';
 
 type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios';
+
+function formatarDataCurta(dataIso: string): string {
+  const [, mes, dia] = dataIso.split('-');
+  return `${dia}/${mes}`;
+}
+
+function formatarHorasDescanso(horas: number): string {
+  const inteiras = Math.floor(horas);
+  const minutos = Math.round((horas - inteiras) * 60);
+  return minutos === 0 ? `${inteiras}h` : `${inteiras}h${String(minutos).padStart(2, '0')}`;
+}
+
+interface AlertasOperacionaisBellProps {
+  alertas: AlertaEscala[];
+  usuarios: Usuario[];
+  aberta: boolean;
+  onAlternar: () => void;
+  onFocarGrade: () => void;
+}
+
+function AlertasOperacionaisBell({
+  alertas,
+  usuarios,
+  aberta,
+  onAlternar,
+  onFocarGrade,
+}: AlertasOperacionaisBellProps) {
+  function nomeColaborador(usuarioUid: string, login: string): string {
+    return usuarios.find((item) => item.uid === usuarioUid)?.nome ?? login;
+  }
+
+  return (
+    <div className="notification-center">
+      <button
+        className={`icon-button notification-button ${alertas.length ? 'has-unread' : ''}`}
+        type="button"
+        onClick={onAlternar}
+        aria-label={`${alertas.length} alerta(s) operacional(is) da escala`}
+        aria-expanded={aberta}
+      >
+        {alertas.length ? <BellRing size={19} /> : <Bell size={19} />}
+        {alertas.length > 0 && <span className="notification-badge">{Math.min(alertas.length, 9)}</span>}
+      </button>
+      {aberta && (
+        <section className="notification-popover alert-popover" aria-label="Alertas operacionais da escala">
+          <header>
+            <div>
+              <strong>Alertas operacionais</strong>
+              <span>{alertas.length ? `${alertas.length} ativo(s)` : 'Nenhuma violação encontrada'}</span>
+            </div>
+            {alertas.length > 0 && (
+              <button type="button" onClick={onFocarGrade}>Ver na grade</button>
+            )}
+          </header>
+          <div className="notification-list">
+            {alertas.length === 0 ? (
+              <div className="notification-empty"><ShieldCheck size={22} /><span>6x1 e descanso mínimo dentro da regra.</span></div>
+            ) : alertas.map((alerta, indice) => (
+              <article key={`${alerta.tipo}-${alerta.usuarioUid}-${indice}`} className="alert-item">
+                <AlertTriangle
+                  size={15}
+                  className={alerta.tipo === 'SEQUENCIA_6X1' ? 'alert-icon-critico' : 'alert-icon-aviso'}
+                />
+                {alerta.tipo === 'SEQUENCIA_6X1' ? (
+                  <div>
+                    <strong>{nomeColaborador(alerta.usuarioUid, alerta.login)} — 7 dias consecutivos de trabalho</strong>
+                    <small>
+                      Dia crítico: {formatarDataCurta(alerta.diaCritico)} · Período:{' '}
+                      {formatarDataCurta(alerta.periodoInicio)} a {formatarDataCurta(alerta.periodoFim)}
+                    </small>
+                  </div>
+                ) : (
+                  <div>
+                    <strong>{nomeColaborador(alerta.usuarioUid, alerta.login)} — descanso inferior a 11 horas</strong>
+                    <small>
+                      Anterior: {formatarDataCurta(alerta.dataAnterior)} {alerta.horarioAnterior} · Seguinte:{' '}
+                      {formatarDataCurta(alerta.dataAtual)} {alerta.horarioAtual} · Descanso calculado:{' '}
+                      {formatarHorasDescanso(alerta.descansoHoras)}
+                    </small>
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
 
 interface FormularioUsuario {
   uid: string | null;
@@ -154,6 +251,9 @@ export function DashboardApp() {
   const [descarteRascunhoPendente, setDescarteRascunhoPendente] = useState(false);
   const [membroGradeDraft, setMembroGradeDraft] = useState<{ usuarioUid: string; turnoPadrao: string } | null>(null);
   const [removerMembroPendente, setRemoverMembroPendente] = useState<TurnosMes | null>(null);
+  const [alertasAbertos, setAlertasAbertos] = useState(false);
+  const [vincularDraft, setVincularDraft] = useState<{ usuarioAntigo: Usuario; uidNovo: string } | null>(null);
+  const [errosVincular, setErrosVincular] = useState<string[]>([]);
   const inputArquivo = useRef<HTMLInputElement>(null);
   const escritaBloqueada = !modoDemo && !escritaAdministrativaHabilitada;
   const conciliacaoBloqueiaPublicacao = publicacaoBloqueadaPorConciliacao(linhasConciliacao);
@@ -164,6 +264,14 @@ export function DashboardApp() {
     [resultado?.documentos],
   );
   const publicados = documentos.filter(({ status }) => status === 'PUBLICADA');
+  const alertasOperacionais = useMemo(
+    () => gerarAlertasEscala(documentos, catalogo),
+    [documentos, catalogo],
+  );
+  const indiceAlertasGrade = useMemo(
+    () => construirIndiceAlertasGrade(documentos, catalogo),
+    [documentos, catalogo],
+  );
   const totaisGerais = useMemo(() => {
     const totalMin = documentos.reduce((soma, documento) =>
       soma + calcularTotais(documento.dias, catalogo).min, 0);
@@ -785,6 +893,52 @@ export function DashboardApp() {
     }
   }
 
+  function abrirVincularUid(usuarioAntigo: Usuario) {
+    setVincularDraft({ usuarioAntigo, uidNovo: '' });
+    setErrosVincular([]);
+  }
+
+  function fecharVincularUid() {
+    setVincularDraft(null);
+    setErrosVincular([]);
+  }
+
+  async function confirmarVincularUid() {
+    if (vincularDraft === null) {
+      return;
+    }
+    if (escritaBloqueada) {
+      setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
+      return;
+    }
+    const uidNovo = vincularDraft.uidNovo.trim();
+    if (uidNovo === '') {
+      setErrosVincular(['Informe o UID do Firebase Authentication.']);
+      return;
+    }
+    try {
+      let usuarioNovo: Usuario;
+      if (modoDemo) {
+        usuarioNovo = {
+          ...vincularDraft.usuarioAntigo,
+          uid: uidNovo,
+          pendenteVinculo: false,
+          substituidoPorUid: null,
+          atualizadoEm: new Date().toISOString(),
+        };
+      } else {
+        usuarioNovo = await vincularUsuarioAoUid(vincularDraft.usuarioAntigo, uidNovo);
+      }
+      setUsuarios((atuais) => atuais.map((item) => (item.uid === vincularDraft.usuarioAntigo.uid
+        ? { ...vincularDraft.usuarioAntigo, ativo: false, substituidoPorUid: uidNovo }
+        : item)).concat(usuarioNovo));
+      setMensagem(`${usuarioNovo.nome} agora está vinculado(a) ao UID informado. O cadastro antigo ficou inativo.`);
+      fecharVincularUid();
+    } catch (falha) {
+      setErrosVincular([mensagemErroFirebase(falha, 'Não foi possível vincular o usuário ao UID informado.')]);
+    }
+  }
+
   function abrirAdicionarMembroGrade() {
     setMembroGradeDraft({ usuarioUid: '', turnoPadrao: 'M' });
   }
@@ -901,6 +1055,18 @@ export function DashboardApp() {
       onNavegar={(id) => setTela(id as Tela)}
       onSair={encerrarSessao}
       produtoHref={import.meta.env.VITE_EMPLOYEE_APP_URL ?? '/app'}
+      acoesTopo={(
+        <AlertasOperacionaisBell
+          alertas={alertasOperacionais}
+          usuarios={usuarios}
+          aberta={alertasAbertos}
+          onAlternar={() => setAlertasAbertos((atual) => !atual)}
+          onFocarGrade={() => {
+            setAlertasAbertos(false);
+            setTela('grade');
+          }}
+        />
+      )}
     >
       {mensagem && (
         <div className={`toast ${resultado?.ok === false ? 'error' : ''}`}>
@@ -1178,7 +1344,13 @@ export function DashboardApp() {
                   {resultado.ok ? 'Sem erros' : `${resultado.erros.length} erros`}
                 </span>
               </div>
-              <ScheduleGrid documentos={resultado.documentos} usuarios={usuarios} catalogo={catalogo} compacta />
+              <ScheduleGrid
+                documentos={resultado.documentos}
+                usuarios={usuarios}
+                catalogo={catalogo}
+                indiceAlertas={indiceAlertasGrade}
+                compacta
+              />
             </article>
           )}
         </section>
@@ -1376,6 +1548,7 @@ export function DashboardApp() {
               catalogo={catalogo}
               filtroTurno={filtroTurno}
               agruparPorPeriodo
+              indiceAlertas={indiceAlertasGrade}
               onEditar={(documento, data, dia) => setCelulaEditando({ documento, data, dia })}
               onRemover={(documento) => setRemoverMembroPendente(documento)}
             />
@@ -1420,6 +1593,14 @@ export function DashboardApp() {
                               Pendente de vínculo
                             </span>
                           )}
+                          {item.substituidoPorUid && (
+                            <span
+                              className="status-badge neutral"
+                              title={`Substituído pelo cadastro com UID ${item.substituidoPorUid}`}
+                            >
+                              Substituído
+                            </span>
+                          )}
                         </td>
                         <td>
                           {(item.aliasesPlanilha ?? []).length === 0
@@ -1448,6 +1629,17 @@ export function DashboardApp() {
                             >
                               <Power size={15} />
                             </button>
+                            {item.pendenteVinculo && !item.substituidoPorUid && (
+                              <button
+                                className="icon-button"
+                                type="button"
+                                title="Vincular ao UID do Authentication"
+                                disabled={escritaBloqueada}
+                                onClick={() => abrirVincularUid(item)}
+                              >
+                                <Link2 size={15} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1818,6 +2010,54 @@ export function DashboardApp() {
               <button className="secondary-button" type="button" onClick={fecharFormularioUsuario}>Cancelar</button>
               <button className="primary-button" type="button" onClick={() => void salvarFormularioUsuario()}>
                 <Save size={16} /> {formularioUsuario.uid === null ? 'Cadastrar' : 'Salvar alterações'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {vincularDraft && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={fecharVincularUid}>
+          <section
+            className="edit-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="vincular-uid-title"
+            onMouseDown={(evento) => evento.stopPropagation()}
+          >
+            <div className="panel-title">
+              <div>
+                <p className="eyebrow">Corrigir vínculo com o Firebase Authentication</p>
+                <h2 id="vincular-uid-title">Vincular {vincularDraft.usuarioAntigo.nome} ao UID real</h2>
+                <p>
+                  Cria um novo cadastro em <code>usuarios/&#123;UID informado&#125;</code> com os
+                  mesmos dados (aliases, equipe, cargo, login, turno e status). O cadastro atual
+                  fica marcado como inativo e vinculado — nada é apagado.
+                </p>
+              </div>
+              <button className="icon-button" type="button" onClick={fecharVincularUid} aria-label="Fechar"><X size={18} /></button>
+            </div>
+            <label className="publication-reason">
+              UID do Firebase Authentication
+              <textarea
+                value={vincularDraft.uidNovo}
+                onChange={(evento) => setVincularDraft({ ...vincularDraft, uidNovo: evento.target.value })}
+                placeholder="Cole aqui o UID copiado do Firebase Authentication"
+                rows={2}
+                autoFocus
+              />
+            </label>
+            {errosVincular.length > 0 && (
+              <div className="alert error">
+                <ul>
+                  {errosVincular.map((erro) => <li key={erro}>{erro}</li>)}
+                </ul>
+              </div>
+            )}
+            <div className="rollback-actions">
+              <button className="secondary-button" type="button" onClick={fecharVincularUid}>Cancelar</button>
+              <button className="primary-button" type="button" onClick={() => void confirmarVincularUid()}>
+                <Link2 size={16} /> Vincular
               </button>
             </div>
           </section>

@@ -406,3 +406,37 @@ test('a fase 3K-D2A separa a presença na grade do cadastro do usuário e manté
   // O App continua sem qualquer caminho de escrita na grade.
   assert.doesNotMatch(app, /gradeMembros|adicionarMembroRascunho/);
 });
+
+test('a fase 3K-D2B mantém os alertas operacionais (6x1 e descanso mínimo) exclusivos do Dashboard', async () => {
+  const [app, login, alertas, dashboard, scheduleGrid] = await Promise.all([
+    ler('apps/app/src/EmployeeApp.tsx'),
+    ler('components/LoginPanel.tsx'),
+    ler('lib/alertasEscala.ts'),
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('components/ScheduleGrid.tsx'),
+  ]);
+  const fontePublica = `${app}\n${login}`;
+
+  // Módulo puro: só matemática de datas/horas, sem SDK do Firestore.
+  for (const mutacao of ['writeBatch', 'setDoc', 'updateDoc', 'deleteDoc', 'firebase/firestore']) {
+    assert.doesNotMatch(alertas, new RegExp(mutacao), mutacao);
+  }
+  assert.match(alertas, /isDiaDeTrabalho/);
+  assert.match(alertas, /calcularIntervaloDescansoHoras/);
+  assert.match(alertas, /temDescansoInsuficiente/);
+  assert.match(alertas, /detectarSequencias6x1/);
+  assert.match(alertas, /detectarDescansoInsuficiente/);
+  assert.match(alertas, /LIMITE_DIAS_CONSECUTIVOS_TRABALHO = 6/);
+  assert.match(alertas, /MINIMO_DESCANSO_HORAS = 11/);
+
+  // Esta fase só alerta — o gancho de bloqueio existe, mas retorna sempre falso.
+  assert.match(alertas, /export function bloqueiaPublicacaoPorAlerta[\s\S]*return false/);
+
+  // Dashboard mostra os alertas na grade e no sininho; o App não importa nada disso.
+  assert.match(dashboard, /gerarAlertasEscala/);
+  assert.match(dashboard, /construirIndiceAlertasGrade/);
+  assert.match(dashboard, /AlertasOperacionaisBell/);
+  assert.match(scheduleGrid, /grade-alert-sequencia/);
+  assert.match(scheduleGrid, /grade-alert-descanso/);
+  assert.doesNotMatch(fontePublica, /alertasEscala|gerarAlertasEscala|AlertasOperacionaisBell/);
+});

@@ -7,8 +7,13 @@ import {
   type TipoTurno,
   type TurnosMes,
 } from '@escala-ici/contrato';
-import { UserMinus } from 'lucide-react';
+import { AlertTriangle, UserMinus } from 'lucide-react';
 
+import {
+  LIMITE_DIAS_CONSECUTIVOS_TRABALHO,
+  chaveIndicadorCelula,
+  type IndicadorCelulaAlerta,
+} from '@/lib/alertasEscala';
 import { agruparGradePorPeriodo } from '@/lib/gradeMembros';
 import type { Usuario } from '@/lib/modelos';
 
@@ -20,6 +25,7 @@ interface ScheduleGridProps {
   onEditar?: (documento: TurnosMes, data: string, dia: Dia) => void;
   onRemover?: (documento: TurnosMes) => void;
   agruparPorPeriodo?: boolean;
+  indiceAlertas?: Map<string, IndicadorCelulaAlerta>;
   compacta?: boolean;
 }
 
@@ -39,6 +45,7 @@ export function ScheduleGrid({
   onEditar,
   onRemover,
   agruparPorPeriodo = false,
+  indiceAlertas,
   compacta = false,
 }: ScheduleGridProps) {
   const documentosFiltrados = documentos.filter(
@@ -80,6 +87,17 @@ export function ScheduleGrid({
         </th>
         {datas.map((data) => {
           const dia = documento.dias[data];
+          const indicador = indiceAlertas?.get(chaveIndicadorCelula(documento.usuarioUid, data));
+          const sequenciaCritica = indicador?.sequencia !== undefined
+            && indicador.sequencia > LIMITE_DIAS_CONSECUTIVOS_TRABALHO
+            ? indicador.sequencia
+            : null;
+          const avisos = [
+            sequenciaCritica !== null
+              ? `${sequenciaCritica}º dia consecutivo de trabalho`
+              : null,
+            indicador?.descansoInsuficiente ? 'Descanso inferior a 11 horas' : null,
+          ].filter((aviso): aviso is string => aviso !== null);
           return (
             <td key={data}>
               {dia && (
@@ -87,11 +105,21 @@ export function ScheduleGrid({
                   type="button"
                   className="shift-chip"
                   data-code={dia.c}
-                  title={`${data} · ${catalogo[dia.c]?.descricao ?? dia.c}`}
+                  title={[`${data} · ${catalogo[dia.c]?.descricao ?? dia.c}`, ...avisos].join(' · ')}
                   onClick={() => onEditar?.(documento, data, dia)}
                   disabled={onEditar === undefined}
                 >
                   {dia.c}
+                  {sequenciaCritica !== null && (
+                    <span className="grade-alert-badge grade-alert-sequencia" aria-hidden="true">
+                      {sequenciaCritica}
+                    </span>
+                  )}
+                  {indicador?.descansoInsuficiente && (
+                    <span className="grade-alert-badge grade-alert-descanso" aria-hidden="true">
+                      <AlertTriangle size={9} strokeWidth={3} />
+                    </span>
+                  )}
                 </button>
               )}
             </td>

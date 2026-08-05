@@ -27,6 +27,12 @@ export interface Usuario {
    * documento depois de criado.
    */
   pendenteVinculo?: boolean;
+  /**
+   * Fase 3K-D2C — preenchido só no cadastro antigo, quando alguém usa
+   * "Vincular ao UID do Authentication" para migrar para o UID real. Aponta
+   * para o novo documento; o antigo fica `ativo: false`, mas não é apagado.
+   */
+  substituidoPorUid?: string | null;
   criadoEm?: string;
   atualizadoEm?: string;
 }

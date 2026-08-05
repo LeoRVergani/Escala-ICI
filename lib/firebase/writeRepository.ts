@@ -409,6 +409,56 @@ export async function salvarUsuarios(usuarios: readonly Usuario[]): Promise<void
   }
 }
 
+/**
+ * Fase 3K-D2C — corrige o cadastro criado sem o UID real do Firebase
+ * Authentication (ver checkpoint da Fase 3K-D2 sobre a limitação de não
+ * poder renomear o ID de um documento já criado).
+ *
+ * Cria `usuarios/{uidNovo}` com os mesmos dados (aliases, equipe, cargo,
+ * login, turno, status) e marca o cadastro antigo como `ativo: false` e
+ * `substituidoPorUid: uidNovo` — nunca apaga o documento antigo.
+ */
+export async function vincularUsuarioAoUid(
+  usuarioAntigo: Usuario,
+  uidNovo: string,
+): Promise<Usuario> {
+  exigirEscritaAdministrativaHabilitada();
+  const uidNovoLimpo = uidNovo.trim();
+  if (uidNovoLimpo === '') {
+    throw new Error('Informe o UID do Firebase Authentication.');
+  }
+  if (uidNovoLimpo === usuarioAntigo.uid) {
+    throw new Error('Este já é o UID atual do cadastro.');
+  }
+
+  const { db } = exigirFirebase();
+  const referenciaNova = doc(db, 'usuarios', uidNovoLimpo);
+  const existente = await getDoc(referenciaNova);
+  if (existente.exists()) {
+    throw new Error('Já existe um cadastro com este UID. Verifique se a pessoa já está cadastrada.');
+  }
+
+  const agora = new Date().toISOString();
+  const usuarioNovo: Usuario = {
+    ...usuarioAntigo,
+    uid: uidNovoLimpo,
+    pendenteVinculo: false,
+    substituidoPorUid: null,
+    atualizadoEm: agora,
+  };
+
+  const batch = writeBatch(db);
+  batch.set(referenciaNova, usuarioNovo);
+  batch.update(doc(db, 'usuarios', usuarioAntigo.uid), {
+    ativo: false,
+    substituidoPorUid: uidNovoLimpo,
+    atualizadoEm: agora,
+  });
+  await batch.commit();
+
+  return usuarioNovo;
+}
+
 export async function excluirRascunho(documento: TurnosMes): Promise<void> {
   exigirEscritaAdministrativaHabilitada();
   const { db } = exigirFirebase();

@@ -50,6 +50,7 @@ export function lerUsuario(
       ? dados.aliasesPlanilha.filter((alias): alias is string => typeof alias === 'string')
       : [],
     pendenteVinculo: dados.pendenteVinculo === true,
+    substituidoPorUid: typeof dados.substituidoPorUid === 'string' ? dados.substituidoPorUid : null,
     criadoEm: typeof dados.criadoEm === 'string' ? dados.criadoEm : undefined,
     atualizadoEm: typeof dados.atualizadoEm === 'string' ? dados.atualizadoEm : undefined,
   };
