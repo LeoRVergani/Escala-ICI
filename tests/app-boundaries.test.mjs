@@ -440,3 +440,38 @@ test('a fase 3K-D2B mantém os alertas operacionais (6x1 e descanso mínimo) exc
   assert.match(scheduleGrid, /grade-alert-descanso/);
   assert.doesNotMatch(fontePublica, /alertasEscala|gerarAlertasEscala|AlertasOperacionaisBell/);
 });
+
+test('a fase 3K-D2C corrige o vínculo entre o UID do Authentication e usuarios/{uid}', async () => {
+  const [app, login, authRepo, writeRepo, dashboard, modelos] = await Promise.all([
+    ler('apps/app/src/EmployeeApp.tsx'),
+    ler('components/LoginPanel.tsx'),
+    ler('lib/firebase/authRepository.ts'),
+    ler('lib/firebase/writeRepository.ts'),
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('lib/modelos.ts'),
+  ]);
+  const fontePublica = `${app}\n${login}`;
+
+  // O App não importa a escrita administrativa que corrige o vínculo.
+  assert.doesNotMatch(fontePublica, /vincularUsuarioAoUid/);
+
+  // authRepository resolve por doc ID real e diferencia sem-perfil de inativo.
+  assert.match(authRepo, /MENSAGEM_SEM_PERFIL_FIRESTORE/);
+  assert.match(authRepo, /MENSAGEM_PERFIL_INATIVO/);
+  assert.match(authRepo, /resolverUsuarioAutenticado/);
+  assert.equal(
+    authRepo.match(/não está cadastrado no Firestore/g)?.length,
+    1,
+    'a mensagem de perfil ausente deve existir uma única vez, na constante compartilhada',
+  );
+
+  // writeRepository cria o documento correto e nunca apaga o antigo.
+  assert.match(writeRepo, /export async function vincularUsuarioAoUid/);
+  assert.doesNotMatch(writeRepo, /vincularUsuarioAoUid[\s\S]{0,900}deleteDoc/);
+  assert.match(writeRepo, /substituidoPorUid: uidNovoLimpo/);
+
+  // Contrato e Dashboard: campo novo e ação de vincular.
+  assert.match(modelos, /substituidoPorUid/);
+  assert.match(dashboard, /abrirVincularUid/);
+  assert.match(dashboard, /confirmarVincularUid/);
+});
