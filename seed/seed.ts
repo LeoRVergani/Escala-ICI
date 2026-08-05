@@ -14,6 +14,9 @@ interface UsuarioSeed {
   login: string;
   nome: string;
   turnoPadrao: string;
+  ativo?: boolean;
+  /** Nomes alternativos vindos da planilha, para a conciliação de importação. */
+  aliasesPlanilha?: string[];
 }
 
 function variavel(nome: string): string {
@@ -65,6 +68,7 @@ for (const tipo of Object.values(CATALOGO_SOC)) {
   });
 }
 
+const agora = new Date().toISOString();
 for (const usuario of usuarios) {
   lote.set(doc(db, 'usuarios', usuario.uid), {
     uid: usuario.uid,
@@ -76,7 +80,10 @@ for (const usuario of usuarios) {
     gestorUid: credencial.user.uid,
     nivelHierarquico: 6,
     turnoPadrao: usuario.turnoPadrao,
-    ativo: true,
+    ativo: usuario.ativo ?? true,
+    aliasesPlanilha: usuario.aliasesPlanilha ?? [],
+    criadoEm: agora,
+    atualizadoEm: agora,
   });
 }
 

@@ -81,13 +81,17 @@ export function LoginPanel({
           <BrandMark />
           <strong>Escala ICI</strong>
         </div>
-        <div>
+        <div className="login-hero-copy login-hero-copy-full">
           <p className="eyebrow">Gestão segura e integrada</p>
           <h1>Escalas claras para equipes que não podem parar.</h1>
           <p>
             Importe, valide, publique e consulte jornadas em um fluxo único,
             preparado para Firebase Spark.
           </p>
+        </div>
+        <div className="login-hero-copy login-hero-copy-compact">
+          <h1>Escalas claras para equipes que não podem parar.</h1>
+          <p>Consulte sua escala com rapidez e segurança.</p>
         </div>
         <div className="login-feature">
           <LockKeyhole size={20} />

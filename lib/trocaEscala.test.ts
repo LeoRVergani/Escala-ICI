@@ -1,7 +1,7 @@
 import type { TurnosMes } from '@escala-ici/contrato';
 import { describe, expect, it } from 'vitest';
 
-import type { NovaSolicitacaoTroca } from './modelos';
+import type { NovaSolicitacaoTroca, Usuario } from './modelos';
 import {
   COLECAO_SOLICITACOES_TROCA,
   atorDaTransicao,
@@ -10,6 +10,7 @@ import {
   solicitacaoDesatualizada,
   transicaoPermitida,
   transicaoPermitidaNoApp,
+  validarElegibilidadeTroca,
   validarSolicitacaoTroca,
 } from './trocaEscala';
 
@@ -164,5 +165,76 @@ describe('fotografia do dia e revisão base', () => {
     expect(solicitacaoDesatualizada({ revisaoBase: 3, status: 'PENDENTE' }, 4)).toBe(true);
     expect(solicitacaoDesatualizada({ revisaoBase: 3, status: 'PENDENTE' }, 3)).toBe(false);
     expect(solicitacaoDesatualizada({ revisaoBase: 3, status: 'APLICADA' }, 9)).toBe(false);
+  });
+});
+
+describe('elegibilidade dos participantes da troca', () => {
+  function usuario(ajustes: Partial<Usuario> = {}): Usuario {
+    return {
+      uid: 'uid-ana',
+      login: 'ana',
+      nome: 'Ana',
+      email: 'ana@empresa.com',
+      cargo: 'ANALISTA_SOC',
+      equipeId: 'EQ_SOC',
+      gestorUid: null,
+      nivelHierarquico: 6,
+      turnoPadrao: 'MD',
+      ativo: true,
+      ...ajustes,
+    };
+  }
+
+  function escala(ajustes: Partial<TurnosMes> = {}): Pick<TurnosMes, 'status' | 'competencia'> {
+    return { status: 'PUBLICADA', competencia: '2026-08', ...ajustes };
+  }
+
+  it('aceita quando ambos ativos, mesma equipe, mesma competência e escala publicada', () => {
+    expect(validarElegibilidadeTroca({
+      solicitante: usuario({ uid: 'uid-ana' }),
+      destinatario: usuario({ uid: 'uid-bruno' }),
+      escalaSolicitante: escala(),
+      escalaDestinatario: escala(),
+    })).toEqual([]);
+  });
+
+  it('recusa quando um dos dois está inativo', () => {
+    const erros = validarElegibilidadeTroca({
+      solicitante: usuario({ ativo: false }),
+      destinatario: usuario({ uid: 'uid-bruno' }),
+      escalaSolicitante: escala(),
+      escalaDestinatario: escala(),
+    });
+    expect(erros).toContain('O solicitante precisa estar ativo.');
+  });
+
+  it('recusa equipes diferentes', () => {
+    const erros = validarElegibilidadeTroca({
+      solicitante: usuario({ equipeId: 'EQ_SOC' }),
+      destinatario: usuario({ uid: 'uid-bruno', equipeId: 'EQ_OUTRA' }),
+      escalaSolicitante: escala(),
+      escalaDestinatario: escala(),
+    });
+    expect(erros).toContain('A troca só pode ocorrer dentro da mesma equipe.');
+  });
+
+  it('recusa quando alguma escala não está publicada (inclui rascunho, arquivada ou cancelada)', () => {
+    const erros = validarElegibilidadeTroca({
+      solicitante: usuario(),
+      destinatario: usuario({ uid: 'uid-bruno' }),
+      escalaSolicitante: escala({ status: 'RASCUNHO' }),
+      escalaDestinatario: escala(),
+    });
+    expect(erros).toContain('A troca só pode envolver escala publicada.');
+  });
+
+  it('recusa competências diferentes', () => {
+    const erros = validarElegibilidadeTroca({
+      solicitante: usuario(),
+      destinatario: usuario({ uid: 'uid-bruno' }),
+      escalaSolicitante: escala({ competencia: '2026-08' }),
+      escalaDestinatario: escala({ competencia: '2026-09' }),
+    });
+    expect(erros).toContain('A troca só pode ocorrer dentro da mesma competência.');
   });
 });

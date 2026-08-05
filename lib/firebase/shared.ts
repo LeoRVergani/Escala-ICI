@@ -46,5 +46,11 @@ export function lerUsuario(
     nivelHierarquico: Number(dados.nivelHierarquico ?? 6),
     turnoPadrao: String(dados.turnoPadrao ?? ''),
     ativo: dados.ativo !== false,
+    aliasesPlanilha: Array.isArray(dados.aliasesPlanilha)
+      ? dados.aliasesPlanilha.filter((alias): alias is string => typeof alias === 'string')
+      : [],
+    pendenteVinculo: dados.pendenteVinculo === true,
+    criadoEm: typeof dados.criadoEm === 'string' ? dados.criadoEm : undefined,
+    atualizadoEm: typeof dados.atualizadoEm === 'string' ? dados.atualizadoEm : undefined,
   };
 }

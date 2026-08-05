@@ -112,7 +112,7 @@ test('o contrato visual responsivo preserva os mockups aprovados', async () => {
   assert.match(app, /profile-layout/);
   assert.match(frame, /mobile-app-brand/);
   assert.match(estilos, /Fase 3F — fidelidade visual/);
-  assert.match(estilos, /linear-gradient\(180deg, #2f1d63/);
+  assert.match(estilos, /linear-gradient\(180deg, #172554/);
   assert.match(estilos, /grid-template-columns: repeat\(4, 1fr\)/);
   assert.match(estilos, /calendar-view > \.calendar-grid \{ min-width: 0; \}/);
   assert.match(estilos, /bottom-nav button\.active::after/);
@@ -304,4 +304,58 @@ test('a fase 3K-D1 mantém a troca de escala fora da escrita do App', async () =
 
   // Enquanto a escrita não existir, as regras não expõem a coleção.
   assert.doesNotMatch(regras, /solicitacoesTroca/);
+});
+
+test('a fase 3K-D2 mantém a gestão de usuários e a conciliação exclusivas do Dashboard', async () => {
+  const [app, login, dashboard, conciliacao, nomes, importUsers, modelos, regras] = await Promise.all([
+    ler('apps/app/src/EmployeeApp.tsx'),
+    ler('components/LoginPanel.tsx'),
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('lib/conciliacaoUsuarios.ts'),
+    ler('lib/nomes.ts'),
+    ler('lib/importUsers.ts'),
+    ler('lib/modelos.ts'),
+    ler('firestore.rules'),
+  ]);
+  const fontePublica = `${app}\n${login}`;
+
+  // O App continua sem qualquer via de escrita administrativa de usuários.
+  for (const proibido of ['salvarUsuario', 'conciliacaoUsuarios', 'validarEdicaoUsuario', 'excluirRascunho']) {
+    assert.doesNotMatch(fontePublica, new RegExp(proibido), proibido);
+  }
+  assert.doesNotMatch(app, /solicitacoesTroca/);
+
+  // Módulos puros: sem SDK do Firestore, herdam a mesma garantia de pureza da Fase 3K-D1.
+  for (const mutacao of ['writeBatch', 'setDoc', 'updateDoc', 'deleteDoc', 'firebase/firestore']) {
+    assert.doesNotMatch(conciliacao, new RegExp(mutacao), mutacao);
+    assert.doesNotMatch(nomes, new RegExp(mutacao), mutacao);
+    assert.doesNotMatch(importUsers, new RegExp(mutacao), mutacao);
+  }
+
+  // O Dashboard concentra a gestão de usuários, a conciliação e o descarte de rascunho.
+  assert.match(dashboard, /conciliacaoUsuarios/);
+  assert.match(dashboard, /validarEdicaoUsuario/);
+  assert.match(dashboard, /normalizarAliasesPlanilha/);
+  assert.match(dashboard, /excluirRascunho/);
+  assert.match(dashboard, /abrirEdicaoUsuario/);
+  assert.match(dashboard, /alternarAtivoUsuario/);
+  assert.match(dashboard, /uidAutenticacao/);
+  assert.match(dashboard, /novoUsuario\(usuarios\.length \+ indice \+ 1, usuario, login, true\)/);
+
+  // Contrato de usuário estendido e regra de edição pelo gestor da própria equipe.
+  assert.match(modelos, /aliasesPlanilha/);
+  assert.match(modelos, /pendenteVinculo/);
+  assert.match(modelos, /StatusConciliacao/);
+  assert.match(regras, /souGestor\(\)[\s\S]*resource\.data\.equipeId == minhaEquipe\(\)[\s\S]*request\.resource\.data\.equipeId == resource\.data\.equipeId[\s\S]*request\.resource\.data\.uid == resource\.data\.uid/);
+  assert.doesNotMatch(regras, /solicitacoesTroca/);
+});
+
+test('a fase 3K-D2 fortalece a base da troca de escala com elegibilidade dos participantes', async () => {
+  const troca = await ler('lib/trocaEscala.ts');
+
+  assert.match(troca, /validarElegibilidadeTroca/);
+  assert.match(troca, /ContextoElegibilidadeTroca/);
+  for (const mutacao of ['writeBatch', 'setDoc', 'updateDoc', 'deleteDoc', 'firebase/firestore']) {
+    assert.doesNotMatch(troca, new RegExp(mutacao), mutacao);
+  }
 });

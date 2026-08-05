@@ -24,3 +24,13 @@ O seed usa somente o SDK cliente do Firebase. Não utiliza Admin SDK.
 O usuário definido em `FIREBASE_SEED_EMAIL` precisa ser o gestor já cadastrado,
 pois as regras temporárias autorizam o bootstrap somente para essa conta.
 Não deixe as regras de bootstrap publicadas após concluir a carga.
+
+## Campos opcionais (Fase 3K-D2)
+
+Cada entrada de `usuarios.json` aceita opcionalmente:
+
+- `ativo` (padrão `true`);
+- `aliasesPlanilha`: nomes alternativos que a planilha pode usar para essa
+  pessoa (comparados de forma normalizada na conciliação de importação do
+  Dashboard). Depois do seed, os aliases também podem ser cadastrados pela
+  tela **Usuários** do Dashboard, sem precisar editar este arquivo.

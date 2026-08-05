@@ -33,9 +33,19 @@ service cloud.firestore {
         );
 
       allow update: if autenticado()
-        && request.auth.uid == uid
-        && request.resource.data.diff(resource.data)
-          .affectedKeys().hasOnly(['nome']);
+        && (
+          (
+            request.auth.uid == uid
+            && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['nome'])
+          )
+          || (
+            souGestor()
+            && resource.data.equipeId == minhaEquipe()
+            && request.resource.data.equipeId == resource.data.equipeId
+            && request.resource.data.uid == resource.data.uid
+          )
+        );
 
       allow create: if souGestor()
         && request.resource.data.equipeId == minhaEquipe();

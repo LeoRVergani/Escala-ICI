@@ -266,6 +266,47 @@ describe('regras Firestore do Escala ICI', () => {
     ));
   });
 
+  it('permite ao gestor editar cadastro, status e aliases de colaborador da própria equipe', async () => {
+    const db = ambiente.authenticatedContext(usuarios.gestor.uid).firestore();
+    await assertSucceeds(updateDoc(
+      doc(db, 'usuarios', usuarios.colaborador.uid),
+      {
+        cargo: 'ANALISTA_SOC_SENIOR',
+        ativo: false,
+        aliasesPlanilha: ['Caio M.'],
+        atualizadoEm: '2026-08-05T00:00:00.000Z',
+      },
+    ));
+  });
+
+  it('impede o gestor de mover o colaborador para outra equipe ou trocar o UID do documento', async () => {
+    const db = ambiente.authenticatedContext(usuarios.gestor.uid).firestore();
+    await assertFails(updateDoc(
+      doc(db, 'usuarios', usuarios.colaborador.uid),
+      { equipeId: 'EQ_CODB_NOC' },
+    ));
+    await assertFails(updateDoc(
+      doc(db, 'usuarios', usuarios.colaborador.uid),
+      { uid: 'outro-uid' },
+    ));
+  });
+
+  it('impede o gestor de editar usuário de outra equipe', async () => {
+    const db = ambiente.authenticatedContext(usuarios.gestor.uid).firestore();
+    await assertFails(updateDoc(
+      doc(db, 'usuarios', usuarios.externo.uid),
+      { ativo: false },
+    ));
+  });
+
+  it('impede o colaborador comum de editar outro colaborador', async () => {
+    const db = ambiente.authenticatedContext(usuarios.colaborador.uid).firestore();
+    await assertFails(updateDoc(
+      doc(db, 'usuarios', usuarios.colega.uid),
+      { ativo: false },
+    ));
+  });
+
   it('mantém a configuração de compatibilidade pública e imutável', async () => {
     const db = ambiente.unauthenticatedContext().firestore();
     await assertSucceeds(getDoc(doc(db, 'config', 'app')));

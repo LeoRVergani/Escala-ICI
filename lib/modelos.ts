@@ -12,6 +12,23 @@ export interface Usuario {
   nivelHierarquico: number;
   turnoPadrao: string;
   ativo: boolean;
+
+  /**
+   * Nomes alternativos vindos da planilha, usados apenas para comparação
+   * normalizada na conciliação de importação (ver `lib/conciliacaoUsuarios.ts`).
+   * Diferente de `loginAliases`, que são strings comparadas de forma exata
+   * pelo parser.
+   */
+  aliasesPlanilha?: string[];
+  /**
+   * `true` quando o UID do documento é um identificador provisório, sem
+   * correspondência confirmada no Firebase Authentication — ver
+   * Fase 3K-D2 no checkpoint para a limitação de não renomear o ID do
+   * documento depois de criado.
+   */
+  pendenteVinculo?: boolean;
+  criadoEm?: string;
+  atualizadoEm?: string;
 }
 
 export interface Equipe {
@@ -137,6 +154,30 @@ export interface SolicitacaoTroca extends NovaSolicitacaoTroca {
   observacaoGestor: string | null;
   /** Revisão da escala em que a troca foi efetivamente aplicada. */
   aplicadoNaRevisao: number | null;
+}
+
+/**
+ * Fase 3K-D2 — conciliação de nomes importados da planilha.
+ *
+ * Uma linha por texto distinto encontrado na coluna de colaborador da
+ * planilha. Ver `lib/conciliacaoUsuarios.ts` para a lógica pura de
+ * classificação e `lib/nomes.ts` para a normalização usada na comparação.
+ */
+export type StatusConciliacao =
+  | 'VINCULADO_UID'
+  | 'VINCULADO_ALIAS'
+  | 'PRECISA_MAPEAR'
+  | 'USUARIO_INATIVO'
+  | 'USUARIO_NAO_ENCONTRADO'
+  | 'CONFLITO_ALIAS'
+  | 'IGNORADA';
+
+export interface LinhaConciliacao {
+  nomePlanilha: string;
+  usuarioUid: string | null;
+  status: StatusConciliacao;
+  /** UIDs candidatos quando o status é `CONFLITO_ALIAS`. */
+  candidatos: string[];
 }
 
 export interface DadosEscala {

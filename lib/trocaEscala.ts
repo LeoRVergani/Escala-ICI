@@ -6,6 +6,7 @@ import type {
   NovaSolicitacaoTroca,
   SolicitacaoTroca,
   StatusSolicitacaoTroca,
+  Usuario,
 } from './modelos';
 
 /**
@@ -165,6 +166,47 @@ export function montarSolicitacaoTroca(
     observacaoGestor: null,
     aplicadoNaRevisao: null,
   };
+}
+
+/**
+ * Fase 3K-D2 — checagens de elegibilidade que dependem de dados que o desenho
+ * original não cobria: os dois usuários e as duas escalas envolvidas.
+ *
+ * Continua puro (sem SDK do Firestore): quem chamar (futuro App/Dashboard)
+ * é responsável por buscar `Usuario` e `TurnosMes` antes de validar. Some
+ * com `validarSolicitacaoTroca`, que cobre os campos estruturais da
+ * solicitação — este cobre as regras de negócio sobre os participantes.
+ */
+export interface ContextoElegibilidadeTroca {
+  solicitante: Pick<Usuario, 'uid' | 'ativo' | 'equipeId'>;
+  destinatario: Pick<Usuario, 'uid' | 'ativo' | 'equipeId'>;
+  escalaSolicitante: Pick<TurnosMes, 'status' | 'competencia'>;
+  escalaDestinatario: Pick<TurnosMes, 'status' | 'competencia'>;
+}
+
+export function validarElegibilidadeTroca(
+  contexto: ContextoElegibilidadeTroca,
+): string[] {
+  const erros: string[] = [];
+
+  if (!contexto.solicitante.ativo) {
+    erros.push('O solicitante precisa estar ativo.');
+  }
+  if (!contexto.destinatario.ativo) {
+    erros.push('O destinatário precisa estar ativo.');
+  }
+  if (contexto.solicitante.equipeId !== contexto.destinatario.equipeId) {
+    erros.push('A troca só pode ocorrer dentro da mesma equipe.');
+  }
+  if (contexto.escalaSolicitante.status !== 'PUBLICADA'
+    || contexto.escalaDestinatario.status !== 'PUBLICADA') {
+    erros.push('A troca só pode envolver escala publicada.');
+  }
+  if (contexto.escalaSolicitante.competencia !== contexto.escalaDestinatario.competencia) {
+    erros.push('A troca só pode ocorrer dentro da mesma competência.');
+  }
+
+  return erros;
 }
 
 /**

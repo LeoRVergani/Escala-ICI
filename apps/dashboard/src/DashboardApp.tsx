@@ -13,17 +13,22 @@ import {
 import {
   AlertTriangle,
   ArrowUpRight,
+  Ban,
   CheckCircle2,
   FileSpreadsheet,
   Filter,
+  HelpCircle,
+  Link2,
   LoaderCircle,
   Pencil,
   Plus,
+  Power,
   RotateCcw,
   Save,
   Search,
   Send,
   ShieldCheck,
+  Trash2,
   UploadCloud,
   UserPlus,
   Users,
@@ -35,6 +40,15 @@ import * as XLSX from 'xlsx';
 import { AppFrame, type ItemNavegacao } from '@/components/AppFrame';
 import { LoginPanel } from '@/components/LoginPanel';
 import { ScheduleGrid } from '@/components/ScheduleGrid';
+import {
+  conciliarPlanilha,
+  contarPendenciasConciliacao,
+  ignorarLinha,
+  loginParaUidComConciliacao,
+  marcarPendente,
+  publicacaoBloqueadaPorConciliacao,
+  resolverManualmente,
+} from '@/lib/conciliacaoUsuarios';
 import {
   EQUIPE_DEMO,
   USUARIOS_DEMO,
@@ -51,6 +65,7 @@ import {
 } from '@/lib/firebase/readRepository';
 import {
   escritaAdministrativaHabilitada,
+  excluirRascunho,
   publicarEscalas,
   reverterPublicacao,
   salvarRascunho,
@@ -59,10 +74,33 @@ import {
 } from '@/lib/firebase/writeRepository';
 import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
-import { mapaLogins, novoUsuario } from '@/lib/importUsers';
-import type { EventoEscala, PublicacaoEscala, Usuario } from '@/lib/modelos';
+import { mapaLogins, normalizarAliasesPlanilha, novoUsuario, validarEdicaoUsuario } from '@/lib/importUsers';
+import type { EventoEscala, LinhaConciliacao, PublicacaoEscala, Usuario } from '@/lib/modelos';
 
 type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios';
+
+interface FormularioUsuario {
+  uid: string | null;
+  nome: string;
+  email: string;
+  login: string;
+  cargo: string;
+  nivelHierarquico: number;
+  turnoPadrao: string;
+  ativo: boolean;
+  aliasesPlanilha: string[];
+  uidAutenticacao: string;
+}
+
+const STATUS_CONCILIACAO_LABEL: Record<LinhaConciliacao['status'], string> = {
+  VINCULADO_UID: 'Vinculado automaticamente por UID/e-mail',
+  VINCULADO_ALIAS: 'Vinculado por alias',
+  PRECISA_MAPEAR: 'Precisa mapear',
+  USUARIO_INATIVO: 'Usuário inativo',
+  USUARIO_NAO_ENCONTRADO: 'Usuário não encontrado',
+  CONFLITO_ALIAS: 'Conflito de aliases',
+  IGNORADA: 'Ignorada',
+};
 
 const NAVEGACAO: ItemNavegacao[] = [
   { id: 'visao', rotulo: 'Visão geral', icone: 'home' },
@@ -101,8 +139,15 @@ export function DashboardApp() {
   const [motivoPublicacao, setMotivoPublicacao] = useState('');
   const [publicacaoExpandida, setPublicacaoExpandida] = useState<string | null>(null);
   const [detalhesPublicacao, setDetalhesPublicacao] = useState<Record<string, EventoEscala[]>>({});
+  const [linhasConciliacao, setLinhasConciliacao] = useState<LinhaConciliacao[]>([]);
+  const [formularioUsuario, setFormularioUsuario] = useState<FormularioUsuario | null>(null);
+  const [errosFormularioUsuario, setErrosFormularioUsuario] = useState<string[]>([]);
+  const [novoAliasDraft, setNovoAliasDraft] = useState('');
+  const [descarteRascunhoPendente, setDescarteRascunhoPendente] = useState(false);
   const inputArquivo = useRef<HTMLInputElement>(null);
   const escritaBloqueada = !modoDemo && !escritaAdministrativaHabilitada;
+  const conciliacaoBloqueiaPublicacao = publicacaoBloqueadaPorConciliacao(linhasConciliacao);
+  const pendenciasConciliacao = contarPendenciasConciliacao(linhasConciliacao);
 
   const documentos = useMemo(
     () => resultado?.documentos ?? [],
@@ -226,27 +271,109 @@ export function DashboardApp() {
     }
   }
 
+  function reparsear(buffer: ArrayBuffer, loginParaUid: Record<string, string>): ResultadoParse {
+    return parsePlanilhaEscala(buffer, {
+      equipeId: usuario?.equipeId ?? EQUIPE_DEMO.id,
+      competencia: '2026-08',
+      catalogo,
+      loginParaUid,
+    });
+  }
+
+  /**
+   * Concilia os nomes da planilha com os usuários cadastrados e, quando a
+   * conciliação resolve algo que o login exato não resolveu, reprocessa a
+   * planilha com o mapa estendido — sem precisar reescrever o parser.
+   */
+  function aplicarConciliacao(buffer: ArrayBuffer, linhas: LinhaConciliacao[]) {
+    setLinhasConciliacao(linhas);
+    const parseado = linhas.some((linha) => linha.usuarioUid !== null)
+      ? reparsear(buffer, loginParaUidComConciliacao(mapaLogins(usuarios), linhas))
+      : reparsear(buffer, mapaLogins(usuarios));
+    setResultado(parseado);
+    return parseado;
+  }
+
   function interpretar(buffer: ArrayBuffer, nome: string) {
     setProcessando(true);
     setMensagem('');
     try {
-      const parseado = parsePlanilhaEscala(buffer, {
-        equipeId: usuario?.equipeId ?? EQUIPE_DEMO.id,
-        competencia: '2026-08',
-        catalogo,
-        loginParaUid: mapaLogins(usuarios),
-      });
+      const primeiraLeitura = reparsear(buffer, mapaLogins(usuarios));
+      const linhas = conciliarPlanilha(
+        primeiraLeitura.documentos.map((documento) => documento.login),
+        usuarios,
+      );
       setArquivo(buffer);
       setNomeArquivo(nome);
-      setResultado(parseado);
+      const parseado = aplicarConciliacao(buffer, linhas);
       setCorrecoes({});
       if (!parseado.ok) {
         setMensagem(`${parseado.erros.length} erro(s) encontrado(s). Corrija antes de salvar.`);
+      } else if (publicacaoBloqueadaPorConciliacao(linhas)) {
+        setMensagem('Revise a conciliação de nomes da planilha antes de salvar ou publicar.');
       }
     } catch (falha) {
       setMensagem(falha instanceof Error ? falha.message : 'Arquivo inválido.');
     } finally {
       setProcessando(false);
+    }
+  }
+
+  function selecionarVinculoConciliacao(linha: LinhaConciliacao, usuarioUid: string) {
+    if (arquivo === null) {
+      return;
+    }
+    const escolhido = usuarios.find((item) => item.uid === usuarioUid);
+    if (escolhido === undefined) {
+      return;
+    }
+    aplicarConciliacao(
+      arquivo,
+      linhasConciliacao.map((item) => (item === linha ? resolverManualmente(item, escolhido) : item)),
+    );
+  }
+
+  function marcarConciliacaoPendente(linha: LinhaConciliacao) {
+    if (arquivo === null) {
+      return;
+    }
+    aplicarConciliacao(
+      arquivo,
+      linhasConciliacao.map((item) => (item === linha ? marcarPendente(item) : item)),
+    );
+  }
+
+  function ignorarConciliacao(linha: LinhaConciliacao) {
+    if (arquivo === null) {
+      return;
+    }
+    aplicarConciliacao(
+      arquivo,
+      linhasConciliacao.map((item) => (item === linha ? ignorarLinha(item) : item)),
+    );
+  }
+
+  async function salvarAliasConciliacao(linha: LinhaConciliacao) {
+    if (linha.usuarioUid === null) {
+      return;
+    }
+    const escolhido = usuarios.find((item) => item.uid === linha.usuarioUid);
+    if (escolhido === undefined) {
+      return;
+    }
+    const atualizado: Usuario = {
+      ...escolhido,
+      aliasesPlanilha: normalizarAliasesPlanilha([...(escolhido.aliasesPlanilha ?? []), linha.nomePlanilha]),
+      atualizadoEm: new Date().toISOString(),
+    };
+    try {
+      if (!modoDemo) {
+        await salvarUsuario(atualizado);
+      }
+      setUsuarios((atuais) => atuais.map((item) => (item.uid === atualizado.uid ? atualizado : item)));
+      setMensagem(`Alias "${linha.nomePlanilha}" salvo para ${atualizado.nome}.`);
+    } catch (falha) {
+      setMensagem(mensagemErroFirebase(falha, 'Não foi possível salvar o alias.'));
     }
   }
 
@@ -339,6 +466,10 @@ export function DashboardApp() {
       setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
       return;
     }
+    if (conciliacaoBloqueiaPublicacao) {
+      setMensagem('Resolva as pendências de conciliação de nomes antes de salvar.');
+      return;
+    }
     setProcessando(true);
     try {
       if (!modoDemo) {
@@ -367,6 +498,10 @@ export function DashboardApp() {
     }
     if (escritaBloqueada) {
       setMensagem('A publicação está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
+      return;
+    }
+    if (conciliacaoBloqueiaPublicacao) {
+      setMensagem('Resolva as pendências de conciliação de nomes antes de publicar.');
       return;
     }
     if (revisaoAtual > 0 && motivoPublicacao.trim().length < 3) {
@@ -496,25 +631,182 @@ export function DashboardApp() {
     setMensagem('Célula atualizada no rascunho local. Salve para persistir.');
   }
 
-  async function adicionarUsuario() {
+  function abrirNovoUsuario() {
+    setFormularioUsuario({
+      uid: null,
+      nome: '',
+      email: '',
+      login: '',
+      cargo: 'ANALISTA_SOC',
+      nivelHierarquico: 6,
+      turnoPadrao: 'M',
+      ativo: true,
+      aliasesPlanilha: [],
+      uidAutenticacao: '',
+    });
+    setErrosFormularioUsuario([]);
+    setNovoAliasDraft('');
+  }
+
+  function abrirEdicaoUsuario(item: Usuario) {
+    setFormularioUsuario({
+      uid: item.uid,
+      nome: item.nome,
+      email: item.email,
+      login: item.login,
+      cargo: item.cargo,
+      nivelHierarquico: item.nivelHierarquico,
+      turnoPadrao: item.turnoPadrao,
+      ativo: item.ativo,
+      aliasesPlanilha: item.aliasesPlanilha ?? [],
+      uidAutenticacao: '',
+    });
+    setErrosFormularioUsuario([]);
+    setNovoAliasDraft('');
+  }
+
+  function fecharFormularioUsuario() {
+    setFormularioUsuario(null);
+    setErrosFormularioUsuario([]);
+    setNovoAliasDraft('');
+  }
+
+  function adicionarAliasDraft() {
+    if (formularioUsuario === null || novoAliasDraft.trim() === '') {
+      return;
+    }
+    setFormularioUsuario({
+      ...formularioUsuario,
+      aliasesPlanilha: normalizarAliasesPlanilha([...formularioUsuario.aliasesPlanilha, novoAliasDraft]),
+    });
+    setNovoAliasDraft('');
+  }
+
+  function removerAliasDraft(alias: string) {
+    if (formularioUsuario === null) {
+      return;
+    }
+    setFormularioUsuario({
+      ...formularioUsuario,
+      aliasesPlanilha: formularioUsuario.aliasesPlanilha.filter((item) => item !== alias),
+    });
+  }
+
+  async function salvarFormularioUsuario() {
+    if (formularioUsuario === null || usuario === null) {
+      return;
+    }
     if (escritaBloqueada) {
       setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
       return;
     }
-    if (usuario === null) {
+
+    let candidato: Usuario;
+    if (formularioUsuario.uid === null) {
+      candidato = {
+        ...novoUsuario(
+          usuarios.length + 1,
+          usuario,
+          formularioUsuario.login || `novo.login${usuarios.length + 1}`,
+          formularioUsuario.ativo,
+          formularioUsuario.uidAutenticacao,
+        ),
+        nome: formularioUsuario.nome,
+        email: formularioUsuario.email,
+        cargo: formularioUsuario.cargo,
+        nivelHierarquico: formularioUsuario.nivelHierarquico,
+        turnoPadrao: formularioUsuario.turnoPadrao,
+        aliasesPlanilha: formularioUsuario.aliasesPlanilha,
+      };
+    } else {
+      const original = usuarios.find((item) => item.uid === formularioUsuario.uid);
+      if (original === undefined) {
+        return;
+      }
+      candidato = {
+        ...original,
+        nome: formularioUsuario.nome,
+        email: formularioUsuario.email,
+        login: formularioUsuario.login,
+        cargo: formularioUsuario.cargo,
+        nivelHierarquico: formularioUsuario.nivelHierarquico,
+        turnoPadrao: formularioUsuario.turnoPadrao,
+        ativo: formularioUsuario.ativo,
+        aliasesPlanilha: formularioUsuario.aliasesPlanilha,
+        atualizadoEm: new Date().toISOString(),
+      };
+    }
+
+    const erros = validarEdicaoUsuario(candidato, usuarios);
+    if (erros.length > 0) {
+      setErrosFormularioUsuario(erros);
       return;
     }
-    const novo = novoUsuario(usuarios.length + 1, usuario);
-    if (!modoDemo) {
-      await salvarUsuario(novo);
+
+    try {
+      if (!modoDemo) {
+        await salvarUsuario(candidato);
+      }
+      setUsuarios((atuais) => (atuais.some((item) => item.uid === candidato.uid)
+        ? atuais.map((item) => (item.uid === candidato.uid ? candidato : item))
+        : [...atuais, candidato]));
+      setMensagem(formularioUsuario.uid === null
+        ? 'Usuário cadastrado com sucesso.'
+        : 'Usuário atualizado com sucesso.');
+      fecharFormularioUsuario();
+    } catch (falha) {
+      setErrosFormularioUsuario([mensagemErroFirebase(falha, 'Não foi possível salvar o usuário.')]);
     }
-    setUsuarios((atuais) => [...atuais, novo]);
+  }
+
+  async function alternarAtivoUsuario(item: Usuario) {
+    if (escritaBloqueada) {
+      setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
+      return;
+    }
+    const atualizado: Usuario = { ...item, ativo: !item.ativo, atualizadoEm: new Date().toISOString() };
+    try {
+      if (!modoDemo) {
+        await salvarUsuario(atualizado);
+      }
+      setUsuarios((atuais) => atuais.map((existente) => (existente.uid === item.uid ? atualizado : existente)));
+    } catch (falha) {
+      setMensagem(mensagemErroFirebase(falha, 'Não foi possível atualizar o status do usuário.'));
+    }
+  }
+
+  async function descartarRascunho() {
+    setDescarteRascunhoPendente(false);
+    if (resultado === null) {
+      return;
+    }
+    setProcessando(true);
+    try {
+      if (!modoDemo) {
+        for (const documento of resultado.documentos) {
+          if (documento.status === 'RASCUNHO') {
+            await excluirRascunho(documento);
+          }
+        }
+      }
+      setResultado(null);
+      setArquivo(null);
+      setLinhasConciliacao([]);
+      setTela('importar');
+      setMensagem('Rascunho descartado.');
+    } catch (falha) {
+      setMensagem(mensagemErroFirebase(falha, 'Não foi possível descartar o rascunho.'));
+    } finally {
+      setProcessando(false);
+    }
   }
 
   async function encerrarSessao() {
     await sair();
     setUsuario(null);
     setResultado(null);
+    setLinhasConciliacao([]);
+    setFormularioUsuario(null);
     setMensagem('');
   }
 
@@ -639,7 +931,7 @@ export function DashboardApp() {
               <button
                 className="primary-button"
                 type="button"
-                disabled={!resultado?.ok || processando || escritaBloqueada}
+                disabled={!resultado?.ok || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
                 onClick={() => void salvar()}
               >
                 <Save size={17} /> Salvar rascunho
@@ -695,6 +987,112 @@ export function DashboardApp() {
             </article>
           )}
 
+          {linhasConciliacao.length > 0 && (
+            <article className="panel conciliation-panel">
+              <div className="panel-title">
+                <div>
+                  <h2>Conciliação de nomes da planilha</h2>
+                  <p>Confira quem cada nome da planilha representa antes de salvar ou publicar.</p>
+                </div>
+                <span className={`status-badge ${pendenciasConciliacao ? 'warning' : 'success'}`}>
+                  {pendenciasConciliacao ? `${pendenciasConciliacao} pendência(s)` : 'Tudo conciliado'}
+                </span>
+              </div>
+              <div className="table-scroll">
+                <table className="data-table conciliation-table">
+                  <thead>
+                    <tr>
+                      <th>Nome encontrado na planilha</th>
+                      <th>Usuário vinculado</th>
+                      <th>Status</th>
+                      <th>Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {linhasConciliacao.map((linha) => {
+                      const vinculado = usuarios.find((item) => item.uid === linha.usuarioUid);
+                      return (
+                        <tr key={linha.nomePlanilha} data-status={linha.status}>
+                          <td>{linha.nomePlanilha}</td>
+                          <td>
+                            <select
+                              value={linha.usuarioUid ?? ''}
+                              onChange={(evento) => {
+                                if (evento.target.value) {
+                                  selecionarVinculoConciliacao(linha, evento.target.value);
+                                }
+                              }}
+                              aria-label={`Usuário vinculado a ${linha.nomePlanilha}`}
+                            >
+                              <option value="">Selecionar usuário…</option>
+                              {usuarios.map((item) => (
+                                <option key={item.uid} value={item.uid}>
+                                  {item.nome}{item.ativo ? '' : ' (inativo)'}
+                                </option>
+                              ))}
+                            </select>
+                            {linha.status === 'CONFLITO_ALIAS' && (
+                              <small>
+                                Candidatos: {linha.candidatos
+                                  .map((uid) => usuarios.find((item) => item.uid === uid)?.nome ?? uid)
+                                  .join(', ')}
+                              </small>
+                            )}
+                          </td>
+                          <td>
+                            <span className={`status-badge ${
+                              linha.status === 'VINCULADO_UID' || linha.status === 'VINCULADO_ALIAS' || linha.status === 'IGNORADA'
+                                ? 'success'
+                                : 'warning'
+                            }`}
+                            >
+                              {STATUS_CONCILIACAO_LABEL[linha.status]}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="conciliation-actions">
+                              {linha.usuarioUid !== null && linha.status !== 'VINCULADO_UID' && (
+                                <button
+                                  className="icon-button"
+                                  type="button"
+                                  title={`Salvar "${linha.nomePlanilha}" como alias de ${vinculado?.nome ?? ''}`}
+                                  disabled={escritaBloqueada}
+                                  onClick={() => void salvarAliasConciliacao(linha)}
+                                >
+                                  <Link2 size={15} />
+                                </button>
+                              )}
+                              {linha.status !== 'PRECISA_MAPEAR' && linha.status !== 'IGNORADA' && (
+                                <button
+                                  className="icon-button"
+                                  type="button"
+                                  title="Marcar como pendente"
+                                  onClick={() => marcarConciliacaoPendente(linha)}
+                                >
+                                  <HelpCircle size={15} />
+                                </button>
+                              )}
+                              {linha.status !== 'IGNORADA' && (
+                                <button
+                                  className="icon-button"
+                                  type="button"
+                                  title="Ignorar esta linha"
+                                  onClick={() => ignorarConciliacao(linha)}
+                                >
+                                  <Ban size={15} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          )}
+
           {resultado && resultado.documentos.length > 0 && (
             <article className="panel grid-panel">
               <div className="panel-title">
@@ -729,10 +1127,20 @@ export function DashboardApp() {
             </div>
             <div className="scale-actions">
               <button className="secondary-button" type="button" onClick={() => setTela('grade')}>Revisar grade</button>
+              {documentos.length > 0 && publicados.length !== documentos.length && (
+                <button
+                  className="secondary-button danger-button"
+                  type="button"
+                  disabled={processando || escritaBloqueada}
+                  onClick={() => setDescarteRascunhoPendente(true)}
+                >
+                  <Trash2 size={16} /> Descartar rascunho
+                </button>
+              )}
               <button
                 className="primary-button"
                 type="button"
-                disabled={!documentos.length || !resultado?.ok || processando || escritaBloqueada}
+                disabled={!documentos.length || !resultado?.ok || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
                 onClick={() => setPublicacaoPendente(true)}
               >
                 <Send size={16} /> Publicar
@@ -887,7 +1295,7 @@ export function DashboardApp() {
               className="primary-button"
               type="button"
               disabled={escritaBloqueada}
-              onClick={() => void adicionarUsuario()}
+              onClick={abrirNovoUsuario}
             >
               <UserPlus size={17} /> Cadastrar usuário
             </button>
@@ -899,7 +1307,7 @@ export function DashboardApp() {
             </div>
             <div className="table-scroll">
               <table className="data-table users-table">
-                <thead><tr><th>Colaborador</th><th>Login de importação</th><th>Turno</th><th>Perfil</th><th>Status</th></tr></thead>
+                <thead><tr><th>Colaborador</th><th>Login de importação</th><th>Turno</th><th>Perfil</th><th>Status</th><th>Aliases da planilha</th><th>Ações</th></tr></thead>
                 <tbody>
                   {usuarios
                     .filter((item) => `${item.nome} ${item.login}`.toLowerCase().includes(buscaUsuario.toLowerCase()))
@@ -909,7 +1317,43 @@ export function DashboardApp() {
                         <td><code className="login-code">{item.login}</code></td>
                         <td>{item.turnoPadrao}</td>
                         <td>{item.cargo}</td>
-                        <td><span className={`status-badge ${item.ativo ? 'success' : 'neutral'}`}>{item.ativo ? 'Ativo' : 'Inativo'}</span></td>
+                        <td>
+                          <span className={`status-badge ${item.ativo ? 'success' : 'neutral'}`}>{item.ativo ? 'Ativo' : 'Inativo'}</span>
+                          {item.pendenteVinculo && (
+                            <span className="status-badge warning" title="UID provisório: ainda não corresponde a uma conta do Firebase Authentication.">
+                              Pendente de vínculo
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          {(item.aliasesPlanilha ?? []).length === 0
+                            ? <small className="empty-inline">Nenhum</small>
+                            : (item.aliasesPlanilha ?? []).map((alias) => (
+                              <span className="alias-chip" key={alias}>{alias}</span>
+                            ))}
+                        </td>
+                        <td>
+                          <div className="user-row-actions">
+                            <button
+                              className="icon-button"
+                              type="button"
+                              title="Editar usuário"
+                              disabled={escritaBloqueada}
+                              onClick={() => abrirEdicaoUsuario(item)}
+                            >
+                              <Pencil size={15} />
+                            </button>
+                            <button
+                              className="icon-button"
+                              type="button"
+                              title={item.ativo ? 'Desativar' : 'Ativar'}
+                              disabled={escritaBloqueada}
+                              onClick={() => void alternarAtivoUsuario(item)}
+                            >
+                              <Power size={15} />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                 </tbody>
@@ -1003,6 +1447,187 @@ export function DashboardApp() {
               <button className="secondary-button" type="button" onClick={() => setRevisaoParaRestaurar(null)}>Cancelar</button>
               <button className="primary-button" type="button" disabled={processando} onClick={() => void restaurar()}>
                 <RotateCcw size={16} /> Criar rollback
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {descarteRascunhoPendente && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setDescarteRascunhoPendente(false)}>
+          <section
+            className="edit-modal rollback-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="discard-title"
+            onMouseDown={(evento) => evento.stopPropagation()}
+          >
+            <div className="panel-title">
+              <div>
+                <p className="eyebrow">Ação local, sem afetar a escala publicada</p>
+                <h2 id="discard-title">Descartar este rascunho?</h2>
+                <p>
+                  Apenas documentos ainda não publicados são removidos. A última escala
+                  publicada da equipe continua disponível para o App.
+                </p>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setDescarteRascunhoPendente(false)} aria-label="Fechar"><X size={18} /></button>
+            </div>
+            <div className="rollback-actions">
+              <button className="secondary-button" type="button" onClick={() => setDescarteRascunhoPendente(false)}>Cancelar</button>
+              <button className="primary-button danger-button" type="button" disabled={processando} onClick={() => void descartarRascunho()}>
+                {processando ? <LoaderCircle className="spin" size={16} /> : <Trash2 size={16} />}
+                Descartar rascunho
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {formularioUsuario && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={fecharFormularioUsuario}>
+          <section
+            className="edit-modal user-form-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="user-form-title"
+            onMouseDown={(evento) => evento.stopPropagation()}
+          >
+            <div className="panel-title">
+              <div>
+                <p className="eyebrow">{formularioUsuario.uid === null ? 'Novo colaborador' : 'Editar colaborador'}</p>
+                <h2 id="user-form-title">
+                  {formularioUsuario.uid === null ? 'Cadastrar usuário' : formularioUsuario.nome || 'Editar usuário'}
+                </h2>
+              </div>
+              <button className="icon-button" type="button" onClick={fecharFormularioUsuario} aria-label="Fechar"><X size={18} /></button>
+            </div>
+            <div className="user-form-grid">
+              <label>
+                Nome
+                <input
+                  value={formularioUsuario.nome}
+                  onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, nome: evento.target.value })}
+                />
+              </label>
+              <label>
+                E-mail
+                <input
+                  type="email"
+                  value={formularioUsuario.email}
+                  onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, email: evento.target.value })}
+                />
+              </label>
+              <label>
+                Login (planilha)
+                <input
+                  value={formularioUsuario.login}
+                  onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, login: evento.target.value })}
+                />
+              </label>
+              <label>
+                Cargo
+                <input
+                  value={formularioUsuario.cargo}
+                  onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, cargo: evento.target.value })}
+                />
+              </label>
+              <label>
+                Equipe
+                <input value={usuario?.equipeId ?? ''} disabled />
+              </label>
+              <label>
+                Nível hierárquico
+                <input
+                  type="number"
+                  min={1}
+                  value={formularioUsuario.nivelHierarquico}
+                  onChange={(evento) => setFormularioUsuario({
+                    ...formularioUsuario,
+                    nivelHierarquico: Number(evento.target.value),
+                  })}
+                />
+              </label>
+              <label>
+                Turno padrão
+                <select
+                  value={formularioUsuario.turnoPadrao}
+                  onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, turnoPadrao: evento.target.value })}
+                >
+                  {Object.values(catalogo).map((tipo) => (
+                    <option key={tipo.codigo} value={tipo.codigo}>{tipo.descricao}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="user-form-active">
+                <input
+                  type="checkbox"
+                  checked={formularioUsuario.ativo}
+                  onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, ativo: evento.target.checked })}
+                />
+                <span>Ativo</span>
+              </label>
+              {formularioUsuario.uid === null && (
+                <label className="user-form-full">
+                  UID de autenticação (opcional)
+                  <input
+                    value={formularioUsuario.uidAutenticacao}
+                    onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, uidAutenticacao: evento.target.value })}
+                    placeholder="Cole aqui o UID já criado no Firebase Authentication"
+                  />
+                  <small>
+                    Sem preencher, o cadastro fica marcado como &quot;pendente de vínculo&quot; até alguém
+                    cadastrar um novo usuário com o UID real — o UID do documento não pode ser
+                    trocado depois de criado.
+                  </small>
+                </label>
+              )}
+              <label className="user-form-full">
+                Aliases da planilha
+                <div className="alias-editor">
+                  <div className="alias-editor-list">
+                    {formularioUsuario.aliasesPlanilha.length === 0 && (
+                      <small className="empty-inline">Nenhum alias cadastrado.</small>
+                    )}
+                    {formularioUsuario.aliasesPlanilha.map((alias) => (
+                      <span className="alias-chip" key={alias}>
+                        {alias}
+                        <button type="button" onClick={() => removerAliasDraft(alias)} aria-label={`Remover alias ${alias}`}>
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="alias-editor-add">
+                    <input
+                      value={novoAliasDraft}
+                      onChange={(evento) => setNovoAliasDraft(evento.target.value)}
+                      onKeyDown={(evento) => {
+                        if (evento.key === 'Enter') {
+                          evento.preventDefault();
+                          adicionarAliasDraft();
+                        }
+                      }}
+                      placeholder="Nome como aparece na planilha"
+                    />
+                    <button className="secondary-button compact-button" type="button" onClick={adicionarAliasDraft}>
+                      Adicionar
+                    </button>
+                  </div>
+                </div>
+              </label>
+            </div>
+            {errosFormularioUsuario.length > 0 && (
+              <div className="alert error">
+                <ul>
+                  {errosFormularioUsuario.map((erro) => <li key={erro}>{erro}</li>)}
+                </ul>
+              </div>
+            )}
+            <div className="rollback-actions">
+              <button className="secondary-button" type="button" onClick={fecharFormularioUsuario}>Cancelar</button>
+              <button className="primary-button" type="button" onClick={() => void salvarFormularioUsuario()}>
+                <Save size={16} /> {formularioUsuario.uid === null ? 'Cadastrar' : 'Salvar alterações'}
               </button>
             </div>
           </section>
