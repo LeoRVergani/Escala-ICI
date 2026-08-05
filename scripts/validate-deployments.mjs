@@ -23,7 +23,11 @@ const [
   ler('dist/apps/app/_redirects'),
 ]);
 
-assert.match(appHtml, /<div id="root"><\/div>/);
+// O App tem um único ponto de montagem, com a placa inicial da Fase 3K-D1
+// dentro dele — o React limpa o conteúdo de #root ao montar.
+assert.match(appHtml, /<div id="root">/);
+assert.equal(appHtml.match(/id="root"/g)?.length, 1);
+assert.match(appHtml, /id="boot-splash"/);
 assert.match(appHtml, /rel="manifest" href="\/manifest\.webmanifest"/);
 
 const pwa = JSON.parse(manifesto);

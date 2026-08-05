@@ -1,116 +1,71 @@
 'use client';
 
 import { LoaderCircle, LockKeyhole } from 'lucide-react';
-import {
-  FormEvent,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { FormEvent, useState } from 'react';
 
 import { GESTOR_DEMO, USUARIOS_DEMO } from '@/lib/demoIdentidades';
 import { firebaseConfigurado } from '@/lib/firebase/client';
 import {
   entrarComEmail,
   mensagemErroAutenticacao,
-  observarSessao,
   sair,
 } from '@/lib/firebase/authRepository';
 import type { Usuario } from '@/lib/modelos';
+import {
+  MENSAGEM_SEM_PERMISSAO_DASHBOARD,
+  deveExibirRestauracao,
+  nivelPermiteDashboard,
+} from '@/lib/sessao';
 import { BrandMark } from './BrandMark';
+import { useRestauracaoSessao } from './RestauracaoSessao';
 import { ThemeToggle } from './ThemeProvider';
 
 interface LoginPanelProps {
   tipo: 'dashboard' | 'app';
+  /**
+   * Quando `true`, o produto já restaurou a sessão antes de montar o login
+   * (é o caso do App, que exibe a tela "Restaurando sessão…").
+   */
+  sessaoDelegada?: boolean;
   onEntrar: (
     usuario: Usuario,
     demonstracao: boolean,
   ) => Promise<void> | void;
 }
 
-export function LoginPanel({ tipo, onEntrar }: LoginPanelProps) {
+export function LoginPanel({
+  tipo,
+  sessaoDelegada = false,
+  onEntrar,
+}: LoginPanelProps) {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
-  const [erro, setErro] = useState('');
+  const [erroEnvio, setErroEnvio] = useState('');
   const [carregando, setCarregando] = useState(false);
-  const [verificandoSessao, setVerificandoSessao] = useState(firebaseConfigurado);
-  const [manterConectado, setManterConectado] = useState(tipo === 'app');
-  const aoEntrar = useRef(onEntrar);
-  const chavePreferencia = `escala-ici-sessao-${tipo}`;
-
-  useEffect(() => {
-    aoEntrar.current = onEntrar;
-  }, [onEntrar]);
-
-  useEffect(() => {
-    let encerrado = false;
-    let cancelar = () => {};
-    const quadro = window.requestAnimationFrame(() => {
-      const preferencia = window.localStorage.getItem(chavePreferencia);
-      const persistir = preferencia === null
-        ? tipo === 'app'
-        : preferencia === 'true';
-      setManterConectado(persistir);
-
-      if (!firebaseConfigurado) {
-        setVerificandoSessao(false);
-        return;
-      }
-
-      const finalizar = () => {
-        if (!encerrado) {
-          cancelar();
-          setVerificandoSessao(false);
-        }
-      };
-
-      cancelar = observarSessao(
-        persistir,
-        (restaurado) => {
-          if (restaurado === null) {
-            finalizar();
-            return;
-          }
-          if (tipo === 'dashboard' && restaurado.nivelHierarquico > 5) {
-            void sair()
-              .then(() => setErro(
-                'Seu perfil não possui permissão de gestor para acessar o dashboard.',
-              ))
-              .finally(finalizar);
-            return;
-          }
-          void Promise.resolve(aoEntrar.current(restaurado, false))
-            .catch((falha: unknown) => setErro(mensagemErroAutenticacao(falha)))
-            .finally(finalizar);
-        },
-        (falha) => {
-          setErro(mensagemErroAutenticacao(falha));
-          finalizar();
-        },
-      );
-    });
-
-    return () => {
-      encerrado = true;
-      window.cancelAnimationFrame(quadro);
-      cancelar();
-    };
-  }, [chavePreferencia, tipo]);
+  const sessao = useRestauracaoSessao({
+    tipo,
+    delegada: sessaoDelegada,
+    aoRestaurar: (restaurado) => onEntrar(restaurado, false),
+  });
+  const verificandoSessao = deveExibirRestauracao(sessao.estado);
+  const manterConectado = sessao.manterConectado;
+  const erro = erroEnvio || sessao.erro;
 
   async function enviar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault();
-    setErro('');
+    setErroEnvio('');
+    sessao.definirErro('');
     setCarregando(true);
     try {
-      window.localStorage.setItem(chavePreferencia, String(manterConectado));
+      sessao.gravarPreferencia(manterConectado);
       const usuario = await entrarComEmail(email, senha, manterConectado);
-      if (tipo === 'dashboard' && usuario.nivelHierarquico > 5) {
+      if (tipo === 'dashboard' && !nivelPermiteDashboard(usuario.nivelHierarquico)) {
         await sair();
-        throw new Error('Seu perfil não possui permissão de gestor para acessar o dashboard.');
+        throw new Error(MENSAGEM_SEM_PERMISSAO_DASHBOARD);
       }
       await onEntrar(usuario, false);
     } catch (falha) {
-      setErro(mensagemErroAutenticacao(falha));
+      setErroEnvio(mensagemErroAutenticacao(falha));
     } finally {
       setCarregando(false);
     }
@@ -173,7 +128,7 @@ export function LoginPanel({ tipo, onEntrar }: LoginPanelProps) {
             <input
               type="checkbox"
               checked={manterConectado}
-              onChange={(evento) => setManterConectado(evento.target.checked)}
+              onChange={(evento) => sessao.definirManterConectado(evento.target.checked)}
               disabled={!firebaseConfigurado || verificandoSessao}
             />
             <span>

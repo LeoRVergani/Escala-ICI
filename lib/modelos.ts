@@ -86,6 +86,59 @@ export interface EstadoPublicacaoEscala {
   atualizadoEm: string;
 }
 
+/**
+ * Fase 3K-D1 — desenho inicial da troca de escala.
+ *
+ * Contrato preparado, ainda não implementado. Regras do desenho:
+ * - o App do colaborador poderá, no futuro, escrever apenas em
+ *   `solicitacoesTroca`, e somente como solicitante;
+ * - o App nunca edita `turnosMes`, `rascunhosTurnosMes` nem gera revisão;
+ * - a aprovação e a aplicação final na escala ficam no Dashboard/gestor, que
+ *   aplica a troca pelo fluxo de revisão já existente.
+ */
+export type StatusSolicitacaoTroca =
+  | 'PENDENTE'
+  | 'CANCELADA'
+  | 'RECUSADA'
+  | 'APROVADA'
+  | 'APLICADA';
+
+export type AtorSolicitacaoTroca = 'COLABORADOR' | 'GESTOR';
+
+/** Fotografia somente leitura do dia envolvido na troca. */
+export interface DiaSolicitacaoTroca {
+  data: string;
+  codigo: string | null;
+  horario: string | null;
+}
+
+/** Campos que o App pode enviar ao criar uma solicitação. */
+export interface NovaSolicitacaoTroca {
+  equipeId: string;
+  competencia: string;
+  revisaoBase: number;
+  solicitanteUid: string;
+  solicitanteLogin: string;
+  destinatarioUid: string;
+  destinatarioLogin: string;
+  diaSolicitante: DiaSolicitacaoTroca;
+  diaDestinatario: DiaSolicitacaoTroca;
+  motivo: string;
+}
+
+export interface SolicitacaoTroca extends NovaSolicitacaoTroca {
+  id: string;
+  status: StatusSolicitacaoTroca;
+  criadoEm: string;
+  atualizadoEm: string;
+  /** Preenchido apenas pelo Dashboard/gestor. */
+  decididoPor: string | null;
+  decididoEm: string | null;
+  observacaoGestor: string | null;
+  /** Revisão da escala em que a troca foi efetivamente aplicada. */
+  aplicadoNaRevisao: number | null;
+}
+
 export interface DadosEscala {
   documentos: TurnosMes[];
   catalogo: Record<string, TipoTurno>;

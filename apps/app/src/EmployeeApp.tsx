@@ -43,6 +43,10 @@ import { useEffect, useRef, useState } from 'react';
 
 import { AppFrame, type ItemNavegacao } from '@/components/AppFrame';
 import { LoginPanel } from '@/components/LoginPanel';
+import {
+  TelaRestaurandoSessao,
+  useRestauracaoSessao,
+} from '@/components/RestauracaoSessao';
 import { ScheduleGrid } from '@/components/ScheduleGrid';
 import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
@@ -56,6 +60,7 @@ import {
 } from '@/lib/firebase/readRepository';
 import { USUARIOS_DEMO } from '@/lib/demoIdentidades';
 import type { EventoEscala, Usuario } from '@/lib/modelos';
+import { deveExibirRestauracao, podeIniciarListeners } from '@/lib/sessao';
 
 type Tela = 'hoje' | 'minha' | 'equipe' | 'perfil';
 type ModoEscala = 'calendario' | 'agenda';
@@ -563,27 +568,43 @@ export function EmployeeApp() {
   const [idsLidos, setIdsLidos] = useState<Set<string>>(() => new Set());
   const [centralAberta, setCentralAberta] = useState(false);
   const [avisoAtualizacao, setAvisoAtualizacao] = useState('');
+  const [dadosCarregados, setDadosCarregados] = useState(false);
   const eventosConhecidos = useRef<Set<string>>(new Set());
   const primeiraCargaEventos = useRef(true);
+  const sessao = useRestauracaoSessao({
+    tipo: 'app',
+    aoRestaurar: (restaurado) => autenticar(restaurado, false),
+  });
 
   useEffect(() => {
     const atualizacao = window.setInterval(() => setAgora(new Date()), 60_000);
     return () => window.clearInterval(atualizacao);
   }, []);
 
+  const usuarioUid = usuario?.uid ?? null;
+  const equipeUsuario = usuario?.equipeId ?? null;
+  // A sincronização só começa depois da sessão resolvida e da carga inicial:
+  // assim o snapshot em tempo real nunca é sobrescrito pela leitura pontual.
+  const listenersLiberados = podeIniciarListeners({
+    estado: sessao.estado,
+    usuarioCarregado: usuario !== null,
+    dadosIniciaisCarregados: dadosCarregados,
+    modoDemonstracao,
+  });
+
   useEffect(() => {
-    if (usuario === null || modoDemonstracao) {
+    if (!listenersLiberados || usuarioUid === null || equipeUsuario === null) {
       return undefined;
     }
     const cancelarEscalas = observarEscalasEquipe(
-      usuario.equipeId,
+      equipeUsuario,
       competenciaAtiva,
       setDocumentos,
       (falha) => setErro(mensagemErroFirebase(falha, 'A sincronização em tempo real foi interrompida.')),
     );
     const cancelarEventos = observarEventosEscala(
-      usuario.uid,
-      usuario.equipeId,
+      usuarioUid,
+      equipeUsuario,
       (atualizados) => {
         const novos = atualizados.filter((evento) => !eventosConhecidos.current.has(evento.id));
         setEventos(atualizados);
@@ -595,7 +616,7 @@ export function EmployeeApp() {
         if (novos.length > 0) {
           const maisRecente = novos[0]!;
           setAvisoAtualizacao(
-            `${maisRecente.motivo}: ${maisRecente.alteracoes.length} mudança(s) na sua escala.`,
+            `Revisão ${maisRecente.revisao} · ${maisRecente.motivo}: ${maisRecente.alteracoes.length} mudança(s) na sua escala.`,
           );
           if ('Notification' in window && Notification.permission === 'granted') {
             new Notification('Escala ICI atualizada', {
@@ -611,7 +632,7 @@ export function EmployeeApp() {
       cancelarEscalas();
       cancelarEventos();
     };
-  }, [competenciaAtiva, modoDemonstracao, usuario]);
+  }, [competenciaAtiva, equipeUsuario, listenersLiberados, usuarioUid]);
 
   const escalasDoUsuario = documentos.filter(
     (documento) => documento.usuarioUid === usuario?.uid,
@@ -664,6 +685,8 @@ export function EmployeeApp() {
     setUsuario(autenticado);
     setModoDemonstracao(demonstracao);
     setEventos([]);
+    setDadosCarregados(false);
+    setTela('hoje');
     eventosConhecidos.current = new Set();
     primeiraCargaEventos.current = true;
     setErro('');
@@ -721,6 +744,10 @@ export function EmployeeApp() {
       }
     } catch (falha) {
       setErro(mensagemErroFirebase(falha, 'Não foi possível carregar a escala.'));
+    } finally {
+      // Libera a sincronização mesmo se a carga inicial falhar: o snapshot em
+      // tempo real é a chance de a escala aparecer sem exigir F5.
+      setDadosCarregados(true);
     }
   }
 
@@ -729,8 +756,10 @@ export function EmployeeApp() {
     setUsuario(null);
     setDocumentos([]);
     setEventos([]);
+    setDadosCarregados(false);
     setCentralAberta(false);
     setAvisoAtualizacao('');
+    setTela('hoje');
   }
 
   function alternarCentral() {
@@ -750,16 +779,30 @@ export function EmployeeApp() {
     );
   }
 
+  function abrirAtualizacoes() {
+    setAvisoAtualizacao('');
+    if (!centralAberta) {
+      alternarCentral();
+    }
+  }
+
   async function ativarNotificacoesSistema() {
     if ('Notification' in window) {
       await Notification.requestPermission();
     }
   }
 
-  if (usuario === null) {
-    return <LoginPanel tipo="app" onEntrar={autenticar} />;
+  // Enquanto o Firebase Auth não confirmar a sessão local, o App não mostra
+  // login nem telas vazias — só a tela de restauração.
+  if (deveExibirRestauracao(sessao.estado)) {
+    return <TelaRestaurandoSessao />;
   }
 
+  if (usuario === null) {
+    return <LoginPanel tipo="app" sessaoDelegada onEntrar={autenticar} />;
+  }
+
+  const mensagemErro = erro || sessao.erro;
   const nomes = Object.fromEntries(usuarios.map((item) => [item.uid, item.nome]));
   const datas = Object.keys(minhaEscala?.dias ?? {}).sort();
   const dataHojeFormatada = formatarData(dataHoje, {
@@ -797,13 +840,16 @@ export function EmployeeApp() {
       )}
     >
       {avisoAtualizacao && (
-        <div className="toast update-toast" role="status">
+        <div className="toast update-toast" role="status" aria-live="polite">
           <BellRing size={18} />
           <span>{avisoAtualizacao}</span>
+          <button className="toast-action" type="button" onClick={abrirAtualizacoes}>
+            Ver atualizações
+          </button>
           <button type="button" onClick={() => setAvisoAtualizacao('')} aria-label="Fechar">×</button>
         </div>
       )}
-      {erro && <div className="alert error">{erro}</div>}
+      {mensagemErro && <div className="alert error">{mensagemErro}</div>}
 
       {tela === 'hoje' && (
         <section className="employee-screen employee-today-screen">

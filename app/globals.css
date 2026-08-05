@@ -2957,3 +2957,70 @@ button.shift-chip:disabled { cursor: default; }
     font-size: 6px;
   }
 }
+
+/* Fase 3K-D1 — restauração de sessão e atualização interna sem F5. */
+.session-restore {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.session-restore-card {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.session-restore-card .brand-mark {
+  width: 46px;
+  height: 46px;
+}
+
+.session-restore-card > strong {
+  font-size: 18px;
+  letter-spacing: -0.03em;
+}
+
+.session-restore-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--primary-bright);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.session-restore-card > small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.update-toast .toast-action {
+  padding: 5px 10px;
+  color: var(--primary-bright);
+  background: var(--primary-soft);
+  border: 1px solid color-mix(in srgb, var(--primary-bright) 32%, transparent);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.update-toast .toast-action:hover {
+  color: white;
+  background: var(--primary-bright);
+}
+
+@media (max-width: 780px) {
+  .toast.update-toast {
+    right: 12px;
+    left: 12px;
+    top: 74px;
+    max-width: none;
+    flex-wrap: wrap;
+  }
+}

@@ -246,3 +246,62 @@ test('a fase 3J-C.1 corrige menu da conta, contraste escuro e ícone do próximo
   assert.match(estilos, /next-shift-title > div > span/);
   assert.doesNotMatch(estilos, /next-shift-title span\s*\{/);
 });
+
+test('a fase 3K-D1 estabiliza a sessão do App e a atualização interna', async () => {
+  const [app, login, restauracao, sessao, estilos, html] = await Promise.all([
+    ler('apps/app/src/EmployeeApp.tsx'),
+    ler('components/LoginPanel.tsx'),
+    ler('components/RestauracaoSessao.tsx'),
+    ler('lib/sessao.ts'),
+    ler('app/globals.css'),
+    ler('apps/app/index.html'),
+  ]);
+
+  // O App decide a tela antes do login: nenhum flicker de tela inicial.
+  assert.match(app, /TelaRestaurandoSessao/);
+  assert.match(app, /deveExibirRestauracao\(sessao\.estado\)/);
+  assert.match(app, /<LoginPanel tipo="app" sessaoDelegada/);
+  assert.match(restauracao, /Restaurando sessão/);
+  assert.match(html, /id="boot-splash"/);
+  assert.match(html, /Restaurando sessão/);
+
+  // Um único observador de sessão: o LoginPanel delega quando o App já observa.
+  assert.match(login, /useRestauracaoSessao/);
+  assert.match(login, /sessaoDelegada/);
+  assert.doesNotMatch(login, /observarSessao/);
+  assert.match(restauracao, /observarSessao/);
+
+  // Listeners só depois da sessão e do usuário do Firestore carregados.
+  assert.match(sessao, /podeIniciarListeners/);
+  assert.match(app, /podeIniciarListeners\(\{/);
+  assert.match(app, /dadosIniciaisCarregados: dadosCarregados/);
+  assert.match(app, /\[competenciaAtiva, equipeUsuario, listenersLiberados, usuarioUid\]/);
+  assert.match(app, /Revisão \$\{maisRecente\.revisao\}/);
+  assert.match(app, /toast-action/);
+  assert.match(estilos, /Fase 3K-D1 — restauração de sessão e atualização interna/);
+});
+
+test('a fase 3K-D1 mantém a troca de escala fora da escrita do App', async () => {
+  const [troca, modelos, app, regras] = await Promise.all([
+    ler('lib/trocaEscala.ts'),
+    ler('lib/modelos.ts'),
+    ler('apps/app/src/EmployeeApp.tsx'),
+    ler('firestore.rules'),
+  ]);
+
+  // Desenho preparado, escrita não implementada.
+  assert.match(troca, /COLECAO_SOLICITACOES_TROCA = 'solicitacoesTroca'/);
+  assert.match(troca, /transicaoPermitidaNoApp/);
+  assert.match(modelos, /SolicitacaoTroca/);
+  assert.doesNotMatch(troca, /firebase\/firestore/);
+  for (const mutacao of ['writeBatch', 'setDoc', 'updateDoc', 'deleteDoc', 'addDoc']) {
+    assert.doesNotMatch(troca, new RegExp(mutacao), mutacao);
+  }
+
+  // O App continua sem qualquer caminho de escrita, inclusive de troca.
+  assert.doesNotMatch(app, /solicitacoesTroca/);
+  assert.doesNotMatch(app, /writeRepository/);
+
+  // Enquanto a escrita não existir, as regras não expõem a coleção.
+  assert.doesNotMatch(regras, /solicitacoesTroca/);
+});

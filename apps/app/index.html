@@ -12,9 +12,58 @@
     <link rel="icon" type="image/png" href="/icons/favicon-48.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>Minha Escala · Escala ICI</title>
+    <script>
+      // Aplica o tema salvo antes da primeira pintura para o PWA instalado não
+      // piscar entre claro e escuro ao abrir.
+      try {
+        if (window.localStorage.getItem('escala-ici-tema') === 'dark') {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      } catch (falha) {
+        // Armazenamento bloqueado: segue com o tema claro padrão.
+      }
+    </script>
+    <style>
+      /* Placa inicial pintada antes do React montar; o React limpa #root. */
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 10px;
+        background: #faf9f7;
+        color: #231f2b;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      html[data-theme="dark"] #boot-splash {
+        background: #111824;
+        color: #f5f7fb;
+      }
+      #boot-splash strong { font-size: 17px; letter-spacing: -0.02em; }
+      #boot-splash span { font-size: 12px; opacity: 0.7; }
+      #boot-splash i {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 2px solid currentColor;
+        border-top-color: transparent;
+        animation: boot-spin 700ms linear infinite;
+      }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-splash i { animation-duration: 2s; }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot-splash">
+        <i aria-hidden="true"></i>
+        <strong>Escala ICI</strong>
+        <span>Restaurando sessão…</span>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
