@@ -11,6 +11,8 @@ export const escritaOficialHabilitada = politica.escritaOficial;
 export const emuladoresLaboratorioHabilitados = politica.emuladoresLaboratorio;
 export const emuladoresLocaisHabilitados = emuladoresLaboratorioHabilitados;
 export const escritaAdministrativaHabilitada = politica.escritaAdministrativa;
+/** Para `mensagemErroFirebase()` diferenciar staging de laboratório local. */
+export const ambienteFirebaseAtual = politica.ambiente;
 
 export function exigirFirebase() {
   const firebase = obterFirebase();

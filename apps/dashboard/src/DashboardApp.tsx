@@ -68,6 +68,7 @@ import {
 } from '@/lib/firebase/readRepository';
 import {
   adicionarMembroRascunho,
+  atualizarAliasesPlanilha,
   escritaAdministrativaHabilitada,
   excluirRascunho,
   publicarEscalas,
@@ -79,6 +80,7 @@ import {
 } from '@/lib/firebase/writeRepository';
 import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
+import { ambienteFirebaseAtual } from '@/lib/firebase/shared';
 import {
   construirIndiceAlertasGrade,
   gerarAlertasEscala,
@@ -241,6 +243,7 @@ export function DashboardApp() {
   const [revisaoAtual, setRevisaoAtual] = useState(0);
   const [revisaoParaRestaurar, setRevisaoParaRestaurar] = useState<PublicacaoEscala | null>(null);
   const [publicacaoPendente, setPublicacaoPendente] = useState(false);
+  const [erroPublicacao, setErroPublicacao] = useState('');
   const [motivoPublicacao, setMotivoPublicacao] = useState('');
   const [publicacaoExpandida, setPublicacaoExpandida] = useState<string | null>(null);
   const [detalhesPublicacao, setDetalhesPublicacao] = useState<Record<string, EventoEscala[]>>({});
@@ -479,19 +482,19 @@ export function DashboardApp() {
     if (escolhido === undefined) {
       return;
     }
-    const atualizado: Usuario = {
-      ...escolhido,
-      aliasesPlanilha: normalizarAliasesPlanilha([...(escolhido.aliasesPlanilha ?? []), linha.nomePlanilha]),
-      atualizadoEm: new Date().toISOString(),
-    };
+    const aliasesAtualizados = normalizarAliasesPlanilha([...(escolhido.aliasesPlanilha ?? []), linha.nomePlanilha]);
+    const agora = new Date().toISOString();
     try {
+      // Atualiza só os aliases + o carimbo de data — não regrava o usuário
+      // inteiro, então um cadastro antigo sem `criadoEm` não é afetado.
       if (!modoDemo) {
-        await salvarUsuario(atualizado);
+        await atualizarAliasesPlanilha(escolhido.uid, aliasesAtualizados);
       }
+      const atualizado: Usuario = { ...escolhido, aliasesPlanilha: aliasesAtualizados, atualizadoEm: agora };
       setUsuarios((atuais) => atuais.map((item) => (item.uid === atualizado.uid ? atualizado : item)));
       setMensagem(`Alias "${linha.nomePlanilha}" salvo para ${atualizado.nome}.`);
     } catch (falha) {
-      setMensagem(mensagemErroFirebase(falha, 'Não foi possível salvar o alias.'));
+      setMensagem(mensagemErroFirebase(falha, 'Não foi possível salvar o alias.', ambienteFirebaseAtual));
     }
   }
 
@@ -570,7 +573,7 @@ export function DashboardApp() {
           : `${parseado.erros.length} inconsistência(s) ainda precisam de correção.`);
       }
     } catch (falha) {
-      setMensagem(mensagemErroFirebase(falha, 'Não foi possível cadastrar os usuários faltantes.'));
+      setMensagem(mensagemErroFirebase(falha, 'Não foi possível cadastrar os usuários faltantes.', ambienteFirebaseAtual));
     } finally {
       setProcessando(false);
     }
@@ -603,27 +606,28 @@ export function DashboardApp() {
       setMensagem('Rascunho salvo com sucesso. Nenhum arquivo foi enviado.');
       setTela('escalas');
     } catch (falha) {
-      setMensagem(mensagemErroFirebase(falha, 'Não foi possível salvar.'));
+      setMensagem(mensagemErroFirebase(falha, 'Não foi possível salvar.', ambienteFirebaseAtual));
     } finally {
       setProcessando(false);
     }
   }
 
   async function publicar() {
+    setErroPublicacao('');
     if (resultado === null || usuario === null || !resultado.ok) {
-      setMensagem('Corrija todos os logins e inconsistências antes de publicar.');
+      setErroPublicacao('Corrija todos os logins e inconsistências antes de publicar.');
       return;
     }
     if (escritaBloqueada) {
-      setMensagem('A publicação está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
+      setErroPublicacao('A publicação está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
       return;
     }
     if (conciliacaoBloqueiaPublicacao) {
-      setMensagem('Resolva as pendências de conciliação de nomes antes de publicar.');
+      setErroPublicacao('Resolva as pendências de conciliação de nomes antes de publicar.');
       return;
     }
     if (revisaoAtual > 0 && motivoPublicacao.trim().length < 3) {
-      setMensagem('Informe um motivo curto para explicar o que mudou nesta publicação.');
+      setErroPublicacao('Informe um motivo curto para explicar o que mudou nesta publicação.');
       return;
     }
     setProcessando(true);
@@ -653,7 +657,12 @@ export function DashboardApp() {
       setPublicacaoPendente(false);
       setMotivoPublicacao('');
     } catch (falha) {
-      setMensagem(mensagemErroFirebase(falha, 'Falha na publicação.'));
+      const texto = mensagemErroFirebase(falha, 'Falha na publicação.', ambienteFirebaseAtual);
+      // O modal continua aberto (não chamamos setPublicacaoPendente(false))
+      // e mostra o erro localmente — o toast global fica atrás do modal
+      // visualmente, então não basta avisar só por ele.
+      setErroPublicacao(texto);
+      setMensagem(texto);
     } finally {
       setProcessando(false);
     }
@@ -672,7 +681,7 @@ export function DashboardApp() {
       const eventos = await listarEventosPublicacao(usuario.equipeId, publicacao.id);
       setDetalhesPublicacao((atuais) => ({ ...atuais, [publicacao.id]: eventos }));
     } catch (falha) {
-      setMensagem(mensagemErroFirebase(falha, 'Não foi possível carregar os detalhes da revisão.'));
+      setMensagem(mensagemErroFirebase(falha, 'Não foi possível carregar os detalhes da revisão.', ambienteFirebaseAtual));
     }
   }
 
@@ -711,7 +720,7 @@ export function DashboardApp() {
         `Revisão ${revisaoParaRestaurar.revisao} restaurada como revisão ${restaurada.publicacao.revisao}.`,
       );
     } catch (falha) {
-      setMensagem(mensagemErroFirebase(falha, 'Falha ao restaurar a revisão.'));
+      setMensagem(mensagemErroFirebase(falha, 'Falha ao restaurar a revisão.', ambienteFirebaseAtual));
     } finally {
       setProcessando(false);
       setRevisaoParaRestaurar(null);
@@ -873,7 +882,7 @@ export function DashboardApp() {
         : 'Usuário atualizado com sucesso.');
       fecharFormularioUsuario();
     } catch (falha) {
-      setErrosFormularioUsuario([mensagemErroFirebase(falha, 'Não foi possível salvar o usuário.')]);
+      setErrosFormularioUsuario([mensagemErroFirebase(falha, 'Não foi possível salvar o usuário.', ambienteFirebaseAtual)]);
     }
   }
 
@@ -889,7 +898,7 @@ export function DashboardApp() {
       }
       setUsuarios((atuais) => atuais.map((existente) => (existente.uid === item.uid ? atualizado : existente)));
     } catch (falha) {
-      setMensagem(mensagemErroFirebase(falha, 'Não foi possível atualizar o status do usuário.'));
+      setMensagem(mensagemErroFirebase(falha, 'Não foi possível atualizar o status do usuário.', ambienteFirebaseAtual));
     }
   }
 
@@ -935,7 +944,7 @@ export function DashboardApp() {
       setMensagem(`${usuarioNovo.nome} agora está vinculado(a) ao UID informado. O cadastro antigo ficou inativo.`);
       fecharVincularUid();
     } catch (falha) {
-      setErrosVincular([mensagemErroFirebase(falha, 'Não foi possível vincular o usuário ao UID informado.')]);
+      setErrosVincular([mensagemErroFirebase(falha, 'Não foi possível vincular o usuário ao UID informado.', ambienteFirebaseAtual)]);
     }
   }
 
@@ -982,7 +991,7 @@ export function DashboardApp() {
       setMensagem(`${colaborador.nome} incluído(a) na grade desta competência.`);
       setMembroGradeDraft(null);
     } catch (falha) {
-      setMensagem(mensagemErroFirebase(falha, 'Não foi possível incluir o colaborador na grade.'));
+      setMensagem(mensagemErroFirebase(falha, 'Não foi possível incluir o colaborador na grade.', ambienteFirebaseAtual));
     }
   }
 
@@ -1002,7 +1011,7 @@ export function DashboardApp() {
       }));
       setMensagem('Colaborador removido da grade desta competência.');
     } catch (falha) {
-      setMensagem(mensagemErroFirebase(falha, 'Não foi possível remover o colaborador da grade. Se a escala já foi publicada, não é possível remover por aqui.'));
+      setMensagem(mensagemErroFirebase(falha, 'Não foi possível remover o colaborador da grade. Se a escala já foi publicada, não é possível remover por aqui.', ambienteFirebaseAtual));
     }
   }
 
@@ -1026,7 +1035,7 @@ export function DashboardApp() {
       setTela('importar');
       setMensagem('Rascunho descartado.');
     } catch (falha) {
-      setMensagem(mensagemErroFirebase(falha, 'Não foi possível descartar o rascunho.'));
+      setMensagem(mensagemErroFirebase(falha, 'Não foi possível descartar o rascunho.', ambienteFirebaseAtual));
     } finally {
       setProcessando(false);
     }
@@ -1390,7 +1399,10 @@ export function DashboardApp() {
                 className="primary-button"
                 type="button"
                 disabled={!documentos.length || !resultado?.ok || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
-                onClick={() => setPublicacaoPendente(true)}
+                onClick={() => {
+                  setErroPublicacao('');
+                  setPublicacaoPendente(true);
+                }}
               >
                 <Send size={16} /> Publicar
               </button>
@@ -1652,7 +1664,7 @@ export function DashboardApp() {
       )}
 
       {publicacaoPendente && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setPublicacaoPendente(false)}>
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => { setPublicacaoPendente(false); setErroPublicacao(''); }}>
           <section
             className="edit-modal publication-modal"
             role="dialog"
@@ -1666,7 +1678,14 @@ export function DashboardApp() {
                 <h2 id="publication-title">Publicar nova versão da escala?</h2>
                 <p>Os colaboradores afetados receberão esta informação no sino do App.</p>
               </div>
-              <button className="icon-button" type="button" onClick={() => setPublicacaoPendente(false)} aria-label="Fechar"><X size={18} /></button>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => { setPublicacaoPendente(false); setErroPublicacao(''); }}
+                aria-label="Fechar"
+              >
+                <X size={18} />
+              </button>
             </div>
             <label className="publication-reason">
               Motivo da publicação
@@ -1679,8 +1698,11 @@ export function DashboardApp() {
               />
               <small>{motivoPublicacao.trim().length}/180 caracteres</small>
             </label>
+            {erroPublicacao && (
+              <div className="alert error" role="alert">{erroPublicacao}</div>
+            )}
             <div className="rollback-actions">
-              <button className="secondary-button" type="button" onClick={() => setPublicacaoPendente(false)}>Cancelar</button>
+              <button className="secondary-button" type="button" onClick={() => { setPublicacaoPendente(false); setErroPublicacao(''); }}>Cancelar</button>
               <button
                 className="primary-button"
                 type="button"

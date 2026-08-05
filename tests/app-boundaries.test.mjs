@@ -499,3 +499,44 @@ test('ajustes rápidos: grade sem contagem no título do grupo, células vazias 
   // Input do login: a regra do ícone precisa vencer em especificidade, não só em ordem.
   assert.match(estilos, /\.login-card \.login-field-input input \{/);
 });
+
+test('correção urgente: sem undefined no Firestore, erro visível e diferenciado por ambiente', async () => {
+  const [writeRepo, dashboard, app, errors, estilos, sanitizar] = await Promise.all([
+    ler('lib/firebase/writeRepository.ts'),
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('apps/app/src/EmployeeApp.tsx'),
+    ler('lib/firebase/errors.ts'),
+    ler('app/globals.css'),
+    ler('lib/firebase/sanitizar.ts'),
+  ]);
+
+  // Sanitizador puro, sem SDK do Firestore.
+  assert.doesNotMatch(sanitizar, /firebase\/firestore/);
+  assert.match(sanitizar, /export function removerUndefined/);
+
+  // Todo payload de escrita em usuarios/{uid} passa por removerUndefined.
+  assert.match(writeRepo, /removerUndefined/);
+  assert.match(writeRepo, /setDoc\(doc\(db, 'usuarios', usuario\.uid\), removerUndefined\(usuario\)/);
+  assert.match(writeRepo, /batch\.set\(doc\(db, 'usuarios', usuario\.uid\), removerUndefined\(usuario\)\)/);
+  assert.match(writeRepo, /criadoEm: usuarioAntigo\.criadoEm \?\? agora/);
+
+  // Alias-only save não regrava o usuário inteiro.
+  assert.match(writeRepo, /export async function atualizarAliasesPlanilha/);
+  assert.match(dashboard, /atualizarAliasesPlanilha\(escolhido\.uid, aliasesAtualizados\)/);
+
+  // mensagemErroFirebase recebe o ambiente atual, não assume "laboratório".
+  assert.match(errors, /ambiente: AmbienteErroFirebase = 'indefinido'/);
+  assert.match(errors, /if \(ambiente === 'local'\)/);
+  assert.match(errors, /if \(ambiente === 'staging'\)/);
+  assert.match(dashboard, /import { ambienteFirebaseAtual } from '@\/lib\/firebase\/shared'/);
+  assert.match(app, /import { ambienteFirebaseAtual } from '@\/lib\/firebase\/shared'/);
+  assert.doesNotMatch(dashboard, /mensagemErroFirebase\(falha, '[^']*'\)/);
+  assert.doesNotMatch(app, /mensagemErroFirebase\(falha, '[^']*'\)/);
+
+  // Erro de publicação some do global e aparece dentro do próprio modal.
+  assert.match(dashboard, /erroPublicacao/);
+  assert.match(dashboard, /\{erroPublicacao &&/);
+
+  // Toast sempre acima de modal (não pode ficar escondido atrás do overlay).
+  assert.match(estilos, /\.toast \{[\s\S]*z-index: 260/);
+});

@@ -50,6 +50,7 @@ import {
 import { ScheduleGrid } from '@/components/ScheduleGrid';
 import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
+import { ambienteFirebaseAtual } from '@/lib/firebase/shared';
 import {
   carregarEscalasEquipe,
   carregarMinhaEscala,
@@ -601,7 +602,7 @@ export function EmployeeApp() {
       equipeUsuario,
       competenciaAtiva,
       setDocumentos,
-      (falha) => setErro(mensagemErroFirebase(falha, 'A sincronização em tempo real foi interrompida.')),
+      (falha) => setErro(mensagemErroFirebase(falha, 'A sincronização em tempo real foi interrompida.', ambienteFirebaseAtual)),
     );
     const cancelarEventos = observarEventosEscala(
       usuarioUid,
@@ -627,7 +628,7 @@ export function EmployeeApp() {
           }
         }
       },
-      (falha) => setErro(mensagemErroFirebase(falha, 'Não foi possível acompanhar as atualizações.')),
+      (falha) => setErro(mensagemErroFirebase(falha, 'Não foi possível acompanhar as atualizações.', ambienteFirebaseAtual)),
     );
     return () => {
       cancelarEscalas();
@@ -744,7 +745,7 @@ export function EmployeeApp() {
         }
       }
     } catch (falha) {
-      setErro(mensagemErroFirebase(falha, 'Não foi possível carregar a escala.'));
+      setErro(mensagemErroFirebase(falha, 'Não foi possível carregar a escala.', ambienteFirebaseAtual));
     } finally {
       // Libera a sincronização mesmo se a carga inicial falhar: o snapshot em
       // tempo real é a chance de a escala aparecer sem exigir F5.

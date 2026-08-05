@@ -611,8 +611,15 @@ button.shift-chip:disabled { cursor: default; }
 .rollback-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .login-code { font-size: 11px; font-weight: 800; }
 
+/*
+ * Correção urgente — o toast tinha z-index 100, abaixo do `.modal-backdrop`
+ * (200): um erro que acontecia com um modal aberto (ex.: publicar) ficava
+ * escondido atrás dele, dando a impressão de que o botão não respondeu.
+ * O toast é o canal de feedback de qualquer ação, então precisa ficar acima
+ * de qualquer overlay — inclusive `.pwa-messages` (140), daí o 260.
+ */
 .toast {
-  position: fixed; right: 20px; top: 88px; z-index: 100; max-width: 420px;
+  position: fixed; right: 20px; top: 88px; z-index: 260; max-width: 420px;
   display: flex; align-items: center; gap: 12px; padding: 12px 14px;
   color: var(--success); background: var(--surface); border: 1px solid color-mix(in srgb, var(--success) 40%, var(--border));
   border-radius: 8px; box-shadow: var(--shadow); animation: toast-in 180ms ease-out;

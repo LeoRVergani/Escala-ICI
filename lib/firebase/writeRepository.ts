@@ -26,6 +26,7 @@ import type {
 import { agruparAlteracoesPorUsuario, calcularAlteracoesEscala } from '../revisoes';
 import { gerarUuid } from '../uuid';
 import { fatiarEmLotes } from './batches';
+import { removerUndefined } from './sanitizar';
 import {
   escritaAdministrativaHabilitada,
   escritaOficialHabilitada,
@@ -131,18 +132,18 @@ export async function salvarRascunho(
         'rascunhosTurnosMes',
         idDocumento(documento.equipeId, documento.usuarioUid, documento.competencia),
       );
-      batch.set(referencia, {
+      batch.set(referencia, removerUndefined({
         ...documento,
         status: 'RASCUNHO',
         importacaoId,
         publicadoPor: null,
         publicadoEm: null,
         atualizadoEm: serverTimestamp(),
-      });
+      }));
     }
 
     if (indice === 0) {
-      batch.set(doc(db, 'importacoes', importacaoId), {
+      batch.set(doc(db, 'importacoes', importacaoId), removerUndefined({
         equipeId: enviadoPor.equipeId,
         competencia: resultado.documentos[0]?.competencia ?? '',
         enviadoPor: enviadoPor.uid,
@@ -152,7 +153,7 @@ export async function salvarRascunho(
         totalDocumentos: resultado.documentos.length,
         status: 'RASCUNHO',
         criadoEm: serverTimestamp(),
-      });
+      }));
     }
     await batch.commit();
   }
@@ -216,16 +217,16 @@ export async function publicarEscalas(
       };
       batch.set(
         doc(db, 'turnosMes', idDocumento(equipeId, documento.usuarioUid, competencia)),
-        publicado,
+        removerUndefined(publicado),
       );
       batch.set(
         doc(db, 'versoesEscala', idDocumentoVersao(chavePublicacao, revisao, documento.usuarioUid)),
-        { ...publicado, chavePublicacao, revisao },
+        removerUndefined({ ...publicado, chavePublicacao, revisao }),
       );
       const alteracoesDoUsuario = alteracoesPorUsuario.get(documento.usuarioUid);
       if (alteracoesDoUsuario !== undefined) {
         const evento = criarEventoEscala(publicacao, documento.usuarioUid, alteracoesDoUsuario);
-        batch.set(doc(db, 'eventosEscala', evento.id), evento);
+        batch.set(doc(db, 'eventosEscala', evento.id), removerUndefined(evento));
       }
       batch.delete(doc(
         db,
@@ -234,8 +235,8 @@ export async function publicarEscalas(
       ));
     }
     if (indice === 0) {
-      batch.set(doc(db, 'historicoPublicacoes', publicacao.id), publicacao);
-      batch.set(estadoRef, {
+      batch.set(doc(db, 'historicoPublicacoes', publicacao.id), removerUndefined(publicacao));
+      batch.set(estadoRef, removerUndefined({
         id: chavePublicacao,
         equipeId,
         competencia,
@@ -243,7 +244,7 @@ export async function publicarEscalas(
         ultimaPublicacaoId: publicacao.id,
         atualizadoPor: publicadoPor,
         atualizadoEm: publicadoEm,
-      });
+      }));
     }
     await batch.commit();
   }
@@ -261,7 +262,7 @@ export async function publicarEscalas(
       const alteracoesDoUsuario = alteracoesPorUsuario.get(usuarioUid);
       if (alteracoesDoUsuario !== undefined) {
         const evento = criarEventoEscala(publicacao, usuarioUid, alteracoesDoUsuario);
-        batch.set(doc(db, 'eventosEscala', evento.id), evento);
+        batch.set(doc(db, 'eventosEscala', evento.id), removerUndefined(evento));
       }
     }
     await batch.commit();
@@ -345,7 +346,7 @@ export async function reverterPublicacao(
     const alteracoesDoUsuario = alteracoesPorUsuario.get(usuarioUid);
     if (alteracoesDoUsuario !== undefined) {
       const evento = criarEventoEscala(publicacao, usuarioUid, alteracoesDoUsuario);
-      batch.set(doc(db, 'eventosEscala', evento.id), evento);
+      batch.set(doc(db, 'eventosEscala', evento.id), removerUndefined(evento));
     }
   }
   for (const documento of documentos) {
@@ -358,20 +359,20 @@ export async function reverterPublicacao(
     };
     batch.set(
       doc(db, 'turnosMes', idDocumento(equipeId, documento.usuarioUid, competencia)),
-      restaurado,
+      removerUndefined(restaurado),
     );
     batch.set(
       doc(db, 'versoesEscala', idDocumentoVersao(chavePublicacao, revisao, documento.usuarioUid)),
-      { ...restaurado, chavePublicacao, revisao, restauradaDe: chaveVersao },
+      removerUndefined({ ...restaurado, chavePublicacao, revisao, restauradaDe: chaveVersao }),
     );
     const alteracoesDoUsuario = alteracoesPorUsuario.get(documento.usuarioUid);
     if (alteracoesDoUsuario !== undefined) {
       const evento = criarEventoEscala(publicacao, documento.usuarioUid, alteracoesDoUsuario);
-      batch.set(doc(db, 'eventosEscala', evento.id), evento);
+      batch.set(doc(db, 'eventosEscala', evento.id), removerUndefined(evento));
     }
   }
-  batch.set(doc(db, 'historicoPublicacoes', publicacao.id), publicacao);
-  batch.set(estadoRef, {
+  batch.set(doc(db, 'historicoPublicacoes', publicacao.id), removerUndefined(publicacao));
+  batch.set(estadoRef, removerUndefined({
     id: chavePublicacao,
     equipeId,
     competencia,
@@ -379,15 +380,21 @@ export async function reverterPublicacao(
     ultimaPublicacaoId: publicacao.id,
     atualizadoPor: publicadoPor,
     atualizadoEm: publicadoEm,
-  });
+  }));
   await batch.commit();
   return { publicacao, documentos };
 }
 
+/**
+ * `merge: true` já preserva qualquer campo omitido — por isso
+ * `removerUndefined()` aqui não é só defensivo: é o que faz um `criadoEm`
+ * ausente (cadastros de antes desse campo existir) ser simplesmente
+ * ignorado em vez de sobrescrito com `undefined`, o que o Firestore rejeita.
+ */
 export async function salvarUsuario(usuario: Usuario): Promise<void> {
   exigirEscritaAdministrativaHabilitada();
   const { db } = exigirFirebase();
-  await setDoc(doc(db, 'usuarios', usuario.uid), usuario, { merge: true });
+  await setDoc(doc(db, 'usuarios', usuario.uid), removerUndefined(usuario), { merge: true });
 }
 
 export async function salvarUsuarios(usuarios: readonly Usuario[]): Promise<void> {
@@ -403,10 +410,27 @@ export async function salvarUsuarios(usuarios: readonly Usuario[]): Promise<void
   for (const lote of fatiarEmLotes(usuarios, 500)) {
     const batch = writeBatch(db);
     for (const usuario of lote) {
-      batch.set(doc(db, 'usuarios', usuario.uid), usuario);
+      batch.set(doc(db, 'usuarios', usuario.uid), removerUndefined(usuario));
     }
     await batch.commit();
   }
+}
+
+/**
+ * Atualiza só os aliases (e o carimbo de atualização) em vez de regravar o
+ * usuário inteiro — usada pela conciliação de importação, que só precisa
+ * mudar esse campo e não deveria arriscar reenviar o resto do cadastro.
+ */
+export async function atualizarAliasesPlanilha(
+  uid: string,
+  aliasesPlanilha: readonly string[],
+): Promise<void> {
+  exigirEscritaAdministrativaHabilitada();
+  const { db } = exigirFirebase();
+  await updateDoc(doc(db, 'usuarios', uid), removerUndefined({
+    aliasesPlanilha: [...aliasesPlanilha],
+    atualizadoEm: new Date().toISOString(),
+  }));
 }
 
 /**
@@ -439,21 +463,25 @@ export async function vincularUsuarioAoUid(
   }
 
   const agora = new Date().toISOString();
+  // `usuarioNovo` é o objeto em memória (mantém a forma de `Usuario`, com
+  // `criadoEm` sempre string); `removerUndefined()` só entra na hora de
+  // montar o payload de escrita, para não mudar o tipo em memória.
   const usuarioNovo: Usuario = {
     ...usuarioAntigo,
     uid: uidNovoLimpo,
     pendenteVinculo: false,
     substituidoPorUid: null,
+    criadoEm: usuarioAntigo.criadoEm ?? agora,
     atualizadoEm: agora,
   };
 
   const batch = writeBatch(db);
-  batch.set(referenciaNova, usuarioNovo);
-  batch.update(doc(db, 'usuarios', usuarioAntigo.uid), {
+  batch.set(referenciaNova, removerUndefined(usuarioNovo));
+  batch.update(doc(db, 'usuarios', usuarioAntigo.uid), removerUndefined({
     ativo: false,
     substituidoPorUid: uidNovoLimpo,
     atualizadoEm: agora,
-  });
+  }));
   await batch.commit();
 
   return usuarioNovo;
@@ -485,7 +513,7 @@ export async function adicionarMembroRascunho(documento: TurnosMes): Promise<voi
   const { db } = exigirFirebase();
   await setDoc(
     doc(db, 'rascunhosTurnosMes', idDocumento(documento.equipeId, documento.usuarioUid, documento.competencia)),
-    { ...documento, importacaoId: documento.importacaoId ?? null, publicadoPor: null, publicadoEm: null },
+    removerUndefined({ ...documento, importacaoId: documento.importacaoId ?? null, publicadoPor: null, publicadoEm: null }),
   );
 }
 
