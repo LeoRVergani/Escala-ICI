@@ -444,6 +444,13 @@ select:focus-visible,
 }
 button.shift-chip { cursor: pointer; }
 button.shift-chip:disabled { cursor: default; }
+.shift-chip-vazio {
+  color: var(--subtle);
+  background: var(--surface-muted);
+  border: 1px dashed var(--border-strong);
+  font-weight: 700;
+}
+.shift-chip-vazio:hover { color: var(--primary-bright); border-color: var(--primary-bright); background: var(--primary-soft); }
 
 /* Fase 3K-D2B — alertas operacionais (6x1 e descanso mínimo) na grade. */
 .grade-alert-badge {
@@ -1109,20 +1116,37 @@ button.shift-chip:disabled { cursor: default; }
 .login-card h2 { font-size: 29px; margin: 5px 0 7px; letter-spacing: -0.035em; }
 .login-card > div:first-child > p:last-child { color: var(--muted); margin: 0; }
 .login-card label { display: grid; gap: 6px; font-size: 11px; font-weight: 750; }
+.login-card input {
+  width: 100%;
+  height: 43px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 0 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+.login-card input:focus-visible { outline: 2px solid #60a5fa; outline-offset: 1px; }
+.login-card input:disabled { opacity: 0.6; }
+
 .login-field-input {
   position: relative;
   display: flex;
   align-items: center;
   min-width: 0;
 }
-.login-field-input input { min-width: 0; }
 .login-field-input > svg:first-child {
   position: absolute;
   left: 13px;
   color: var(--muted);
   pointer-events: none;
 }
-.login-field-input input {
+/*
+ * `.login-card input` (acima) e esta regra têm a mesma especificidade —
+ * precisa vir depois no arquivo para o padding do ícone realmente
+ * prevalecer, senão o texto digitado fica embaixo do ícone.
+ */
+.login-card .login-field-input input {
+  min-width: 0;
   padding-left: 40px;
   padding-right: 40px;
 }
@@ -1140,17 +1164,6 @@ button.shift-chip:disabled { cursor: default; }
   cursor: pointer;
 }
 .login-field-input .login-toggle-senha:hover { color: var(--text); background: var(--surface-muted); }
-.login-card input {
-  width: 100%;
-  height: 43px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 0 12px;
-  background: var(--surface);
-  color: var(--text);
-}
-.login-card input:focus-visible { outline: 2px solid #60a5fa; outline-offset: 1px; }
-.login-card input:disabled { opacity: 0.6; }
 .login-card .login-trusted-device {
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: start;

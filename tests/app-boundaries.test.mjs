@@ -475,3 +475,27 @@ test('a fase 3K-D2C corrige o vínculo entre o UID do Authentication e usuarios/
   assert.match(dashboard, /abrirVincularUid/);
   assert.match(dashboard, /confirmarVincularUid/);
 });
+
+test('ajustes rápidos: grade sem contagem no título do grupo, células vazias editáveis e input do login sem sobreposição', async () => {
+  const [scheduleGrid, estilos] = await Promise.all([
+    ler('components/ScheduleGrid.tsx'),
+    ler('app/globals.css'),
+  ]);
+
+  // Cabeçalho do grupo mostra só o nome do período.
+  assert.doesNotMatch(scheduleGrid, /\{grupo\.rotulo\}[^}]*colaborador/);
+  assert.match(scheduleGrid, /<th className="grade-group-header" colSpan=\{datas\.length \+ 1\}>\s*\{grupo\.rotulo\}/);
+
+  // Colunas vêm da união dos dias de todos os documentos, não só do primeiro
+  // — evita grade sem nenhuma coluna quando o primeiro colaborador está em branco.
+  assert.match(scheduleGrid, /function datasDoConjunto/);
+  assert.doesNotMatch(scheduleGrid, /Object\.keys\(documentosFiltrados\[0\]\?\.dias/);
+
+  // Célula vazia em contexto editável recebe onClick — não fica "morta".
+  assert.match(scheduleGrid, /shift-chip-vazio/);
+  assert.match(scheduleGrid, /onEditar\?\.\(documento, data, dia \?\? \{ c: '' \}\)/);
+  assert.match(estilos, /\.shift-chip-vazio \{/);
+
+  // Input do login: a regra do ícone precisa vencer em especificidade, não só em ordem.
+  assert.match(estilos, /\.login-card \.login-field-input input \{/);
+});

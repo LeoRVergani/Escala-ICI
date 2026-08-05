@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  adicionarDias,
   calcularTotais,
   formatarData,
   type Dia,
@@ -37,6 +38,36 @@ function cabecalhoData(dataIso: string) {
   return { diaSemana, diaMes };
 }
 
+/**
+ * As colunas de data vêm da união dos dias já preenchidos em qualquer
+ * documento do conjunto — não só do primeiro. Um colaborador recém-incluído
+ * na grade (Fase 3K-D2A) nasce com `dias: {}`; se ele calhasse de ser o
+ * primeiro do array, a grade inteira ficaria sem nenhuma coluna. Sem nenhum
+ * dia preenchido em ninguém, cai para o período do documento (sempre
+ * presente, mesmo em branco), para a grade continuar utilizável.
+ */
+function datasDoConjunto(documentos: readonly TurnosMes[]): string[] {
+  const chaves = new Set<string>();
+  for (const documento of documentos) {
+    for (const data of Object.keys(documento.dias)) {
+      chaves.add(data);
+    }
+  }
+  if (chaves.size > 0) {
+    return [...chaves].sort();
+  }
+
+  const referencia = documentos[0];
+  if (referencia === undefined) {
+    return [];
+  }
+  const datas: string[] = [];
+  for (let atual = referencia.periodoInicio; atual <= referencia.periodoFim; atual = adicionarDias(atual, 1)) {
+    datas.push(atual);
+  }
+  return datas;
+}
+
 export function ScheduleGrid({
   documentos,
   usuarios,
@@ -51,7 +82,7 @@ export function ScheduleGrid({
   const documentosFiltrados = documentos.filter(
     (documento) => filtroTurno === 'TODOS' || documento.turnoPadrao === filtroTurno,
   );
-  const datas = Object.keys(documentosFiltrados[0]?.dias ?? {}).sort();
+  const datas = datasDoConjunto(documentosFiltrados);
   const nomes = Object.fromEntries(usuarios.map((usuario) => [usuario.login, usuario.nome]));
   const divergencias = documentosFiltrados.filter((documento) =>
     JSON.stringify(calcularTotais(documento.dias, catalogo))
@@ -98,30 +129,34 @@ export function ScheduleGrid({
               : null,
             indicador?.descansoInsuficiente ? 'Descanso inferior a 11 horas' : null,
           ].filter((aviso): aviso is string => aviso !== null);
+          const editavel = onEditar !== undefined;
+          if (!dia && !editavel) {
+            return <td key={data} />;
+          }
           return (
             <td key={data}>
-              {dia && (
-                <button
-                  type="button"
-                  className="shift-chip"
-                  data-code={dia.c}
-                  title={[`${data} · ${catalogo[dia.c]?.descricao ?? dia.c}`, ...avisos].join(' · ')}
-                  onClick={() => onEditar?.(documento, data, dia)}
-                  disabled={onEditar === undefined}
-                >
-                  {dia.c}
-                  {sequenciaCritica !== null && (
-                    <span className="grade-alert-badge grade-alert-sequencia" aria-hidden="true">
-                      {sequenciaCritica}
-                    </span>
-                  )}
-                  {indicador?.descansoInsuficiente && (
-                    <span className="grade-alert-badge grade-alert-descanso" aria-hidden="true">
-                      <AlertTriangle size={9} strokeWidth={3} />
-                    </span>
-                  )}
-                </button>
-              )}
+              <button
+                type="button"
+                className={`shift-chip ${dia ? '' : 'shift-chip-vazio'}`}
+                data-code={dia?.c ?? ''}
+                title={dia
+                  ? [`${data} · ${catalogo[dia.c]?.descricao ?? dia.c}`, ...avisos].join(' · ')
+                  : `${data} · Sem turno definido — clique para atribuir`}
+                onClick={() => onEditar?.(documento, data, dia ?? { c: '' })}
+                disabled={!editavel}
+              >
+                {dia ? dia.c : '+'}
+                {sequenciaCritica !== null && (
+                  <span className="grade-alert-badge grade-alert-sequencia" aria-hidden="true">
+                    {sequenciaCritica}
+                  </span>
+                )}
+                {indicador?.descansoInsuficiente && (
+                  <span className="grade-alert-badge grade-alert-descanso" aria-hidden="true">
+                    <AlertTriangle size={9} strokeWidth={3} />
+                  </span>
+                )}
+              </button>
             </td>
           );
         })}
@@ -161,7 +196,7 @@ export function ScheduleGrid({
               {agruparPorPeriodo && grupo.documentos.length > 0 && (
                 <tr className="grade-group-row" data-code={grupo.codigo}>
                   <th className="grade-group-header" colSpan={datas.length + 1}>
-                    {grupo.rotulo} · {grupo.documentos.length} colaborador(es)
+                    {grupo.rotulo}
                   </th>
                 </tr>
               )}
