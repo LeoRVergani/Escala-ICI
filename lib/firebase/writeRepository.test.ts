@@ -2,6 +2,8 @@ import type { TurnosMes } from '@escala-ici/contrato';
 import { idDocumento } from '@escala-ici/contrato';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { Usuario } from '../modelos';
+
 /**
  * Regressão: `publicarEscalas()` já apagou rascunho inexistente com
  * `batch.delete()` incondicional, o que as Firestore Rules recusam
@@ -13,7 +15,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const estado = vi.hoisted(() => ({
   rascunhos: [] as Array<{ id: string; data: Record<string, unknown> }>,
   turnosMesAtivos: [] as Array<{ id: string; data: Record<string, unknown> }>,
-  operacoes: [] as Array<{ tipo: 'set' | 'delete' | 'update'; colecao: string; id: string }>,
+  operacoes: [] as Array<{ tipo: 'set' | 'delete' | 'update'; colecao: string; id: string; dados?: Record<string, unknown> }>,
 }));
 
 vi.mock('./shared', () => ({
@@ -30,7 +32,9 @@ vi.mock('firebase/firestore', () => ({
   query: (colecaoRef: { __colecao: string }) => ({ __colecao: colecaoRef.__colecao }),
   doc: (_db: unknown, colecao: string, id: string) => ({ __colecao: colecao, __id: id }),
   serverTimestamp: () => 'SERVER_TIMESTAMP',
-  setDoc: async () => {},
+  setDoc: async (ref: { __colecao: string; __id: string }, dados: Record<string, unknown>) => {
+    estado.operacoes.push({ tipo: 'set', colecao: ref.__colecao, id: ref.__id, dados });
+  },
   updateDoc: async () => {},
   deleteDoc: async () => {},
   getDoc: async () => ({ exists: () => false, data: () => undefined }),
@@ -49,29 +53,29 @@ vi.mock('firebase/firestore', () => ({
     };
   },
   writeBatch: () => ({
-    set: (ref: { __colecao: string; __id: string }) => {
-      estado.operacoes.push({ tipo: 'set', colecao: ref.__colecao, id: ref.__id });
+    set: (ref: { __colecao: string; __id: string }, dados: Record<string, unknown>) => {
+      estado.operacoes.push({ tipo: 'set', colecao: ref.__colecao, id: ref.__id, dados });
     },
     delete: (ref: { __colecao: string; __id: string }) => {
       estado.operacoes.push({ tipo: 'delete', colecao: ref.__colecao, id: ref.__id });
     },
-    update: (ref: { __colecao: string; __id: string }) => {
-      estado.operacoes.push({ tipo: 'update', colecao: ref.__colecao, id: ref.__id });
+    update: (ref: { __colecao: string; __id: string }, dados: Record<string, unknown>) => {
+      estado.operacoes.push({ tipo: 'update', colecao: ref.__colecao, id: ref.__id, dados });
     },
     commit: async () => {},
   }),
 }));
 
-const { publicarEscalas } = await import('./writeRepository');
+const { publicarEscalas, salvarUsuario } = await import('./writeRepository');
 
 const EQUIPE = 'EQ_COSI_SOC';
 const COMPETENCIA = '2026-08';
 
-function documento(usuarioUid: string): TurnosMes {
+function documento(login: string, usuarioUidLegado = login): TurnosMes {
   return {
     schemaVersion: 1,
-    usuarioUid,
-    login: usuarioUid,
+    usuarioUid: usuarioUidLegado,
+    login,
     equipeId: EQUIPE,
     competencia: COMPETENCIA,
     periodoInicio: '2026-07-26',
@@ -114,5 +118,41 @@ describe('publicarEscalas', () => {
       .filter((operacao) => operacao.colecao === 'rascunhosTurnosMes' && operacao.tipo === 'delete')
       .map((operacao) => operacao.id);
     expect(idsDeletados.sort()).toEqual([idExistente, idOrfao].sort());
+  });
+
+  it('usa o login — não o usuarioUid legado — para montar o ID do documento publicado', async () => {
+    const idPorLogin = idDocumento(EQUIPE, 'lvergani', COMPETENCIA);
+    const idPorUidAntigo = idDocumento(EQUIPE, 'usuario-provisorio-antigo', COMPETENCIA);
+
+    await publicarEscalas([documento('lvergani', 'usuario-provisorio-antigo')], 'gestora-login');
+
+    const turnosMesCriado = estado.operacoes.find((operacao) =>
+      operacao.colecao === 'turnosMes' && operacao.tipo === 'set');
+    expect(turnosMesCriado?.id).toBe(idPorLogin);
+    expect(turnosMesCriado?.id).not.toBe(idPorUidAntigo);
+    expect(turnosMesCriado?.dados?.login).toBe('lvergani');
+  });
+});
+
+describe('salvarUsuario', () => {
+  it('grava o documento em usuarios/{login}, não em usuarios/{uid}', async () => {
+    const usuario: Usuario = {
+      login: 'lvergani',
+      uid: 'cIOiUrnLAAbTap8uIPb4KQ6Ny7D3',
+      nome: 'lvergani',
+      email: 'lvergani@empresa.com',
+      cargo: 'ANALISTA_SOC',
+      equipeId: EQUIPE,
+      gestorUid: null,
+      nivelHierarquico: 6,
+      turnoPadrao: 'M',
+      ativo: true,
+    };
+
+    await salvarUsuario(usuario);
+
+    const gravado = estado.operacoes.find((operacao) => operacao.colecao === 'usuarios');
+    expect(gravado?.id).toBe('lvergani');
+    expect(gravado?.id).not.toBe(usuario.uid);
   });
 });

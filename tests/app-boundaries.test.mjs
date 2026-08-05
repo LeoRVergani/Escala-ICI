@@ -232,7 +232,7 @@ test('o laboratório importa XLS na equipe autenticada e limita a leitura do App
   assert.match(app, /autenticado\.equipeId/);
   assert.match(leitura, /where\('equipeId', '==', equipeId\)/);
   assert.match(usuarios, /equipeId: gestor\.equipeId/);
-  assert.match(escrita, /idDocumento\(documento\.equipeId, documento\.usuarioUid/);
+  assert.match(escrita, /idDocumento\(documento\.equipeId, documento\.login/);
 });
 
 test('a fase 3J-C explica as revisões e atualiza o App sem F5', async () => {
@@ -308,7 +308,7 @@ test('a fase 3K-D1 estabiliza a sessão do App e a atualização interna', async
   assert.match(sessao, /podeIniciarListeners/);
   assert.match(app, /podeIniciarListeners\(\{/);
   assert.match(app, /dadosIniciaisCarregados: dadosCarregados/);
-  assert.match(app, /\[competenciaAtiva, equipeUsuario, listenersLiberados, usuarioUid\]/);
+  assert.match(app, /\[competenciaAtiva, equipeUsuario, listenersLiberados, loginUsuario\]/);
   assert.match(app, /Revisão \$\{maisRecente\.revisao\}/);
   assert.match(app, /toast-action/);
   assert.match(estilos, /Fase 3K-D1 — restauração de sessão e atualização interna/);
@@ -372,14 +372,12 @@ test('a fase 3K-D2 mantém a gestão de usuários e a conciliação exclusivas d
   assert.match(dashboard, /excluirRascunho/);
   assert.match(dashboard, /abrirEdicaoUsuario/);
   assert.match(dashboard, /alternarAtivoUsuario/);
-  assert.match(dashboard, /uidAutenticacao/);
   assert.match(dashboard, /novoUsuario\(usuarios\.length \+ indice \+ 1, usuario, login, true\)/);
 
   // Contrato de usuário estendido e regra de edição pelo gestor da própria equipe.
   assert.match(modelos, /aliasesPlanilha/);
-  assert.match(modelos, /pendenteVinculo/);
   assert.match(modelos, /StatusConciliacao/);
-  assert.match(regras, /souGestor\(\)[\s\S]*resource\.data\.equipeId == minhaEquipe\(\)[\s\S]*request\.resource\.data\.equipeId == resource\.data\.equipeId[\s\S]*request\.resource\.data\.uid == resource\.data\.uid/);
+  assert.match(regras, /souGestor\(\)[\s\S]*resource\.data\.equipeId == minhaEquipe\(\)[\s\S]*request\.resource\.data\.equipeId == resource\.data\.equipeId[\s\S]*request\.resource\.data\.login == resource\.data\.login/);
   assert.doesNotMatch(regras, /solicitacoesTroca/);
 });
 
@@ -456,7 +454,7 @@ test('a fase 3K-D2B mantém os alertas operacionais (6x1 e descanso mínimo) exc
   assert.doesNotMatch(fontePublica, /alertasEscala|gerarAlertasEscala|AlertasOperacionaisBell/);
 });
 
-test('a fase 3K-D2C corrige o vínculo entre o UID do Authentication e usuarios/{uid}', async () => {
+test('o login corporativo é a chave funcional — nenhum fluxo depende de UID do Firebase', async () => {
   const [app, login, authRepo, writeRepo, dashboard, modelos] = await Promise.all([
     ler('apps/app/src/EmployeeApp.tsx'),
     ler('components/LoginPanel.tsx'),
@@ -467,30 +465,23 @@ test('a fase 3K-D2C corrige o vínculo entre o UID do Authentication e usuarios/
   ]);
   const fontePublica = `${app}\n${login}`;
 
-  // O App não importa a escrita administrativa que corrige o vínculo.
-  assert.doesNotMatch(fontePublica, /vincularUsuarioAoUid/);
+  // O App não importa a escrita administrativa.
+  assert.doesNotMatch(fontePublica, /writeRepository/);
 
-  // authRepository resolve por doc ID real e diferencia sem-perfil de inativo.
+  // authRepository deriva o login do e-mail autenticado e diferencia
+  // sem-perfil de inativo — nada depende de usuarios/{auth.uid}.
+  assert.match(authRepo, /loginDoEmail/);
   assert.match(authRepo, /MENSAGEM_SEM_PERFIL_FIRESTORE/);
   assert.match(authRepo, /MENSAGEM_PERFIL_INATIVO/);
   assert.match(authRepo, /resolverUsuarioAutenticado/);
-  assert.equal(
-    authRepo.match(/não está cadastrado no Firestore/g)?.length,
-    1,
-    'a mensagem de perfil ausente deve existir uma única vez, na constante compartilhada',
-  );
+  assert.doesNotMatch(authRepo, /request\.auth\.uid|credencial\.user\.uid/);
 
-  // writeRepository cria o documento correto e nunca apaga o antigo.
-  assert.match(writeRepo, /export async function vincularUsuarioAoUid/);
-  assert.doesNotMatch(writeRepo, /vincularUsuarioAoUid[\s\S]{0,900}deleteDoc/);
-  assert.match(writeRepo, /substituidoPorUid: uidNovoLimpo/);
-
-  // Contrato mantém o campo; o Dashboard não expõe mais a ação de UID na
-  // UI (decisão de produto: o gestor não deve manipular UID manualmente),
-  // mas a função interna continua disponível caso volte a ser necessária.
-  assert.match(modelos, /substituidoPorUid/);
-  assert.doesNotMatch(dashboard, /abrirVincularUid/);
-  assert.doesNotMatch(dashboard, /confirmarVincularUid/);
+  // O mecanismo de "vincular ao UID" foi removido — o login já é a chave
+  // permanente do documento desde a criação, então não existe mais o
+  // cenário de dois cadastros para a mesma pessoa.
+  assert.doesNotMatch(writeRepo, /vincularUsuarioAoUid/);
+  assert.doesNotMatch(modelos, /pendenteVinculo|substituidoPorUid/);
+  assert.doesNotMatch(dashboard, /abrirVincularUid|confirmarVincularUid/);
 });
 
 test('ajustes rápidos: grade sem contagem no título do grupo, células vazias editáveis e input do login sem sobreposição', async () => {
@@ -531,15 +522,14 @@ test('correção urgente: sem undefined no Firestore, erro visível e diferencia
   assert.doesNotMatch(sanitizar, /firebase\/firestore/);
   assert.match(sanitizar, /export function removerUndefined/);
 
-  // Todo payload de escrita em usuarios/{uid} passa por removerUndefined.
+  // Todo payload de escrita em usuarios/{login} passa por removerUndefined.
   assert.match(writeRepo, /removerUndefined/);
-  assert.match(writeRepo, /setDoc\(doc\(db, 'usuarios', usuario\.uid\), removerUndefined\(usuario\)/);
-  assert.match(writeRepo, /batch\.set\(doc\(db, 'usuarios', usuario\.uid\), removerUndefined\(usuario\)\)/);
-  assert.match(writeRepo, /criadoEm: usuarioAntigo\.criadoEm \?\? agora/);
+  assert.match(writeRepo, /setDoc\(doc\(db, 'usuarios', usuario\.login\), removerUndefined\(usuario\)/);
+  assert.match(writeRepo, /batch\.set\(doc\(db, 'usuarios', usuario\.login\), removerUndefined\(usuario\)\)/);
 
   // Alias-only save não regrava o usuário inteiro.
   assert.match(writeRepo, /export async function atualizarAliasesPlanilha/);
-  assert.match(dashboard, /atualizarAliasesPlanilha\(escolhido\.uid, aliasesAtualizados\)/);
+  assert.match(dashboard, /atualizarAliasesPlanilha\(escolhido\.login, aliasesAtualizados\)/);
 
   // mensagemErroFirebase recebe o ambiente atual, não assume "laboratório".
   assert.match(errors, /ambiente: AmbienteErroFirebase = 'indefinido'/);

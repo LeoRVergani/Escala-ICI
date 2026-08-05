@@ -123,7 +123,7 @@ function AlertasOperacionaisBell({
   onFocarGrade,
 }: AlertasOperacionaisBellProps) {
   function nomeColaborador(usuarioUid: string, login: string): string {
-    return usuarios.find((item) => item.uid === usuarioUid)?.nome ?? login;
+    return usuarios.find((item) => item.login === usuarioUid)?.nome ?? login;
   }
 
   return (
@@ -186,7 +186,8 @@ function AlertasOperacionaisBell({
 }
 
 interface FormularioUsuario {
-  uid: string | null;
+  /** Login do cadastro sendo editado; `null` para um cadastro novo. Imutável após criado. */
+  loginOriginal: string | null;
   nome: string;
   email: string;
   login: string;
@@ -195,11 +196,10 @@ interface FormularioUsuario {
   turnoPadrao: string;
   ativo: boolean;
   aliasesPlanilha: string[];
-  uidAutenticacao: string;
 }
 
 const STATUS_CONCILIACAO_LABEL: Record<LinhaConciliacao['status'], string> = {
-  VINCULADO_UID: 'Vinculado automaticamente por UID/e-mail',
+  VINCULADO_LOGIN: 'Vinculado automaticamente por login/e-mail',
   VINCULADO_ALIAS: 'Vinculado por alias',
   PRECISA_MAPEAR: 'Precisa mapear',
   USUARIO_INATIVO: 'Usuário inativo',
@@ -251,7 +251,7 @@ export function DashboardApp() {
   const [errosFormularioUsuario, setErrosFormularioUsuario] = useState<string[]>([]);
   const [novoAliasDraft, setNovoAliasDraft] = useState('');
   const [descarteRascunhoPendente, setDescarteRascunhoPendente] = useState(false);
-  const [membroGradeDraft, setMembroGradeDraft] = useState<{ usuarioUid: string; turnoPadrao: string } | null>(null);
+  const [membroGradeDraft, setMembroGradeDraft] = useState<{ login: string; turnoPadrao: string } | null>(null);
   const [removerMembroPendente, setRemoverMembroPendente] = useState<TurnosMes | null>(null);
   const [alertasAbertos, setAlertasAbertos] = useState(false);
   const inputArquivo = useRef<HTMLInputElement>(null);
@@ -405,7 +405,7 @@ export function DashboardApp() {
    */
   function aplicarConciliacao(buffer: ArrayBuffer, linhas: LinhaConciliacao[]) {
     setLinhasConciliacao(linhas);
-    const parseado = linhas.some((linha) => linha.usuarioUid !== null)
+    const parseado = linhas.some((linha) => linha.login !== null)
       ? reparsear(buffer, loginParaUidComConciliacao(mapaLogins(usuarios), linhas))
       : reparsear(buffer, mapaLogins(usuarios));
     setResultado(parseado);
@@ -437,11 +437,11 @@ export function DashboardApp() {
     }
   }
 
-  function selecionarVinculoConciliacao(linha: LinhaConciliacao, usuarioUid: string) {
+  function selecionarVinculoConciliacao(linha: LinhaConciliacao, login: string) {
     if (arquivo === null) {
       return;
     }
-    const escolhido = usuarios.find((item) => item.uid === usuarioUid);
+    const escolhido = usuarios.find((item) => item.login === login);
     if (escolhido === undefined) {
       return;
     }
@@ -472,10 +472,10 @@ export function DashboardApp() {
   }
 
   async function salvarAliasConciliacao(linha: LinhaConciliacao) {
-    if (linha.usuarioUid === null) {
+    if (linha.login === null) {
       return;
     }
-    const escolhido = usuarios.find((item) => item.uid === linha.usuarioUid);
+    const escolhido = usuarios.find((item) => item.login === linha.login);
     if (escolhido === undefined) {
       return;
     }
@@ -485,10 +485,10 @@ export function DashboardApp() {
       // Atualiza só os aliases + o carimbo de data — não regrava o usuário
       // inteiro, então um cadastro antigo sem `criadoEm` não é afetado.
       if (!modoDemo) {
-        await atualizarAliasesPlanilha(escolhido.uid, aliasesAtualizados);
+        await atualizarAliasesPlanilha(escolhido.login, aliasesAtualizados);
       }
       const atualizado: Usuario = { ...escolhido, aliasesPlanilha: aliasesAtualizados, atualizadoEm: agora };
-      setUsuarios((atuais) => atuais.map((item) => (item.uid === atualizado.uid ? atualizado : item)));
+      setUsuarios((atuais) => atuais.map((item) => (item.login === atualizado.login ? atualizado : item)));
       setMensagem(`Alias "${linha.nomePlanilha}" salvo para ${atualizado.nome}.`);
     } catch (falha) {
       setMensagem(mensagemErroFirebase(falha, 'Não foi possível salvar o alias.', ambienteFirebaseAtual));
@@ -632,7 +632,7 @@ export function DashboardApp() {
       if (!modoDemo) {
         const publicacao = await publicarEscalas(
           resultado.documentos,
-          usuario.uid,
+          usuario.login,
           motivoPublicacao,
         );
         setHistorico((atual) => [publicacao, ...atual]);
@@ -646,7 +646,7 @@ export function DashboardApp() {
         documentos: resultado.documentos.map((documento) => ({
           ...documento,
           status: 'PUBLICADA',
-          publicadoPor: usuario.uid,
+          publicadoPor: usuario.login,
           publicadoEm: agora,
         })),
       });
@@ -698,7 +698,7 @@ export function DashboardApp() {
         usuario.equipeId,
         revisaoParaRestaurar.competencia,
         revisaoParaRestaurar.revisao,
-        usuario.uid,
+        usuario.login,
       );
       setHistorico((atual) => [restaurada.publicacao, ...atual]);
       setRevisaoAtual(restaurada.publicacao.revisao);
@@ -757,7 +757,7 @@ export function DashboardApp() {
 
   function abrirNovoUsuario() {
     setFormularioUsuario({
-      uid: null,
+      loginOriginal: null,
       nome: '',
       email: '',
       login: '',
@@ -766,7 +766,6 @@ export function DashboardApp() {
       turnoPadrao: 'M',
       ativo: true,
       aliasesPlanilha: [],
-      uidAutenticacao: '',
     });
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
@@ -774,7 +773,7 @@ export function DashboardApp() {
 
   function abrirEdicaoUsuario(item: Usuario) {
     setFormularioUsuario({
-      uid: item.uid,
+      loginOriginal: item.login,
       nome: item.nome,
       email: item.email,
       login: item.login,
@@ -783,7 +782,6 @@ export function DashboardApp() {
       turnoPadrao: item.turnoPadrao,
       ativo: item.ativo,
       aliasesPlanilha: item.aliasesPlanilha ?? [],
-      uidAutenticacao: '',
     });
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
@@ -826,14 +824,13 @@ export function DashboardApp() {
     }
 
     let candidato: Usuario;
-    if (formularioUsuario.uid === null) {
+    if (formularioUsuario.loginOriginal === null) {
       candidato = {
         ...novoUsuario(
           usuarios.length + 1,
           usuario,
           formularioUsuario.login || `novo.login${usuarios.length + 1}`,
           formularioUsuario.ativo,
-          formularioUsuario.uidAutenticacao,
         ),
         nome: formularioUsuario.nome,
         email: formularioUsuario.email,
@@ -843,7 +840,7 @@ export function DashboardApp() {
         aliasesPlanilha: formularioUsuario.aliasesPlanilha,
       };
     } else {
-      const original = usuarios.find((item) => item.uid === formularioUsuario.uid);
+      const original = usuarios.find((item) => item.login === formularioUsuario.loginOriginal);
       if (original === undefined) {
         return;
       }
@@ -851,7 +848,6 @@ export function DashboardApp() {
         ...original,
         nome: formularioUsuario.nome,
         email: formularioUsuario.email,
-        login: formularioUsuario.login,
         cargo: formularioUsuario.cargo,
         nivelHierarquico: formularioUsuario.nivelHierarquico,
         turnoPadrao: formularioUsuario.turnoPadrao,
@@ -861,7 +857,7 @@ export function DashboardApp() {
       };
     }
 
-    const erros = validarEdicaoUsuario(candidato, usuarios);
+    const erros = validarEdicaoUsuario(candidato, usuarios, formularioUsuario.loginOriginal);
     if (erros.length > 0) {
       setErrosFormularioUsuario(erros);
       return;
@@ -871,10 +867,10 @@ export function DashboardApp() {
       if (!modoDemo) {
         await salvarUsuario(candidato);
       }
-      setUsuarios((atuais) => (atuais.some((item) => item.uid === candidato.uid)
-        ? atuais.map((item) => (item.uid === candidato.uid ? candidato : item))
+      setUsuarios((atuais) => (atuais.some((item) => item.login === candidato.login)
+        ? atuais.map((item) => (item.login === candidato.login ? candidato : item))
         : [...atuais, candidato]));
-      setMensagem(formularioUsuario.uid === null
+      setMensagem(formularioUsuario.loginOriginal === null
         ? 'Usuário cadastrado com sucesso.'
         : 'Usuário atualizado com sucesso.');
       fecharFormularioUsuario();
@@ -893,14 +889,14 @@ export function DashboardApp() {
       if (!modoDemo) {
         await salvarUsuario(atualizado);
       }
-      setUsuarios((atuais) => atuais.map((existente) => (existente.uid === item.uid ? atualizado : existente)));
+      setUsuarios((atuais) => atuais.map((existente) => (existente.login === item.login ? atualizado : existente)));
     } catch (falha) {
       setMensagem(mensagemErroFirebase(falha, 'Não foi possível atualizar o status do usuário.', ambienteFirebaseAtual));
     }
   }
 
   function abrirAdicionarMembroGrade() {
-    setMembroGradeDraft({ usuarioUid: '', turnoPadrao: 'M' });
+    setMembroGradeDraft({ login: '', turnoPadrao: 'M' });
   }
 
   function fecharAdicionarMembroGrade() {
@@ -915,12 +911,12 @@ export function DashboardApp() {
       setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
       return;
     }
-    const colaborador = usuarios.find((item) => item.uid === membroGradeDraft.usuarioUid);
+    const colaborador = usuarios.find((item) => item.login === membroGradeDraft.login);
     if (colaborador === undefined) {
       setMensagem('Selecione um colaborador cadastrado.');
       return;
     }
-    if (membroJaNaGrade(resultado.documentos, colaborador.uid)) {
+    if (membroJaNaGrade(resultado.documentos, colaborador.login)) {
       setMensagem('Este colaborador já está na grade desta competência.');
       return;
     }
@@ -958,7 +954,7 @@ export function DashboardApp() {
       }
       setResultado((atual) => (atual === null ? atual : {
         ...atual,
-        documentos: removerMembroGrade(atual.documentos, documento.usuarioUid),
+        documentos: removerMembroGrade(atual.documentos, documento.login),
       }));
       setMensagem('Colaborador removido da grade desta competência.');
     } catch (falha) {
@@ -1213,13 +1209,13 @@ export function DashboardApp() {
                   </thead>
                   <tbody>
                     {linhasConciliacao.map((linha) => {
-                      const vinculado = usuarios.find((item) => item.uid === linha.usuarioUid);
+                      const vinculado = usuarios.find((item) => item.login === linha.login);
                       return (
                         <tr key={linha.nomePlanilha} data-status={linha.status}>
                           <td>{linha.nomePlanilha}</td>
                           <td>
                             <select
-                              value={linha.usuarioUid ?? ''}
+                              value={linha.login ?? ''}
                               onChange={(evento) => {
                                 if (evento.target.value) {
                                   selecionarVinculoConciliacao(linha, evento.target.value);
@@ -1229,7 +1225,7 @@ export function DashboardApp() {
                             >
                               <option value="">Selecionar usuário…</option>
                               {usuarios.map((item) => (
-                                <option key={item.uid} value={item.uid}>
+                                <option key={item.login} value={item.login}>
                                   {item.nome}{item.ativo ? '' : ' (inativo)'}
                                 </option>
                               ))}
@@ -1237,14 +1233,14 @@ export function DashboardApp() {
                             {linha.status === 'CONFLITO_ALIAS' && (
                               <small>
                                 Candidatos: {linha.candidatos
-                                  .map((uid) => usuarios.find((item) => item.uid === uid)?.nome ?? uid)
+                                  .map((login) => usuarios.find((item) => item.login === login)?.nome ?? login)
                                   .join(', ')}
                               </small>
                             )}
                           </td>
                           <td>
                             <span className={`status-badge ${
-                              linha.status === 'VINCULADO_UID' || linha.status === 'VINCULADO_ALIAS' || linha.status === 'IGNORADA'
+                              linha.status === 'VINCULADO_LOGIN' || linha.status === 'VINCULADO_ALIAS' || linha.status === 'IGNORADA'
                                 ? 'success'
                                 : 'warning'
                             }`}
@@ -1254,7 +1250,7 @@ export function DashboardApp() {
                           </td>
                           <td>
                             <div className="conciliation-actions">
-                              {linha.usuarioUid !== null && linha.status !== 'VINCULADO_UID' && (
+                              {linha.login !== null && linha.status !== 'VINCULADO_LOGIN' && (
                                 <button
                                   className="icon-button"
                                   type="button"
@@ -1434,7 +1430,7 @@ export function DashboardApp() {
                           ) : (
                             <div className="history-change-list">
                               {alteracoes.map((alteracao) => {
-                                const pessoa = usuarios.find((item) => item.uid === alteracao.usuarioUid);
+                                const pessoa = usuarios.find((item) => item.login === alteracao.login);
                                 const antes = alteracao.codigoAnterior === null
                                   ? 'Sem escala'
                                   : `${catalogo[alteracao.codigoAnterior]?.descricao ?? alteracao.codigoAnterior}${alteracao.horarioAnterior ? ` · ${alteracao.horarioAnterior}` : ''}`;
@@ -1442,7 +1438,7 @@ export function DashboardApp() {
                                   ? 'Removido da escala'
                                   : `${catalogo[alteracao.codigoNovo]?.descricao ?? alteracao.codigoNovo}${alteracao.horarioNovo ? ` · ${alteracao.horarioNovo}` : ''}`;
                                 return (
-                                  <div className="history-change" key={`${alteracao.usuarioUid}-${alteracao.data}`}>
+                                  <div className="history-change" key={`${alteracao.login}-${alteracao.data}`}>
                                     <div>
                                       <strong>{pessoa?.nome ?? alteracao.login}</strong>
                                       <span>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${alteracao.data}T12:00:00Z`))}</span>
@@ -1544,26 +1540,13 @@ export function DashboardApp() {
                   {usuarios
                     .filter((item) => `${item.nome} ${item.login}`.toLowerCase().includes(buscaUsuario.toLowerCase()))
                     .map((item) => (
-                      <tr key={item.uid}>
+                      <tr key={item.login}>
                         <td><strong>{item.nome}</strong><small>{item.email}</small></td>
                         <td><code className="login-code">{item.login}</code></td>
                         <td>{item.turnoPadrao}</td>
                         <td>{item.cargo}</td>
                         <td>
                           <span className={`status-badge ${item.ativo ? 'success' : 'neutral'}`}>{item.ativo ? 'Ativo' : 'Inativo'}</span>
-                          {item.pendenteVinculo && (
-                            <span className="status-badge warning" title="Este cadastro ainda não tem uma conta de acesso confirmada.">
-                              Pendente de vínculo
-                            </span>
-                          )}
-                          {item.substituidoPorUid && (
-                            <span
-                              className="status-badge neutral"
-                              title="Substituído por outro cadastro ativo."
-                            >
-                              Substituído
-                            </span>
-                          )}
                         </td>
                         <td>
                           {(item.aliasesPlanilha ?? []).length === 0
@@ -1755,14 +1738,14 @@ export function DashboardApp() {
               <label className="user-form-full">
                 Colaborador
                 <select
-                  value={membroGradeDraft.usuarioUid}
-                  onChange={(evento) => setMembroGradeDraft({ ...membroGradeDraft, usuarioUid: evento.target.value })}
+                  value={membroGradeDraft.login}
+                  onChange={(evento) => setMembroGradeDraft({ ...membroGradeDraft, login: evento.target.value })}
                 >
                   <option value="">Selecionar usuário cadastrado…</option>
                   {usuarios
-                    .filter((item) => !membroJaNaGrade(documentos, item.uid))
+                    .filter((item) => !membroJaNaGrade(documentos, item.login))
                     .map((item) => (
-                      <option key={item.uid} value={item.uid}>
+                      <option key={item.login} value={item.login}>
                         {item.nome}{item.ativo ? '' : ' (inativo)'}
                       </option>
                     ))}
@@ -1785,7 +1768,7 @@ export function DashboardApp() {
               <button
                 className="primary-button"
                 type="button"
-                disabled={!membroGradeDraft.usuarioUid}
+                disabled={!membroGradeDraft.login}
                 onClick={() => void confirmarAdicionarMembroGrade()}
               >
                 <UserPlus size={16} /> Adicionar à grade
@@ -1808,7 +1791,7 @@ export function DashboardApp() {
               <div>
                 <p className="eyebrow">Ação local, o cadastro do usuário não é afetado</p>
                 <h2 id="remove-membro-title">
-                  Remover {usuarios.find((item) => item.uid === removerMembroPendente.usuarioUid)?.nome
+                  Remover {usuarios.find((item) => item.login === removerMembroPendente.login)?.nome
                     ?? removerMembroPendente.login} da grade?
                 </h2>
                 <p>
@@ -1839,9 +1822,9 @@ export function DashboardApp() {
           >
             <div className="panel-title">
               <div>
-                <p className="eyebrow">{formularioUsuario.uid === null ? 'Novo colaborador' : 'Editar colaborador'}</p>
+                <p className="eyebrow">{formularioUsuario.loginOriginal === null ? 'Novo colaborador' : 'Editar colaborador'}</p>
                 <h2 id="user-form-title">
-                  {formularioUsuario.uid === null ? 'Cadastrar usuário' : formularioUsuario.nome || 'Editar usuário'}
+                  {formularioUsuario.loginOriginal === null ? 'Cadastrar usuário' : formularioUsuario.nome || 'Editar usuário'}
                 </h2>
               </div>
               <button className="icon-button" type="button" onClick={fecharFormularioUsuario} aria-label="Fechar"><X size={18} /></button>
@@ -1866,8 +1849,12 @@ export function DashboardApp() {
                 Login (planilha)
                 <input
                   value={formularioUsuario.login}
+                  disabled={formularioUsuario.loginOriginal !== null}
                   onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, login: evento.target.value })}
                 />
+                {formularioUsuario.loginOriginal !== null && (
+                  <small>O login não pode ser alterado depois do cadastro.</small>
+                )}
               </label>
               <label>
                 Cargo
@@ -1911,21 +1898,6 @@ export function DashboardApp() {
                 />
                 <span>Ativo</span>
               </label>
-              {formularioUsuario.uid === null && (
-                <label className="user-form-full">
-                  UID de autenticação (opcional)
-                  <input
-                    value={formularioUsuario.uidAutenticacao}
-                    onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, uidAutenticacao: evento.target.value })}
-                    placeholder="Cole aqui o UID já criado no Firebase Authentication"
-                  />
-                  <small>
-                    Sem preencher, o cadastro fica marcado como &quot;pendente de vínculo&quot; até alguém
-                    cadastrar um novo usuário com o UID real — o UID do documento não pode ser
-                    trocado depois de criado.
-                  </small>
-                </label>
-              )}
               <label className="user-form-full">
                 Aliases da planilha
                 <div className="alias-editor">
@@ -1971,7 +1943,7 @@ export function DashboardApp() {
             <div className="rollback-actions">
               <button className="secondary-button" type="button" onClick={fecharFormularioUsuario}>Cancelar</button>
               <button className="primary-button" type="button" onClick={() => void salvarFormularioUsuario()}>
-                <Save size={16} /> {formularioUsuario.uid === null ? 'Cadastrar' : 'Salvar alterações'}
+                <Save size={16} /> {formularioUsuario.loginOriginal === null ? 'Cadastrar' : 'Salvar alterações'}
               </button>
             </div>
           </section>

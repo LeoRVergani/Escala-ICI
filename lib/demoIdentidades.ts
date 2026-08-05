@@ -47,6 +47,6 @@ export const GESTOR_DEMO: Usuario = {
   ativo: true,
 };
 
-export const LOGIN_PARA_UID = Object.fromEntries(
-  USUARIOS_DEMO.map(({ login, uid }) => [login, uid]),
+export const LOGIN_PARA_LOGIN = Object.fromEntries(
+  USUARIOS_DEMO.map(({ login }) => [login, login]),
 );

@@ -52,7 +52,7 @@ function documento(usuarioUid: string, turnoPadrao: string): TurnosMes {
 describe('criação de membro em branco', () => {
   it('monta um documento RASCUNHO sem dias, com os totais zerados', () => {
     const membro = criarMembroGrade(usuario(), 'MD', REFERENCIA, CATALOGO_SOC);
-    expect(membro.usuarioUid).toBe('uid-ana');
+    expect(membro.usuarioUid).toBe('ana');
     expect(membro.login).toBe('ana');
     expect(membro.turnoPadrao).toBe('MD');
     expect(membro.status).toBe('RASCUNHO');
@@ -68,7 +68,7 @@ describe('adicionar e remover membro da grade', () => {
     const membro = criarMembroGrade(usuario(), 'MD', REFERENCIA, CATALOGO_SOC);
     const resultado = adicionarMembroGrade([], membro);
     expect(resultado).toHaveLength(1);
-    expect(membroJaNaGrade(resultado, 'uid-ana')).toBe(true);
+    expect(membroJaNaGrade(resultado, 'ana')).toBe(true);
   });
 
   it('não duplica um membro que já está na grade', () => {

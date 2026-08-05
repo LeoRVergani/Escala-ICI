@@ -30,13 +30,19 @@ export function exigirEscritaAdministrativaHabilitada(): void {
   }
 }
 
+/**
+ * `login` é o ID do documento `usuarios/{login}` — a fonte de verdade da
+ * identidade, por isso ignora `dados.login` (que deveria ser sempre igual,
+ * mas o ID é quem manda). `uid` é metadado opcional: só existe quando
+ * alguém preencheu o UID do Firebase Authentication manualmente.
+ */
 export function lerUsuario(
-  uid: string,
+  login: string,
   dados: Record<string, unknown>,
 ): Usuario {
   return {
-    uid,
-    login: String(dados.login ?? ''),
+    login,
+    uid: typeof dados.uid === 'string' && dados.uid.trim() !== '' ? dados.uid : undefined,
     loginAliases: Array.isArray(dados.loginAliases)
       ? dados.loginAliases.filter((login): login is string => typeof login === 'string')
       : [],
@@ -51,8 +57,6 @@ export function lerUsuario(
     aliasesPlanilha: Array.isArray(dados.aliasesPlanilha)
       ? dados.aliasesPlanilha.filter((alias): alias is string => typeof alias === 'string')
       : [],
-    pendenteVinculo: dados.pendenteVinculo === true,
-    substituidoPorUid: typeof dados.substituidoPorUid === 'string' ? dados.substituidoPorUid : null,
     criadoEm: typeof dados.criadoEm === 'string' ? dados.criadoEm : undefined,
     atualizadoEm: typeof dados.atualizadoEm === 'string' ? dados.atualizadoEm : undefined,
   };

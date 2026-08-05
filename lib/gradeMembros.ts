@@ -33,14 +33,17 @@ export interface GrupoGrade {
 
 export function membroJaNaGrade(
   documentos: readonly TurnosMes[],
-  usuarioUid: string,
+  login: string,
 ): boolean {
-  return documentos.some((documento) => documento.usuarioUid === usuarioUid);
+  return documentos.some((documento) => documento.login === login);
 }
 
 /**
  * Cria o documento em branco (`dias: {}`) de um colaborador recém-incluído
  * na grade. O gestor preenche os dias pela edição de célula já existente.
+ *
+ * `usuarioUid` fica preenchido com o login — chave funcional estável — e não
+ * com `colaborador.uid`, que é metadado opcional e pode nem existir.
  */
 export function criarMembroGrade(
   colaborador: Usuario,
@@ -50,7 +53,7 @@ export function criarMembroGrade(
 ): TurnosMes {
   return {
     schemaVersion: SCHEMA_VERSION,
-    usuarioUid: colaborador.uid,
+    usuarioUid: colaborador.login,
     login: colaborador.login,
     equipeId: referencia.equipeId,
     competencia: referencia.competencia,
@@ -67,16 +70,16 @@ export function adicionarMembroGrade(
   documentos: readonly TurnosMes[],
   membro: TurnosMes,
 ): TurnosMes[] {
-  return membroJaNaGrade(documentos, membro.usuarioUid)
+  return membroJaNaGrade(documentos, membro.login)
     ? [...documentos]
     : [...documentos, membro];
 }
 
 export function removerMembroGrade(
   documentos: readonly TurnosMes[],
-  usuarioUid: string,
+  login: string,
 ): TurnosMes[] {
-  return documentos.filter((documento) => documento.usuarioUid !== usuarioUid);
+  return documentos.filter((documento) => documento.login !== login);
 }
 
 /**

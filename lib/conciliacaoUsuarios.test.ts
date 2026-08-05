@@ -14,7 +14,6 @@ import type { Usuario } from './modelos';
 
 function usuario(ajustes: Partial<Usuario>): Usuario {
   return {
-    uid: 'uid-base',
     login: 'login-base',
     nome: 'Nome Base',
     email: 'nome.base@empresa.com',
@@ -29,7 +28,6 @@ function usuario(ajustes: Partial<Usuario>): Usuario {
 }
 
 const CAIO = usuario({
-  uid: 'uid-caio',
   login: 'cmonteiro',
   nome: 'Caio Monteiro',
   email: 'caio.monteiro@example.com',
@@ -37,7 +35,6 @@ const CAIO = usuario({
 });
 
 const BIANCA_INATIVA = usuario({
-  uid: 'uid-bianca',
   login: 'bsalles',
   nome: 'Bianca Salles',
   email: 'bianca.salles@empresa.com',
@@ -48,41 +45,41 @@ describe('conciliação por texto único', () => {
   it('vincula por login exato', () => {
     expect(conciliarNome('cmonteiro', [CAIO])).toEqual({
       nomePlanilha: 'cmonteiro',
-      usuarioUid: 'uid-caio',
-      status: 'VINCULADO_UID',
-      candidatos: ['uid-caio'],
+      login: 'cmonteiro',
+      status: 'VINCULADO_LOGIN',
+      candidatos: ['cmonteiro'],
     });
   });
 
   it('vincula por e-mail exato, sem diferenciar caixa', () => {
     const resultado = conciliarNome('CAIO.MONTEIRO@EXAMPLE.COM', [CAIO]);
-    expect(resultado.status).toBe('VINCULADO_UID');
-    expect(resultado.usuarioUid).toBe('uid-caio');
+    expect(resultado.status).toBe('VINCULADO_LOGIN');
+    expect(resultado.login).toBe('cmonteiro');
   });
 
   it('vincula por alias da planilha normalizado', () => {
     const resultado = conciliarNome('c. monteiro', [CAIO]);
     expect(resultado.status).toBe('VINCULADO_ALIAS');
-    expect(resultado.usuarioUid).toBe('uid-caio');
+    expect(resultado.login).toBe('cmonteiro');
   });
 
   it('vincula por nome normalizado (acentos, caixa e espaços)', () => {
     const resultado = conciliarNome('CAIO   MONTEIRO', [CAIO]);
     expect(resultado.status).toBe('VINCULADO_ALIAS');
-    expect(resultado.usuarioUid).toBe('uid-caio');
+    expect(resultado.login).toBe('cmonteiro');
   });
 
   it('não aproxima abreviação a nome completo', () => {
     const resultado = conciliarNome('Caio M.', [CAIO]);
     expect(resultado.status).toBe('USUARIO_NAO_ENCONTRADO');
-    expect(resultado.usuarioUid).toBeNull();
+    expect(resultado.login).toBeNull();
   });
 
   it('marca usuário inativo em vez de vincular automaticamente', () => {
     const resultado = conciliarNome('Bianca Salles', [BIANCA_INATIVA]);
     expect(resultado.status).toBe('USUARIO_INATIVO');
-    expect(resultado.usuarioUid).toBeNull();
-    expect(resultado.candidatos).toEqual(['uid-bianca']);
+    expect(resultado.login).toBeNull();
+    expect(resultado.candidatos).toEqual(['bsalles']);
   });
 
   it('não encontra usuário quando não há nenhuma correspondência', () => {
@@ -92,17 +89,17 @@ describe('conciliação por texto único', () => {
   });
 
   it('marca conflito quando duas pessoas normalizam para o mesmo nome', () => {
-    const homonimo = usuario({ uid: 'uid-caio-2', login: 'cmonteiro2', nome: 'Caio Monteiro', email: 'outro@empresa.com' });
+    const homonimo = usuario({ login: 'cmonteiro2', nome: 'Caio Monteiro', email: 'outro@empresa.com' });
     const resultado = conciliarNome('Caio Monteiro', [CAIO, homonimo]);
     expect(resultado.status).toBe('CONFLITO_ALIAS');
-    expect(resultado.candidatos.sort()).toEqual(['uid-caio', 'uid-caio-2'].sort());
+    expect(resultado.candidatos.sort()).toEqual(['cmonteiro', 'cmonteiro2'].sort());
   });
 
   it('prioriza login exato sobre correspondência por nome de outra pessoa', () => {
-    const outraPessoaComEsseNome = usuario({ uid: 'uid-outro', login: 'outro.login', nome: 'cmonteiro' });
+    const outraPessoaComEsseNome = usuario({ login: 'outro.login', nome: 'cmonteiro' });
     const resultado = conciliarNome('cmonteiro', [CAIO, outraPessoaComEsseNome]);
-    expect(resultado.status).toBe('VINCULADO_UID');
-    expect(resultado.usuarioUid).toBe('uid-caio');
+    expect(resultado.status).toBe('VINCULADO_LOGIN');
+    expect(resultado.login).toBe('cmonteiro');
   });
 });
 
@@ -117,50 +114,50 @@ describe('conciliação de uma planilha inteira', () => {
 describe('bloqueio de publicação', () => {
   it('bloqueia quando existe pendência, conflito, inativo ou não encontrado', () => {
     expect(publicacaoBloqueadaPorConciliacao([
-      { nomePlanilha: 'a', usuarioUid: 'x', status: 'VINCULADO_UID', candidatos: ['x'] },
+      { nomePlanilha: 'a', login: 'x', status: 'VINCULADO_LOGIN', candidatos: ['x'] },
     ])).toBe(false);
     expect(publicacaoBloqueadaPorConciliacao([
-      { nomePlanilha: 'a', usuarioUid: null, status: 'PRECISA_MAPEAR', candidatos: [] },
+      { nomePlanilha: 'a', login: null, status: 'PRECISA_MAPEAR', candidatos: [] },
     ])).toBe(true);
     expect(publicacaoBloqueadaPorConciliacao([
-      { nomePlanilha: 'a', usuarioUid: 'x', status: 'VINCULADO_UID', candidatos: ['x'] },
-      { nomePlanilha: 'b', usuarioUid: null, status: 'USUARIO_NAO_ENCONTRADO', candidatos: [] },
+      { nomePlanilha: 'a', login: 'x', status: 'VINCULADO_LOGIN', candidatos: ['x'] },
+      { nomePlanilha: 'b', login: null, status: 'USUARIO_NAO_ENCONTRADO', candidatos: [] },
     ])).toBe(true);
   });
 
   it('linha ignorada não bloqueia', () => {
     expect(publicacaoBloqueadaPorConciliacao([
-      { nomePlanilha: 'a', usuarioUid: null, status: 'IGNORADA', candidatos: [] },
+      { nomePlanilha: 'a', login: null, status: 'IGNORADA', candidatos: [] },
     ])).toBe(false);
   });
 
   it('conta pendências', () => {
     expect(contarPendenciasConciliacao([
-      { nomePlanilha: 'a', usuarioUid: 'x', status: 'VINCULADO_UID', candidatos: ['x'] },
-      { nomePlanilha: 'b', usuarioUid: null, status: 'CONFLITO_ALIAS', candidatos: ['x', 'y'] },
-      { nomePlanilha: 'c', usuarioUid: null, status: 'USUARIO_NAO_ENCONTRADO', candidatos: [] },
+      { nomePlanilha: 'a', login: 'x', status: 'VINCULADO_LOGIN', candidatos: ['x'] },
+      { nomePlanilha: 'b', login: null, status: 'CONFLITO_ALIAS', candidatos: ['x', 'y'] },
+      { nomePlanilha: 'c', login: null, status: 'USUARIO_NAO_ENCONTRADO', candidatos: [] },
     ])).toBe(2);
   });
 });
 
 describe('ações manuais do gestor', () => {
-  const linha = { nomePlanilha: 'Caio M.', usuarioUid: null, status: 'USUARIO_NAO_ENCONTRADO' as const, candidatos: [] };
+  const linha = { nomePlanilha: 'Caio M.', login: null, status: 'USUARIO_NAO_ENCONTRADO' as const, candidatos: [] };
 
   it('resolve manualmente vinculando a um usuário ativo', () => {
     expect(resolverManualmente(linha, CAIO)).toEqual({
       nomePlanilha: 'Caio M.',
-      usuarioUid: 'uid-caio',
+      login: 'cmonteiro',
       status: 'VINCULADO_ALIAS',
-      candidatos: ['uid-caio'],
+      candidatos: ['cmonteiro'],
     });
   });
 
   it('não vincula manualmente a um usuário inativo', () => {
     expect(resolverManualmente(linha, BIANCA_INATIVA)).toEqual({
       nomePlanilha: 'Caio M.',
-      usuarioUid: null,
+      login: null,
       status: 'USUARIO_INATIVO',
-      candidatos: ['uid-bianca'],
+      candidatos: ['bsalles'],
     });
   });
 
@@ -175,14 +172,14 @@ describe('ações manuais do gestor', () => {
 
 describe('extensão do mapa de login com a conciliação', () => {
   it('adiciona somente vínculos resolvidos e não ignorados', () => {
-    const mapa = loginParaUidComConciliacao({ existente: 'uid-existente' }, [
-      { nomePlanilha: 'Caio M.', usuarioUid: 'uid-caio', status: 'VINCULADO_ALIAS', candidatos: ['uid-caio'] },
-      { nomePlanilha: 'Fulano', usuarioUid: null, status: 'PRECISA_MAPEAR', candidatos: [] },
-      { nomePlanilha: 'Ignorado', usuarioUid: 'uid-x', status: 'IGNORADA', candidatos: ['uid-x'] },
+    const mapa = loginParaUidComConciliacao({ existente: 'existente' }, [
+      { nomePlanilha: 'Caio M.', login: 'cmonteiro', status: 'VINCULADO_ALIAS', candidatos: ['cmonteiro'] },
+      { nomePlanilha: 'Fulano', login: null, status: 'PRECISA_MAPEAR', candidatos: [] },
+      { nomePlanilha: 'Ignorado', login: 'outro', status: 'IGNORADA', candidatos: ['outro'] },
     ]);
     expect(mapa).toEqual({
-      existente: 'uid-existente',
-      'Caio M.': 'uid-caio',
+      existente: 'existente',
+      'Caio M.': 'cmonteiro',
     });
   });
 });

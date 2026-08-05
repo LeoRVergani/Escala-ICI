@@ -583,7 +583,7 @@ export function EmployeeApp() {
     return () => window.clearInterval(atualizacao);
   }, []);
 
-  const usuarioUid = usuario?.uid ?? null;
+  const loginUsuario = usuario?.login ?? null;
   const equipeUsuario = usuario?.equipeId ?? null;
   // A sincronização só começa depois da sessão resolvida e da carga inicial:
   // assim o snapshot em tempo real nunca é sobrescrito pela leitura pontual.
@@ -595,7 +595,7 @@ export function EmployeeApp() {
   });
 
   useEffect(() => {
-    if (!listenersLiberados || usuarioUid === null || equipeUsuario === null) {
+    if (!listenersLiberados || loginUsuario === null || equipeUsuario === null) {
       return undefined;
     }
     const cancelarEscalas = observarEscalasEquipe(
@@ -605,7 +605,7 @@ export function EmployeeApp() {
       (falha) => setErro(mensagemErroFirebase(falha, 'A sincronização em tempo real foi interrompida.', ambienteFirebaseAtual)),
     );
     const cancelarEventos = observarEventosEscala(
-      usuarioUid,
+      loginUsuario,
       equipeUsuario,
       (atualizados) => {
         const novos = atualizados.filter((evento) => !eventosConhecidos.current.has(evento.id));
@@ -634,7 +634,7 @@ export function EmployeeApp() {
       cancelarEscalas();
       cancelarEventos();
     };
-  }, [competenciaAtiva, equipeUsuario, listenersLiberados, usuarioUid]);
+  }, [competenciaAtiva, equipeUsuario, listenersLiberados, loginUsuario]);
 
   const escalasDoUsuario = documentos.filter(
     (documento) => documento.login === usuario?.login,
@@ -677,7 +677,7 @@ export function EmployeeApp() {
     } else {
       try {
         const salvos = JSON.parse(
-          window.localStorage.getItem(`escala-ici-notificacoes-lidas-${autenticado.uid}`) ?? '[]',
+          window.localStorage.getItem(`escala-ici-notificacoes-lidas-${autenticado.login}`) ?? '[]',
         ) as unknown;
         setIdsLidos(new Set(Array.isArray(salvos) ? salvos.map(String) : []));
       } catch {
@@ -698,7 +698,7 @@ export function EmployeeApp() {
         const escala = await carregarEscalaDemonstracao();
         const escalaAtual = selecionarEscalaPorData(
           escala.documentos.filter(
-            (documento) => documento.usuarioUid === autenticado.uid,
+            (documento) => documento.login === autenticado.login,
           ),
           dataHoje,
         );
@@ -776,7 +776,7 @@ export function EmployeeApp() {
     }
     setIdsLidos(novosLidos);
     window.localStorage.setItem(
-      `escala-ici-notificacoes-lidas-${usuario.uid}`,
+      `escala-ici-notificacoes-lidas-${usuario.login}`,
       JSON.stringify([...novosLidos]),
     );
   }

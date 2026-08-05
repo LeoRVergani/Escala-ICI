@@ -20,13 +20,13 @@ import type { LinhaConciliacao, StatusConciliacao, Usuario } from './modelos';
  */
 
 const STATUS_LIBERAM_PUBLICACAO: ReadonlySet<StatusConciliacao> = new Set([
-  'VINCULADO_UID',
+  'VINCULADO_LOGIN',
   'VINCULADO_ALIAS',
   'IGNORADA',
 ]);
 
-function uidsUnicos(usuarios: readonly Usuario[]): string[] {
-  return [...new Set(usuarios.map((usuario) => usuario.uid))];
+function loginsUnicos(usuarios: readonly Usuario[]): string[] {
+  return [...new Set(usuarios.map((usuario) => usuario.login))];
 }
 
 type ClassificacaoCandidatos = Omit<LinhaConciliacao, 'nomePlanilha'>;
@@ -40,9 +40,9 @@ function classificarCandidatos(
   }
   if (candidatos.length > 1) {
     return {
-      usuarioUid: null,
+      login: null,
       status: 'CONFLITO_ALIAS',
-      candidatos: uidsUnicos(candidatos),
+      candidatos: loginsUnicos(candidatos),
     };
   }
   const [unico] = candidatos;
@@ -50,8 +50,8 @@ function classificarCandidatos(
     return undefined;
   }
   return unico.ativo
-    ? { usuarioUid: unico.uid, status: statusVinculo, candidatos: [unico.uid] }
-    : { usuarioUid: null, status: 'USUARIO_INATIVO', candidatos: [unico.uid] };
+    ? { login: unico.login, status: statusVinculo, candidatos: [unico.login] }
+    : { login: null, status: 'USUARIO_INATIVO', candidatos: [unico.login] };
 }
 
 export function conciliarNome(
@@ -63,7 +63,7 @@ export function conciliarNome(
   const porLogin = classificarCandidatos(
     usuarios.filter((usuario) =>
       usuario.login === texto || (usuario.loginAliases ?? []).includes(texto)),
-    'VINCULADO_UID',
+    'VINCULADO_LOGIN',
   );
   if (porLogin !== undefined) {
     return { nomePlanilha: texto, ...porLogin };
@@ -72,7 +72,7 @@ export function conciliarNome(
   if (texto.includes('@')) {
     const porEmail = classificarCandidatos(
       usuarios.filter((usuario) => usuario.email.toLowerCase() === texto.toLowerCase()),
-      'VINCULADO_UID',
+      'VINCULADO_LOGIN',
     );
     if (porEmail !== undefined) {
       return { nomePlanilha: texto, ...porEmail };
@@ -90,7 +90,7 @@ export function conciliarNome(
     return { nomePlanilha: texto, ...porAliasOuNome };
   }
 
-  return { nomePlanilha: texto, usuarioUid: null, status: 'USUARIO_NAO_ENCONTRADO', candidatos: [] };
+  return { nomePlanilha: texto, login: null, status: 'USUARIO_NAO_ENCONTRADO', candidatos: [] };
 }
 
 /**
@@ -124,12 +124,12 @@ export function resolverManualmente(
   usuario: Usuario,
 ): LinhaConciliacao {
   return usuario.ativo
-    ? { ...linha, usuarioUid: usuario.uid, status: 'VINCULADO_ALIAS', candidatos: [usuario.uid] }
-    : { ...linha, usuarioUid: null, status: 'USUARIO_INATIVO', candidatos: [usuario.uid] };
+    ? { ...linha, login: usuario.login, status: 'VINCULADO_ALIAS', candidatos: [usuario.login] }
+    : { ...linha, login: null, status: 'USUARIO_INATIVO', candidatos: [usuario.login] };
 }
 
 export function marcarPendente(linha: LinhaConciliacao): LinhaConciliacao {
-  return { ...linha, usuarioUid: null, status: 'PRECISA_MAPEAR' };
+  return { ...linha, login: null, status: 'PRECISA_MAPEAR' };
 }
 
 export function ignorarLinha(linha: LinhaConciliacao): LinhaConciliacao {
@@ -147,8 +147,8 @@ export function loginParaUidComConciliacao(
 ): Record<string, string> {
   const extra = Object.fromEntries(
     linhas
-      .filter((linha) => linha.usuarioUid !== null && linha.status !== 'IGNORADA')
-      .map((linha) => [linha.nomePlanilha, linha.usuarioUid as string]),
+      .filter((linha) => linha.login !== null && linha.status !== 'IGNORADA')
+      .map((linha) => [linha.nomePlanilha, linha.login as string]),
   );
   return { ...base, ...extra };
 }

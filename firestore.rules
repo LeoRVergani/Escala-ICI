@@ -6,9 +6,21 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    /**
+     * O login corporativo é a chave funcional — derivado do e-mail
+     * autenticado, do mesmo jeito que o app faz (fulano@empresa.com ->
+     * fulano). Não depende de custom claims, de Admin SDK nem de
+     * usuarios/{request.auth.uid}: funciona igual para login por senha hoje
+     * e para um provedor OAuth corporativo (ex.: Microsoft) no futuro,
+     * contanto que ele devolva e-mail.
+     */
+    function loginDoAuth() {
+      return request.auth.token.email.lower().split('@')[0];
+    }
+
     function eu() {
       return get(
-        /databases/$(database)/documents/usuarios/$(request.auth.uid)
+        /databases/$(database)/documents/usuarios/$(loginDoAuth())
       ).data;
     }
 
@@ -25,17 +37,17 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    match /usuarios/{uid} {
+    match /usuarios/{login} {
       allow read: if autenticado()
         && (
-          request.auth.uid == uid
+          loginDoAuth() == login
           || resource.data.equipeId == minhaEquipe()
         );
 
       allow update: if autenticado()
         && (
           (
-            request.auth.uid == uid
+            loginDoAuth() == login
             && request.resource.data.diff(resource.data)
               .affectedKeys().hasOnly(['nome'])
           )
@@ -43,12 +55,13 @@ service cloud.firestore {
             souGestor()
             && resource.data.equipeId == minhaEquipe()
             && request.resource.data.equipeId == resource.data.equipeId
-            && request.resource.data.uid == resource.data.uid
+            && request.resource.data.login == resource.data.login
           )
         );
 
       allow create: if souGestor()
-        && request.resource.data.equipeId == minhaEquipe();
+        && request.resource.data.equipeId == minhaEquipe()
+        && request.resource.data.login == login;
 
       allow delete: if false;
     }
@@ -80,7 +93,7 @@ service cloud.firestore {
       allow update: if souGestor()
         && resource.data.equipeId == minhaEquipe()
         && request.resource.data.equipeId == resource.data.equipeId
-        && request.resource.data.usuarioUid == resource.data.usuarioUid
+        && request.resource.data.login == resource.data.login
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.status == 'PUBLICADA';
 
@@ -134,11 +147,11 @@ service cloud.firestore {
         && resource.data.equipeId == minhaEquipe()
         && (
           souGestor()
-          || resource.data.usuarioUid == request.auth.uid
+          || resource.data.usuarioUid == loginDoAuth()
         );
       allow create: if souGestor()
         && request.resource.data.equipeId == minhaEquipe()
-        && request.resource.data.publicadoPor == request.auth.uid
+        && request.resource.data.publicadoPor == loginDoAuth()
         && request.resource.data.alteracoes is list;
       allow update, delete: if false;
     }
@@ -146,7 +159,7 @@ service cloud.firestore {
     match /importacoes/{id} {
       allow read: if souGestor();
       allow create: if souGestor()
-        && request.resource.data.enviadoPor == request.auth.uid
+        && request.resource.data.enviadoPor == loginDoAuth()
         && request.resource.data.equipeId == minhaEquipe();
       allow update, delete: if false;
     }

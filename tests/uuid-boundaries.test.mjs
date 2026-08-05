@@ -12,7 +12,9 @@ test('fluxos administrativos não dependem diretamente de randomUUID', async () 
   ]);
 
   assert.doesNotMatch(`${usuarios}\n${escrita}`, /crypto\.randomUUID\s*\(/);
-  assert.match(usuarios, /gerarUuid\(\)/);
+  // O login é a chave desde a criação — importUsers.ts não gera mais ID
+  // nenhum (nem via gerarUuid nem via crypto.randomUUID).
+  assert.doesNotMatch(usuarios, /randomUUID|gerarUuid/);
   assert.match(escrita, /gerarUuid\(\)/);
   assert.match(uuid, /getRandomValues/);
   assert.doesNotMatch(uuid, /Math\.random/);

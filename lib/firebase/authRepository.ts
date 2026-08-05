@@ -18,19 +18,31 @@ import {
 import { exigirFirebase, lerUsuario } from './shared';
 
 /**
- * Fase 3K-D2C — mensagens distintas para os três casos que antes chegavam
- * como o mesmo "não está cadastrado": sem perfil, perfil inativo, ou (fora
- * daqui — ver `EmployeeApp.autenticar`) perfil ativo sem escala publicada
- * no período atual.
+ * Mensagens distintas para os três casos que antes chegavam como o mesmo
+ * "não está cadastrado": sem perfil, perfil inativo, ou (fora daqui — ver
+ * `EmployeeApp.autenticar`) perfil ativo sem escala publicada no período
+ * atual.
  */
 export const MENSAGEM_SEM_PERFIL_FIRESTORE =
-  'Seu usuário autenticado não está cadastrado no Firestore. Peça ao gestor da sua equipe para vincular seu acesso pelo Dashboard, em Usuários.';
+  'Seu login não está cadastrado na escala. Procure o gestor.';
 export const MENSAGEM_PERFIL_INATIVO =
-  'Seu perfil está cadastrado, mas está inativo. Peça ao gestor da sua equipe para reativar seu acesso.';
+  'Seu cadastro está inativo. Procure o gestor.';
 
-async function resolverUsuarioAutenticado(uid: string): Promise<Usuario> {
+/**
+ * O Firebase Auth só serve para autenticar a sessão — a identidade
+ * funcional é o login corporativo, derivado do e-mail autenticado
+ * (`fulano@empresa.com` → `fulano`). Isso vale para qualquer provedor que
+ * devolva e-mail (login por senha hoje, Microsoft/SSO no futuro): nenhum
+ * dos dois precisa que `usuarios/{auth.uid}` exista.
+ */
+export function loginDoEmail(email: string): string {
+  return email.split('@')[0]?.toLowerCase().trim() ?? '';
+}
+
+async function resolverUsuarioAutenticado(email: string | null): Promise<Usuario> {
+  const login = loginDoEmail(email ?? '');
   const { db } = exigirFirebase();
-  const snapshot = await getDoc(doc(db, 'usuarios', uid));
+  const snapshot = await getDoc(doc(db, 'usuarios', login));
   if (!snapshot.exists()) {
     throw new Error(MENSAGEM_SEM_PERFIL_FIRESTORE);
   }
@@ -41,10 +53,10 @@ async function resolverUsuarioAutenticado(uid: string): Promise<Usuario> {
   return usuario;
 }
 
-async function carregarUsuario(uid: string): Promise<Usuario> {
+async function carregarUsuario(email: string | null): Promise<Usuario> {
   const { auth } = exigirFirebase();
   try {
-    return await resolverUsuarioAutenticado(uid);
+    return await resolverUsuarioAutenticado(email);
   } catch (falha) {
     await signOut(auth);
     throw falha;
@@ -64,7 +76,7 @@ export async function entrarComEmail(
   );
   const credencial = await signInWithEmailAndPassword(auth, email, senha);
   try {
-    return await resolverUsuarioAutenticado(credencial.user.uid);
+    return await resolverUsuarioAutenticado(credencial.user.email ?? email);
   } catch (falha) {
     await signOut(auth);
     throw falha;
@@ -93,7 +105,7 @@ export function observarSessao(
         aoRestaurar(null);
         return;
       }
-      void carregarUsuario(conta.uid)
+      void carregarUsuario(conta.email)
         .then(aoRestaurar)
         .catch((falha: unknown) =>
           aoFalhar(falha instanceof Error ? falha : new Error('Falha ao restaurar sessão.')));

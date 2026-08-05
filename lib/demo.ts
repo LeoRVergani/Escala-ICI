@@ -7,13 +7,13 @@ import {
 import {
   EQUIPE_DEMO,
   GESTOR_DEMO,
-  LOGIN_PARA_UID,
+  LOGIN_PARA_LOGIN,
 } from './demoIdentidades';
 
 export {
   EQUIPE_DEMO,
   GESTOR_DEMO,
-  LOGIN_PARA_UID,
+  LOGIN_PARA_LOGIN,
   USUARIOS_DEMO,
 } from './demoIdentidades';
 
@@ -27,7 +27,7 @@ export async function carregarEscalaDemonstracao(): Promise<ResultadoParse> {
     equipeId: EQUIPE_DEMO.id,
     competencia: '2026-08',
     catalogo: CATALOGO_SOC,
-    loginParaUid: LOGIN_PARA_UID,
+    loginParaUid: LOGIN_PARA_LOGIN,
   });
 
   return {
@@ -36,7 +36,7 @@ export async function carregarEscalaDemonstracao(): Promise<ResultadoParse> {
       ...documento,
       status: 'PUBLICADA',
       importacaoId: 'demo-agosto-2026',
-      publicadoPor: GESTOR_DEMO.uid,
+      publicadoPor: GESTOR_DEMO.login,
       publicadoEm: '2026-07-29T12:00:00.000Z',
     })),
   };

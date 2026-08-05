@@ -49,6 +49,6 @@ describe('planilha incluída no laboratório', () => {
     expect(resultado.ok).toBe(true);
     expect(resultado.erros).toEqual([]);
     expect(resultado.documentos).toHaveLength(9);
-    expect(resultado.documentos[0]?.usuarioUid).toBe('usuario-0');
+    expect(resultado.documentos[0]?.usuarioUid).toBe('cmonteiro');
   });
 });

@@ -165,7 +165,7 @@ export async function listarEventosPublicacao(
 }
 
 export function observarEventosEscala(
-  usuarioUid: string,
+  login: string,
   equipeId: string,
   aoAtualizar: (eventos: EventoEscala[]) => void,
   aoFalhar: (erro: Error) => void,
@@ -173,7 +173,7 @@ export function observarEventosEscala(
   const { db } = exigirFirebase();
   return onSnapshot(query(
     collection(db, 'eventosEscala'),
-    where('usuarioUid', '==', usuarioUid),
+    where('usuarioUid', '==', login),
     where('equipeId', '==', equipeId),
   ), (snapshot) => {
     const eventos = snapshot.docs

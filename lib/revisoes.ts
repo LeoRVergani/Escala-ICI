@@ -23,22 +23,28 @@ function assinatura(dia: Dia | undefined): string {
   });
 }
 
+/**
+ * Compara por `login`, não por `usuarioUid`: o login é a chave funcional
+ * estável. Comparar por `usuarioUid` quebraria a primeira publicação depois
+ * de qualquer transição (campo antigo/legado divergente do login), tratando
+ * a mesma pessoa como "removida" e "adicionada" ao mesmo tempo.
+ */
 export function calcularAlteracoesEscala(
   anteriores: readonly TurnosMes[],
   novos: readonly TurnosMes[],
 ): AlteracaoEscala[] {
-  const antigosPorUsuario = new Map(
-    anteriores.map((documento) => [documento.usuarioUid, documento]),
+  const antigosPorLogin = new Map(
+    anteriores.map((documento) => [documento.login, documento]),
   );
-  const novosPorUsuario = new Map(
-    novos.map((documento) => [documento.usuarioUid, documento]),
+  const novosPorLogin = new Map(
+    novos.map((documento) => [documento.login, documento]),
   );
-  const usuarios = new Set([...antigosPorUsuario.keys(), ...novosPorUsuario.keys()]);
+  const logins = new Set([...antigosPorLogin.keys(), ...novosPorLogin.keys()]);
   const alteracoes: AlteracaoEscala[] = [];
 
-  for (const usuarioUid of usuarios) {
-    const antigo = antigosPorUsuario.get(usuarioUid);
-    const novo = novosPorUsuario.get(usuarioUid);
+  for (const login of logins) {
+    const antigo = antigosPorLogin.get(login);
+    const novo = novosPorLogin.get(login);
     const datas = new Set([
       ...Object.keys(antigo?.dias ?? {}),
       ...Object.keys(novo?.dias ?? {}),
@@ -50,8 +56,8 @@ export function calcularAlteracoesEscala(
         continue;
       }
       alteracoes.push({
-        usuarioUid,
-        login: novo?.login ?? antigo?.login ?? usuarioUid,
+        usuarioUid: login,
+        login,
         data,
         codigoAnterior: antes?.c ?? null,
         horarioAnterior: horario(antes),
@@ -68,9 +74,9 @@ export function agruparAlteracoesPorUsuario(
 ): Map<string, AlteracaoEscala[]> {
   const grupos = new Map<string, AlteracaoEscala[]>();
   for (const alteracao of alteracoes) {
-    const grupo = grupos.get(alteracao.usuarioUid) ?? [];
+    const grupo = grupos.get(alteracao.login) ?? [];
     grupo.push(alteracao);
-    grupos.set(alteracao.usuarioUid, grupo);
+    grupos.set(alteracao.login, grupo);
   }
   return grupos;
 }

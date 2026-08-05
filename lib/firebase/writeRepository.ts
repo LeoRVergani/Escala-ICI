@@ -52,7 +52,7 @@ function validarConjuntoPublicacao(documentos: readonly TurnosMes[]): {
     throw new Error('Todos os documentos devem pertencer à mesma equipe e competência.');
   }
   for (const documento of documentos) {
-    idDocumento(documento.equipeId, documento.usuarioUid, documento.competencia);
+    idDocumento(documento.equipeId, documento.login, documento.competencia);
   }
   return {
     equipeId: primeiro.equipeId,
@@ -131,7 +131,7 @@ export async function salvarRascunho(
       const referencia = doc(
         db,
         'rascunhosTurnosMes',
-        idDocumento(documento.equipeId, documento.usuarioUid, documento.competencia),
+        idDocumento(documento.equipeId, documento.login, documento.competencia),
       );
       batch.set(referencia, removerUndefined({
         ...documento,
@@ -147,7 +147,7 @@ export async function salvarRascunho(
       batch.set(doc(db, 'importacoes', importacaoId), removerUndefined({
         equipeId: enviadoPor.equipeId,
         competencia: resultado.documentos[0]?.competencia ?? '',
-        enviadoPor: enviadoPor.uid,
+        enviadoPor: enviadoPor.login,
         nomeArquivo,
         periodoInicio: resultado.periodoInicio,
         periodoFim: resultado.periodoFim,
@@ -189,9 +189,9 @@ export async function publicarEscalas(
     throw new Error('Nenhuma alteração foi encontrada em relação à revisão publicada.');
   }
   const alteracoesPorUsuario = agruparAlteracoesPorUsuario(alteracoes);
-  const usuariosPublicados = new Set(documentos.map(({ usuarioUid }) => usuarioUid));
+  const loginsPublicados = new Set(documentos.map(({ login }) => login));
   const documentosRemovidos = ativos.docs.filter((snapshot) =>
-    !usuariosPublicados.has(String(snapshot.data().usuarioUid ?? '')));
+    !loginsPublicados.has(String(snapshot.data().login ?? '')));
   const revisao = revisaoAtual + 1;
   const publicadoEm = new Date().toISOString();
   const publicacao: PublicacaoEscala = {
@@ -217,11 +217,11 @@ export async function publicarEscalas(
       competencia,
       totalDocumentos: documentos.length,
       turnosMesIds: documentos.map((documento) =>
-        idDocumento(equipeId, documento.usuarioUid, competencia)),
+        idDocumento(equipeId, documento.login, competencia)),
       versoesEscalaIds: documentos.map((documento) =>
-        idDocumentoVersao(chavePublicacao, revisao, documento.usuarioUid)),
-      eventosIds: [...alteracoesPorUsuario.keys()].map((usuarioUid) =>
-        `${publicacao.id}_${usuarioUid}`),
+        idDocumentoVersao(chavePublicacao, revisao, documento.login)),
+      eventosIds: [...alteracoesPorUsuario.keys()].map((login) =>
+        `${publicacao.id}_${login}`),
       rascunhosParaExcluirIds: rascunhosAtuais.docs.map((snapshot) => snapshot.id),
       estadoPublicacaoId: chavePublicacao,
       historicoId: publicacao.id,
@@ -240,16 +240,16 @@ export async function publicarEscalas(
           atualizadoEm: publicadoEm,
         };
         batch.set(
-          doc(db, 'turnosMes', idDocumento(equipeId, documento.usuarioUid, competencia)),
+          doc(db, 'turnosMes', idDocumento(equipeId, documento.login, competencia)),
           removerUndefined(publicado),
         );
         batch.set(
-          doc(db, 'versoesEscala', idDocumentoVersao(chavePublicacao, revisao, documento.usuarioUid)),
+          doc(db, 'versoesEscala', idDocumentoVersao(chavePublicacao, revisao, documento.login)),
           removerUndefined({ ...publicado, chavePublicacao, revisao }),
         );
-        const alteracoesDoUsuario = alteracoesPorUsuario.get(documento.usuarioUid);
+        const alteracoesDoUsuario = alteracoesPorUsuario.get(documento.login);
         if (alteracoesDoUsuario !== undefined) {
-          const evento = criarEventoEscala(publicacao, documento.usuarioUid, alteracoesDoUsuario);
+          const evento = criarEventoEscala(publicacao, documento.login, alteracoesDoUsuario);
           batch.set(doc(db, 'eventosEscala', evento.id), removerUndefined(evento));
         }
       }
@@ -271,11 +271,11 @@ export async function publicarEscalas(
     for (const lote of fatiarEmLotes(documentosRemovidos, 150)) {
       const batch = writeBatch(db);
       for (const snapshot of lote) {
-        const usuarioUid = String(snapshot.data().usuarioUid ?? '');
+        const login = String(snapshot.data().login ?? '');
         batch.delete(snapshot.ref);
-        const alteracoesDoUsuario = alteracoesPorUsuario.get(usuarioUid);
+        const alteracoesDoUsuario = alteracoesPorUsuario.get(login);
         if (alteracoesDoUsuario !== undefined) {
-          const evento = criarEventoEscala(publicacao, usuarioUid, alteracoesDoUsuario);
+          const evento = criarEventoEscala(publicacao, login, alteracoesDoUsuario);
           batch.set(doc(db, 'eventosEscala', evento.id), removerUndefined(evento));
         }
       }
@@ -373,17 +373,17 @@ export async function reverterPublicacao(
     publicadoEm,
   };
 
-  const uidsRestaurados = new Set(documentos.map(({ usuarioUid }) => usuarioUid));
+  const loginsRestaurados = new Set(documentos.map(({ login }) => login));
   const obsoletos = ativos.docs.filter((snapshot) =>
-    !uidsRestaurados.has(String(snapshot.data().usuarioUid ?? '')));
+    !loginsRestaurados.has(String(snapshot.data().login ?? '')));
 
   const batch = writeBatch(db);
   for (const snapshot of obsoletos) {
-    const usuarioUid = String(snapshot.data().usuarioUid ?? '');
+    const login = String(snapshot.data().login ?? '');
     batch.delete(snapshot.ref);
-    const alteracoesDoUsuario = alteracoesPorUsuario.get(usuarioUid);
+    const alteracoesDoUsuario = alteracoesPorUsuario.get(login);
     if (alteracoesDoUsuario !== undefined) {
-      const evento = criarEventoEscala(publicacao, usuarioUid, alteracoesDoUsuario);
+      const evento = criarEventoEscala(publicacao, login, alteracoesDoUsuario);
       batch.set(doc(db, 'eventosEscala', evento.id), removerUndefined(evento));
     }
   }
@@ -396,16 +396,16 @@ export async function reverterPublicacao(
       atualizadoEm: publicadoEm,
     };
     batch.set(
-      doc(db, 'turnosMes', idDocumento(equipeId, documento.usuarioUid, competencia)),
+      doc(db, 'turnosMes', idDocumento(equipeId, documento.login, competencia)),
       removerUndefined(restaurado),
     );
     batch.set(
-      doc(db, 'versoesEscala', idDocumentoVersao(chavePublicacao, revisao, documento.usuarioUid)),
+      doc(db, 'versoesEscala', idDocumentoVersao(chavePublicacao, revisao, documento.login)),
       removerUndefined({ ...restaurado, chavePublicacao, revisao, restauradaDe: chaveVersao }),
     );
-    const alteracoesDoUsuario = alteracoesPorUsuario.get(documento.usuarioUid);
+    const alteracoesDoUsuario = alteracoesPorUsuario.get(documento.login);
     if (alteracoesDoUsuario !== undefined) {
-      const evento = criarEventoEscala(publicacao, documento.usuarioUid, alteracoesDoUsuario);
+      const evento = criarEventoEscala(publicacao, documento.login, alteracoesDoUsuario);
       batch.set(doc(db, 'eventosEscala', evento.id), removerUndefined(evento));
     }
   }
@@ -432,7 +432,7 @@ export async function reverterPublicacao(
 export async function salvarUsuario(usuario: Usuario): Promise<void> {
   exigirEscritaAdministrativaHabilitada();
   const { db } = exigirFirebase();
-  await setDoc(doc(db, 'usuarios', usuario.uid), removerUndefined(usuario), { merge: true });
+  await setDoc(doc(db, 'usuarios', usuario.login), removerUndefined(usuario), { merge: true });
 }
 
 export async function salvarUsuarios(usuarios: readonly Usuario[]): Promise<void> {
@@ -448,7 +448,7 @@ export async function salvarUsuarios(usuarios: readonly Usuario[]): Promise<void
   for (const lote of fatiarEmLotes(usuarios, 500)) {
     const batch = writeBatch(db);
     for (const usuario of lote) {
-      batch.set(doc(db, 'usuarios', usuario.uid), removerUndefined(usuario));
+      batch.set(doc(db, 'usuarios', usuario.login), removerUndefined(usuario));
     }
     await batch.commit();
   }
@@ -460,69 +460,15 @@ export async function salvarUsuarios(usuarios: readonly Usuario[]): Promise<void
  * mudar esse campo e não deveria arriscar reenviar o resto do cadastro.
  */
 export async function atualizarAliasesPlanilha(
-  uid: string,
+  login: string,
   aliasesPlanilha: readonly string[],
 ): Promise<void> {
   exigirEscritaAdministrativaHabilitada();
   const { db } = exigirFirebase();
-  await updateDoc(doc(db, 'usuarios', uid), removerUndefined({
+  await updateDoc(doc(db, 'usuarios', login), removerUndefined({
     aliasesPlanilha: [...aliasesPlanilha],
     atualizadoEm: new Date().toISOString(),
   }));
-}
-
-/**
- * Fase 3K-D2C — corrige o cadastro criado sem o UID real do Firebase
- * Authentication (ver checkpoint da Fase 3K-D2 sobre a limitação de não
- * poder renomear o ID de um documento já criado).
- *
- * Cria `usuarios/{uidNovo}` com os mesmos dados (aliases, equipe, cargo,
- * login, turno, status) e marca o cadastro antigo como `ativo: false` e
- * `substituidoPorUid: uidNovo` — nunca apaga o documento antigo.
- */
-export async function vincularUsuarioAoUid(
-  usuarioAntigo: Usuario,
-  uidNovo: string,
-): Promise<Usuario> {
-  exigirEscritaAdministrativaHabilitada();
-  const uidNovoLimpo = uidNovo.trim();
-  if (uidNovoLimpo === '') {
-    throw new Error('Informe o UID do Firebase Authentication.');
-  }
-  if (uidNovoLimpo === usuarioAntigo.uid) {
-    throw new Error('Este já é o UID atual do cadastro.');
-  }
-
-  const { db } = exigirFirebase();
-  const referenciaNova = doc(db, 'usuarios', uidNovoLimpo);
-  const existente = await getDoc(referenciaNova);
-  if (existente.exists()) {
-    throw new Error('Já existe um cadastro com este UID. Verifique se a pessoa já está cadastrada.');
-  }
-
-  const agora = new Date().toISOString();
-  // `usuarioNovo` é o objeto em memória (mantém a forma de `Usuario`, com
-  // `criadoEm` sempre string); `removerUndefined()` só entra na hora de
-  // montar o payload de escrita, para não mudar o tipo em memória.
-  const usuarioNovo: Usuario = {
-    ...usuarioAntigo,
-    uid: uidNovoLimpo,
-    pendenteVinculo: false,
-    substituidoPorUid: null,
-    criadoEm: usuarioAntigo.criadoEm ?? agora,
-    atualizadoEm: agora,
-  };
-
-  const batch = writeBatch(db);
-  batch.set(referenciaNova, removerUndefined(usuarioNovo));
-  batch.update(doc(db, 'usuarios', usuarioAntigo.uid), removerUndefined({
-    ativo: false,
-    substituidoPorUid: uidNovoLimpo,
-    atualizadoEm: agora,
-  }));
-  await batch.commit();
-
-  return usuarioNovo;
 }
 
 export async function excluirRascunho(documento: TurnosMes): Promise<void> {
@@ -534,7 +480,7 @@ export async function excluirRascunho(documento: TurnosMes): Promise<void> {
   await deleteDoc(doc(
     db,
     'rascunhosTurnosMes',
-    idDocumento(documento.equipeId, documento.usuarioUid, documento.competencia),
+    idDocumento(documento.equipeId, documento.login, documento.competencia),
   ));
 }
 
@@ -550,13 +496,13 @@ export async function adicionarMembroRascunho(documento: TurnosMes): Promise<voi
   }
   const { db } = exigirFirebase();
   await setDoc(
-    doc(db, 'rascunhosTurnosMes', idDocumento(documento.equipeId, documento.usuarioUid, documento.competencia)),
+    doc(db, 'rascunhosTurnosMes', idDocumento(documento.equipeId, documento.login, documento.competencia)),
     removerUndefined({ ...documento, importacaoId: documento.importacaoId ?? null, publicadoPor: null, publicadoEm: null }),
   );
 }
 
-export async function atualizarNome(uid: string, nome: string): Promise<void> {
+export async function atualizarNome(login: string, nome: string): Promise<void> {
   exigirEscritaAdministrativaHabilitada();
   const { db } = exigirFirebase();
-  await updateDoc(doc(db, 'usuarios', uid), { nome });
+  await updateDoc(doc(db, 'usuarios', login), { nome });
 }

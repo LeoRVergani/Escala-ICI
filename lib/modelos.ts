@@ -1,8 +1,15 @@
 import type { TipoTurno, TurnosMes } from '@escala-ici/contrato';
 
+/**
+ * O `login` corporativo é a chave funcional e o ID do documento
+ * `usuarios/{login}` — estável desde o cadastro, nunca muda. `uid` é
+ * metadado interno opcional (o UID do Firebase Authentication, quando
+ * conhecido): serve só de referência, nunca é necessário para autenticar,
+ * ler ou publicar escala.
+ */
 export interface Usuario {
-  uid: string;
   login: string;
+  uid?: string;
   loginAliases?: string[];
   nome: string;
   email: string;
@@ -20,19 +27,6 @@ export interface Usuario {
    * pelo parser.
    */
   aliasesPlanilha?: string[];
-  /**
-   * `true` quando o UID do documento é um identificador provisório, sem
-   * correspondência confirmada no Firebase Authentication — ver
-   * Fase 3K-D2 no checkpoint para a limitação de não renomear o ID do
-   * documento depois de criado.
-   */
-  pendenteVinculo?: boolean;
-  /**
-   * Fase 3K-D2C — preenchido só no cadastro antigo, quando alguém usa
-   * "Vincular ao UID do Authentication" para migrar para o UID real. Aponta
-   * para o novo documento; o antigo fica `ativo: false`, mas não é apagado.
-   */
-  substituidoPorUid?: string | null;
   criadoEm?: string;
   atualizadoEm?: string;
 }
@@ -170,7 +164,7 @@ export interface SolicitacaoTroca extends NovaSolicitacaoTroca {
  * classificação e `lib/nomes.ts` para a normalização usada na comparação.
  */
 export type StatusConciliacao =
-  | 'VINCULADO_UID'
+  | 'VINCULADO_LOGIN'
   | 'VINCULADO_ALIAS'
   | 'PRECISA_MAPEAR'
   | 'USUARIO_INATIVO'
@@ -180,9 +174,9 @@ export type StatusConciliacao =
 
 export interface LinhaConciliacao {
   nomePlanilha: string;
-  usuarioUid: string | null;
+  login: string | null;
   status: StatusConciliacao;
-  /** UIDs candidatos quando o status é `CONFLITO_ALIAS`. */
+  /** Logins candidatos quando o status é `CONFLITO_ALIAS`. */
   candidatos: string[];
 }
 
