@@ -3301,3 +3301,172 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
   .user-form-grid { grid-template-columns: 1fr; }
   .user-form-grid .user-form-full { grid-column: 1; }
 }
+
+/* ================================================================
+ * Fase 3L — legibilidade do PWA (Hoje / Agenda / Equipe).
+ *
+ * Correção só de leitura: fonte, altura mínima e respiro de texto já
+ * existentes que ficaram pequenos demais (letras de dia da semana,
+ * chips M/DF/T, textos secundários). Nenhuma cor, estrutura ou
+ * componente novo — reaproveita os tokens de tema (--text/--muted/
+ * --border/--primary) e os breakpoints já usados no arquivo.
+ *
+ * Tudo aqui é escopado em `.app-shell.product-app` (o PWA do
+ * colaborador). `.shift-chip`, `.icon-button` e o ScheduleGrid da tela
+ * Equipe são compartilhados com o Dashboard (`.app-shell.product-
+ * dashboard`); por isso as regras usam sempre esse prefixo, nunca a
+ * classe base sozinha, para o Dashboard continuar exatamente como
+ * estava. Fica ao final do arquivo de propósito: para uma mesma
+ * especificidade, a regra mais recente no arquivo é quem vale.
+ * ================================================================ */
+
+/* --- 8. Desktop/web: cabeçalho de dias e chips não podem ficar
+ * minúsculos, com aumento discreto para não alterar a grade. --- */
+.app-shell.product-app .calendar-weekdays span {
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+}
+.app-shell.product-app .calendar-grid > button .shift-chip {
+  font-size: 0.62rem;
+}
+.app-shell.product-app .week-days > button > small {
+  font-size: 0.68rem;
+  letter-spacing: 0.03em;
+}
+
+@media (max-width: 768px) {
+  /* --- 1. Header mobile: área de toque do sino/tema >= 44px. --- */
+  .app-shell.product-app .topbar-actions .icon-button {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* --- 2. Saudação: nome, avatar e período mais legíveis. --- */
+  .app-shell.product-app .today-heading h1,
+  .app-shell.product-app .agenda-mobile-intro strong {
+    font-size: 1.75rem;
+  }
+  .app-shell.product-app .agenda-mobile-intro .avatar {
+    width: 40px;
+    height: 40px;
+    font-size: 0.8rem;
+  }
+  .app-shell.product-app .today-period {
+    min-height: 32px;
+    font-size: 0.72rem;
+  }
+
+  /* --- 3. Visão rápida da semana. --- */
+  .app-shell.product-app .week-strip {
+    padding: 16px 14px;
+  }
+  .app-shell.product-app .week-days > button > small {
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+  .app-shell.product-app .week-days > button > strong {
+    width: 34px;
+    height: 34px;
+    font-size: 1.05rem;
+  }
+  .app-shell.product-app .week-days > button .shift-chip,
+  .agenda-mobile-week .week-days > button .shift-chip {
+    min-width: 30px;
+    width: auto;
+    min-height: 22px;
+    padding-inline: 6px;
+    font-size: 0.72rem;
+  }
+
+  /* --- 4. Calendário mensal: cabeçalho, número do dia, chip e altura
+   * mínima da célula. Prioriza leitura sobre caber tudo "espremido". --- */
+  .app-shell.product-app .calendar-weekdays span {
+    padding: 10px 2px;
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
+  }
+  .app-shell.product-app .calendar-grid > button,
+  .app-shell.product-app .calendar-blank {
+    min-height: 68px;
+  }
+  .app-shell.product-app .calendar-grid > button {
+    gap: 6px;
+  }
+  .app-shell.product-app .calendar-grid > button > span {
+    font-size: 1rem;
+  }
+  .app-shell.product-app .calendar-grid > button .shift-chip {
+    min-width: 28px;
+    width: 28px;
+    min-height: 28px;
+    font-size: 0.7rem;
+  }
+
+  /* --- 5. Agenda em lista: título, data lateral, turno e horário. --- */
+  .app-shell.product-app .employee-calendar-panel[data-mode="agenda"] .agenda-list > button {
+    min-height: 80px;
+  }
+  .app-shell.product-app .agenda-date strong {
+    font-size: 1.1rem;
+  }
+  .app-shell.product-app .agenda-date small {
+    font-size: 0.68rem;
+  }
+  .app-shell.product-app .agenda-description strong {
+    font-size: 0.85rem;
+  }
+  .app-shell.product-app .agenda-description small {
+    font-size: 0.75rem;
+    color: color-mix(in srgb, var(--muted) 85%, var(--text));
+  }
+
+  /* --- 6. Hoje: títulos dos cards e subtítulos menos apagados. --- */
+  .app-shell.product-app .today-card-heading > span {
+    font-size: 0.88rem;
+  }
+  .app-shell.product-app .today-team-title p,
+  .app-shell.product-app .next-shift-card > p {
+    font-size: 0.8rem;
+    color: color-mix(in srgb, var(--muted) 85%, var(--text));
+  }
+  .app-shell.product-app .shift-group > header small,
+  .app-shell.product-app .shift-group article small {
+    font-size: 0.7rem;
+  }
+  .app-shell.product-app .shift-group article strong {
+    font-size: 0.78rem;
+  }
+  .app-shell.product-app .today-team-panel {
+    padding: 18px;
+  }
+
+  /* --- 7. Barra inferior: ícone e label um pouco maiores. --- */
+  .app-shell.product-app .bottom-nav button svg {
+    width: 22px;
+    height: 22px;
+  }
+  .app-shell.product-app .bottom-nav button span {
+    font-size: 0.63rem;
+    font-weight: 800;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Colunas mais estreitas: reforço menor para não estourar a célula. */
+  .app-shell.product-app .week-days > button > strong {
+    width: 32px;
+    height: 32px;
+    font-size: 1rem;
+  }
+  .app-shell.product-app .calendar-grid > button .shift-chip {
+    min-width: 26px;
+    width: 26px;
+    min-height: 26px;
+  }
+  .app-shell.product-app .agenda-date strong {
+    font-size: 1.05rem;
+  }
+}
