@@ -1131,6 +1131,14 @@ button.shift-chip:disabled { cursor: default; }
   box-shadow: 0 24px 48px rgba(15, 23, 42, 0.10);
   color: var(--text);
 }
+:root[data-theme="dark"] .login-card {
+  --surface: #172131;
+  --surface-muted: #141e2c;
+  --text: #f5f7fb;
+  --muted: #94a3b8;
+  --border: #26344a;
+  --border-strong: #34445f;
+}
 .login-hero-copy-compact { display: none; }
 .login-card h2 { font-size: 29px; margin: 5px 0 7px; letter-spacing: -0.035em; }
 .login-card > div:first-child > p:last-child { color: var(--muted); margin: 0; }
@@ -1301,8 +1309,13 @@ button.shift-chip:disabled { cursor: default; }
   }
   .login-showcase::after { display: none; }
   .login-brand { flex-direction: column; gap: 12px; text-align: center; }
-  .login-brand strong { font-size: 24px; letter-spacing: -0.02em; }
-  .login-brand > .brand-symbol { width: 52px; height: 52px; }
+  .login-brand strong { font-size: 28px; letter-spacing: -0.02em; }
+  .login-brand > .brand-symbol {
+    width: 88px;
+    height: 88px;
+    background: transparent;
+    border: 0;
+  }
   .login-hero-copy-full,
   .login-hero-copy-compact,
   .login-feature { display: none; }
@@ -1321,9 +1334,9 @@ button.shift-chip:disabled { cursor: default; }
     padding: 32px 26px;
     box-shadow: 0 30px 60px rgba(2, 6, 23, 0.4);
   }
-  /* O banner de instalação some no fim da tela; sobe para não cobrir o card. */
+  /* Sempre rente ao rodapé da tela de login, não flutuando por cima do card. */
   .login-page ~ .pwa-messages {
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 90px);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
   }
   .entry-options { grid-template-columns: 1fr; }
   .entry-page { min-height: 100svh; }
@@ -1453,52 +1466,37 @@ button.shift-chip:disabled { cursor: default; }
   }
   .agenda-list > button > b { display: none; }
   .agenda-description small { white-space: normal; line-height: 1.35; }
+  /*
+   * Posição explícita em todo item, não só no botão de fechar: com
+   * `grid-template-columns` de 2 colunas, se o `.pwa-dismiss` reserva
+   * (linha 1, coluna 2) via `grid-row`/`grid-column` e o resto fica em
+   * auto-flow, o algoritmo de auto-placement pula essa célula já ocupada
+   * e empurra o texto pra linha de baixo — ele "acha" que não sobrou
+   * espaço ao lado do ícone, quando na verdade ícone+texto deveriam
+   * compartilhar a linha 1 e o X só flutuar por cima. `grid-area` em cada
+   * filho remove a ambiguidade.
+   */
   .pwa-message {
     grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "icon text"
+      "actions actions";
+    row-gap: 8px;
   }
+  .pwa-message > svg,
+  .pwa-message > img { grid-area: icon; }
+  .pwa-message > div { grid-area: text; }
   .pwa-message > button:not(.pwa-dismiss) {
-    grid-column: 1 / -1;
+    grid-area: actions;
     width: 100%;
   }
   .pwa-message > .pwa-dismiss {
-    grid-column: auto;
-    grid-row: 1;
-    grid-column: 2;
-    justify-self: end;
-  }
-  .pwa-message.ios > div { padding-right: 30px; }
-
-  /*
-   * "Instalar Escala ICI" mais compacto: título/descrição ocupam a linha
-   * de cima (com o X); ícone e botão "Instalar" compartilham a linha de
-   * baixo, lado a lado, em vez do ícone sozinho numa linha própria.
-   */
-  .pwa-message.install {
-    grid-template-columns: auto 1fr;
-    grid-template-areas:
-      "text text"
-      "icon button";
-    align-items: center;
-    row-gap: 8px;
-  }
-  .pwa-message.install > img {
-    grid-area: icon;
-    width: 34px;
-    height: 34px;
-  }
-  .pwa-message.install > div {
-    grid-area: text;
-    padding-right: 30px;
-  }
-  .pwa-message.install > button:not(.pwa-dismiss) {
-    grid-area: button;
-    width: 100%;
-  }
-  .pwa-message.install > .pwa-dismiss {
     grid-area: text;
     justify-self: end;
     align-self: start;
   }
+  .pwa-message.ios > div,
+  .pwa-message.install > div { padding-right: 30px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
