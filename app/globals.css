@@ -1282,14 +1282,18 @@ button.shift-chip:disabled { cursor: default; }
   /*
    * Login mobile — tela cheia azul institucional, logo no topo, card claro
    * centralizado no espaço restante (nunca "caído" no fim da tela). O
-   * gradiente vive em `.login-page` para cobrir a tela inteira; `.login-showcase`
-   * fica só com a marca, `.login-card-wrap` centraliza o card no restante.
+   * gradiente vive em `.login-page` para cobrir a tela inteira; marca e
+   * card formam um grupo só, centralizado inteiro na tela — não a marca
+   * presa no topo com o card centralizado sozinho no espaço restante
+   * (o que deixava a marca "solta" lá em cima com um vão grande depois).
    */
   .login-page {
     grid-template-columns: 1fr;
     display: flex;
     flex-direction: column;
+    justify-content: center;
     min-height: 100dvh;
+    overflow-y: auto;
     background:
       radial-gradient(circle at 18% 8%, rgba(56, 189, 248, 0.2), transparent 42%),
       repeating-linear-gradient(
@@ -1320,7 +1324,7 @@ button.shift-chip:disabled { cursor: default; }
   .login-hero-copy-compact,
   .login-feature { display: none; }
   .login-card-wrap {
-    flex: 1;
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1870,7 +1874,7 @@ button.shift-chip:disabled { cursor: default; }
   .app-shell.product-app .week-days > button {
     min-width: 0;
     min-height: 67px;
-    padding: 2px 0;
+    padding: 7px 0;
   }
   .app-shell.product-app .week-days > button > small { font-size: 7px; }
   .app-shell.product-app .week-days > button > strong { width: 28px; height: 28px; font-size: 13px; }
@@ -2472,6 +2476,7 @@ button.shift-chip:disabled { cursor: default; }
   .app-shell.product-app .selected-day-note { display: none; }
   .app-shell.product-app .employee-calendar-panel[data-mode="agenda"] .agenda-list {
     position: relative;
+    max-height: none;
     gap: 12px;
     padding: 2px 0 4px 20px;
     border: 0;
