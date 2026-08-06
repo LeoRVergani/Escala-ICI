@@ -186,6 +186,14 @@ export function PwaProvider({ children }: { children: ReactNode }) {
             <button type="button" onClick={() => void instalar()}>
               <Download size={16} /> Instalar
             </button>
+            <button
+              className="pwa-dismiss"
+              type="button"
+              onClick={() => setInstalacao(null)}
+              aria-label="Dispensar instalação"
+            >
+              <X size={17} />
+            </button>
           </aside>
         )}
         {mostrarDicaIos && (

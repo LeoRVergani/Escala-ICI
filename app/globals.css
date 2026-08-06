@@ -1077,6 +1077,7 @@ button.shift-chip:disabled { cursor: default; }
 .pwa-message.offline { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); }
 .pwa-message.offline > svg { color: var(--warning); background: var(--warning-soft); }
 .pwa-message.update { border-color: color-mix(in srgb, var(--cyan) 45%, var(--border)); }
+.pwa-message.install { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .pwa-message > .pwa-dismiss {
   width: 36px;
   padding: 0;
@@ -1442,7 +1443,8 @@ button.shift-chip:disabled { cursor: default; }
   }
   .agenda-list > button > b { display: none; }
   .agenda-description small { white-space: normal; line-height: 1.35; }
-  .pwa-message {
+  .pwa-message,
+  .pwa-message.install {
     grid-template-columns: auto minmax(0, 1fr);
   }
   .pwa-message > button:not(.pwa-dismiss) {
@@ -1455,7 +1457,8 @@ button.shift-chip:disabled { cursor: default; }
     grid-column: 2;
     justify-self: end;
   }
-  .pwa-message.ios > div { padding-right: 30px; }
+  .pwa-message.ios > div,
+  .pwa-message.install > div { padding-right: 30px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1778,6 +1781,15 @@ button.shift-chip:disabled { cursor: default; }
     height: 31px;
     padding: 4px;
     border-radius: 8px;
+    /* Topbar mobile é clara, não a sidebar escura do desktop: mesmo
+     * fundo/borda do brand-mark padrão (igual ao Dashboard), não o
+     * tratamento translúcido escuro de `.app-shell.product-app .brand-mark`. */
+    background: #ffffff;
+    border-color: var(--border-strong);
+  }
+  :root[data-theme="dark"] .app-shell.product-app .mobile-app-brand .brand-mark {
+    background: rgba(37, 99, 235, 0.16);
+    border-color: rgba(96, 165, 250, 0.35);
   }
   .app-shell.product-app .mobile-app-brand strong {
     color: var(--primary);
@@ -2366,17 +2378,6 @@ button.shift-chip:disabled { cursor: default; }
     background: linear-gradient(145deg, #3b82f6, #1d4ed8);
     box-shadow: 0 8px 18px rgba(29, 78, 216, 0.2);
   }
-  .agenda-mobile-week .week-days > button .shift-chip {
-    min-width: 7px;
-    width: 7px;
-    min-height: 7px;
-    height: 7px;
-    padding: 0;
-    border: 0;
-    border-radius: 50%;
-    color: transparent;
-    overflow: hidden;
-  }
   .schedule-page-heading {
     margin-bottom: 12px !important;
   }
@@ -2585,35 +2586,24 @@ button.shift-chip:disabled { cursor: default; }
 }
 
 @media (max-width: 780px) {
+  /*
+   * Sem `color`/`border` próprios: a Fase 3K-D2A já unificou chip por
+   * código em `.shift-chip[data-code]` (tokens `--periodo-*`, ver acima).
+   * Este bloco tinha uma paleta hardcoded paralela que divergia da cor
+   * usada no calendário/Hoje/Equipe para o mesmo código — um valor por
+   * lugar em vez de um token único. Mantém só o dimensionamento mobile.
+   */
   .agenda-mobile-week .week-days > button .shift-chip {
     width: auto;
     min-width: 20px;
     height: 18px;
     min-height: 18px;
     padding-inline: 4px;
-    border: 1px solid;
     border-radius: 6px;
-    color: inherit;
     overflow: visible;
     font-size: 6px;
     line-height: 1;
   }
-
-  .agenda-mobile-week .week-days > button .shift-chip[data-code="M"] { color: #5b32a3; }
-  .agenda-mobile-week .week-days > button .shift-chip[data-code="T"] { color: #087a50; }
-  .agenda-mobile-week .week-days > button .shift-chip[data-code="N"] { color: #1763bb; }
-  .agenda-mobile-week .week-days > button .shift-chip[data-code="MD"] { color: #9b5200; }
-  .agenda-mobile-week .week-days > button .shift-chip[data-code="DF"] { color: #a62f42; }
-  .agenda-mobile-week .week-days > button .shift-chip[data-code="DU"],
-  .agenda-mobile-week .week-days > button .shift-chip[data-code="BH"] { color: #475569; }
-
-  :root[data-theme="dark"] .agenda-mobile-week .week-days > button .shift-chip[data-code="M"] { color: #ddd2ff; }
-  :root[data-theme="dark"] .agenda-mobile-week .week-days > button .shift-chip[data-code="T"] { color: #d5fff8; }
-  :root[data-theme="dark"] .agenda-mobile-week .week-days > button .shift-chip[data-code="N"] { color: #dcecff; }
-  :root[data-theme="dark"] .agenda-mobile-week .week-days > button .shift-chip[data-code="MD"] { color: #fff2cd; }
-  :root[data-theme="dark"] .agenda-mobile-week .week-days > button .shift-chip[data-code="DF"] { color: #ffe2e6; }
-  :root[data-theme="dark"] .agenda-mobile-week .week-days > button .shift-chip[data-code="DU"],
-  :root[data-theme="dark"] .agenda-mobile-week .week-days > button .shift-chip[data-code="BH"] { color: #eef2f7; }
 
   .app-shell.product-app .employee-calendar-panel[data-mode="calendario"] .schedule-explorer {
     width: 100%;
@@ -3323,15 +3313,16 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
 /* --- 8. Desktop/web: cabeçalho de dias e chips não podem ficar
  * minúsculos, com aumento discreto para não alterar a grade. --- */
 .app-shell.product-app .calendar-weekdays span {
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   letter-spacing: 0.05em;
 }
 .app-shell.product-app .calendar-grid > button .shift-chip {
-  font-size: 0.62rem;
+  font-size: 0.7rem;
 }
 .app-shell.product-app .week-days > button > small {
-  font-size: 0.68rem;
+  font-size: 0.76rem;
   letter-spacing: 0.03em;
+  color: color-mix(in srgb, var(--muted) 72%, var(--text));
 }
 
 @media (max-width: 768px) {
@@ -3360,96 +3351,99 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
 
   /* --- 3. Visão rápida da semana. --- */
   .app-shell.product-app .week-strip {
-    padding: 16px 14px;
+    padding: 18px 14px;
   }
   .app-shell.product-app .week-days > button > small {
-    font-size: 0.78rem;
+    font-size: 0.88rem;
     font-weight: 800;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.03em;
+    color: color-mix(in srgb, var(--muted) 72%, var(--text));
   }
   .app-shell.product-app .week-days > button > strong {
-    width: 34px;
-    height: 34px;
-    font-size: 1.05rem;
+    width: 38px;
+    height: 38px;
+    font-size: 1.15rem;
   }
   .app-shell.product-app .week-days > button .shift-chip,
   .agenda-mobile-week .week-days > button .shift-chip {
-    min-width: 30px;
+    min-width: 34px;
     width: auto;
-    min-height: 22px;
-    padding-inline: 6px;
-    font-size: 0.72rem;
+    min-height: 30px;
+    padding-inline: 7px;
+    font-size: 0.8rem;
   }
 
   /* --- 4. Calendário mensal: cabeçalho, número do dia, chip e altura
    * mínima da célula. Prioriza leitura sobre caber tudo "espremido". --- */
   .app-shell.product-app .calendar-weekdays span {
     padding: 10px 2px;
-    font-size: 0.8rem;
-    letter-spacing: 0.05em;
+    font-size: 0.88rem;
+    letter-spacing: 0.04em;
   }
   .app-shell.product-app .calendar-grid > button,
   .app-shell.product-app .calendar-blank {
-    min-height: 68px;
+    min-height: 78px;
   }
   .app-shell.product-app .calendar-grid > button {
-    gap: 6px;
+    gap: 7px;
   }
   .app-shell.product-app .calendar-grid > button > span {
-    font-size: 1rem;
+    font-size: 1.1rem;
   }
   .app-shell.product-app .calendar-grid > button .shift-chip {
-    min-width: 28px;
-    width: 28px;
-    min-height: 28px;
-    font-size: 0.7rem;
+    min-width: 32px;
+    width: 32px;
+    min-height: 32px;
+    font-size: 0.78rem;
   }
 
   /* --- 5. Agenda em lista: título, data lateral, turno e horário. --- */
   .app-shell.product-app .employee-calendar-panel[data-mode="agenda"] .agenda-list > button {
-    min-height: 80px;
+    min-height: 86px;
   }
   .app-shell.product-app .agenda-date strong {
-    font-size: 1.1rem;
+    font-size: 1.2rem;
   }
   .app-shell.product-app .agenda-date small {
-    font-size: 0.68rem;
+    font-size: 0.76rem;
+    color: color-mix(in srgb, var(--muted) 72%, var(--text));
   }
   .app-shell.product-app .agenda-description strong {
-    font-size: 0.85rem;
+    font-size: 0.92rem;
   }
   .app-shell.product-app .agenda-description small {
-    font-size: 0.75rem;
-    color: color-mix(in srgb, var(--muted) 85%, var(--text));
+    font-size: 0.82rem;
+    color: color-mix(in srgb, var(--muted) 72%, var(--text));
   }
 
   /* --- 6. Hoje: títulos dos cards e subtítulos menos apagados. --- */
   .app-shell.product-app .today-card-heading > span {
-    font-size: 0.88rem;
+    font-size: 0.95rem;
   }
   .app-shell.product-app .today-team-title p,
   .app-shell.product-app .next-shift-card > p {
-    font-size: 0.8rem;
-    color: color-mix(in srgb, var(--muted) 85%, var(--text));
+    font-size: 0.85rem;
+    color: color-mix(in srgb, var(--muted) 72%, var(--text));
   }
   .app-shell.product-app .shift-group > header small,
   .app-shell.product-app .shift-group article small {
-    font-size: 0.7rem;
+    font-size: 0.82rem;
+    color: color-mix(in srgb, var(--muted) 72%, var(--text));
   }
   .app-shell.product-app .shift-group article strong {
-    font-size: 0.78rem;
+    font-size: 0.86rem;
   }
   .app-shell.product-app .today-team-panel {
-    padding: 18px;
+    padding: 20px;
   }
 
   /* --- 7. Barra inferior: ícone e label um pouco maiores. --- */
   .app-shell.product-app .bottom-nav button svg {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
   }
   .app-shell.product-app .bottom-nav button span {
-    font-size: 0.63rem;
+    font-size: 0.7rem;
     font-weight: 800;
   }
 }
@@ -3457,16 +3451,16 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
 @media (max-width: 480px) {
   /* Colunas mais estreitas: reforço menor para não estourar a célula. */
   .app-shell.product-app .week-days > button > strong {
-    width: 32px;
-    height: 32px;
-    font-size: 1rem;
+    width: 34px;
+    height: 34px;
+    font-size: 1.1rem;
   }
   .app-shell.product-app .calendar-grid > button .shift-chip {
-    min-width: 26px;
-    width: 26px;
-    min-height: 26px;
+    min-width: 30px;
+    width: 30px;
+    min-height: 30px;
   }
   .app-shell.product-app .agenda-date strong {
-    font-size: 1.05rem;
+    font-size: 1.15rem;
   }
 }
