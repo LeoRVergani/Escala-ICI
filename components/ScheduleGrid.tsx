@@ -102,7 +102,10 @@ export function ScheduleGrid({
           <div className="sticky-name-content">
             <div>
               <strong>{nomes[documento.login] ?? documento.login}</strong>
-              <span>{documento.login} · {documento.turnoPadrao}</span>
+              <span>
+                {documento.login}
+                {!agruparPorPeriodo && ` · ${documento.turnoPadrao}`}
+              </span>
             </div>
             {onRemover && (
               <button
@@ -196,7 +199,7 @@ export function ScheduleGrid({
               {agruparPorPeriodo && grupo.documentos.length > 0 && (
                 <tr className="grade-group-row" data-code={grupo.codigo}>
                   <th className="grade-group-header" colSpan={datas.length + 1}>
-                    {grupo.rotulo}
+                    <span>{grupo.rotulo}</span>
                   </th>
                 </tr>
               )}

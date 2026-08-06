@@ -1129,6 +1129,7 @@ export function EmployeeApp() {
               usuarios={usuarios}
               catalogo={catalogo}
               filtroTurno={filtroTurno}
+              agruparPorPeriodo
             />
           </article>
         </section>

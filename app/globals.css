@@ -414,8 +414,6 @@ select:focus-visible,
 .remove-membro-button:hover { background: var(--danger-soft); border-color: var(--danger); }
 .grade-group-row { background: transparent; }
 .schedule-table .grade-group-header {
-  position: sticky;
-  left: 0;
   text-align: left;
   padding: 7px 12px;
   height: auto;
@@ -426,6 +424,18 @@ select:focus-visible,
   color: var(--periodo-text, var(--muted));
   background: var(--periodo-bg, var(--surface-muted));
   border-right: 0;
+}
+/*
+ * `colSpan={datas.length + 1}` faz este <th> ocupar a linha inteira, então
+ * `position: sticky` na célula em si não tem efeito (ela já nasce tão larga
+ * quanto a tabela — não há distância extra para "prender"). Quem precisa
+ * ficar fixo ao rolar na horizontal é o texto do rótulo, não a célula:
+ * sticky no `<span>` interno, alinhado com o padding-left da `.sticky-name`.
+ */
+.schedule-table .grade-group-header > span {
+  position: sticky;
+  left: 12px;
+  display: inline-block;
 }
 .schedule-scroll.compact { max-height: 430px; }
 .schedule-scroll.compact .schedule-table th, .schedule-scroll.compact .schedule-table td { height: 36px; }
@@ -1443,8 +1453,7 @@ button.shift-chip:disabled { cursor: default; }
   }
   .agenda-list > button > b { display: none; }
   .agenda-description small { white-space: normal; line-height: 1.35; }
-  .pwa-message,
-  .pwa-message.install {
+  .pwa-message {
     grid-template-columns: auto minmax(0, 1fr);
   }
   .pwa-message > button:not(.pwa-dismiss) {
@@ -1457,8 +1466,39 @@ button.shift-chip:disabled { cursor: default; }
     grid-column: 2;
     justify-self: end;
   }
-  .pwa-message.ios > div,
-  .pwa-message.install > div { padding-right: 30px; }
+  .pwa-message.ios > div { padding-right: 30px; }
+
+  /*
+   * "Instalar Escala ICI" mais compacto: título/descrição ocupam a linha
+   * de cima (com o X); ícone e botão "Instalar" compartilham a linha de
+   * baixo, lado a lado, em vez do ícone sozinho numa linha própria.
+   */
+  .pwa-message.install {
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "text text"
+      "icon button";
+    align-items: center;
+    row-gap: 8px;
+  }
+  .pwa-message.install > img {
+    grid-area: icon;
+    width: 34px;
+    height: 34px;
+  }
+  .pwa-message.install > div {
+    grid-area: text;
+    padding-right: 30px;
+  }
+  .pwa-message.install > button:not(.pwa-dismiss) {
+    grid-area: button;
+    width: 100%;
+  }
+  .pwa-message.install > .pwa-dismiss {
+    grid-area: text;
+    justify-self: end;
+    align-self: start;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1957,11 +1997,9 @@ button.shift-chip:disabled { cursor: default; }
   font-size: 13px;
 }
 .app-shell.product-app .eyebrow {
-  color: #6d35c9;
   font-size: 10px;
   letter-spacing: 0.14em;
 }
-:root[data-theme="dark"] .app-shell.product-app .eyebrow { color: #aa8bff; }
 .app-shell.product-app .panel,
 .app-shell.product-app .metric-grid article {
   border-color: color-mix(in srgb, var(--border) 86%, transparent);
@@ -2270,7 +2308,7 @@ button.shift-chip:disabled { cursor: default; }
 }
 .app-shell.product-app .employee-team-screen .schedule-table th,
 .app-shell.product-app .employee-team-screen .schedule-table td { height: 46px; }
-.app-shell.product-app .employee-team-screen .schedule-table .sticky-name { min-width: 184px; }
+.app-shell.product-app .employee-team-screen .schedule-table .sticky-name { min-width: 128px; max-width: 128px; }
 
 .app-shell.product-app .employee-profile-screen { width: min(1040px, 100%); }
 .app-shell.product-app .profile-layout { gap: 18px; }
@@ -2540,7 +2578,8 @@ button.shift-chip:disabled { cursor: default; }
     overflow: auto;
   }
   .app-shell.product-app .employee-team-screen .schedule-table .sticky-name {
-    min-width: 172px;
+    min-width: 108px;
+    max-width: 108px;
   }
 
   .app-shell.product-app .employee-profile-screen .profile-layout {
@@ -3063,7 +3102,6 @@ button.shift-chip:disabled { cursor: default; }
     min-width: 21px;
     width: 21px;
     min-height: 21px;
-    color: inherit;
   }
 
   .app-shell.product-app .employee-calendar-panel[data-mode="agenda"] .selected-day-card {
