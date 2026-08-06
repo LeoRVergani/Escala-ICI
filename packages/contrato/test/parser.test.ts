@@ -261,3 +261,141 @@ describe('parsePlanilhaEscala com a planilha real', () => {
     expect(documento?.usuarioUid).toBe('');
   });
 });
+
+/**
+ * Reproduz em memória o cenário real de agosto/2026 relatado no bug: a aba
+ * Escalistas mantém o turno-base (fill-down por bloco) da pessoa, mas cursos
+ * e trocas pontuais mudam o turno real do dia, visível só na aba Escala.
+ *
+ *   - aleilima (base Madrugada) trabalha Manhã em 18/08.
+ *   - ivcarvalho e altaborda (base Madrugada/Manhã) trabalham Tarde em 12/08.
+ *   - cestradioto e luizneto (base Tarde/Noite) trabalham Manhã em 18/08.
+ *   - lvergani e dschlottag (base Manhã/Noite) trabalham Tarde em 21/08.
+ *
+ * thaisvribeiro fica de fora da aba Escala nesses três dias e só tem
+ * códigos não numéricos (DF/X/DU) — serve para confirmar que esses
+ * continuam vindo só da aba Escalistas + catálogo (requisito 6).
+ */
+function construirPlanilhaComTrocaDeTurno(opts?: {
+  duplicarAleilimaEm18: boolean;
+  omitirAbaEscala: boolean;
+}): ArrayBuffer {
+  const escalistas = XLSX.utils.aoa_to_sheet([
+    ['Equipe Teste X1'],
+    [],
+    [null, 'Turno', 'DIA/MÊS', '12/08', '18/08', '21/08'],
+    [],
+    [null, null, 'COLABORADOR'],
+    [null, 'Madrugada', 'aleilima', 1, 2, null],
+    [null, null, 'ivcarvalho', 2, null, null],
+    [null, 'Manhã', 'altaborda', 3, null, null],
+    [null, null, 'lvergani', null, null, 4],
+    [null, 'Tarde', 'cestradioto', null, 5, null],
+    [null, null, 'thaisvribeiro', 'DF', 'X', 'DU'],
+    [null, 'Noite', 'luizneto', null, 6, null],
+    [null, null, 'dschlottag', null, null, 1],
+  ]);
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, escalistas, 'Escalistas');
+
+  if (opts?.omitirAbaEscala !== true) {
+    const linha18 = opts?.duplicarAleilimaEm18 === true
+      ? ['18/08/2026 Terça-feira', null, null, 'cestradioto/luizneto/aleilima', 'aleilima', null]
+      : ['18/08/2026 Terça-feira', null, null, 'cestradioto/luizneto/aleilima', null, null];
+
+    const escala = XLSX.utils.aoa_to_sheet([
+      ['Dia', null, 'Turno - Presencial'],
+      [null, null, 'Madrugada', 'Manhã', 'Tarde', 'Noite'],
+      ['12/08/2026 Quarta-feira', null, null, null, 'ivcarvalho/altaborda', null],
+      linha18,
+      ['21/08/2026 Sexta-feira', null, null, null, 'lvergani/dschlottag', null],
+    ]);
+    XLSX.utils.book_append_sheet(workbook, escala, 'Escala');
+  }
+
+  return XLSX.write(workbook, { type: 'array', bookType: 'xls' }) as ArrayBuffer;
+}
+
+describe('parsePlanilhaEscala com trocas pontuais de turno (aba Escala complementa a Escalistas)', () => {
+  function resultadoComTroca() {
+    return parsePlanilhaEscala(construirPlanilhaComTrocaDeTurno(), OPCOES_SOC);
+  }
+
+  function diaDe(login: string, data: string) {
+    return resultadoComTroca().documentos.find((d) => d.login === login)?.dias[data];
+  }
+
+  it('1. lvergani em 21/08/2026 é Tarde, não Manhã (turno-base)', () => {
+    expect(diaDe('lvergani', '2026-08-21')).toMatchObject({ c: 'T', seq: 4 });
+  });
+
+  it('2. cestradioto em 18/08/2026 é Manhã, não Tarde (turno-base)', () => {
+    expect(diaDe('cestradioto', '2026-08-18')).toMatchObject({ c: 'M', seq: 5 });
+  });
+
+  it('3. luizneto em 18/08/2026 é Manhã, não Noite (turno-base)', () => {
+    expect(diaDe('luizneto', '2026-08-18')).toMatchObject({ c: 'M', seq: 6 });
+  });
+
+  it('4. ivcarvalho em 12/08/2026 é Tarde, não Madrugada (turno-base)', () => {
+    expect(diaDe('ivcarvalho', '2026-08-12')).toMatchObject({ c: 'T', seq: 2 });
+  });
+
+  it('5. altaborda em 12/08/2026 é Tarde, não Manhã (turno-base)', () => {
+    expect(diaDe('altaborda', '2026-08-12')).toMatchObject({ c: 'T', seq: 3 });
+  });
+
+  it('bônus: aleilima em 18/08/2026 é Manhã, não Madrugada (exemplo real do bug)', () => {
+    expect(diaDe('aleilima', '2026-08-18')).toMatchObject({ c: 'M', seq: 2 });
+  });
+
+  it('bônus: dschlottag em 21/08/2026 é Tarde, não Noite (turno-base)', () => {
+    expect(diaDe('dschlottag', '2026-08-21')).toMatchObject({ c: 'T', seq: 1 });
+  });
+
+  it('6. DF/DU/X de thaisvribeiro continuam vindo só da Escalistas + catálogo', () => {
+    expect(diaDe('thaisvribeiro', '2026-08-12')).toEqual({ c: 'DF' });
+    expect(diaDe('thaisvribeiro', '2026-08-18')).toEqual({ c: 'X' });
+    expect(diaDe('thaisvribeiro', '2026-08-21')).toEqual({ c: 'DU' });
+  });
+
+  it('faz fallback com aviso para o turno-base quando o login não está na aba Escala naquele dia', () => {
+    const resultado = resultadoComTroca();
+    expect(diaDe('aleilima', '2026-08-12')).toMatchObject({ c: 'MD', seq: 1 });
+    expect(resultado.erros).toEqual([]);
+    expect(resultado.avisos).toEqual([
+      expect.stringContaining('aleilima em 2026-08-12'),
+    ]);
+  });
+
+  it('7. sem a aba Escala, cai no comportamento antigo (turno-base) sem erro nem aviso', () => {
+    const resultado = parsePlanilhaEscala(
+      construirPlanilhaComTrocaDeTurno({ omitirAbaEscala: true, duplicarAleilimaEm18: false }),
+      { ...OPCOES_SOC, anoInicio: 2026 },
+    );
+    const documento = resultado.documentos.find(({ login }) => login === 'aleilima');
+
+    expect(resultado.ok).toBe(true);
+    expect(resultado.avisos).toEqual([]);
+    expect(documento?.dias['2026-08-12']).toMatchObject({ c: 'MD', seq: 1 });
+    expect(documento?.dias['2026-08-18']).toMatchObject({ c: 'MD', seq: 2 });
+  });
+
+  it('gera erro de duplicidade quando o mesmo login aparece em dois turnos no mesmo dia na aba Escala', () => {
+    const resultado = parsePlanilhaEscala(
+      construirPlanilhaComTrocaDeTurno({ duplicarAleilimaEm18: true, omitirAbaEscala: false }),
+      OPCOES_SOC,
+    );
+
+    expect(resultado.ok).toBe(false);
+    expect(resultado.erros).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          login: 'aleilima',
+          motivo: expect.stringContaining('Duplicidade de turno no dia'),
+        }),
+      ]),
+    );
+  });
+});

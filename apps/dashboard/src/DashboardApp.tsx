@@ -1186,6 +1186,20 @@ export function DashboardApp() {
             </article>
           )}
 
+          {resultado && resultado.avisos.length > 0 && (
+            <article className="panel warning-panel">
+              <div className="panel-title">
+                <div><h2>Avisos</h2><p>Não impedem salvar, mas vale conferir antes de publicar.</p></div>
+                <span className="status-badge warning">{resultado.avisos.length} aviso(s)</span>
+              </div>
+              <ul className="warning-list">
+                {resultado.avisos.map((aviso) => (
+                  <li key={aviso}>{aviso}</li>
+                ))}
+              </ul>
+            </article>
+          )}
+
           {linhasConciliacao.length > 0 && (
             <article className="panel conciliation-panel">
               <div className="panel-title">

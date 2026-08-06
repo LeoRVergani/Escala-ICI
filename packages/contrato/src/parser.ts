@@ -354,6 +354,144 @@ function criarDiaTexto(tipo: TipoTurno): Dia | undefined {
   return { c: tipo.codigo.toUpperCase() };
 }
 
+interface CabecalhoTurnosEscala {
+  linha: number;
+  colunas: Map<number, TipoTurno>;
+}
+
+/**
+ * Acha a linha da aba "Escala" que tem pelo menos duas colunas de turno de
+ * trabalho (Madrugada/Manhã/Tarde/Noite) — não fixamos esses quatro nomes,
+ * reaproveitamos os aliasesXLS do catálogo para achar a linha de forma
+ * genérica.
+ */
+function localizarCabecalhoTurnosEscala(
+  planilha: XLSX.WorkSheet,
+  intervalo: XLSX.Range,
+  porAlias: Map<string, TipoTurno>,
+): CabecalhoTurnosEscala | undefined {
+  for (let linha = intervalo.s.r; linha <= intervalo.e.r; linha += 1) {
+    const colunas = new Map<number, TipoTurno>();
+    for (let coluna = intervalo.s.c; coluna <= intervalo.e.c; coluna += 1) {
+      const tipo = porAlias.get(chaveAlias(valorCelula(obterCelula(planilha, linha, coluna))));
+      if (tipo?.categoria === 'TRABALHO') {
+        colunas.set(coluna, tipo);
+      }
+    }
+    if (colunas.size >= 2) {
+      return { linha, colunas };
+    }
+  }
+  return undefined;
+}
+
+function localizarColunaDatasEscala(
+  planilha: XLSX.WorkSheet,
+  intervalo: XLSX.Range,
+  linhaInicio: number,
+): number | undefined {
+  for (let coluna = intervalo.s.c; coluna <= intervalo.e.c; coluna += 1) {
+    for (let linha = linhaInicio; linha <= intervalo.e.r; linha += 1) {
+      if (DATA_COMPLETA.test(textoCelula(obterCelula(planilha, linha, coluna)))) {
+        return coluna;
+      }
+    }
+  }
+  return undefined;
+}
+
+interface IndiceTurnosEscala {
+  /** chave: `${loginNormalizado}|${dataISO}` */
+  mapa: Map<string, TipoTurno>;
+  /** falso quando a aba "Escala" não existe ou não tem a estrutura esperada — nesse caso o chamador deve cair no fallback silencioso do turno da aba Escalistas. */
+  disponivel: boolean;
+}
+
+/**
+ * A aba "Escalistas" guarda a sequência 1–6 do colaborador, mas o turno-base
+ * dela (fill-down por bloco) não reflete cursos/trocas pontuais de horário.
+ * A aba "Escala" tem o turno real de cada dia — este índice cruza
+ * login normalizado + data com o turno real, para o chamador preferir esse
+ * valor sobre o turno-base sempre que existir.
+ */
+function construirIndiceTurnosPorDia(
+  planilhaEscala: XLSX.WorkSheet | undefined,
+  porAlias: Map<string, TipoTurno>,
+  erros: ErroImportacao[],
+): IndiceTurnosEscala {
+  const mapa = new Map<string, TipoTurno>();
+  const referencia = planilhaEscala?.['!ref'];
+  if (planilhaEscala === undefined || referencia === undefined) {
+    return { mapa, disponivel: false };
+  }
+
+  const intervalo = XLSX.utils.decode_range(referencia);
+  const cabecalhoTurnos = localizarCabecalhoTurnosEscala(planilhaEscala, intervalo, porAlias);
+  if (cabecalhoTurnos === undefined) {
+    return { mapa, disponivel: false };
+  }
+
+  const colunaData = localizarColunaDatasEscala(
+    planilhaEscala,
+    intervalo,
+    cabecalhoTurnos.linha + 1,
+  );
+  if (colunaData === undefined) {
+    return { mapa, disponivel: false };
+  }
+
+  for (let linha = cabecalhoTurnos.linha + 1; linha <= intervalo.e.r; linha += 1) {
+    const resultado = DATA_COMPLETA.exec(
+      textoCelula(obterCelula(planilhaEscala, linha, colunaData)),
+    );
+    if (resultado === null) {
+      continue;
+    }
+
+    const data = new Date(Date.UTC(
+      Number(resultado[3]),
+      Number(resultado[2]) - 1,
+      Number(resultado[1]),
+    ));
+    if (Number.isNaN(data.getTime())) {
+      continue;
+    }
+    const dataISO = montarChaveDia(data);
+
+    for (const [coluna, tipo] of cabecalhoTurnos.colunas) {
+      const texto = textoCelula(obterCelula(planilhaEscala, linha, coluna));
+      if (texto === '') {
+        continue;
+      }
+
+      for (const loginBruto of texto.split('/')) {
+        const login = loginBruto.trim();
+        if (login === '') {
+          continue;
+        }
+
+        const chave = `${chaveAlias(login)}|${dataISO}`;
+        const existente = mapa.get(chave);
+        if (existente !== undefined && existente.codigo !== tipo.codigo) {
+          erros.push({
+            linha: linha + 1,
+            coluna: XLSX.utils.encode_col(coluna),
+            login,
+            data: dataISO,
+            valorEncontrado: texto,
+            motivo: 'Duplicidade de turno no dia: o login aparece em mais de um turno na aba Escala.',
+          });
+          continue;
+        }
+
+        mapa.set(chave, tipo);
+      }
+    }
+  }
+
+  return { mapa, disponivel: true };
+}
+
 /**
  * Converte a planilha em documentos prontos para preview.
  *
@@ -453,6 +591,11 @@ export function parsePlanilhaEscala(
   const periodoFim = colunasDia.at(-1)?.data ?? '';
   const porAlias = catalogoPorAlias(opts.catalogo);
   const coresLegenda = extrairCoresLegenda(planilha, porAlias);
+  const indiceTurnosEscala = construirIndiceTurnosPorDia(
+    workbook.Sheets.Escala,
+    porAlias,
+    erros,
+  );
   const documentos: TurnosMes[] = [];
   const avisos: string[] = [];
   let turnoAtual: TipoTurno | undefined;
@@ -511,9 +654,19 @@ export function parsePlanilhaEscala(
           String(valor),
         );
         const seqValida = Number.isInteger(valor) && valor >= 1 && valor <= 6;
-        const dia = turnoAtual === undefined
+        const turnoReal = indiceTurnosEscala.mapa.get(
+          `${chaveAlias(login)}|${colunaDia.data}`,
+        );
+        if (turnoReal === undefined && indiceTurnosEscala.disponivel) {
+          avisos.push(
+            `${login} em ${colunaDia.data}: não encontrado na aba Escala; `
+            + `mantido o turno base "${turnoAtual?.codigo ?? '—'}" da aba Escalistas.`,
+          );
+        }
+        const tipoDoDia = turnoReal ?? turnoAtual;
+        const dia = tipoDoDia === undefined
           ? undefined
-          : diaDeTrabalho(turnoAtual, seqValida ? valor : undefined);
+          : diaDeTrabalho(tipoDoDia, seqValida ? valor : undefined);
 
         if (!seqValida || dia === undefined) {
           erros.push({

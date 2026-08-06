@@ -378,8 +378,9 @@ select:focus-visible,
 .warning-icon { color: var(--warning); }
 .import-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 
-.error-panel, .grid-panel { padding: 18px; }
-.error-panel .panel-title, .grid-panel .panel-title { margin-bottom: 14px; }
+.error-panel, .grid-panel, .warning-panel { padding: 18px; }
+.error-panel .panel-title, .grid-panel .panel-title, .warning-panel .panel-title { margin-bottom: 14px; }
+.warning-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
 .table-scroll { overflow: auto; }
 .data-table { width: 100%; border-collapse: collapse; min-width: 760px; }
 .data-table th, .data-table td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 12px; vertical-align: middle; }
