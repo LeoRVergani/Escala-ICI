@@ -605,6 +605,12 @@ button.shift-chip:disabled { cursor: default; }
 .app-shell.product-dashboard .toolbar > span {
   gap: 8px;
 }
+/* Mesmo padding de `.content-grid .panel` (20px) — o Dashboard tinha dois
+ * valores de card diferentes (18px aqui, 20px lá), o que deixava o
+ * toolbar da tela Usuários visualmente colado na borda do painel. */
+.app-shell.product-dashboard .grid-panel {
+  padding: 20px;
+}
 
 .status-badge, .read-only-badge, .live-badge {
   display: inline-flex; align-items: center; gap: 6px; border-radius: 6px;
