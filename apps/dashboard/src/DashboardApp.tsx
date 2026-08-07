@@ -1192,7 +1192,7 @@ export function DashboardApp() {
               <button type="button" onClick={() => setTela('grade')}><Pencil /> Revisar a grade <ArrowUpRight /></button>
             </article>
           </div>
-          <article className="panel alert-summary-card">
+          <article className="panel grid-panel alert-summary-card">
             <div className="panel-title">
               <div><h2>Alertas da escala</h2><p>Pontos que merecem atenção do gestor</p></div>
               <AlertTriangle />
@@ -1709,7 +1709,7 @@ export function DashboardApp() {
               <UserPlus size={17} /> Cadastrar usuário
             </button>
           </header>
-          <article className="panel">
+          <article className="panel grid-panel">
             <div className="toolbar">
               <label className="search-control"><Search size={16} /><input value={buscaUsuario} onChange={(evento) => setBuscaUsuario(evento.target.value)} placeholder="Buscar nome ou login" /></label>
               <span><Users size={16} /> {usuarios.length} usuários</span>
