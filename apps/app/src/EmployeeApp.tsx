@@ -64,6 +64,14 @@ import {
   observarEscalasEquipe,
   observarEventosEscala,
 } from '@/lib/firebase/readRepository';
+import {
+  cancelarSolicitacaoTroca as cancelarSolicitacaoTrocaFirebase,
+  criarSolicitacaoTroca,
+  marcarNotificacaoTrocaComoLida,
+  observarNotificacoesTroca,
+  observarTrocasDoUsuario,
+  responderSolicitacaoTroca as responderSolicitacaoTrocaFirebase,
+} from '@/lib/firebase/trocasRepository';
 import { USUARIOS_DEMO } from '@/lib/demoIdentidades';
 import type { EventoEscala, Usuario } from '@/lib/modelos';
 import { deveExibirRestauracao, podeIniciarListeners } from '@/lib/sessao';
@@ -71,9 +79,9 @@ import {
   ROTULO_STATUS_TROCA,
   SEVERIDADE_STATUS_TROCA,
   statusEhAtivo,
-  TROCAS_MOCK,
-  type SolicitacaoTrocaMock,
-} from '@/lib/trocaEscalaMock';
+  type NotificacaoTroca,
+  type SolicitacaoTrocaReal,
+} from '@/lib/trocasEscala';
 
 type Tela = 'hoje' | 'minha' | 'trocas' | 'equipe' | 'perfil';
 type ModoEscala = 'calendario' | 'agenda';
@@ -573,18 +581,70 @@ function NotificationBell({
   );
 }
 
-/**
- * Protótipo de troca de escala (docs/spec/TROCA_ESCALA_PLANO.md) — dados
- * 100% em memória (`lib/trocaEscalaMock.ts`), nenhuma leitura/escrita no
- * Firebase. Componentes desta seção só existem enquanto a fase for de
- * protótipo visual.
- */
+interface TrocaNotificationBellProps {
+  notificacoes: NotificacaoTroca[];
+  aberta: boolean;
+  onAlternar: () => void;
+  onAbrirNotificacao: (notificacao: NotificacaoTroca) => void;
+}
+
+function TrocaNotificationBell({
+  notificacoes,
+  aberta,
+  onAlternar,
+  onAbrirNotificacao,
+}: TrocaNotificationBellProps) {
+  const naoLidas = notificacoes.filter((notificacao) => notificacao.lidaEm === null).length;
+  return (
+    <div className="notification-center">
+      <button
+        className={`icon-button notification-button ${naoLidas ? 'has-unread' : ''}`}
+        type="button"
+        onClick={onAlternar}
+        aria-label={`${naoLidas} notificação(ões) de troca não lida(s)`}
+        aria-expanded={aberta}
+      >
+        <ArrowLeftRight size={19} />
+        {naoLidas > 0 && <span className="notification-badge">{Math.min(naoLidas, 9)}</span>}
+      </button>
+      {aberta && (
+        <section className="notification-popover" aria-label="Notificações de troca">
+          <header>
+            <div><strong>Trocas de escala</strong><span>{naoLidas ? `${naoLidas} nova(s)` : 'Tudo visto'}</span></div>
+          </header>
+          <div className="notification-list">
+            {notificacoes.length === 0 ? (
+              <div className="notification-empty"><ArrowLeftRight size={22} /><span>Nenhuma notificação de troca ainda.</span></div>
+            ) : notificacoes.slice(0, 8).map((notificacao) => (
+              <button
+                type="button"
+                className={`notification-item-button ${notificacao.lidaEm === null ? 'unread' : ''}`}
+                key={notificacao.id}
+                onClick={() => onAbrirNotificacao(notificacao)}
+              >
+                <div className="notification-title">
+                  <span className="revision-dot" />
+                  <div>
+                    <strong>{notificacao.titulo}</strong>
+                    <small>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(notificacao.criadoEm))}</small>
+                  </div>
+                </div>
+                <p>{notificacao.mensagem}</p>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
 function TrocaItemButton({
   troca,
   usuario,
   onAbrir,
 }: {
-  troca: SolicitacaoTrocaMock;
+  troca: SolicitacaoTrocaReal;
   usuario: Usuario;
   onAbrir: () => void;
 }) {
@@ -596,8 +656,8 @@ function TrocaItemButton({
       <div>
         <strong>{souSolicitante ? `Você e ${outroNome}` : `${outroNome} e você`}</strong>
         <small>
-          {formatarData(troca.dataSolicitante, { day: '2-digit', month: 'short' }).replace('.', '')}
-          {' · '}{troca.turnoSolicitanteAntes ?? '—'} ⇄ {troca.turnoDestinatarioAntes ?? '—'}
+          {formatarData(troca.data, { day: '2-digit', month: 'short' }).replace('.', '')}
+          {' · '}{troca.turnoSolicitanteAntes || '—'} ⇄ {troca.turnoDestinatarioAntes || '—'}
         </small>
       </div>
       <span className={`status-badge ${SEVERIDADE_STATUS_TROCA[troca.status]}`}>
@@ -608,31 +668,31 @@ function TrocaItemButton({
   );
 }
 
-function TrocaComparacao({ troca }: { troca: SolicitacaoTrocaMock }) {
+function TrocaComparacao({ troca }: { troca: SolicitacaoTrocaReal }) {
   return (
     <div className="troca-comparacao">
       <div>
         <small>{troca.solicitanteNome}</small>
         <strong>
-          {capitalizar(formatarData(troca.dataSolicitante, { weekday: 'short' })).replace('.', '')}
-          {' '}{formatarData(troca.dataSolicitante, { day: '2-digit', month: 'short' }).replace('.', '')}
+          {capitalizar(formatarData(troca.data, { weekday: 'short' })).replace('.', '')}
+          {' '}{formatarData(troca.data, { day: '2-digit', month: 'short' }).replace('.', '')}
         </strong>
-        <span className="shift-chip" data-code={troca.turnoSolicitanteAntes ?? ''}>
-          {troca.turnoSolicitanteAntes ?? '—'}
+        <span className="shift-chip" data-code={troca.turnoSolicitanteAntes || ''}>
+          {troca.turnoSolicitanteAntes || '—'}
         </span>
-        <small>{troca.horarioSolicitanteAntes ?? 'Sem horário'}</small>
+        <small>{troca.horarioSolicitanteAntes || 'Sem horário'}</small>
       </div>
       <ArrowLeftRight size={18} />
       <div>
         <small>{troca.destinatarioNome}</small>
         <strong>
-          {capitalizar(formatarData(troca.dataDestinatario, { weekday: 'short' })).replace('.', '')}
-          {' '}{formatarData(troca.dataDestinatario, { day: '2-digit', month: 'short' }).replace('.', '')}
+          {capitalizar(formatarData(troca.data, { weekday: 'short' })).replace('.', '')}
+          {' '}{formatarData(troca.data, { day: '2-digit', month: 'short' }).replace('.', '')}
         </strong>
-        <span className="shift-chip" data-code={troca.turnoDestinatarioAntes ?? ''}>
-          {troca.turnoDestinatarioAntes ?? '—'}
+        <span className="shift-chip" data-code={troca.turnoDestinatarioAntes || ''}>
+          {troca.turnoDestinatarioAntes || '—'}
         </span>
-        <small>{troca.horarioDestinatarioAntes ?? 'Sem horário'}</small>
+        <small>{troca.horarioDestinatarioAntes || 'Sem horário'}</small>
       </div>
     </div>
   );
@@ -640,11 +700,15 @@ function TrocaComparacao({ troca }: { troca: SolicitacaoTrocaMock }) {
 
 function ModalRespostaTroca({
   troca,
+  processando,
+  erro,
   onFechar,
   onAceitar,
   onRecusar,
 }: {
-  troca: SolicitacaoTrocaMock;
+  troca: SolicitacaoTrocaReal;
+  processando: boolean;
+  erro: string;
   onFechar: () => void;
   onAceitar: () => void;
   onRecusar: () => void;
@@ -675,9 +739,10 @@ function ModalRespostaTroca({
           <strong>Ainda falta a aprovação do gestor</strong>
           <p>Se você aceitar, a solicitação segue para o gestor revisar antes de valer de verdade.</p>
         </div>
+        {erro && <div className="alert error" role="alert">{erro}</div>}
         <div className="rollback-actions">
-          <button className="secondary-button" type="button" onClick={onRecusar}>Recusar</button>
-          <button className="primary-button" type="button" onClick={onAceitar}>
+          <button className="secondary-button" type="button" disabled={processando} onClick={onRecusar}>Recusar</button>
+          <button className="primary-button" type="button" disabled={processando} onClick={onAceitar}>
             <Check size={16} /> Aceitar
           </button>
         </div>
@@ -689,11 +754,15 @@ function ModalRespostaTroca({
 function ModalDetalheTroca({
   troca,
   usuario,
+  processando,
+  erro,
   onFechar,
   onCancelar,
 }: {
-  troca: SolicitacaoTrocaMock;
+  troca: SolicitacaoTrocaReal;
   usuario: Usuario;
+  processando: boolean;
+  erro: string;
   onFechar: () => void;
   onCancelar: () => void;
 }) {
@@ -733,20 +802,20 @@ function ModalDetalheTroca({
             <div className="troca-historico-item" key={indice}>
               <span className="troca-historico-dot" />
               <div>
-                <strong>{evento.acao}</strong>
+                <strong>{evento.descricao}</strong>
                 <small>
                   {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(evento.em))}
-                  {evento.atorNome ? ` · ${evento.atorNome}` : ''}
+                  {evento.porNome ? ` · ${evento.porNome}` : ''}
                 </small>
-                {evento.detalhe && <p>{evento.detalhe}</p>}
               </div>
             </div>
           ))}
         </div>
+        {erro && <div className="alert error" role="alert">{erro}</div>}
         <div className="rollback-actions">
           <button className="secondary-button" type="button" onClick={onFechar}>Fechar</button>
           {podeCancelar && (
-            <button className="primary-button" type="button" onClick={onCancelar}>
+            <button className="primary-button" type="button" disabled={processando} onClick={onCancelar}>
               Cancelar solicitação
             </button>
           )}
@@ -771,6 +840,8 @@ function AssistenteNovaTroca({
   usuarios,
   usuario,
   catalogo,
+  enviando,
+  erro,
   onMudarPasso,
   onEscolherData,
   onEscolherDestinatario,
@@ -785,6 +856,8 @@ function AssistenteNovaTroca({
   usuarios: Usuario[];
   usuario: Usuario;
   catalogo: typeof CATALOGO_SOC;
+  enviando: boolean;
+  erro: string;
   onMudarPasso: (passo: 1 | 2 | 3) => void;
   onEscolherData: (data: string) => void;
   onEscolherDestinatario: (login: string) => void;
@@ -797,6 +870,7 @@ function AssistenteNovaTroca({
   const colegasNoDia = data
     ? documentos
       .filter((documento) => documento.login !== usuario.login)
+      .filter((documento) => usuarios.find((item) => item.login === documento.login)?.ativo !== false)
       .map((documento) => ({ documento, jornada: resolverJornadaDia(documento, catalogo, data) }))
       .filter(({ jornada }) => jornada.trabalha)
     : [];
@@ -912,10 +986,11 @@ function AssistenteNovaTroca({
               />
               <small>{mensagem.trim().length}/280 caracteres</small>
             </label>
+            {erro && <div className="alert error" role="alert">{erro}</div>}
             <div className="rollback-actions">
-              <button className="secondary-button" type="button" onClick={() => onMudarPasso(2)}>Voltar</button>
-              <button className="primary-button" type="button" onClick={onEnviar}>
-                <ArrowLeftRight size={16} /> Enviar solicitação
+              <button className="secondary-button" type="button" disabled={enviando} onClick={() => onMudarPasso(2)}>Voltar</button>
+              <button className="primary-button" type="button" disabled={enviando} onClick={onEnviar}>
+                <ArrowLeftRight size={16} /> {enviando ? 'Enviando…' : 'Enviar solicitação'}
               </button>
             </div>
           </div>
@@ -948,10 +1023,14 @@ export function EmployeeApp() {
   const [centralAberta, setCentralAberta] = useState(false);
   const [avisoAtualizacao, setAvisoAtualizacao] = useState('');
   const [dadosCarregados, setDadosCarregados] = useState(false);
-  const [trocas, setTrocas] = useState<SolicitacaoTrocaMock[]>(TROCAS_MOCK);
+  const [trocas, setTrocas] = useState<SolicitacaoTrocaReal[]>([]);
+  const [notificacoesTroca, setNotificacoesTroca] = useState<NotificacaoTroca[]>([]);
+  const [centralTrocasAberta, setCentralTrocasAberta] = useState(false);
   const [abaTrocas, setAbaTrocas] = useState<AbaTrocas>('minhas');
-  const [trocaAberta, setTrocaAberta] = useState<SolicitacaoTrocaMock | null>(null);
+  const [trocaAbertaId, setTrocaAbertaId] = useState<string | null>(null);
   const [assistenteTroca, setAssistenteTroca] = useState<EstadoAssistenteTroca | null>(null);
+  const [processandoTroca, setProcessandoTroca] = useState(false);
+  const [erroTroca, setErroTroca] = useState('');
   const eventosConhecidos = useRef<Set<string>>(new Set());
   const primeiraCargaEventos = useRef(true);
   const sessao = useRestauracaoSessao({
@@ -1011,11 +1090,33 @@ export function EmployeeApp() {
       },
       (falha) => setErro(mensagemErroFirebase(falha, 'Não foi possível acompanhar as atualizações.', ambienteFirebaseAtual)),
     );
+    const cancelarTrocas = observarTrocasDoUsuario(
+      equipeUsuario,
+      competenciaAtiva,
+      loginUsuario,
+      setTrocas,
+      (falha) => setErroTroca(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de escala.', ambienteFirebaseAtual)),
+    );
+    const cancelarNotificacoesTroca = observarNotificacoesTroca(
+      loginUsuario,
+      setNotificacoesTroca,
+      (falha) => setErroTroca(mensagemErroFirebase(falha, 'Não foi possível acompanhar as notificações de troca.', ambienteFirebaseAtual)),
+    );
     return () => {
       cancelarEscalas();
       cancelarEventos();
+      cancelarTrocas();
+      cancelarNotificacoesTroca();
     };
   }, [competenciaAtiva, equipeUsuario, listenersLiberados, loginUsuario]);
+
+  // Derivado (não um segundo `useState`) para o modal aberto ficar sempre
+  // sincronizado com o snapshot em tempo real — por exemplo, se o colega
+  // responder num outro dispositivo enquanto o solicitante ainda está com o
+  // detalhe aberto.
+  const trocaAberta = trocaAbertaId !== null
+    ? trocas.find((item) => item.trocaId === trocaAbertaId) ?? null
+    : null;
 
   const escalasDoUsuario = documentos.filter(
     (documento) => documento.login === usuario?.login,
@@ -1068,6 +1169,9 @@ export function EmployeeApp() {
     setUsuario(autenticado);
     setModoDemonstracao(demonstracao);
     setEventos([]);
+    setTrocas([]);
+    setNotificacoesTroca([]);
+    setTrocaAbertaId(null);
     setDadosCarregados(false);
     setTela('hoje');
     eventosConhecidos.current = new Set();
@@ -1139,8 +1243,12 @@ export function EmployeeApp() {
     setUsuario(null);
     setDocumentos([]);
     setEventos([]);
+    setTrocas([]);
+    setNotificacoesTroca([]);
+    setTrocaAbertaId(null);
     setDadosCarregados(false);
     setCentralAberta(false);
+    setCentralTrocasAberta(false);
     setAvisoAtualizacao('');
     setTela('hoje');
   }
@@ -1175,9 +1283,25 @@ export function EmployeeApp() {
     }
   }
 
-  // --- Protótipo de troca de escala (só em memória, ver docs/spec/TROCA_ESCALA_PLANO.md) ---
+  function alternarCentralTrocas() {
+    setCentralTrocasAberta((atual) => !atual);
+  }
+
+  function abrirNotificacaoTroca(notificacao: NotificacaoTroca) {
+    setCentralTrocasAberta(false);
+    setTela('trocas');
+    setTrocaAbertaId(notificacao.trocaId);
+    if (notificacao.lidaEm === null) {
+      void marcarNotificacaoTrocaComoLida(notificacao.id).catch(() => {
+        // Falha em marcar como lida não impede abrir a troca — só o badge fica desatualizado.
+      });
+    }
+  }
+
+  // --- Troca de escala real (Firestore `trocasEscala`, ver docs/spec/TROCA_ESCALA_PLANO.md) ---
 
   function abrirNovaSolicitacaoTroca(diaPreenchido?: string) {
+    setErroTroca('');
     setAssistenteTroca({
       passo: diaPreenchido ? 2 : 1,
       data: diaPreenchido ?? null,
@@ -1186,97 +1310,67 @@ export function EmployeeApp() {
     });
   }
 
-  function enviarSolicitacaoTroca() {
-    if (usuario === null || assistenteTroca?.data === null || assistenteTroca?.destinatarioLogin == null) {
+  async function enviarSolicitacaoTroca() {
+    if (usuario === null || assistenteTroca?.data == null || assistenteTroca.destinatarioLogin == null) {
       return;
     }
     const { data, destinatarioLogin, mensagem } = assistenteTroca;
-    const jornadaMinha = resolverJornadaDia(minhaEscala, catalogo, data);
-    const documentoDestinatario = documentos.find((item) => item.login === destinatarioLogin) ?? null;
-    const jornadaDestinatario = resolverJornadaDia(documentoDestinatario, catalogo, data);
-    const nomeDestinatario = usuarios.find((item) => item.login === destinatarioLogin)?.nome ?? destinatarioLogin;
-    const agora = new Date().toISOString();
-    const nova: SolicitacaoTrocaMock = {
-      id: `mock-${agora}`,
-      equipeId: usuario.equipeId,
-      competencia: competenciaAtiva,
-      solicitanteLogin: usuario.login,
-      solicitanteNome: usuario.nome,
-      destinatarioLogin,
-      destinatarioNome: nomeDestinatario,
-      dataSolicitante: data,
-      turnoSolicitanteAntes: jornadaMinha.codigo,
-      horarioSolicitanteAntes: jornadaMinha.trabalha && jornadaMinha.inicio && jornadaMinha.fim
-        ? `${jornadaMinha.inicio}–${jornadaMinha.fim}`
-        : null,
-      dataDestinatario: data,
-      turnoDestinatarioAntes: jornadaDestinatario.codigo,
-      horarioDestinatarioAntes: jornadaDestinatario.trabalha && jornadaDestinatario.inicio && jornadaDestinatario.fim
-        ? `${jornadaDestinatario.inicio}–${jornadaDestinatario.fim}`
-        : null,
-      status: 'PENDENTE_USUARIO',
-      mensagemSolicitante: mensagem.trim(),
-      criadoEm: agora,
-      atualizadoEm: agora,
-      respondidoEm: null,
-      aprovadoEm: null,
-      publicadoEm: null,
-      gestorLogin: null,
-      gestorNome: null,
-      motivoRecusa: null,
-      historico: [
-        { em: agora, ator: 'SOLICITANTE', atorNome: usuario.nome, acao: 'Solicitação criada' },
-        { em: agora, ator: 'SISTEMA', atorNome: null, acao: `Notificação enviada a ${nomeDestinatario}` },
-      ],
-    };
-    setTrocas((atual) => [nova, ...atual]);
-    setAssistenteTroca(null);
-    setAbaTrocas('minhas');
+    const destinatario = usuarios.find((item) => item.login === destinatarioLogin);
+    if (destinatario === undefined) {
+      setErroTroca('Colaborador não encontrado.');
+      return;
+    }
+    setProcessandoTroca(true);
+    setErroTroca('');
+    try {
+      await criarSolicitacaoTroca({
+        equipeId: usuario.equipeId,
+        competencia: competenciaAtiva,
+        data,
+        solicitante: { login: usuario.login, nome: usuario.nome, ativo: usuario.ativo },
+        destinatario: { login: destinatario.login, nome: destinatario.nome, ativo: destinatario.ativo },
+        mensagem,
+        catalogo,
+      });
+      setAssistenteTroca(null);
+      setAbaTrocas('minhas');
+    } catch (falha) {
+      setErroTroca(mensagemErroFirebase(falha, 'Não foi possível enviar a solicitação de troca.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoTroca(false);
+    }
   }
 
-  function responderSolicitacaoTroca(id: string, aceitar: boolean) {
-    const agora = new Date().toISOString();
-    setTrocas((atual) => atual.map((troca) => {
-      if (troca.id !== id) {
-        return troca;
-      }
-      return {
-        ...troca,
-        status: aceitar ? 'PENDENTE_GESTOR' : 'RECUSADA_USUARIO',
-        atualizadoEm: agora,
-        respondidoEm: agora,
-        historico: [
-          ...troca.historico,
-          {
-            em: agora,
-            ator: 'DESTINATARIO',
-            atorNome: troca.destinatarioNome,
-            acao: aceitar ? 'Aceite do colega' : 'Recusada pelo colega',
-            detalhe: aceitar ? 'Encaminhada para o gestor' : undefined,
-          },
-        ],
-      };
-    }));
-    setTrocaAberta(null);
+  async function responderSolicitacaoTroca(trocaId: string, aceitar: boolean) {
+    if (usuario === null) {
+      return;
+    }
+    setProcessandoTroca(true);
+    setErroTroca('');
+    try {
+      await responderSolicitacaoTrocaFirebase(trocaId, { login: usuario.login, nome: usuario.nome }, aceitar);
+      setTrocaAbertaId(null);
+    } catch (falha) {
+      setErroTroca(mensagemErroFirebase(falha, 'Não foi possível responder a solicitação de troca.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoTroca(false);
+    }
   }
 
-  function cancelarSolicitacaoTroca(id: string) {
-    const agora = new Date().toISOString();
-    setTrocas((atual) => atual.map((troca) => {
-      if (troca.id !== id) {
-        return troca;
-      }
-      return {
-        ...troca,
-        status: 'CANCELADA_SOLICITANTE',
-        atualizadoEm: agora,
-        historico: [
-          ...troca.historico,
-          { em: agora, ator: 'SOLICITANTE', atorNome: troca.solicitanteNome, acao: 'Cancelada pelo solicitante' },
-        ],
-      };
-    }));
-    setTrocaAberta(null);
+  async function cancelarSolicitacaoTroca(trocaId: string) {
+    if (usuario === null) {
+      return;
+    }
+    setProcessandoTroca(true);
+    setErroTroca('');
+    try {
+      await cancelarSolicitacaoTrocaFirebase(trocaId, { login: usuario.login, nome: usuario.nome });
+      setTrocaAbertaId(null);
+    } catch (falha) {
+      setErroTroca(mensagemErroFirebase(falha, 'Não foi possível cancelar a solicitação de troca.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoTroca(false);
+    }
   }
 
   // Enquanto o Firebase Auth não confirmar a sessão local, o App não mostra
@@ -1316,14 +1410,22 @@ export function EmployeeApp() {
       onNavegar={(id) => setTela(id as Tela)}
       onSair={encerrarSessao}
       acoesTopo={(
-        <NotificationBell
-          eventos={eventos}
-          idsLidos={idsLidos}
-          aberta={centralAberta}
-          catalogo={catalogo}
-          onAlternar={alternarCentral}
-          onAtivarSistema={() => void ativarNotificacoesSistema()}
-        />
+        <>
+          <TrocaNotificationBell
+            notificacoes={notificacoesTroca}
+            aberta={centralTrocasAberta}
+            onAlternar={alternarCentralTrocas}
+            onAbrirNotificacao={abrirNotificacaoTroca}
+          />
+          <NotificationBell
+            eventos={eventos}
+            idsLidos={idsLidos}
+            aberta={centralAberta}
+            catalogo={catalogo}
+            onAlternar={alternarCentral}
+            onAtivarSistema={() => void ativarNotificacoesSistema()}
+          />
+        </>
       )}
     >
       {avisoAtualizacao && (
@@ -1585,11 +1687,12 @@ export function EmployeeApp() {
               <ArrowLeftRight size={16} /> Nova solicitação
             </button>
           </header>
+          {erroTroca && <div className="alert error" role="alert">{erroTroca}</div>}
           <div className="segmented-control troca-abas">
             {([
               ['minhas', 'Minhas', trocas.filter((item) => item.solicitanteLogin === usuario.login).length],
               ['responder', 'Para responder', trocas.filter((item) => item.destinatarioLogin === usuario.login && item.status === 'PENDENTE_USUARIO').length],
-              ['gestor', 'Gestor', trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login) && (item.status === 'PENDENTE_GESTOR' || item.status === 'APROVADA_AGUARDANDO_PUBLICACAO')).length],
+              ['gestor', 'Gestor', trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login) && item.status === 'PENDENTE_GESTOR').length],
               ['historico', 'Histórico', trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login) && !statusEhAtivo(item.status)).length],
             ] as const).map(([id, rotulo, contagem]) => (
               <button
@@ -1607,7 +1710,7 @@ export function EmployeeApp() {
               const minhas = trocas.filter((item) => item.solicitanteLogin === usuario.login);
               const paraResponder = trocas.filter((item) => item.destinatarioLogin === usuario.login && item.status === 'PENDENTE_USUARIO');
               const aguardandoGestor = trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login)
-                && (item.status === 'PENDENTE_GESTOR' || item.status === 'APROVADA_AGUARDANDO_PUBLICACAO'));
+                && item.status === 'PENDENTE_GESTOR');
               const historicoTrocas = trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login)
                 && !statusEhAtivo(item.status));
               const listaAtual = abaTrocas === 'minhas' ? minhas
@@ -1628,10 +1731,10 @@ export function EmployeeApp() {
               }
               return listaAtual.map((item) => (
                 <TrocaItemButton
-                  key={item.id}
+                  key={item.trocaId}
                   troca={item}
                   usuario={usuario}
-                  onAbrir={() => setTrocaAberta(item)}
+                  onAbrir={() => setTrocaAbertaId(item.trocaId)}
                 />
               ));
             })()}
@@ -1727,12 +1830,14 @@ export function EmployeeApp() {
           usuarios={usuarios}
           usuario={usuario}
           catalogo={catalogo}
+          enviando={processandoTroca}
+          erro={erroTroca}
           onMudarPasso={(passo) => setAssistenteTroca((atual) => atual && { ...atual, passo })}
           onEscolherData={(diaEscolhido) => setAssistenteTroca((atual) => atual && { ...atual, data: diaEscolhido })}
           onEscolherDestinatario={(login) => setAssistenteTroca((atual) => atual && { ...atual, destinatarioLogin: login })}
           onMudarMensagem={(mensagem) => setAssistenteTroca((atual) => atual && { ...atual, mensagem })}
-          onFechar={() => setAssistenteTroca(null)}
-          onEnviar={enviarSolicitacaoTroca}
+          onFechar={() => { setAssistenteTroca(null); setErroTroca(''); }}
+          onEnviar={() => void enviarSolicitacaoTroca()}
         />
       )}
 
@@ -1740,16 +1845,20 @@ export function EmployeeApp() {
         trocaAberta.destinatarioLogin === usuario.login && trocaAberta.status === 'PENDENTE_USUARIO' ? (
           <ModalRespostaTroca
             troca={trocaAberta}
-            onFechar={() => setTrocaAberta(null)}
-            onAceitar={() => responderSolicitacaoTroca(trocaAberta.id, true)}
-            onRecusar={() => responderSolicitacaoTroca(trocaAberta.id, false)}
+            processando={processandoTroca}
+            erro={erroTroca}
+            onFechar={() => { setTrocaAbertaId(null); setErroTroca(''); }}
+            onAceitar={() => void responderSolicitacaoTroca(trocaAberta.trocaId, true)}
+            onRecusar={() => void responderSolicitacaoTroca(trocaAberta.trocaId, false)}
           />
         ) : (
           <ModalDetalheTroca
             troca={trocaAberta}
             usuario={usuario}
-            onFechar={() => setTrocaAberta(null)}
-            onCancelar={() => cancelarSolicitacaoTroca(trocaAberta.id)}
+            processando={processandoTroca}
+            erro={erroTroca}
+            onFechar={() => { setTrocaAbertaId(null); setErroTroca(''); }}
+            onCancelar={() => void cancelarSolicitacaoTroca(trocaAberta.trocaId)}
           />
         )
       )}

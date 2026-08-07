@@ -100,6 +100,71 @@ beforeAll(async () => {
   });
 });
 
+/**
+ * Solicitante = `colaborador`, destinatário = `colega` — os dois da mesma
+ * equipe (`EQ_COSI_SOC`), espelhando o par usado nos testes de `usuarios`/
+ * `turnosMes` acima. `ajustes` sobrescreve qualquer campo para os cenários
+ * de fronteira (status diferente, historico maior, etc.).
+ */
+function troca(ajustes: Record<string, unknown> = {}) {
+  return {
+    trocaId: 'troca-1',
+    equipeId: 'EQ_COSI_SOC',
+    competencia: '2026-08',
+    solicitanteLogin: usuarios.colaborador.login,
+    solicitanteNome: usuarios.colaborador.nome,
+    destinatarioLogin: usuarios.colega.login,
+    destinatarioNome: usuarios.colega.nome,
+    data: '2026-08-10',
+    turnoSolicitanteAntes: 'M',
+    horarioSolicitanteAntes: '07:00–13:00',
+    turnoDestinatarioAntes: 'T',
+    horarioDestinatarioAntes: '13:00–19:00',
+    status: 'PENDENTE_USUARIO',
+    mensagemSolicitante: null,
+    motivoRecusa: null,
+    criadoEm: '2026-08-07T13:00:00.000Z',
+    atualizadoEm: '2026-08-07T13:00:00.000Z',
+    respondidoEm: null,
+    aprovadoEm: null,
+    publicadoEm: null,
+    gestorLogin: null,
+    gestorNome: null,
+    historico: [{
+      tipo: 'SOLICITACAO_CRIADA',
+      porLogin: usuarios.colaborador.login,
+      porNome: usuarios.colaborador.nome,
+      porPerfil: 'SOLICITANTE',
+      em: '2026-08-07T13:00:00.000Z',
+      descricao: 'Solicitação criada',
+    }],
+    snapshotValidacao: {
+      solicitanteDocId: 'EQ_COSI_SOC_caio.monteiro_2026-08',
+      destinatarioDocId: 'EQ_COSI_SOC_bianca.salles_2026-08',
+      turnoSolicitanteOriginal: 'M',
+      turnoDestinatarioOriginal: 'T',
+    },
+    ...ajustes,
+  };
+}
+
+function notificacaoTroca(ajustes: Record<string, unknown> = {}) {
+  return {
+    id: 'notif-1',
+    destinatarioLogin: usuarios.colega.login,
+    equipeId: 'EQ_COSI_SOC',
+    tipo: 'TROCA_SOLICITADA',
+    titulo: 'Nova solicitação de troca',
+    mensagem: `${usuarios.colaborador.nome} quer trocar com você.`,
+    trocaId: 'troca-1',
+    criadoPorLogin: usuarios.colaborador.login,
+    criadoEm: '2026-08-07T13:00:00.000Z',
+    lidaEm: null,
+    acao: 'ABRIR_TROCA',
+    ...ajustes,
+  };
+}
+
 beforeEach(async () => {
   await ambiente.clearFirestore();
   await ambiente.withSecurityRulesDisabled(async (contexto) => {
@@ -120,6 +185,7 @@ beforeEach(async () => {
         escala(usuarios.externo.login, 'EQ_CODB_NOC', 'PUBLICADA'),
       ),
       setDoc(doc(db, 'config', 'app'), { schemaVersionAtual: 1 }),
+      setDoc(doc(db, 'trocasEscala', 'troca-1'), troca()),
     ]);
   });
 });
@@ -385,5 +451,225 @@ describe('regras Firestore do Escala ICI', () => {
       doc(db, 'config', 'app'),
       { schemaVersionAtual: 2 },
     ));
+  });
+
+  describe('trocasEscala', () => {
+    it('permite ao solicitante criar a própria solicitação PENDENTE_USUARIO', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(setDoc(doc(db, 'trocasEscala', 'troca-nova'), troca({ trocaId: 'troca-nova' })));
+    });
+
+    it('impede criar troca em nome de outro solicitante', async () => {
+      const db = autenticarComo(usuarios.colega);
+      await assertFails(setDoc(doc(db, 'trocasEscala', 'troca-forjada'), troca({ trocaId: 'troca-forjada' })));
+    });
+
+    it('impede criar troca consigo mesmo como destinatário', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(setDoc(
+        doc(db, 'trocasEscala', 'troca-auto'),
+        troca({ trocaId: 'troca-auto', destinatarioLogin: usuarios.colaborador.login }),
+      ));
+    });
+
+    it('impede criar troca com status inicial diferente de PENDENTE_USUARIO', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(setDoc(
+        doc(db, 'trocasEscala', 'troca-status-errado'),
+        troca({ trocaId: 'troca-status-errado', status: 'PENDENTE_GESTOR' }),
+      ));
+    });
+
+    it('impede criar troca informando equipeId diferente da própria equipe', async () => {
+      const db = autenticarComo(usuarios.externo);
+      await assertFails(setDoc(
+        doc(db, 'trocasEscala', 'troca-outra-equipe'),
+        troca({
+          trocaId: 'troca-outra-equipe',
+          equipeId: 'EQ_COSI_SOC',
+          solicitanteLogin: usuarios.externo.login,
+          destinatarioLogin: usuarios.colega.login,
+        }),
+      ));
+    });
+
+    it('permite ao destinatário aceitar, encaminhando para o gestor', async () => {
+      const db = autenticarComo(usuarios.colega);
+      await assertSucceeds(updateDoc(doc(db, 'trocasEscala', 'troca-1'), {
+        status: 'PENDENTE_GESTOR',
+        respondidoEm: '2026-08-07T14:00:00.000Z',
+        historico: [
+          ...troca().historico,
+          { tipo: 'ACEITE_DESTINATARIO', porLogin: usuarios.colega.login, porNome: usuarios.colega.nome, porPerfil: 'DESTINATARIO', em: '2026-08-07T14:00:00.000Z', descricao: 'Aceite do colega' },
+        ],
+      }));
+    });
+
+    it('permite ao destinatário recusar', async () => {
+      const db = autenticarComo(usuarios.colega);
+      await assertSucceeds(updateDoc(doc(db, 'trocasEscala', 'troca-1'), {
+        status: 'RECUSADA_USUARIO',
+        motivoRecusa: 'Já tenho compromisso.',
+        historico: [
+          ...troca().historico,
+          { tipo: 'RECUSA_DESTINATARIO', porLogin: usuarios.colega.login, porNome: usuarios.colega.nome, porPerfil: 'DESTINATARIO', em: '2026-08-07T14:00:00.000Z', descricao: 'Recusada pelo colega' },
+        ],
+      }));
+    });
+
+    it('impede o destinatário de pular direto para APROVADA_PUBLICADA', async () => {
+      const db = autenticarComo(usuarios.colega);
+      await assertFails(updateDoc(doc(db, 'trocasEscala', 'troca-1'), {
+        status: 'APROVADA_PUBLICADA',
+        historico: [
+          ...troca().historico,
+          { tipo: 'FORJADO', porLogin: usuarios.colega.login, porNome: usuarios.colega.nome, porPerfil: 'DESTINATARIO', em: '2026-08-07T14:00:00.000Z', descricao: 'forjado' },
+        ],
+      }));
+    });
+
+    it('permite ao solicitante cancelar a própria solicitação pendente', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(updateDoc(doc(db, 'trocasEscala', 'troca-1'), {
+        status: 'CANCELADA_SOLICITANTE',
+        historico: [
+          ...troca().historico,
+          { tipo: 'CANCELADA_SOLICITANTE', porLogin: usuarios.colaborador.login, porNome: usuarios.colaborador.nome, porPerfil: 'SOLICITANTE', em: '2026-08-07T14:00:00.000Z', descricao: 'Cancelada' },
+        ],
+      }));
+    });
+
+    it('impede o destinatário de cancelar a solicitação do outro', async () => {
+      const db = autenticarComo(usuarios.colega);
+      await assertFails(updateDoc(doc(db, 'trocasEscala', 'troca-1'), {
+        status: 'CANCELADA_SOLICITANTE',
+        historico: [
+          ...troca().historico,
+          { tipo: 'FORJADO', porLogin: usuarios.colega.login, porNome: usuarios.colega.nome, porPerfil: 'DESTINATARIO', em: '2026-08-07T14:00:00.000Z', descricao: 'forjado' },
+        ],
+      }));
+    });
+
+    it('impede update sem o historico crescer', async () => {
+      const db = autenticarComo(usuarios.colega);
+      await assertFails(updateDoc(doc(db, 'trocasEscala', 'troca-1'), {
+        status: 'PENDENTE_GESTOR',
+      }));
+    });
+
+    it('impede o gestor de recusar/aprovar uma troca ainda PENDENTE_USUARIO', async () => {
+      const gestor = autenticarComo(usuarios.gestor);
+      await assertFails(updateDoc(doc(gestor, 'trocasEscala', 'troca-1'), {
+        status: 'RECUSADA_GESTOR',
+        gestorLogin: usuarios.gestor.login,
+        gestorNome: usuarios.gestor.nome,
+        historico: [
+          ...troca().historico,
+          { tipo: 'FORJADO', porLogin: usuarios.gestor.login, porNome: usuarios.gestor.nome, porPerfil: 'GESTOR', em: '2026-08-07T14:00:00.000Z', descricao: 'forjado' },
+        ],
+      }));
+    });
+
+    it('permite ao gestor recusar ou aprovar e publicar a partir de PENDENTE_GESTOR', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'trocasEscala', 'troca-pendente-gestor'),
+          troca({ trocaId: 'troca-pendente-gestor', status: 'PENDENTE_GESTOR' }),
+        );
+      });
+      const gestor = autenticarComo(usuarios.gestor);
+      await assertSucceeds(updateDoc(doc(gestor, 'trocasEscala', 'troca-pendente-gestor'), {
+        status: 'APROVADA_PUBLICADA',
+        aprovadoEm: '2026-08-07T15:00:00.000Z',
+        publicadoEm: '2026-08-07T15:00:00.000Z',
+        gestorLogin: usuarios.gestor.login,
+        gestorNome: usuarios.gestor.nome,
+        historico: [
+          ...troca().historico,
+          { tipo: 'APROVADA_PUBLICADA', porLogin: usuarios.gestor.login, porNome: usuarios.gestor.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'Aprovada' },
+        ],
+      }));
+    });
+
+    it('impede o gestor de outra equipe de ler ou decidir a troca', async () => {
+      const externo = autenticarComo(usuarios.externo);
+      await assertFails(getDoc(doc(externo, 'trocasEscala', 'troca-1')));
+      await assertFails(updateDoc(doc(externo, 'trocasEscala', 'troca-1'), {
+        status: 'RECUSADA_GESTOR',
+        gestorLogin: usuarios.externo.login,
+        gestorNome: usuarios.externo.nome,
+        historico: [
+          ...troca().historico,
+          { tipo: 'FORJADO', porLogin: usuarios.externo.login, porNome: usuarios.externo.nome, porPerfil: 'GESTOR', em: '2026-08-07T14:00:00.000Z', descricao: 'forjado' },
+        ],
+      }));
+    });
+
+    it('permite leitura ao solicitante, ao destinatário e ao gestor da equipe; nega a um colega qualquer', async () => {
+      await assertSucceeds(getDoc(doc(autenticarComo(usuarios.colaborador), 'trocasEscala', 'troca-1')));
+      await assertSucceeds(getDoc(doc(autenticarComo(usuarios.colega), 'trocasEscala', 'troca-1')));
+      await assertSucceeds(getDoc(doc(autenticarComo(usuarios.gestor), 'trocasEscala', 'troca-1')));
+    });
+
+    it('nega delete', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(deleteDoc(doc(db, 'trocasEscala', 'troca-1')));
+    });
+  });
+
+  describe('notificacoesTroca', () => {
+    it('permite ao destinatário ler a própria notificação e nega a outro login', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'notificacoesTroca', 'notif-1'), notificacaoTroca());
+      });
+      await assertSucceeds(getDoc(doc(autenticarComo(usuarios.colega), 'notificacoesTroca', 'notif-1')));
+      await assertFails(getDoc(doc(autenticarComo(usuarios.colaborador), 'notificacoesTroca', 'notif-1')));
+    });
+
+    it('permite criar notificação para outra pessoa da equipe quando o autor é quem está autenticado', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(setDoc(doc(db, 'notificacoesTroca', 'notif-nova'), notificacaoTroca({ id: 'notif-nova' })));
+    });
+
+    it('impede forjar criadoPorLogin de outra pessoa', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(setDoc(
+        doc(db, 'notificacoesTroca', 'notif-forjada'),
+        notificacaoTroca({ id: 'notif-forjada', criadoPorLogin: usuarios.gestor.login }),
+      ));
+    });
+
+    it('impede criar notificação endereçada a si mesmo', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(setDoc(
+        doc(db, 'notificacoesTroca', 'notif-para-mim'),
+        notificacaoTroca({ id: 'notif-para-mim', destinatarioLogin: usuarios.colaborador.login, criadoPorLogin: usuarios.colaborador.login }),
+      ));
+    });
+
+    it('permite ao destinatário marcar a própria notificação como lida, e só esse campo', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'notificacoesTroca', 'notif-1'), notificacaoTroca());
+      });
+      const db = autenticarComo(usuarios.colega);
+      await assertSucceeds(updateDoc(doc(db, 'notificacoesTroca', 'notif-1'), { lidaEm: '2026-08-07T16:00:00.000Z' }));
+      await assertFails(updateDoc(doc(db, 'notificacoesTroca', 'notif-1'), { mensagem: 'alterada' }));
+    });
+
+    it('impede outra pessoa de marcar a notificação de alguém como lida', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'notificacoesTroca', 'notif-1'), notificacaoTroca());
+      });
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(updateDoc(doc(db, 'notificacoesTroca', 'notif-1'), { lidaEm: '2026-08-07T16:00:00.000Z' }));
+    });
+
+    it('nega delete', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'notificacoesTroca', 'notif-1'), notificacaoTroca());
+      });
+      const db = autenticarComo(usuarios.colega);
+      await assertFails(deleteDoc(doc(db, 'notificacoesTroca', 'notif-1')));
+    });
   });
 });

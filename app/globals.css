@@ -765,6 +765,10 @@ button.shift-chip:disabled { cursor: default; }
 .notification-changes > div > b { color: var(--muted); }
 .notification-changes > small { color: var(--muted); font-size: 9px; }
 .notification-empty { min-height: 120px; display: grid; place-items: center; align-content: center; gap: 8px; color: var(--muted); font-size: 11px; }
+.notification-list > button.notification-item-button { display: block; width: 100%; text-align: left; padding: 12px; border-radius: 8px; border: 0; background: transparent; cursor: pointer; font: inherit; color: inherit; }
+.notification-list > button.notification-item-button + button.notification-item-button { border-top: 1px solid var(--border); }
+.notification-list > button.notification-item-button.unread { background: color-mix(in srgb, var(--primary-bright) 7%, var(--surface)); }
+.notification-item-button p { margin: 9px 0 0 20px; font-size: 10px; color: var(--muted); }
 .alert { padding: 11px 13px; border-radius: 7px; margin-bottom: 12px; font-size: 12px; }
 .alert ul { margin: 0; padding-left: 18px; display: grid; gap: 3px; }
 .alert > strong { display: block; margin-bottom: 4px; }

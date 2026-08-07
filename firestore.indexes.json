@@ -25,6 +25,33 @@
         { "fieldPath": "competencia", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "trocasEscala",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "equipeId", "order": "ASCENDING" },
+        { "fieldPath": "competencia", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "trocasEscala",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "equipeId", "order": "ASCENDING" },
+        { "fieldPath": "competencia", "order": "ASCENDING" },
+        { "fieldPath": "solicitanteLogin", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "trocasEscala",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "equipeId", "order": "ASCENDING" },
+        { "fieldPath": "competencia", "order": "ASCENDING" },
+        { "fieldPath": "destinatarioLogin", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -163,5 +163,78 @@ service cloud.firestore {
         && request.resource.data.equipeId == minhaEquipe();
       allow update, delete: if false;
     }
+
+    /**
+     * Troca de escala (docs/spec/TROCA_ESCALA_PLANO.md) — primeira coleção
+     * que o App do colaborador escreve, além de ler. Escopo de escrita
+     * deliberadamente estreito: o App só cria a solicitação e move
+     * PENDENTE_USUARIO -> {RECUSADA_USUARIO, PENDENTE_GESTOR,
+     * CANCELADA_SOLICITANTE}; qualquer transição a partir de
+     * PENDENTE_GESTOR é exclusividade do gestor. `historico` só pode
+     * crescer (nunca é reescrito por trás).
+     */
+    match /trocasEscala/{id} {
+      allow read: if autenticado()
+        && resource.data.equipeId == minhaEquipe()
+        && (
+          souGestor()
+          || resource.data.solicitanteLogin == loginDoAuth()
+          || resource.data.destinatarioLogin == loginDoAuth()
+        );
+
+      allow create: if autenticado()
+        && request.resource.data.equipeId == minhaEquipe()
+        && request.resource.data.solicitanteLogin == loginDoAuth()
+        && request.resource.data.destinatarioLogin != loginDoAuth()
+        && request.resource.data.status == 'PENDENTE_USUARIO';
+
+      allow update: if autenticado()
+        && resource.data.equipeId == minhaEquipe()
+        && request.resource.data.historico.size() > resource.data.historico.size()
+        && (
+          (
+            resource.data.destinatarioLogin == loginDoAuth()
+            && resource.data.status == 'PENDENTE_USUARIO'
+            && request.resource.data.status in ['RECUSADA_USUARIO', 'PENDENTE_GESTOR']
+          )
+          || (
+            resource.data.solicitanteLogin == loginDoAuth()
+            && resource.data.status == 'PENDENTE_USUARIO'
+            && request.resource.data.status == 'CANCELADA_SOLICITANTE'
+          )
+          || (
+            souGestor()
+            && resource.data.status == 'PENDENTE_GESTOR'
+            && request.resource.data.status in ['RECUSADA_GESTOR', 'APROVADA_PUBLICADA']
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    /**
+     * Notificações de troca — coleção nova e dedicada (não reaproveita
+     * `eventosEscala`, que é só para publicação em massa). Quem cria é
+     * sempre quem executou a ação (solicitante, destinatário ou gestor),
+     * nunca o próprio destinatário da notificação; `criadoPorLogin`
+     * autentica o autor sem depender de `get()` sobre `trocasEscala` (a
+     * troca e a notificação são criadas no mesmo lote, e `get()`/`exists()`
+     * em regras não veem escritas pendentes do mesmo lote).
+     */
+    match /notificacoesTroca/{id} {
+      allow read: if autenticado() && resource.data.destinatarioLogin == loginDoAuth();
+
+      allow create: if autenticado()
+        && request.resource.data.equipeId == minhaEquipe()
+        && request.resource.data.criadoPorLogin == loginDoAuth()
+        && request.resource.data.destinatarioLogin != loginDoAuth()
+        && request.resource.data.lidaEm == null;
+
+      allow update: if autenticado()
+        && resource.data.destinatarioLogin == loginDoAuth()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lidaEm']);
+
+      allow delete: if false;
+    }
   }
 }
