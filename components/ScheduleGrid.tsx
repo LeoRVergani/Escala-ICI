@@ -171,8 +171,14 @@ export function ScheduleGrid({
     <div>
       {divergencias.length > 0 && (
         <div className="alert warning">
-          {divergencias.length} documento(s) possui(em) totais divergentes. A tela
-          está usando o recálculo dos dias.
+          <strong>Horas recalculadas automaticamente</strong>
+          <p>
+            {divergencias.length === 1
+              ? '1 colaborador teve diferença'
+              : `${divergencias.length} colaboradores tiveram diferença`}
+            {' '}entre o total informado na planilha e a soma dos turnos exibidos na
+            grade. O sistema está usando a soma calculada pelos dias da escala.
+          </p>
         </div>
       )}
       <div className={`schedule-scroll ${compacta ? 'compact' : ''}`}>

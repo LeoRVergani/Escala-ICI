@@ -8,6 +8,7 @@ import {
   type Dia,
   type ErroImportacao,
   type ResultadoParse,
+  type TipoTurno,
   type TurnosMes,
 } from '@escala-ici/contrato';
 import {
@@ -219,6 +220,46 @@ function montarAlertasVisiveis(
   return [...doMonitoramento, ...publicacaoIncompleta];
 }
 
+interface CargaColaborador {
+  login: string;
+  nome: string;
+  turnoPadrao: string;
+  diasTrabalhados: number;
+  folgas: number;
+  minutos: number;
+}
+
+/**
+ * Carga por colaborador — reaproveita `calcularTotais` (mesma função que
+ * já alimenta "Horas planejadas" no metric-grid) para cada documento em
+ * memória, sem nenhuma consulta nova. "Trabalhados" e "folgas" seguem a
+ * mesma semântica de `Totais`: trabalhados = dias de categoria TRABALHO
+ * (MD/M/T/N no catálogo atual — X e AFA não contam, por serem AUSENCIA);
+ * folgas = DF + DU. BH (COMPENSACAO) e X (AUSENCIA) não entram em nenhuma
+ * das duas colunas — ambíguo demais pra inventar uma terceira categoria
+ * agora (ver Totais em packages/contrato/src/totais.ts).
+ */
+function montarCargaColaboradores(
+  documentos: TurnosMes[],
+  usuarios: Usuario[],
+  catalogo: Record<string, TipoTurno>,
+): CargaColaborador[] {
+  const nomes = Object.fromEntries(usuarios.map((usuario) => [usuario.login, usuario.nome]));
+  return documentos
+    .map((documento): CargaColaborador => {
+      const totais = calcularTotais(documento.dias, catalogo);
+      return {
+        login: documento.login,
+        nome: nomes[documento.login] ?? documento.login,
+        turnoPadrao: documento.turnoPadrao,
+        diasTrabalhados: totais.diasTrabalhados,
+        folgas: totais.df + totais.du,
+        minutos: totais.min,
+      };
+    })
+    .sort((a, b) => b.minutos - a.minutos || a.nome.localeCompare(b.nome));
+}
+
 interface AlertasOperacionaisBellProps {
   alertas: AlertaEscala[];
   usuarios: Usuario[];
@@ -395,6 +436,10 @@ export function DashboardApp() {
   const alertasVisiveis = useMemo(
     () => montarAlertasVisiveis(alertasOperacionais, usuarios, documentos, publicados),
     [alertasOperacionais, usuarios, documentos, publicados],
+  );
+  const cargaColaboradores = useMemo(
+    () => montarCargaColaboradores(documentos, usuarios, catalogo),
+    [documentos, usuarios, catalogo],
   );
   const totaisGerais = useMemo(() => {
     const totalMin = documentos.reduce((soma, documento) =>
@@ -1192,45 +1237,83 @@ export function DashboardApp() {
               <button type="button" onClick={() => setTela('grade')}><Pencil /> Revisar a grade <ArrowUpRight /></button>
             </article>
           </div>
-          <article className="panel grid-panel alert-summary-card">
-            <div className="panel-title">
-              <div><h2>Alertas da escala</h2><p>Pontos que merecem atenção do gestor</p></div>
-              <AlertTriangle />
-            </div>
-            {alertasVisiveis.length === 0 ? (
-              <div className="notification-empty alert-summary-empty">
-                <ShieldCheck size={22} />
-                <strong>Nenhum alerta encontrado</strong>
-                <span>A escala atual não possui inconsistências conhecidas.</span>
+          <div className="content-grid two-columns">
+            <article className="panel grid-panel">
+              <div className="panel-title">
+                <div><h2>Alertas da escala</h2><p>Pontos que merecem atenção do gestor</p></div>
+                <AlertTriangle />
               </div>
-            ) : (
-              <>
-                <p className="alert-summary-count">
-                  {alertasVisiveis.length} {alertasVisiveis.length === 1 ? 'alerta encontrado' : 'alertas encontrados'}
-                </p>
-                <div className="alert-summary-list">
-                  {alertasVisiveis.map((alerta) => (
-                    <button
-                      key={alerta.id}
-                      type="button"
-                      className="alert-item alert-item-button"
-                      onClick={() => setAlertaSelecionado(alerta)}
-                    >
-                      <AlertTriangle
-                        size={15}
-                        className={alerta.severidade === 'critico' ? 'alert-icon-critico' : 'alert-icon-aviso'}
-                      />
-                      <div>
-                        <strong>{alerta.colaborador ? `${alerta.colaborador} — ${alerta.titulo}` : alerta.titulo}</strong>
-                        <small>{alerta.tipo}{alerta.data ? ` · ${formatarDataCurta(alerta.data)}` : ''}</small>
-                      </div>
-                      <ChevronRight size={16} />
-                    </button>
-                  ))}
+              {alertasVisiveis.length === 0 ? (
+                <div className="notification-empty alert-summary-empty">
+                  <ShieldCheck size={22} />
+                  <strong>Nenhum alerta encontrado</strong>
+                  <span>A escala atual não possui inconsistências conhecidas.</span>
                 </div>
-              </>
-            )}
-          </article>
+              ) : (
+                <>
+                  <p className="alert-summary-count">
+                    {alertasVisiveis.length} {alertasVisiveis.length === 1 ? 'alerta encontrado' : 'alertas encontrados'}
+                  </p>
+                  <div className="alert-summary-list">
+                    {alertasVisiveis.map((alerta) => (
+                      <button
+                        key={alerta.id}
+                        type="button"
+                        className="alert-item alert-item-button"
+                        onClick={() => setAlertaSelecionado(alerta)}
+                      >
+                        <AlertTriangle
+                          size={15}
+                          className={alerta.severidade === 'critico' ? 'alert-icon-critico' : 'alert-icon-aviso'}
+                        />
+                        <div>
+                          <strong>{alerta.colaborador ? `${alerta.colaborador} — ${alerta.titulo}` : alerta.titulo}</strong>
+                          <small>{alerta.tipo}{alerta.data ? ` · ${formatarDataCurta(alerta.data)}` : ''}</small>
+                        </div>
+                        <ChevronRight size={16} />
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </article>
+            <article className="panel grid-panel">
+              <div className="panel-title">
+                <div><h2>Carga por colaborador</h2><p>Distribuição de dias e horas no período</p></div>
+                <Users />
+              </div>
+              {cargaColaboradores.length === 0 ? (
+                <div className="notification-empty">
+                  <Users size={22} />
+                  <span>Nenhum colaborador na grade deste período.</span>
+                </div>
+              ) : (
+                <div className="carga-colaborador-list">
+                  {(() => {
+                    const maiorMinutos = Math.max(...cargaColaboradores.map((item) => item.minutos), 1);
+                    return cargaColaboradores.map((item, indice) => (
+                      <div key={item.login} className="carga-colaborador-item">
+                        <div className="carga-colaborador-info">
+                          <span className="carga-colaborador-rank">{indice + 1}</span>
+                          <div>
+                            <strong>{item.nome}</strong>
+                            <small>
+                              {item.diasTrabalhados} {item.diasTrabalhados === 1 ? 'dia trabalhado' : 'dias trabalhados'}
+                              {' · '}{item.folgas} {item.folgas === 1 ? 'folga' : 'folgas'}
+                              {' · '}{formatarMinutos(item.minutos)}
+                            </small>
+                          </div>
+                        </div>
+                        <div className="carga-colaborador-bar">
+                          <i style={{ width: `${(item.minutos / maiorMinutos) * 100}%` }} />
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              )}
+            </article>
+          </div>
         </section>
       )}
 
