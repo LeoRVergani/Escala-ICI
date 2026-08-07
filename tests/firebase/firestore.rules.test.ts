@@ -11,6 +11,7 @@ import {
   getDoc,
   getDocs,
   query,
+  runTransaction,
   setDoc,
   updateDoc,
   where,
@@ -186,6 +187,18 @@ beforeEach(async () => {
       ),
       setDoc(doc(db, 'config', 'app'), { schemaVersionAtual: 1 }),
       setDoc(doc(db, 'trocasEscala', 'troca-1'), troca()),
+      // Documentos com o mesmo ID que `idDocumento(equipeId, login, competencia)`
+      // gera de verdade (`${equipeId}_${login}_${competencia}`), com o dia da
+      // troca presente — necessário para o teste do fluxo real de aprovação
+      // (gestorAprovarEPublicarTroca), que lê exatamente esses IDs.
+      setDoc(doc(db, 'turnosMes', 'EQ_COSI_SOC_caio.monteiro_2026-08'), {
+        ...escala(usuarios.colaborador.login, 'EQ_COSI_SOC', 'PUBLICADA'),
+        dias: { '2026-08-10': { c: 'M', i: '07:00', f: '13:00' } },
+      }),
+      setDoc(doc(db, 'turnosMes', 'EQ_COSI_SOC_bianca.salles_2026-08'), {
+        ...escala(usuarios.colega.login, 'EQ_COSI_SOC', 'PUBLICADA'),
+        dias: { '2026-08-10': { c: 'T', i: '13:00', f: '19:00' } },
+      }),
     ]);
   });
 });
@@ -670,6 +683,238 @@ describe('regras Firestore do Escala ICI', () => {
       });
       const db = autenticarComo(usuarios.colega);
       await assertFails(deleteDoc(doc(db, 'notificacoesTroca', 'notif-1')));
+    });
+  });
+
+  /**
+   * Hotfix 2 — os testes acima só exercitam get/set/update/delete em um
+   * documento por vez. As operações reais de `lib/firebase/trocasRepository.ts`
+   * fazem `getDocs(query(...))` (list, não get) e uma `runTransaction` com
+   * várias leituras/escritas. Uma regra pode passar em todos os testes
+   * de documento único e ainda falhar numa consulta ou numa transação — por
+   * isso este bloco reproduz exatamente essas formas de acesso.
+   */
+  describe('fluxo real de troca de escala (A -> B -> gestor)', () => {
+    it('A cria a troca e a notificação para B', async () => {
+      const a = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(setDoc(doc(a, 'trocasEscala', 'troca-nova'), troca({ trocaId: 'troca-nova' })));
+      await assertSucceeds(setDoc(doc(a, 'notificacoesTroca', 'notif-nova'), notificacaoTroca({ id: 'notif-nova' })));
+    });
+
+    it('B lista as próprias notificações via query (list, não só get)', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'notificacoesTroca', 'notif-1'), notificacaoTroca());
+      });
+      const b = autenticarComo(usuarios.colega);
+      const resultado = await assertSucceeds(getDocs(query(
+        collection(b, 'notificacoesTroca'),
+        where('destinatarioLogin', '==', usuarios.colega.login),
+      )));
+      expect(resultado.docs).toHaveLength(1);
+    });
+
+    it('B marca a notificação como lida', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'notificacoesTroca', 'notif-1'), notificacaoTroca());
+      });
+      const b = autenticarComo(usuarios.colega);
+      await assertSucceeds(updateDoc(doc(b, 'notificacoesTroca', 'notif-1'), { lidaEm: '2026-08-07T14:00:00.000Z' }));
+    });
+
+    it('B lista as próprias trocas via query — como solicitante e como destinatário', async () => {
+      const b = autenticarComo(usuarios.colega);
+      const comoDestinatario = await assertSucceeds(getDocs(query(
+        collection(b, 'trocasEscala'),
+        where('equipeId', '==', 'EQ_COSI_SOC'),
+        where('competencia', '==', '2026-08'),
+        where('destinatarioLogin', '==', usuarios.colega.login),
+      )));
+      expect(comoDestinatario.docs).toHaveLength(1);
+      const comoSolicitante = await assertSucceeds(getDocs(query(
+        collection(b, 'trocasEscala'),
+        where('equipeId', '==', 'EQ_COSI_SOC'),
+        where('competencia', '==', '2026-08'),
+        where('solicitanteLogin', '==', usuarios.colega.login),
+      )));
+      expect(comoSolicitante.docs).toHaveLength(0);
+    });
+
+    it('B aceita a troca (-> PENDENTE_GESTOR) e cria a notificação para A', async () => {
+      const b = autenticarComo(usuarios.colega);
+      await assertSucceeds(updateDoc(doc(b, 'trocasEscala', 'troca-1'), {
+        status: 'PENDENTE_GESTOR',
+        respondidoEm: '2026-08-07T14:00:00.000Z',
+        historico: [
+          ...troca().historico,
+          { tipo: 'ACEITE_DESTINATARIO', porLogin: usuarios.colega.login, porNome: usuarios.colega.nome, porPerfil: 'DESTINATARIO', em: '2026-08-07T14:00:00.000Z', descricao: 'Aceite do colega' },
+        ],
+      }));
+      await assertSucceeds(setDoc(doc(b, 'notificacoesTroca', 'notif-para-a'), notificacaoTroca({
+        id: 'notif-para-a',
+        destinatarioLogin: usuarios.colaborador.login,
+        criadoPorLogin: usuarios.colega.login,
+        tipo: 'TROCA_ACEITA_AGUARDANDO_GESTOR',
+      })));
+    });
+
+    it('B recusa a troca e cria a notificação para A', async () => {
+      const b = autenticarComo(usuarios.colega);
+      await assertSucceeds(updateDoc(doc(b, 'trocasEscala', 'troca-1'), {
+        status: 'RECUSADA_USUARIO',
+        motivoRecusa: 'Já tenho compromisso.',
+        historico: [
+          ...troca().historico,
+          { tipo: 'RECUSA_DESTINATARIO', porLogin: usuarios.colega.login, porNome: usuarios.colega.nome, porPerfil: 'DESTINATARIO', em: '2026-08-07T14:00:00.000Z', descricao: 'Recusada pelo colega' },
+        ],
+      }));
+      await assertSucceeds(setDoc(doc(b, 'notificacoesTroca', 'notif-recusa-a'), notificacaoTroca({
+        id: 'notif-recusa-a',
+        destinatarioLogin: usuarios.colaborador.login,
+        criadoPorLogin: usuarios.colega.login,
+        tipo: 'TROCA_RECUSADA_USUARIO',
+      })));
+    });
+
+    it('gestor lista as trocas da equipe via query (sem filtro de status)', async () => {
+      const gestor = autenticarComo(usuarios.gestor);
+      const resultado = await assertSucceeds(getDocs(query(
+        collection(gestor, 'trocasEscala'),
+        where('equipeId', '==', 'EQ_COSI_SOC'),
+        where('competencia', '==', '2026-08'),
+      )));
+      expect(resultado.docs).toHaveLength(1);
+    });
+
+    it('gestor de outra equipe lista a própria equipe e não vê a troca da EQ_COSI_SOC', async () => {
+      const externo = autenticarComo(usuarios.externo);
+      const resultado = await assertSucceeds(getDocs(query(
+        collection(externo, 'trocasEscala'),
+        where('equipeId', '==', 'EQ_CODB_NOC'),
+        where('competencia', '==', '2026-08'),
+      )));
+      expect(resultado.docs).toHaveLength(0);
+    });
+
+    it('gestor recusa a troca (a partir de PENDENTE_GESTOR) e notifica A e B', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'trocasEscala', 'troca-pendente-gestor'),
+          troca({ trocaId: 'troca-pendente-gestor', status: 'PENDENTE_GESTOR' }),
+        );
+      });
+      const gestor = autenticarComo(usuarios.gestor);
+      await assertSucceeds(updateDoc(doc(gestor, 'trocasEscala', 'troca-pendente-gestor'), {
+        status: 'RECUSADA_GESTOR',
+        motivoRecusa: 'Causaria descanso insuficiente.',
+        gestorLogin: usuarios.gestor.login,
+        gestorNome: usuarios.gestor.nome,
+        historico: [
+          ...troca().historico,
+          { tipo: 'RECUSA_GESTOR', porLogin: usuarios.gestor.login, porNome: usuarios.gestor.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'Recusada pelo gestor' },
+        ],
+      }));
+      for (const destinatarioLogin of [usuarios.colaborador.login, usuarios.colega.login]) {
+        await assertSucceeds(setDoc(doc(gestor, 'notificacoesTroca', `notif-recusa-gestor-${destinatarioLogin}`), notificacaoTroca({
+          id: `notif-recusa-gestor-${destinatarioLogin}`,
+          destinatarioLogin,
+          criadoPorLogin: usuarios.gestor.login,
+          tipo: 'TROCA_RECUSADA_GESTOR',
+        })));
+      }
+    });
+
+    it('gestor aprova e publica: transação real com os 2 turnosMes + trocasEscala + 2 notificações', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'trocasEscala', 'troca-pendente-gestor'),
+          troca({ trocaId: 'troca-pendente-gestor', status: 'PENDENTE_GESTOR' }),
+        );
+      });
+      const gestor = autenticarComo(usuarios.gestor);
+
+      await assertSucceeds(runTransaction(gestor, async (tx) => {
+        const trocaRef = doc(gestor, 'trocasEscala', 'troca-pendente-gestor');
+        const solicitanteRef = doc(gestor, 'turnosMes', 'EQ_COSI_SOC_caio.monteiro_2026-08');
+        const destinatarioRef = doc(gestor, 'turnosMes', 'EQ_COSI_SOC_bianca.salles_2026-08');
+        const usuarioSolicitanteRef = doc(gestor, 'usuarios', usuarios.colaborador.login);
+        const usuarioDestinatarioRef = doc(gestor, 'usuarios', usuarios.colega.login);
+
+        const [trocaSnap, solicitanteSnap, destinatarioSnap] = await Promise.all([
+          tx.get(trocaRef),
+          tx.get(solicitanteRef),
+          tx.get(destinatarioRef),
+          tx.get(usuarioSolicitanteRef),
+          tx.get(usuarioDestinatarioRef),
+        ]);
+        void trocaSnap;
+
+        tx.update(solicitanteRef, {
+          dias: { '2026-08-10': destinatarioSnap.data()!.dias['2026-08-10'] },
+          totais: solicitanteSnap.data()!.totais ?? {},
+          atualizadoEm: '2026-08-07T16:00:00.000Z',
+        });
+        tx.update(destinatarioRef, {
+          dias: { '2026-08-10': solicitanteSnap.data()!.dias['2026-08-10'] },
+          totais: destinatarioSnap.data()!.totais ?? {},
+          atualizadoEm: '2026-08-07T16:00:00.000Z',
+        });
+        tx.update(trocaRef, {
+          status: 'APROVADA_PUBLICADA',
+          atualizadoEm: '2026-08-07T16:00:00.000Z',
+          aprovadoEm: '2026-08-07T16:00:00.000Z',
+          publicadoEm: '2026-08-07T16:00:00.000Z',
+          gestorLogin: usuarios.gestor.login,
+          gestorNome: usuarios.gestor.nome,
+          historico: [
+            ...troca().historico,
+            { tipo: 'APROVADA_PUBLICADA', porLogin: usuarios.gestor.login, porNome: usuarios.gestor.nome, porPerfil: 'GESTOR', em: '2026-08-07T16:00:00.000Z', descricao: 'Aprovada e publicada' },
+          ],
+        });
+        for (const destinatarioLogin of [usuarios.colaborador.login, usuarios.colega.login]) {
+          tx.set(doc(gestor, 'notificacoesTroca', `notif-aprovada-${destinatarioLogin}`), notificacaoTroca({
+            id: `notif-aprovada-${destinatarioLogin}`,
+            destinatarioLogin,
+            criadoPorLogin: usuarios.gestor.login,
+            tipo: 'TROCA_APROVADA_PUBLICADA',
+          }));
+        }
+      }));
+    });
+
+    it('colaborador comum não consegue aprovar/recusar troca PENDENTE_GESTOR', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'trocasEscala', 'troca-pendente-gestor'),
+          troca({ trocaId: 'troca-pendente-gestor', status: 'PENDENTE_GESTOR' }),
+        );
+      });
+      const colaboradorComum = autenticarComo(usuarios.colaborador);
+      await assertFails(updateDoc(doc(colaboradorComum, 'trocasEscala', 'troca-pendente-gestor'), {
+        status: 'APROVADA_PUBLICADA',
+        historico: [
+          ...troca().historico,
+          { tipo: 'FORJADO', porLogin: usuarios.colaborador.login, porNome: usuarios.colaborador.nome, porPerfil: 'SOLICITANTE', em: '2026-08-07T15:00:00.000Z', descricao: 'forjado' },
+        ],
+      }));
+    });
+
+    it('gestor de outra equipe não consegue aprovar (nem ler) a troca', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'trocasEscala', 'troca-pendente-gestor'),
+          troca({ trocaId: 'troca-pendente-gestor', status: 'PENDENTE_GESTOR' }),
+        );
+      });
+      const externo = autenticarComo(usuarios.externo);
+      await assertFails(getDoc(doc(externo, 'trocasEscala', 'troca-pendente-gestor')));
+      await assertFails(updateDoc(doc(externo, 'trocasEscala', 'troca-pendente-gestor'), {
+        status: 'APROVADA_PUBLICADA',
+        gestorLogin: usuarios.externo.login,
+        historico: [
+          ...troca().historico,
+          { tipo: 'FORJADO', porLogin: usuarios.externo.login, porNome: usuarios.externo.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'forjado' },
+        ],
+      }));
     });
   });
 });

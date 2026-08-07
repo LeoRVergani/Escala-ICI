@@ -55,6 +55,16 @@ function criarEventoHistorico(parametros: {
   return { ...parametros };
 }
 
+/**
+ * Devolve `null` (em vez de montar a notificação) quando o destinatário é a
+ * própria pessoa que executou a ação — as Firestore Rules já rejeitam
+ * `destinatarioLogin == criadoPorLogin` (`create` de `notificacoesTroca`),
+ * e sem essa checagem aqui isso derrubaria o `writeBatch`/`runTransaction`
+ * inteiro (inclusive a troca em si) por causa de um efeito colateral que
+ * ninguém precisa: avisar alguém de uma ação que ela mesma fez. Cenário
+ * real: um gestor que também é parte da troca (solicitante ou destinatário)
+ * aprovando a própria solicitação.
+ */
 function criarNotificacaoTroca(parametros: {
   destinatarioLogin: string;
   equipeId: string;
@@ -64,7 +74,10 @@ function criarNotificacaoTroca(parametros: {
   trocaId: string;
   criadoPorLogin: string;
   em: string;
-}): NotificacaoTroca {
+}): NotificacaoTroca | null {
+  if (parametros.destinatarioLogin === parametros.criadoPorLogin) {
+    return null;
+  }
   return {
     id: gerarUuid(),
     destinatarioLogin: parametros.destinatarioLogin,
@@ -78,6 +91,22 @@ function criarNotificacaoTroca(parametros: {
     lidaEm: null,
     acao: 'ABRIR_TROCA',
   };
+}
+
+/**
+ * Diagnóstico temporário (hotfix 2 — investigação de permission-denied
+ * intermitente): loga a operação, o código/mensagem do erro do Firestore e
+ * o contexto de identidade envolvido, sem nenhum dado sensível (só logins
+ * corporativos, já visíveis nas telas, e o `trocaId`). Não substitui a
+ * mensagem amigável mostrada ao usuário — só ajuda a diagnosticar em
+ * produção/staging via console do navegador.
+ */
+function logOperacaoTroca(operacao: string, falha: unknown, contexto: Record<string, unknown>): void {
+  const codigo = typeof falha === 'object' && falha !== null && 'code' in falha
+    ? String((falha as { code?: unknown }).code)
+    : 'desconhecido';
+  const mensagem = falha instanceof Error ? falha.message : String(falha);
+  console.error(`[trocasRepository] ${operacao} falhou — code=${codigo} message=${mensagem}`, contexto);
 }
 
 function horarioDoDia(documento: TurnosMes | null, catalogo: Record<string, TipoTurno>, data: string): {
@@ -318,8 +347,21 @@ export async function criarSolicitacaoTroca(entrada: EntradaCriarSolicitacaoTroc
 
   const batch = writeBatch(db);
   batch.set(doc(db, 'trocasEscala', trocaId), removerUndefined(troca));
-  batch.set(doc(db, 'notificacoesTroca', notificacao.id), removerUndefined(notificacao));
-  await batch.commit();
+  if (notificacao) {
+    batch.set(doc(db, 'notificacoesTroca', notificacao.id), removerUndefined(notificacao));
+  }
+  try {
+    await batch.commit();
+  } catch (falha) {
+    logOperacaoTroca('criarSolicitacaoTroca', falha, {
+      trocaId,
+      equipeId,
+      competencia,
+      solicitanteLogin: solicitante.login,
+      destinatarioLogin: destinatario.login,
+    });
+    throw falha;
+  }
   return trocaId;
 }
 
@@ -366,8 +408,21 @@ export async function cancelarSolicitacaoTroca(
       }),
     ],
   }));
-  batch.set(doc(db, 'notificacoesTroca', notificacao.id), removerUndefined(notificacao));
-  await batch.commit();
+  if (notificacao) {
+    batch.set(doc(db, 'notificacoesTroca', notificacao.id), removerUndefined(notificacao));
+  }
+  try {
+    await batch.commit();
+  } catch (falha) {
+    logOperacaoTroca('cancelarSolicitacaoTroca', falha, {
+      trocaId,
+      equipeId: troca.equipeId,
+      statusAtual: troca.status,
+      statusNovo: 'CANCELADA_SOLICITANTE',
+      solicitanteLogin: solicitante.login,
+    });
+    throw falha;
+  }
 }
 
 export async function responderSolicitacaoTroca(
@@ -420,8 +475,21 @@ export async function responderSolicitacaoTroca(
       }),
     ],
   }));
-  batch.set(doc(db, 'notificacoesTroca', notificacao.id), removerUndefined(notificacao));
-  await batch.commit();
+  if (notificacao) {
+    batch.set(doc(db, 'notificacoesTroca', notificacao.id), removerUndefined(notificacao));
+  }
+  try {
+    await batch.commit();
+  } catch (falha) {
+    logOperacaoTroca('responderSolicitacaoTroca', falha, {
+      trocaId,
+      equipeId: troca.equipeId,
+      statusAtual: troca.status,
+      statusNovo: novoStatus,
+      destinatarioLogin: destinatario.login,
+    });
+    throw falha;
+  }
 }
 
 export async function gestorRecusarTroca(
@@ -470,9 +538,22 @@ export async function gestorRecusarTroca(
       criadoPorLogin: gestor.login,
       em: agora,
     });
-    batch.set(doc(db, 'notificacoesTroca', notificacao.id), removerUndefined(notificacao));
+    if (notificacao) {
+      batch.set(doc(db, 'notificacoesTroca', notificacao.id), removerUndefined(notificacao));
+    }
   }
-  await batch.commit();
+  try {
+    await batch.commit();
+  } catch (falha) {
+    logOperacaoTroca('gestorRecusarTroca', falha, {
+      trocaId,
+      equipeId: troca.equipeId,
+      statusAtual: troca.status,
+      statusNovo: 'RECUSADA_GESTOR',
+      gestorLogin: gestor.login,
+    });
+    throw falha;
+  }
 }
 
 /**
@@ -493,97 +574,111 @@ export async function gestorAprovarEPublicarTroca(
   exigirEscritaAdministrativaHabilitada();
   const { db } = exigirFirebase();
   const agora = new Date().toISOString();
+  let statusAtualParaLog: string | undefined;
 
-  await runTransaction(db, async (tx) => {
-    const trocaRef = doc(db, 'trocasEscala', trocaId);
-    const trocaSnapshot = await tx.get(trocaRef);
-    if (!trocaSnapshot.exists()) {
-      throw new Error('Solicitação de troca não encontrada.');
-    }
-    const troca = trocaSnapshot.data() as SolicitacaoTrocaReal;
-    if (troca.status !== 'PENDENTE_GESTOR') {
-      throw new Error(`Só é possível aprovar uma troca com status PENDENTE_GESTOR (atual: ${troca.status}).`);
-    }
+  try {
+    await runTransaction(db, async (tx) => {
+      const trocaRef = doc(db, 'trocasEscala', trocaId);
+      const trocaSnapshot = await tx.get(trocaRef);
+      if (!trocaSnapshot.exists()) {
+        throw new Error('Solicitação de troca não encontrada.');
+      }
+      const troca = trocaSnapshot.data() as SolicitacaoTrocaReal;
+      statusAtualParaLog = troca.status;
+      if (troca.status !== 'PENDENTE_GESTOR') {
+        throw new Error(`Só é possível aprovar uma troca com status PENDENTE_GESTOR (atual: ${troca.status}).`);
+      }
 
-    const solicitanteRef = doc(db, 'turnosMes', troca.snapshotValidacao.solicitanteDocId);
-    const destinatarioRef = doc(db, 'turnosMes', troca.snapshotValidacao.destinatarioDocId);
-    const usuarioSolicitanteRef = doc(db, 'usuarios', troca.solicitanteLogin);
-    const usuarioDestinatarioRef = doc(db, 'usuarios', troca.destinatarioLogin);
-    const [solicitanteSnapshot, destinatarioSnapshot, usuarioSolicitanteSnapshot, usuarioDestinatarioSnapshot] = await Promise.all([
-      tx.get(solicitanteRef),
-      tx.get(destinatarioRef),
-      tx.get(usuarioSolicitanteRef),
-      tx.get(usuarioDestinatarioRef),
-    ]);
+      const solicitanteRef = doc(db, 'turnosMes', troca.snapshotValidacao.solicitanteDocId);
+      const destinatarioRef = doc(db, 'turnosMes', troca.snapshotValidacao.destinatarioDocId);
+      const usuarioSolicitanteRef = doc(db, 'usuarios', troca.solicitanteLogin);
+      const usuarioDestinatarioRef = doc(db, 'usuarios', troca.destinatarioLogin);
+      const [solicitanteSnapshot, destinatarioSnapshot, usuarioSolicitanteSnapshot, usuarioDestinatarioSnapshot] = await Promise.all([
+        tx.get(solicitanteRef),
+        tx.get(destinatarioRef),
+        tx.get(usuarioSolicitanteRef),
+        tx.get(usuarioDestinatarioRef),
+      ]);
 
-    if (!solicitanteSnapshot.exists() || !destinatarioSnapshot.exists()) {
-      throw new Error('Escala publicada não encontrada para um dos colaboradores.');
-    }
-    const docSolicitante = solicitanteSnapshot.data() as TurnosMes;
-    const docDestinatario = destinatarioSnapshot.data() as TurnosMes;
-    if (docSolicitante.equipeId !== troca.equipeId || docDestinatario.equipeId !== troca.equipeId) {
-      throw new Error('Um dos colaboradores não pertence mais à equipe da troca.');
-    }
-    if (docSolicitante.competencia !== troca.competencia || docDestinatario.competencia !== troca.competencia) {
-      throw new Error('Um dos colaboradores não está mais na competência da troca.');
-    }
-    if (usuarioSolicitanteSnapshot.data()?.ativo === false || usuarioDestinatarioSnapshot.data()?.ativo === false) {
-      throw new Error('Um dos colaboradores está inativo — a troca não pode ser aplicada.');
-    }
-    if (trocaDesatualizada(troca, docSolicitante.dias[troca.data], docDestinatario.dias[troca.data])) {
-      throw new Error('A escala mudou desde que a troca foi solicitada. Peça para recriar a solicitação.');
-    }
+      if (!solicitanteSnapshot.exists() || !destinatarioSnapshot.exists()) {
+        throw new Error('Escala publicada não encontrada para um dos colaboradores.');
+      }
+      const docSolicitante = solicitanteSnapshot.data() as TurnosMes;
+      const docDestinatario = destinatarioSnapshot.data() as TurnosMes;
+      if (docSolicitante.equipeId !== troca.equipeId || docDestinatario.equipeId !== troca.equipeId) {
+        throw new Error('Um dos colaboradores não pertence mais à equipe da troca.');
+      }
+      if (docSolicitante.competencia !== troca.competencia || docDestinatario.competencia !== troca.competencia) {
+        throw new Error('Um dos colaboradores não está mais na competência da troca.');
+      }
+      if (usuarioSolicitanteSnapshot.data()?.ativo === false || usuarioDestinatarioSnapshot.data()?.ativo === false) {
+        throw new Error('Um dos colaboradores está inativo — a troca não pode ser aplicada.');
+      }
+      if (trocaDesatualizada(troca, docSolicitante.dias[troca.data], docDestinatario.dias[troca.data])) {
+        throw new Error('A escala mudou desde que a troca foi solicitada. Peça para recriar a solicitação.');
+      }
 
-    const { diasSolicitante, diasDestinatario } = aplicarTrocaNosDias(
-      docSolicitante.dias,
-      docDestinatario.dias,
-      troca.data,
-    );
-    const totaisSolicitante = calcularTotais(diasSolicitante, catalogo);
-    const totaisDestinatario = calcularTotais(diasDestinatario, catalogo);
+      const { diasSolicitante, diasDestinatario } = aplicarTrocaNosDias(
+        docSolicitante.dias,
+        docDestinatario.dias,
+        troca.data,
+      );
+      const totaisSolicitante = calcularTotais(diasSolicitante, catalogo);
+      const totaisDestinatario = calcularTotais(diasDestinatario, catalogo);
 
-    tx.update(solicitanteRef, removerUndefined({
-      dias: diasSolicitante,
-      totais: totaisSolicitante,
-      atualizadoEm: agora,
-    }));
-    tx.update(destinatarioRef, removerUndefined({
-      dias: diasDestinatario,
-      totais: totaisDestinatario,
-      atualizadoEm: agora,
-    }));
-    tx.update(trocaRef, removerUndefined({
-      status: 'APROVADA_PUBLICADA' as StatusTroca,
-      atualizadoEm: agora,
-      aprovadoEm: agora,
-      publicadoEm: agora,
-      gestorLogin: gestor.login,
-      gestorNome: gestor.nome,
-      historico: [
-        ...troca.historico,
-        criarEventoHistorico({
-          tipo: 'APROVADA_PUBLICADA',
-          porLogin: gestor.login,
-          porNome: gestor.nome,
-          porPerfil: 'GESTOR',
+      tx.update(solicitanteRef, removerUndefined({
+        dias: diasSolicitante,
+        totais: totaisSolicitante,
+        atualizadoEm: agora,
+      }));
+      tx.update(destinatarioRef, removerUndefined({
+        dias: diasDestinatario,
+        totais: totaisDestinatario,
+        atualizadoEm: agora,
+      }));
+      tx.update(trocaRef, removerUndefined({
+        status: 'APROVADA_PUBLICADA' as StatusTroca,
+        atualizadoEm: agora,
+        aprovadoEm: agora,
+        publicadoEm: agora,
+        gestorLogin: gestor.login,
+        gestorNome: gestor.nome,
+        historico: [
+          ...troca.historico,
+          criarEventoHistorico({
+            tipo: 'APROVADA_PUBLICADA',
+            porLogin: gestor.login,
+            porNome: gestor.nome,
+            porPerfil: 'GESTOR',
+            em: agora,
+            descricao: 'Aprovada e publicada pelo gestor',
+          }),
+        ],
+      }));
+
+      for (const destinatarioLogin of [troca.solicitanteLogin, troca.destinatarioLogin]) {
+        const notificacao = criarNotificacaoTroca({
+          destinatarioLogin,
+          equipeId: troca.equipeId,
+          tipo: 'TROCA_APROVADA_PUBLICADA',
+          titulo: 'Troca aprovada e publicada',
+          mensagem: `A troca do dia ${troca.data} foi aprovada pelo gestor e já está na escala publicada.`,
+          trocaId,
+          criadoPorLogin: gestor.login,
           em: agora,
-          descricao: 'Aprovada e publicada pelo gestor',
-        }),
-      ],
-    }));
-
-    for (const destinatarioLogin of [troca.solicitanteLogin, troca.destinatarioLogin]) {
-      const notificacao = criarNotificacaoTroca({
-        destinatarioLogin,
-        equipeId: troca.equipeId,
-        tipo: 'TROCA_APROVADA_PUBLICADA',
-        titulo: 'Troca aprovada e publicada',
-        mensagem: `A troca do dia ${troca.data} foi aprovada pelo gestor e já está na escala publicada.`,
-        trocaId,
-        criadoPorLogin: gestor.login,
-        em: agora,
-      });
-      tx.set(doc(db, 'notificacoesTroca', notificacao.id), removerUndefined(notificacao));
-    }
-  });
+        });
+        if (notificacao) {
+          tx.set(doc(db, 'notificacoesTroca', notificacao.id), removerUndefined(notificacao));
+        }
+      }
+    });
+  } catch (falha) {
+    logOperacaoTroca('gestorAprovarEPublicarTroca', falha, {
+      trocaId,
+      statusAtual: statusAtualParaLog,
+      statusNovo: 'APROVADA_PUBLICADA',
+      gestorLogin: gestor.login,
+    });
+    throw falha;
+  }
 }

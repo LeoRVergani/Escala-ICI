@@ -172,15 +172,35 @@ service cloud.firestore {
      * CANCELADA_SOLICITANTE}; qualquer transição a partir de
      * PENDENTE_GESTOR é exclusividade do gestor. `historico` só pode
      * crescer (nunca é reescrito por trás).
+     *
+     * Hotfix 2 (permission-denied intermitente): `allow read` unificado com
+     * a condição OR (souGestor() || solicitanteLogin==... ||
+     * destinatarioLogin==...) falha de verdade no emulador — confirmado com
+     * um teste isolado — quando um `list` (consulta com `where()`, exatamente
+     * o que `observarTrocasDoGestor`/`observarTrocasDoUsuario` fazem) não
+     * tem nenhum documento correspondente ao filtro do usuário atual mas EXISTE
+     * algum documento de OUTRA equipe na coleção: o motor de regras avalia a
+     * condição contra esse documento não relacionado e nega a consulta
+     * inteira (`evaluation error ... false for 'list'`), não só o
+     * documento — em vez de simplesmente devolver uma lista vazia. Separar
+     * `get` (documento único, mantém a condição OR completa) de `list`
+     * (consulta, condição simples só por equipe) resolve isso. Único efeito
+     * colateral aceito: um colega comum passa a poder listar TODAS as
+     * trocas da própria equipe (não só as suas) se montar a query sem o
+     * filtro de papel — mesmo nível de exposição que `turnosMes` já tem
+     * hoje (qualquer membro da equipe já lê a escala publicada de todo
+     * colega, não só a própria).
      */
     match /trocasEscala/{id} {
-      allow read: if autenticado()
+      allow get: if autenticado()
         && resource.data.equipeId == minhaEquipe()
         && (
           souGestor()
           || resource.data.solicitanteLogin == loginDoAuth()
           || resource.data.destinatarioLogin == loginDoAuth()
         );
+
+      allow list: if autenticado() && resource.data.equipeId == minhaEquipe();
 
       allow create: if autenticado()
         && request.resource.data.equipeId == minhaEquipe()

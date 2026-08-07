@@ -58,3 +58,31 @@ describe('mensagemErroFirebase — outros casos já existentes', () => {
     expect(mensagemErroFirebase(new Error(''), 'fallback')).toBe('fallback');
   });
 });
+
+describe('mensagemErroFirebase — erros transitórios do SDK (hotfix)', () => {
+  function comCodigo(codigo: string, mensagem = 'erro interno'): Error {
+    const erro = new Error(mensagem) as Error & { code: string };
+    erro.code = codigo;
+    return erro;
+  }
+
+  it('nunca mostra o texto interno "Firestore shutting down"', () => {
+    const mensagem = mensagemErroFirebase(comCodigo('aborted', 'Firestore shutting down'), 'fallback');
+    expect(mensagem).not.toMatch(/shutting down/i);
+    expect(mensagem).toMatch(/conexão/i);
+  });
+
+  it('reconhece "has already been terminated" mesmo sem o código aborted', () => {
+    const mensagem = mensagemErroFirebase(new Error('The client has already been terminated.'), 'fallback');
+    expect(mensagem).toMatch(/conexão/i);
+  });
+
+  it('mapeia unavailable/deadline-exceeded para mensagem de conexão indisponível', () => {
+    expect(mensagemErroFirebase(comCodigo('unavailable'), 'fallback')).toMatch(/indisponível/i);
+    expect(mensagemErroFirebase(comCodigo('deadline-exceeded'), 'fallback')).toMatch(/indisponível/i);
+  });
+
+  it('mapeia cancelled para mensagem amigável de nova tentativa', () => {
+    expect(mensagemErroFirebase(comCodigo('cancelled'), 'fallback')).toMatch(/cancelada/i);
+  });
+});

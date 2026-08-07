@@ -32,6 +32,22 @@ export function mensagemErroFirebase(
     }
     return 'A operação foi recusada pelas regras do Firestore. Verifique se sua conta tem permissão de gestor para esta ação.';
   }
+  /**
+   * Hotfix — erros internos e transitórios do SDK (reinício do cliente,
+   * queda momentânea de rede, listener cancelado numa disputa de
+   * unsubscribe) nunca devem aparecer com o texto interno do Firestore
+   * (ex.: "Firestore shutting down") — o usuário final não tem o que fazer
+   * com isso além de tentar de novo.
+   */
+  if (codigo === 'aborted' || mensagem.includes('shutting down') || mensagem.includes('has already been terminated')) {
+    return 'A conexão com o Firestore foi reiniciada. Atualize a tela e tente novamente.';
+  }
+  if (codigo === 'unavailable' || codigo === 'deadline-exceeded') {
+    return 'Conexão temporariamente indisponível. Tente novamente em alguns segundos.';
+  }
+  if (codigo === 'cancelled') {
+    return 'A operação foi cancelada. Tente novamente.';
+  }
   if (mensagem.includes('Partes do identificador')) {
     return 'A escala possui colaborador sem vínculo válido. Corrija ou cadastre os logins antes de publicar.';
   }

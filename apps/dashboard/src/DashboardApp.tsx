@@ -136,6 +136,24 @@ function formatarDataCurta(dataIso: string | null | undefined): string {
   return `${dia}/${mes}`;
 }
 
+/**
+ * Mensagem específica para ações de gestor em trocas: quando o erro é
+ * permission-denied, o texto genérico de `mensagemErroFirebase` fala em
+ * "conta com permissão de gestor" — aqui deixamos explícito que o motivo
+ * mais provável é a equipe (gestor de outra equipe, ou trocado de conta
+ * sem recarregar a sessão). Para qualquer outro tipo de erro, cai no
+ * mapeamento genérico (já cobre "Firestore shutting down" etc.).
+ */
+function mensagemErroTrocaGestor(falha: unknown, fallback: string): string {
+  const codigo = typeof falha === 'object' && falha !== null && 'code' in falha
+    ? String((falha as { code?: unknown }).code)
+    : '';
+  if (codigo.includes('permission-denied')) {
+    return 'A operação foi recusada pelas regras do Firestore. Verifique se o usuário atual é gestor da equipe.';
+  }
+  return mensagemErroFirebase(falha, fallback, ambienteFirebaseAtual);
+}
+
 function formatarHorasDescanso(horas: number): string {
   const inteiras = Math.floor(horas);
   const minutos = Math.round((horas - inteiras) * 60);
@@ -1062,7 +1080,7 @@ export function DashboardApp() {
       setTrocaSelecionadaId(null);
       setMotivoRecusaTroca('');
     } catch (falha) {
-      setErroTroca(mensagemErroFirebase(falha, 'Não foi possível recusar a troca.', ambienteFirebaseAtual));
+      setErroTroca(mensagemErroTrocaGestor(falha, 'Não foi possível recusar a troca.'));
     } finally {
       setProcessandoTroca(false);
     }
@@ -1078,7 +1096,7 @@ export function DashboardApp() {
       await gestorAprovarEPublicarTroca(id, { login: usuario.login, nome: usuario.nome }, catalogo);
       setTrocaSelecionadaId(null);
     } catch (falha) {
-      setErroTroca(mensagemErroFirebase(falha, 'Não foi possível aprovar e publicar a troca.', ambienteFirebaseAtual));
+      setErroTroca(mensagemErroTrocaGestor(falha, 'Não foi possível aprovar e publicar a troca.'));
     } finally {
       setProcessandoTroca(false);
     }

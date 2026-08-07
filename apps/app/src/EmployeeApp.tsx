@@ -1122,7 +1122,7 @@ export function EmployeeApp() {
   // uma troca que não existe mais) nunca deve travar a tela — só mostra um
   // aviso amigável em vez do modal.
   const avisoTrocaNaoEncontrada = trocaAbertaId !== null && trocaAberta === null && dadosCarregados
-    ? 'Troca não encontrada ou ainda carregando. Tente abrir pela aba Trocas.'
+    ? 'Troca não encontrada ou ainda carregando. Abra pela aba Trocas.'
     : '';
 
   const escalasDoUsuario = documentos.filter(
