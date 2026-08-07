@@ -551,6 +551,19 @@ button.shift-chip:disabled { cursor: default; }
 .toolbar select, .toolbar input { border: 0; outline: 0; background: transparent; color: var(--text); min-width: 0; width: 150px; max-width: 100%; }
 .toolbar > span { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; font-size: 11px; }
 .search-control input { min-width: 0; width: 220px; max-width: 100%; }
+/* `.toolbar` é compartilhado com o App — reforço de respiro só no Dashboard. */
+.app-shell.product-dashboard .toolbar {
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.app-shell.product-dashboard .toolbar label {
+  min-height: 42px;
+  padding: 0 14px;
+  gap: 9px;
+}
+.app-shell.product-dashboard .toolbar > span {
+  gap: 8px;
+}
 
 .status-badge, .read-only-badge, .live-badge {
   display: inline-flex; align-items: center; gap: 6px; border-radius: 6px;
