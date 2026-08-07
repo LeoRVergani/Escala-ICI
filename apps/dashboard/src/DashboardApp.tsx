@@ -90,6 +90,7 @@ import {
 import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
 import { ambienteFirebaseAtual } from '@/lib/firebase/shared';
+import { formatarDataHoraSafe } from '@/lib/dataSegura';
 import {
   construirIndiceAlertasGrade,
   detectarDescansoInsuficiente,
@@ -115,8 +116,23 @@ import type { EventoEscala, LinhaConciliacao, PublicacaoEscala, Usuario } from '
 type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas';
 type FiltroTrocas = 'pendentes' | 'aprovadas' | 'recusadas' | 'historico';
 
-function formatarDataCurta(dataIso: string): string {
-  const [, mes, dia] = dataIso.split('-');
+/**
+ * Nunca lança: campos ausentes/malformados mostram "—" (ou o valor bruto,
+ * se não estiver no formato `YYYY-MM-DD` esperado) em vez de quebrar o
+ * render (hotfix RangeError em modais de troca, ver lib/dataSegura.ts).
+ */
+function formatarDataCurta(dataIso: string | null | undefined): string {
+  if (typeof dataIso !== 'string' || dataIso.trim() === '') {
+    return '—';
+  }
+  const partes = dataIso.split('-');
+  if (partes.length !== 3) {
+    return dataIso;
+  }
+  const [, mes, dia] = partes;
+  if (!dia || !mes) {
+    return dataIso;
+  }
   return `${dia}/${mes}`;
 }
 
@@ -480,14 +496,14 @@ function ModalDetalheTrocaGestor({
         )}
 
         <div className="troca-historico">
-          {troca.historico.map((evento, indice) => (
+          {(troca.historico ?? []).map((evento, indice) => (
             <div className="troca-historico-item" key={indice}>
               <span className="troca-historico-dot" />
               <div>
-                <strong>{evento.descricao}</strong>
+                <strong>{evento?.descricao || 'Atualização'}</strong>
                 <small>
-                  {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(evento.em))}
-                  {evento.porNome ? ` · ${evento.porNome}` : ''}
+                  {formatarDataHoraSafe(evento?.em, 'Data não registrada')}
+                  {evento?.porNome ? ` · ${evento.porNome}` : ''}
                 </small>
               </div>
             </div>
@@ -2129,7 +2145,7 @@ export function DashboardApp() {
                           {ROTULO_STATUS_TROCA[troca.status]}
                         </span>
                       </td>
-                      <td>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(troca.atualizadoEm))}</td>
+                      <td>{formatarDataHoraSafe(troca.atualizadoEm)}</td>
                       <td>
                         <button
                           className="icon-button"

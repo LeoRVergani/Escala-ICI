@@ -36,15 +36,23 @@ import { gerarUuid } from '../uuid';
 import { removerUndefined } from './sanitizar';
 import { exigirEscritaAdministrativaHabilitada, exigirFirebase } from './shared';
 
-function criarEventoHistorico(
-  tipo: string,
-  porLogin: string | null,
-  porNome: string | null,
-  porPerfil: AtorTroca,
-  descricao: string,
-  em: string,
-): EventoHistoricoTroca {
-  return { tipo, porLogin, porNome, porPerfil, em, descricao };
+/**
+ * Hotfix (ver lib/dataSegura.ts): antes esta função recebia `descricao`/`em`
+ * como argumentos posicionais, e todo ponto de chamada os passava na ordem
+ * errada — `em` acabava gravado com o texto da descrição em vez de uma data,
+ * e `new Date(evento.em)` virava `Invalid Date` ao renderizar o histórico
+ * (`RangeError: Invalid time value`). Parâmetro nomeado único elimina essa
+ * classe de erro: não há mais posição para trocar.
+ */
+function criarEventoHistorico(parametros: {
+  tipo: string;
+  porLogin: string | null;
+  porNome: string | null;
+  porPerfil: AtorTroca;
+  em: string;
+  descricao: string;
+}): EventoHistoricoTroca {
+  return { ...parametros };
 }
 
 function criarNotificacaoTroca(parametros: {
@@ -280,7 +288,14 @@ export async function criarSolicitacaoTroca(entrada: EntradaCriarSolicitacaoTroc
     gestorLogin: null,
     gestorNome: null,
     historico: [
-      criarEventoHistorico('SOLICITACAO_CRIADA', solicitante.login, solicitante.nome, 'SOLICITANTE', agora, 'Solicitação criada'),
+      criarEventoHistorico({
+        tipo: 'SOLICITACAO_CRIADA',
+        porLogin: solicitante.login,
+        porNome: solicitante.nome,
+        porPerfil: 'SOLICITANTE',
+        em: agora,
+        descricao: 'Solicitação criada',
+      }),
     ],
     snapshotValidacao: {
       solicitanteDocId: idDocumento(equipeId, solicitante.login, competencia),
@@ -341,7 +356,14 @@ export async function cancelarSolicitacaoTroca(
     atualizadoEm: agora,
     historico: [
       ...troca.historico,
-      criarEventoHistorico('CANCELADA_SOLICITANTE', solicitante.login, solicitante.nome, 'SOLICITANTE', agora, 'Cancelada pelo solicitante'),
+      criarEventoHistorico({
+        tipo: 'CANCELADA_SOLICITANTE',
+        porLogin: solicitante.login,
+        porNome: solicitante.nome,
+        porPerfil: 'SOLICITANTE',
+        em: agora,
+        descricao: 'Cancelada pelo solicitante',
+      }),
     ],
   }));
   batch.set(doc(db, 'notificacoesTroca', notificacao.id), removerUndefined(notificacao));
@@ -388,14 +410,14 @@ export async function responderSolicitacaoTroca(
     motivoRecusa: aceitar ? null : (motivoRecusa?.trim() || 'Recusada pelo colega.'),
     historico: [
       ...troca.historico,
-      criarEventoHistorico(
-        aceitar ? 'ACEITE_DESTINATARIO' : 'RECUSA_DESTINATARIO',
-        destinatario.login,
-        destinatario.nome,
-        'DESTINATARIO',
-        agora,
-        aceitar ? 'Aceite do colega — encaminhada para o gestor' : `Recusada pelo colega${motivoRecusa?.trim() ? `: ${motivoRecusa.trim()}` : ''}`,
-      ),
+      criarEventoHistorico({
+        tipo: aceitar ? 'ACEITE_DESTINATARIO' : 'RECUSA_DESTINATARIO',
+        porLogin: destinatario.login,
+        porNome: destinatario.nome,
+        porPerfil: 'DESTINATARIO',
+        em: agora,
+        descricao: aceitar ? 'Aceite do colega — encaminhada para o gestor' : `Recusada pelo colega${motivoRecusa?.trim() ? `: ${motivoRecusa.trim()}` : ''}`,
+      }),
     ],
   }));
   batch.set(doc(db, 'notificacoesTroca', notificacao.id), removerUndefined(notificacao));
@@ -427,7 +449,14 @@ export async function gestorRecusarTroca(
     gestorNome: gestor.nome,
     historico: [
       ...troca.historico,
-      criarEventoHistorico('RECUSA_GESTOR', gestor.login, gestor.nome, 'GESTOR', agora, `Recusada pelo gestor: ${motivoFinal}`),
+      criarEventoHistorico({
+        tipo: 'RECUSA_GESTOR',
+        porLogin: gestor.login,
+        porNome: gestor.nome,
+        porPerfil: 'GESTOR',
+        em: agora,
+        descricao: `Recusada pelo gestor: ${motivoFinal}`,
+      }),
     ],
   }));
   for (const destinatarioLogin of [troca.solicitanteLogin, troca.destinatarioLogin]) {
@@ -532,7 +561,14 @@ export async function gestorAprovarEPublicarTroca(
       gestorNome: gestor.nome,
       historico: [
         ...troca.historico,
-        criarEventoHistorico('APROVADA_PUBLICADA', gestor.login, gestor.nome, 'GESTOR', agora, 'Aprovada e publicada pelo gestor'),
+        criarEventoHistorico({
+          tipo: 'APROVADA_PUBLICADA',
+          porLogin: gestor.login,
+          porNome: gestor.nome,
+          porPerfil: 'GESTOR',
+          em: agora,
+          descricao: 'Aprovada e publicada pelo gestor',
+        }),
       ],
     }));
 

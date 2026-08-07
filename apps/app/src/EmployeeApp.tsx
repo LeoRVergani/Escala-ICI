@@ -56,6 +56,7 @@ import { ScheduleLegend } from '@/components/ScheduleLegend';
 import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
 import { ambienteFirebaseAtual } from '@/lib/firebase/shared';
+import { formatarDataHoraSafe, formatarDiaTrocaSafe } from '@/lib/dataSegura';
 import {
   carregarEscalasEquipe,
   carregarMinhaEscala,
@@ -626,7 +627,7 @@ function TrocaNotificationBell({
                   <span className="revision-dot" />
                   <div>
                     <strong>{notificacao.titulo}</strong>
-                    <small>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(notificacao.criadoEm))}</small>
+                    <small>{formatarDataHoraSafe(notificacao.criadoEm)}</small>
                   </div>
                 </div>
                 <p>{notificacao.mensagem}</p>
@@ -656,7 +657,7 @@ function TrocaItemButton({
       <div>
         <strong>{souSolicitante ? `Você e ${outroNome}` : `${outroNome} e você`}</strong>
         <small>
-          {formatarData(troca.data, { day: '2-digit', month: 'short' }).replace('.', '')}
+          {formatarDiaTrocaSafe(troca.data, { day: '2-digit', month: 'short' }).replace('.', '')}
           {' · '}{troca.turnoSolicitanteAntes || '—'} ⇄ {troca.turnoDestinatarioAntes || '—'}
         </small>
       </div>
@@ -674,8 +675,8 @@ function TrocaComparacao({ troca }: { troca: SolicitacaoTrocaReal }) {
       <div>
         <small>{troca.solicitanteNome}</small>
         <strong>
-          {capitalizar(formatarData(troca.data, { weekday: 'short' })).replace('.', '')}
-          {' '}{formatarData(troca.data, { day: '2-digit', month: 'short' }).replace('.', '')}
+          {capitalizar(formatarDiaTrocaSafe(troca.data, { weekday: 'short' })).replace('.', '')}
+          {' '}{formatarDiaTrocaSafe(troca.data, { day: '2-digit', month: 'short' }).replace('.', '')}
         </strong>
         <span className="shift-chip" data-code={troca.turnoSolicitanteAntes || ''}>
           {troca.turnoSolicitanteAntes || '—'}
@@ -686,8 +687,8 @@ function TrocaComparacao({ troca }: { troca: SolicitacaoTrocaReal }) {
       <div>
         <small>{troca.destinatarioNome}</small>
         <strong>
-          {capitalizar(formatarData(troca.data, { weekday: 'short' })).replace('.', '')}
-          {' '}{formatarData(troca.data, { day: '2-digit', month: 'short' }).replace('.', '')}
+          {capitalizar(formatarDiaTrocaSafe(troca.data, { weekday: 'short' })).replace('.', '')}
+          {' '}{formatarDiaTrocaSafe(troca.data, { day: '2-digit', month: 'short' }).replace('.', '')}
         </strong>
         <span className="shift-chip" data-code={troca.turnoDestinatarioAntes || ''}>
           {troca.turnoDestinatarioAntes || '—'}
@@ -798,14 +799,14 @@ function ModalDetalheTroca({
           </div>
         )}
         <div className="troca-historico">
-          {troca.historico.map((evento, indice) => (
+          {(troca.historico ?? []).map((evento, indice) => (
             <div className="troca-historico-item" key={indice}>
               <span className="troca-historico-dot" />
               <div>
-                <strong>{evento.descricao}</strong>
+                <strong>{evento?.descricao || 'Atualização'}</strong>
                 <small>
-                  {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(evento.em))}
-                  {evento.porNome ? ` · ${evento.porNome}` : ''}
+                  {formatarDataHoraSafe(evento?.em, 'Data não registrada')}
+                  {evento?.porNome ? ` · ${evento.porNome}` : ''}
                 </small>
               </div>
             </div>
@@ -1117,6 +1118,12 @@ export function EmployeeApp() {
   const trocaAberta = trocaAbertaId !== null
     ? trocas.find((item) => item.trocaId === trocaAbertaId) ?? null
     : null;
+  // Notificação clicada antes da lista de trocas carregar (ou apontando pra
+  // uma troca que não existe mais) nunca deve travar a tela — só mostra um
+  // aviso amigável em vez do modal.
+  const avisoTrocaNaoEncontrada = trocaAbertaId !== null && trocaAberta === null && dadosCarregados
+    ? 'Troca não encontrada ou ainda carregando. Tente abrir pela aba Trocas.'
+    : '';
 
   const escalasDoUsuario = documentos.filter(
     (documento) => documento.login === usuario?.login,
@@ -1688,6 +1695,7 @@ export function EmployeeApp() {
             </button>
           </header>
           {erroTroca && <div className="alert error" role="alert">{erroTroca}</div>}
+          {avisoTrocaNaoEncontrada && <div className="alert warning" role="status">{avisoTrocaNaoEncontrada}</div>}
           <div className="segmented-control troca-abas">
             {([
               ['minhas', 'Minhas', trocas.filter((item) => item.solicitanteLogin === usuario.login).length],
