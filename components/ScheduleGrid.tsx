@@ -28,6 +28,7 @@ interface ScheduleGridProps {
   agruparPorPeriodo?: boolean;
   indiceAlertas?: Map<string, IndicadorCelulaAlerta>;
   compacta?: boolean;
+  avisoDivergencia?: boolean;
 }
 
 function cabecalhoData(dataIso: string) {
@@ -78,6 +79,7 @@ export function ScheduleGrid({
   agruparPorPeriodo = false,
   indiceAlertas,
   compacta = false,
+  avisoDivergencia = true,
 }: ScheduleGridProps) {
   const documentosFiltrados = documentos.filter(
     (documento) => filtroTurno === 'TODOS' || documento.turnoPadrao === filtroTurno,
@@ -169,7 +171,7 @@ export function ScheduleGrid({
 
   return (
     <div>
-      {divergencias.length > 0 && (
+      {avisoDivergencia && divergencias.length > 0 && (
         <div className="alert warning">
           <strong>Horas recalculadas automaticamente</strong>
           <p>

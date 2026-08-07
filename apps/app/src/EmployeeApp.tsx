@@ -1124,6 +1124,7 @@ export function EmployeeApp() {
               catalogo={catalogo}
               filtroTurno={filtroTurno}
               agruparPorPeriodo
+              avisoDivergencia={false}
             />
           </article>
           <ScheduleLegend catalogo={catalogo} titulo="Legenda" />

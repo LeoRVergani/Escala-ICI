@@ -3480,6 +3480,22 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
   letter-spacing: 0.03em;
   color: color-mix(in srgb, var(--muted) 72%, var(--text));
 }
+/*
+ * Respiro entre a borda do dia (sobretudo o contorno azul de ".today")
+ * e o chip do período: só existia no breakpoint mobile (padding: 7px 0
+ * na Fase 3L abaixo) — o botão base não tem nenhum padding próprio, só
+ * centraliza o conteúdo, então em qualquer largura sem media query o
+ * chip ficava colado no fundo. Vira padrão pra qualquer tamanho de
+ * tela, não só mobile. Letra do código do turno (M/T/DF/...) também
+ * nunca tinha sido aumentada fora do mobile — ficava nos 9px base de
+ * `.shift-chip`.
+ */
+.app-shell.product-app .week-days > button {
+  padding: 7px 0;
+}
+.app-shell.product-app .week-days > button .shift-chip {
+  font-size: 0.72rem;
+}
 
 @media (max-width: 768px) {
   /* --- 1. Header mobile: área de toque do sino/tema >= 44px. --- */
