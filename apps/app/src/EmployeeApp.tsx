@@ -48,6 +48,7 @@ import {
   useRestauracaoSessao,
 } from '@/components/RestauracaoSessao';
 import { ScheduleGrid } from '@/components/ScheduleGrid';
+import { ScheduleLegend } from '@/components/ScheduleLegend';
 import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
 import { ambienteFirebaseAtual } from '@/lib/firebase/shared';
@@ -1082,15 +1083,8 @@ export function EmployeeApp() {
                 catalogo={catalogo}
               />
             </div>
-            <div className="legend-row">
-              {Object.values(catalogo).slice(0, 8).map((tipo) => (
-                <span key={tipo.codigo}>
-                  <i className="shift-chip" data-code={tipo.codigo}>{tipo.codigo}</i>
-                  {tipo.descricao}
-                </span>
-              ))}
-            </div>
           </article>
+          <ScheduleLegend catalogo={catalogo} titulo="Legenda" />
         </section>
       )}
 
@@ -1100,7 +1094,7 @@ export function EmployeeApp() {
             <div>
               <p className="eyebrow">COSI &gt; SOC</p>
               <h1>Escala da equipe</h1>
-              <p>Apenas documentos publicados são exibidos.</p>
+              <p>Apenas escalas publicadas são exibidas.</p>
             </div>
             <span className="read-only-badge">
               <ShieldCheck size={16} /> Publicada
@@ -1132,6 +1126,7 @@ export function EmployeeApp() {
               agruparPorPeriodo
             />
           </article>
+          <ScheduleLegend catalogo={catalogo} titulo="Legenda" />
         </section>
       )}
 

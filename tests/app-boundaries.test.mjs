@@ -490,9 +490,14 @@ test('ajustes rápidos: grade sem contagem no título do grupo, células vazias 
     ler('app/globals.css'),
   ]);
 
-  // Cabeçalho do grupo mostra só o nome do período.
+  // Cabeçalho do grupo mostra só o nome do período. O rótulo fica num
+  // <span> interno (não direto no <th>) porque o <th> ocupa a linha
+  // inteira via colSpan — sticky na célula não tem efeito nenhum, quem
+  // precisa ficar fixo ao rolar na horizontal é o texto, via sticky no
+  // próprio <span> (ver `.schedule-table .grade-group-header > span` em
+  // app/globals.css).
   assert.doesNotMatch(scheduleGrid, /\{grupo\.rotulo\}[^}]*colaborador/);
-  assert.match(scheduleGrid, /<th className="grade-group-header" colSpan=\{datas\.length \+ 1\}>\s*\{grupo\.rotulo\}/);
+  assert.match(scheduleGrid, /<th className="grade-group-header" colSpan=\{datas\.length \+ 1\}>\s*<span>\{grupo\.rotulo\}<\/span>/);
 
   // Colunas vêm da união dos dias de todos os documentos, não só do primeiro
   // — evita grade sem nenhuma coluna quando o primeiro colaborador está em branco.

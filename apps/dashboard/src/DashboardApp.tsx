@@ -16,7 +16,9 @@ import {
   Ban,
   Bell,
   BellRing,
+  CalendarDays,
   CheckCircle2,
+  ChevronRight,
   FileSpreadsheet,
   Filter,
   HelpCircle,
@@ -43,6 +45,7 @@ import * as XLSX from 'xlsx';
 import { AppFrame, type ItemNavegacao } from '@/components/AppFrame';
 import { LoginPanel } from '@/components/LoginPanel';
 import { ScheduleGrid } from '@/components/ScheduleGrid';
+import { ScheduleLegend } from '@/components/ScheduleLegend';
 import {
   conciliarPlanilha,
   contarPendenciasConciliacao,
@@ -105,6 +108,115 @@ function formatarHorasDescanso(horas: number): string {
   const inteiras = Math.floor(horas);
   const minutos = Math.round((horas - inteiras) * 60);
   return minutos === 0 ? `${inteiras}h` : `${inteiras}h${String(minutos).padStart(2, '0')}`;
+}
+
+type EstadoPublicacaoVisual = 'completo' | 'parcial' | 'vazio';
+
+interface ResumoPublicacao {
+  estado: EstadoPublicacaoVisual;
+  titulo: string;
+  descricao: string;
+}
+
+/**
+ * Linguagem do card "Publicação da escala" — fala de colaboradores com
+ * acesso no aplicativo, não de "documentos" (Fase de revisão de textos).
+ */
+function resolverResumoPublicacao(publicadosLen: number, documentosLen: number): ResumoPublicacao {
+  if (documentosLen === 0 || publicadosLen === 0) {
+    return {
+      estado: 'vazio',
+      titulo: 'Nenhuma escala publicada',
+      descricao: 'A escala deste período ainda não está disponível para os colaboradores.',
+    };
+  }
+  if (publicadosLen === documentosLen) {
+    return {
+      estado: 'completo',
+      titulo: 'Tudo publicado',
+      descricao: `${documentosLen} de ${documentosLen} colaboradores já têm escala disponível no aplicativo.`,
+    };
+  }
+  const faltam = documentosLen - publicadosLen;
+  return {
+    estado: 'parcial',
+    titulo: 'Publicação incompleta',
+    descricao: `${publicadosLen} de ${documentosLen} colaboradores têm escala disponível. ${
+      faltam === 1 ? 'Falta 1 colaborador.' : `Faltam ${faltam} colaboradores.`
+    }`,
+  };
+}
+
+interface AlertaVisivel {
+  id: string;
+  titulo: string;
+  colaborador?: string;
+  data?: string;
+  tipo: string;
+  descricao: string;
+  sugestao: string;
+  severidade: 'critico' | 'aviso';
+}
+
+function nomeColaboradorPorLogin(usuarios: Usuario[], login: string): string {
+  return usuarios.find((item) => item.login === login)?.nome ?? login;
+}
+
+/**
+ * Junta os alertas já calculados por `gerarAlertasEscala` (6x1 e descanso
+ * mínimo) com um alerta simples derivado do que a tela já mostra
+ * (publicação incompleta) — sem inventar nenhuma detecção nova.
+ */
+function montarAlertasVisiveis(
+  alertasOperacionais: AlertaEscala[],
+  usuarios: Usuario[],
+  documentos: TurnosMes[],
+  publicados: TurnosMes[],
+): AlertaVisivel[] {
+  const documentosLen = documentos.length;
+  const publicadosLen = publicados.length;
+  const doMonitoramento = alertasOperacionais.map((alerta, indice): AlertaVisivel => {
+    const nome = nomeColaboradorPorLogin(usuarios, alerta.login);
+    if (alerta.tipo === 'SEQUENCIA_6X1') {
+      return {
+        id: `seq-${alerta.usuarioUid}-${indice}`,
+        titulo: '7 dias consecutivos de trabalho',
+        colaborador: nome,
+        data: alerta.diaCritico,
+        tipo: 'Sequência acima do limite',
+        descricao: `${nome} completa 7 dias consecutivos de trabalho em ${formatarDataCurta(alerta.diaCritico)}, dentro do período de ${formatarDataCurta(alerta.periodoInicio)} a ${formatarDataCurta(alerta.periodoFim)}.`,
+        sugestao: 'Revise a escala desse colaborador para garantir um dia de descanso antes do 7º dia consecutivo de trabalho.',
+        severidade: 'critico',
+      };
+    }
+    return {
+      id: `desc-${alerta.usuarioUid}-${indice}`,
+      titulo: 'Descanso inferior a 11 horas',
+      colaborador: nome,
+      data: alerta.dataAtual,
+      tipo: 'Descanso insuficiente',
+      descricao: `${nome} tem apenas ${formatarHorasDescanso(alerta.descansoHoras)} de descanso entre o turno de ${formatarDataCurta(alerta.dataAnterior)} (${alerta.horarioAnterior}) e o de ${formatarDataCurta(alerta.dataAtual)} (${alerta.horarioAtual}).`,
+      sugestao: 'Ajuste um dos turnos para garantir pelo menos 11 horas de descanso entre eles.',
+      severidade: 'aviso',
+    };
+  });
+
+  const publicacaoIncompleta: AlertaVisivel[] = documentosLen > 0 && publicadosLen < documentosLen
+    ? [{
+      id: 'publicacao-incompleta',
+      titulo: 'Publicação incompleta',
+      tipo: 'Publicação parcial',
+      descricao: `${publicadosLen} de ${documentosLen} colaboradores têm escala publicada. ${
+        documentosLen - publicadosLen === 1
+          ? '1 colaborador ainda não tem acesso no aplicativo.'
+          : `${documentosLen - publicadosLen} colaboradores ainda não têm acesso no aplicativo.`
+      }`,
+      sugestao: 'Publique a escala para liberar o acesso no aplicativo dos colaboradores restantes.',
+      severidade: 'aviso',
+    }]
+    : [];
+
+  return [...doMonitoramento, ...publicacaoIncompleta];
 }
 
 interface AlertasOperacionaisBellProps {
@@ -254,6 +366,7 @@ export function DashboardApp() {
   const [membroGradeDraft, setMembroGradeDraft] = useState<{ login: string; turnoPadrao: string } | null>(null);
   const [removerMembroPendente, setRemoverMembroPendente] = useState<TurnosMes | null>(null);
   const [alertasAbertos, setAlertasAbertos] = useState(false);
+  const [alertaSelecionado, setAlertaSelecionado] = useState<AlertaVisivel | null>(null);
   const inputArquivo = useRef<HTMLInputElement>(null);
   const escritaBloqueada = !modoDemo && !escritaAdministrativaHabilitada;
   const conciliacaoBloqueiaPublicacao = publicacaoBloqueadaPorConciliacao(linhasConciliacao);
@@ -263,7 +376,10 @@ export function DashboardApp() {
     () => resultado?.documentos ?? [],
     [resultado?.documentos],
   );
-  const publicados = documentos.filter(({ status }) => status === 'PUBLICADA');
+  const publicados = useMemo(
+    () => documentos.filter(({ status }) => status === 'PUBLICADA'),
+    [documentos],
+  );
   const alertasOperacionais = useMemo(
     () => gerarAlertasEscala(documentos, catalogo),
     [documentos, catalogo],
@@ -271,6 +387,14 @@ export function DashboardApp() {
   const indiceAlertasGrade = useMemo(
     () => construirIndiceAlertasGrade(documentos, catalogo),
     [documentos, catalogo],
+  );
+  const resumoPublicacao = useMemo(
+    () => resolverResumoPublicacao(publicados.length, documentos.length),
+    [publicados, documentos],
+  );
+  const alertasVisiveis = useMemo(
+    () => montarAlertasVisiveis(alertasOperacionais, usuarios, documentos, publicados),
+    [alertasOperacionais, usuarios, documentos, publicados],
   );
   const totaisGerais = useMemo(() => {
     const totalMin = documentos.reduce((soma, documento) =>
@@ -1055,10 +1179,10 @@ export function DashboardApp() {
           </div>
           <div className="content-grid two-columns">
             <article className="panel">
-              <div className="panel-title"><div><h2>Estado da publicação</h2><p>Documentos da competência atual</p></div><ShieldCheck /></div>
-              <div className="publication-progress">
-                <strong>{publicados.length}/{documentos.length}</strong>
-                <span>documentos publicados</span>
+              <div className="panel-title"><div><h2>Publicação da escala</h2><p>Disponibilidade no aplicativo</p></div><ShieldCheck /></div>
+              <div className={`publication-progress ${resumoPublicacao.estado}`}>
+                <strong>{resumoPublicacao.titulo}</strong>
+                <p>{resumoPublicacao.descricao}</p>
                 <div><i style={{ width: documentos.length ? `${(publicados.length / documentos.length) * 100}%` : '0%' }} /></div>
               </div>
             </article>
@@ -1068,6 +1192,45 @@ export function DashboardApp() {
               <button type="button" onClick={() => setTela('grade')}><Pencil /> Revisar a grade <ArrowUpRight /></button>
             </article>
           </div>
+          <article className="panel alert-summary-card">
+            <div className="panel-title">
+              <div><h2>Alertas da escala</h2><p>Pontos que merecem atenção do gestor</p></div>
+              <AlertTriangle />
+            </div>
+            {alertasVisiveis.length === 0 ? (
+              <div className="notification-empty alert-summary-empty">
+                <ShieldCheck size={22} />
+                <strong>Nenhum alerta encontrado</strong>
+                <span>A escala atual não possui inconsistências conhecidas.</span>
+              </div>
+            ) : (
+              <>
+                <p className="alert-summary-count">
+                  {alertasVisiveis.length} {alertasVisiveis.length === 1 ? 'alerta encontrado' : 'alertas encontrados'}
+                </p>
+                <div className="alert-summary-list">
+                  {alertasVisiveis.map((alerta) => (
+                    <button
+                      key={alerta.id}
+                      type="button"
+                      className="alert-item alert-item-button"
+                      onClick={() => setAlertaSelecionado(alerta)}
+                    >
+                      <AlertTriangle
+                        size={15}
+                        className={alerta.severidade === 'critico' ? 'alert-icon-critico' : 'alert-icon-aviso'}
+                      />
+                      <div>
+                        <strong>{alerta.colaborador ? `${alerta.colaborador} — ${alerta.titulo}` : alerta.titulo}</strong>
+                        <small>{alerta.tipo}{alerta.data ? ` · ${formatarDataCurta(alerta.data)}` : ''}</small>
+                      </div>
+                      <ChevronRight size={16} />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </article>
         </section>
       )}
 
@@ -1323,6 +1486,9 @@ export function DashboardApp() {
               />
             </article>
           )}
+          {resultado && resultado.documentos.length > 0 && (
+            <ScheduleLegend catalogo={catalogo} />
+          )}
         </section>
       )}
 
@@ -1526,6 +1692,7 @@ export function DashboardApp() {
               onRemover={(documento) => setRemoverMembroPendente(documento)}
             />
           </article>
+          <ScheduleLegend catalogo={catalogo} />
         </section>
       )}
 
@@ -1648,6 +1815,56 @@ export function DashboardApp() {
               >
                 {processando ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
                 Publicar e notificar
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {alertaSelecionado && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setAlertaSelecionado(null)}>
+          <section
+            className="edit-modal alert-detail-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="alert-detail-title"
+            onMouseDown={(evento) => evento.stopPropagation()}
+          >
+            <div className="panel-title">
+              <div>
+                <p className="eyebrow">{alertaSelecionado.tipo}</p>
+                <h2 id="alert-detail-title">{alertaSelecionado.titulo}</h2>
+                {alertaSelecionado.colaborador && <p>{alertaSelecionado.colaborador}</p>}
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => setAlertaSelecionado(null)}
+                aria-label="Fechar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p className="alert-detail-descricao">{alertaSelecionado.descricao}</p>
+            {alertaSelecionado.data && (
+              <p className="alert-detail-meta">
+                <CalendarDays size={14} /> {formatarDataCurta(alertaSelecionado.data)}
+              </p>
+            )}
+            <div className="alert-detail-sugestao">
+              <strong>Sugestão</strong>
+              <p>{alertaSelecionado.sugestao}</p>
+            </div>
+            <div className="rollback-actions">
+              <button className="secondary-button" type="button" onClick={() => setAlertaSelecionado(null)}>
+                Fechar
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => { setAlertaSelecionado(null); setTela('grade'); }}
+              >
+                <ArrowUpRight size={16} /> Ver na grade
               </button>
             </div>
           </section>
