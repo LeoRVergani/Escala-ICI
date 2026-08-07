@@ -1,23 +1,17 @@
-# Allowlist de login corporativo — quem NUNCA deve ser considerado
-# candidato à exclusão pelo scripts/cleanup-staging-demo-data.mjs.
-#
-# Formato: um login por linha (o mesmo valor usado como ID do documento
-# usuarios/{login}, sem @ nem domínio de e-mail). Linhas vazias e linhas
-# começando com "#" são ignoradas.
-#
-# Isto é ALÉM da proteção automática de gestor: qualquer usuário com
-# nivelHierarquico <= 5, com cargo contendo "gestor"/"coordenador"/
-# "gerente"/"admin"/"administrador", ou que seja o próprio usuário
-# autenticado executando o script, já é protegido mesmo se NÃO estiver
-# nesta lista. Esta allowlist serve para proteger colaboradores comuns
-# (nivelHierarquico > 5) que são pessoas reais, não fictícias.
-#
-# Os logins abaixo são apenas EXEMPLO — apague e preencha com os logins
-# reais da sua equipe antes de rodar o script de verdade.
-lvergani
-luizneto
-cestradioto
-ivcarvalho
-altaborda
+# Usuários reais da escala SOC Agosto/2026
+# Um login por linha, igual ao ID usuarios/{login}
+
+alamancio
 aleilima
+altaborda
+cestradioto
 dschlottag
+ivcarvalho
+luizneto
+lvergani
+thaisvribeiro
+
+# Adicione abaixo o login exato da gestora, se ela não estiver na lista acima.
+# exemplo:
+# marinaazevedo
+marina.azevedo
