@@ -18,13 +18,16 @@ import {
   type TurnosMes,
 } from '@escala-ici/contrato';
 import {
+  ArrowLeftRight,
   BriefcaseBusiness,
   Bell,
   BellRing,
   Building2,
   CalendarCheck2,
   CalendarDays,
+  Check,
   CheckCircle2,
+  ChevronRight,
   Clock3,
   Coffee,
   Filter,
@@ -38,6 +41,7 @@ import {
   Sunset,
   UserRound,
   Users,
+  X,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
@@ -63,13 +67,22 @@ import {
 import { USUARIOS_DEMO } from '@/lib/demoIdentidades';
 import type { EventoEscala, Usuario } from '@/lib/modelos';
 import { deveExibirRestauracao, podeIniciarListeners } from '@/lib/sessao';
+import {
+  ROTULO_STATUS_TROCA,
+  SEVERIDADE_STATUS_TROCA,
+  statusEhAtivo,
+  TROCAS_MOCK,
+  type SolicitacaoTrocaMock,
+} from '@/lib/trocaEscalaMock';
 
-type Tela = 'hoje' | 'minha' | 'equipe' | 'perfil';
+type Tela = 'hoje' | 'minha' | 'trocas' | 'equipe' | 'perfil';
 type ModoEscala = 'calendario' | 'agenda';
+type AbaTrocas = 'minhas' | 'responder' | 'gestor' | 'historico';
 
 const NAVEGACAO: ItemNavegacao[] = [
   { id: 'hoje', rotulo: 'Hoje', icone: 'home' },
   { id: 'minha', rotulo: 'Agenda', icone: 'calendar' },
+  { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   { id: 'equipe', rotulo: 'Equipe', icone: 'users' },
   { id: 'perfil', rotulo: 'Perfil', icone: 'user' },
 ];
@@ -291,11 +304,13 @@ function DetalheDia({
   dataHoje,
   escala,
   catalogo,
+  onSolicitarTroca,
 }: {
   data: string;
   dataHoje: string;
   escala: TurnosMes | null;
   catalogo: typeof CATALOGO_SOC;
+  onSolicitarTroca?: (data: string) => void;
 }) {
   const jornada = resolverJornadaDia(escala, catalogo, data);
   return (
@@ -347,6 +362,15 @@ function DetalheDia({
           </strong>
         </div>
       </div>
+      {onSolicitarTroca && jornada.trabalha && (
+        <button
+          className="secondary-button selected-day-troca-button"
+          type="button"
+          onClick={() => onSolicitarTroca(data)}
+        >
+          <ArrowLeftRight size={15} /> Solicitar troca deste dia
+        </button>
+      )}
       <p className="selected-day-note">
         <ShieldCheck />
         Esta visualização é somente leitura.
@@ -549,6 +573,358 @@ function NotificationBell({
   );
 }
 
+/**
+ * Protótipo de troca de escala (docs/spec/TROCA_ESCALA_PLANO.md) — dados
+ * 100% em memória (`lib/trocaEscalaMock.ts`), nenhuma leitura/escrita no
+ * Firebase. Componentes desta seção só existem enquanto a fase for de
+ * protótipo visual.
+ */
+function TrocaItemButton({
+  troca,
+  usuario,
+  onAbrir,
+}: {
+  troca: SolicitacaoTrocaMock;
+  usuario: Usuario;
+  onAbrir: () => void;
+}) {
+  const souSolicitante = troca.solicitanteLogin === usuario.login;
+  const outroNome = souSolicitante ? troca.destinatarioNome : troca.solicitanteNome;
+  return (
+    <button type="button" className="troca-item-button" onClick={onAbrir}>
+      <ArrowLeftRight size={16} />
+      <div>
+        <strong>{souSolicitante ? `Você e ${outroNome}` : `${outroNome} e você`}</strong>
+        <small>
+          {formatarData(troca.dataSolicitante, { day: '2-digit', month: 'short' }).replace('.', '')}
+          {' · '}{troca.turnoSolicitanteAntes ?? '—'} ⇄ {troca.turnoDestinatarioAntes ?? '—'}
+        </small>
+      </div>
+      <span className={`status-badge ${SEVERIDADE_STATUS_TROCA[troca.status]}`}>
+        {ROTULO_STATUS_TROCA[troca.status]}
+      </span>
+      <ChevronRight size={16} />
+    </button>
+  );
+}
+
+function TrocaComparacao({ troca }: { troca: SolicitacaoTrocaMock }) {
+  return (
+    <div className="troca-comparacao">
+      <div>
+        <small>{troca.solicitanteNome}</small>
+        <strong>
+          {capitalizar(formatarData(troca.dataSolicitante, { weekday: 'short' })).replace('.', '')}
+          {' '}{formatarData(troca.dataSolicitante, { day: '2-digit', month: 'short' }).replace('.', '')}
+        </strong>
+        <span className="shift-chip" data-code={troca.turnoSolicitanteAntes ?? ''}>
+          {troca.turnoSolicitanteAntes ?? '—'}
+        </span>
+        <small>{troca.horarioSolicitanteAntes ?? 'Sem horário'}</small>
+      </div>
+      <ArrowLeftRight size={18} />
+      <div>
+        <small>{troca.destinatarioNome}</small>
+        <strong>
+          {capitalizar(formatarData(troca.dataDestinatario, { weekday: 'short' })).replace('.', '')}
+          {' '}{formatarData(troca.dataDestinatario, { day: '2-digit', month: 'short' }).replace('.', '')}
+        </strong>
+        <span className="shift-chip" data-code={troca.turnoDestinatarioAntes ?? ''}>
+          {troca.turnoDestinatarioAntes ?? '—'}
+        </span>
+        <small>{troca.horarioDestinatarioAntes ?? 'Sem horário'}</small>
+      </div>
+    </div>
+  );
+}
+
+function ModalRespostaTroca({
+  troca,
+  onFechar,
+  onAceitar,
+  onRecusar,
+}: {
+  troca: SolicitacaoTrocaMock;
+  onFechar: () => void;
+  onAceitar: () => void;
+  onRecusar: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal troca-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="troca-resposta-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Solicitação de troca</p>
+            <h2 id="troca-resposta-title">{troca.solicitanteNome} quer trocar com você</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+        <TrocaComparacao troca={troca} />
+        {troca.mensagemSolicitante && (
+          <p className="troca-mensagem">“{troca.mensagemSolicitante}”</p>
+        )}
+        <div className="alert warning">
+          <strong>Ainda falta a aprovação do gestor</strong>
+          <p>Se você aceitar, a solicitação segue para o gestor revisar antes de valer de verdade.</p>
+        </div>
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onRecusar}>Recusar</button>
+          <button className="primary-button" type="button" onClick={onAceitar}>
+            <Check size={16} /> Aceitar
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ModalDetalheTroca({
+  troca,
+  usuario,
+  onFechar,
+  onCancelar,
+}: {
+  troca: SolicitacaoTrocaMock;
+  usuario: Usuario;
+  onFechar: () => void;
+  onCancelar: () => void;
+}) {
+  const podeCancelar = troca.solicitanteLogin === usuario.login && troca.status === 'PENDENTE_USUARIO';
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal troca-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="troca-detalhe-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">{ROTULO_STATUS_TROCA[troca.status]}</p>
+            <h2 id="troca-detalhe-title">
+              {troca.solicitanteNome} ⇄ {troca.destinatarioNome}
+            </h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+        <TrocaComparacao troca={troca} />
+        {troca.mensagemSolicitante && (
+          <p className="troca-mensagem">“{troca.mensagemSolicitante}”</p>
+        )}
+        {troca.motivoRecusa && (
+          <div className="alert error">
+            <strong>Motivo da recusa</strong>
+            <p>{troca.motivoRecusa}</p>
+          </div>
+        )}
+        <div className="troca-historico">
+          {troca.historico.map((evento, indice) => (
+            <div className="troca-historico-item" key={indice}>
+              <span className="troca-historico-dot" />
+              <div>
+                <strong>{evento.acao}</strong>
+                <small>
+                  {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(evento.em))}
+                  {evento.atorNome ? ` · ${evento.atorNome}` : ''}
+                </small>
+                {evento.detalhe && <p>{evento.detalhe}</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onFechar}>Fechar</button>
+          {podeCancelar && (
+            <button className="primary-button" type="button" onClick={onCancelar}>
+              Cancelar solicitação
+            </button>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+interface EstadoAssistenteTroca {
+  passo: 1 | 2 | 3;
+  data: string | null;
+  destinatarioLogin: string | null;
+  mensagem: string;
+}
+
+function AssistenteNovaTroca({
+  estado,
+  datas,
+  minhaEscala,
+  documentos,
+  usuarios,
+  usuario,
+  catalogo,
+  onMudarPasso,
+  onEscolherData,
+  onEscolherDestinatario,
+  onMudarMensagem,
+  onFechar,
+  onEnviar,
+}: {
+  estado: EstadoAssistenteTroca;
+  datas: string[];
+  minhaEscala: TurnosMes | null;
+  documentos: TurnosMes[];
+  usuarios: Usuario[];
+  usuario: Usuario;
+  catalogo: typeof CATALOGO_SOC;
+  onMudarPasso: (passo: 1 | 2 | 3) => void;
+  onEscolherData: (data: string) => void;
+  onEscolherDestinatario: (login: string) => void;
+  onMudarMensagem: (mensagem: string) => void;
+  onFechar: () => void;
+  onEnviar: () => void;
+}) {
+  const { passo, data, destinatarioLogin, mensagem } = estado;
+  const jornadaEscolhida = data ? resolverJornadaDia(minhaEscala, catalogo, data) : null;
+  const colegasNoDia = data
+    ? documentos
+      .filter((documento) => documento.login !== usuario.login)
+      .map((documento) => ({ documento, jornada: resolverJornadaDia(documento, catalogo, data) }))
+      .filter(({ jornada }) => jornada.trabalha)
+    : [];
+  const destinatario = colegasNoDia.find(({ documento }) => documento.login === destinatarioLogin);
+  const nomeDestinatario = destinatarioLogin
+    ? usuarios.find((item) => item.login === destinatarioLogin)?.nome ?? destinatarioLogin
+    : '';
+  const titulo = passo === 1 ? 'Escolha o seu dia' : passo === 2 ? 'Escolha o colega' : 'Confirmar solicitação';
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal troca-modal troca-wizard"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="troca-wizard-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Passo {passo} de 3</p>
+            <h2 id="troca-wizard-title">{titulo}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+
+        {passo === 1 && (
+          <div className="troca-wizard-lista">
+            {datas.map((diaIso) => {
+              const jornada = resolverJornadaDia(minhaEscala, catalogo, diaIso);
+              if (!jornada.trabalha) {
+                return null;
+              }
+              return (
+                <button
+                  key={diaIso}
+                  type="button"
+                  className={`troca-wizard-opcao ${diaIso === data ? 'selecionada' : ''}`}
+                  onClick={() => { onEscolherData(diaIso); onMudarPasso(2); }}
+                >
+                  <div>
+                    <strong>
+                      {capitalizar(formatarData(diaIso, { weekday: 'short' })).replace('.', '')}
+                      {' '}{formatarData(diaIso, { day: '2-digit', month: 'short' }).replace('.', '')}
+                    </strong>
+                    <small>{jornada.descricao}{jornada.inicio ? ` · ${jornada.inicio}–${jornada.fim}` : ''}</small>
+                  </div>
+                  <span className="shift-chip" data-code={jornada.codigo ?? ''}>{jornada.codigo}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {passo === 2 && (
+          <>
+            <div className="troca-wizard-lista">
+              {colegasNoDia.length === 0 ? (
+                <div className="notification-empty">
+                  <Users size={22} />
+                  <span>Ninguém mais está escalado nesse dia.</span>
+                </div>
+              ) : colegasNoDia.map(({ documento, jornada }) => {
+                const nome = usuarios.find((item) => item.login === documento.login)?.nome ?? documento.login;
+                return (
+                  <button
+                    key={documento.login}
+                    type="button"
+                    className={`troca-wizard-opcao ${documento.login === destinatarioLogin ? 'selecionada' : ''}`}
+                    onClick={() => onEscolherDestinatario(documento.login)}
+                  >
+                    <div>
+                      <strong>{nome}</strong>
+                      <small>{jornada.descricao}{jornada.inicio ? ` · ${jornada.inicio}–${jornada.fim}` : ''}</small>
+                    </div>
+                    <span className="shift-chip" data-code={jornada.codigo ?? ''}>{jornada.codigo}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="rollback-actions">
+              <button className="secondary-button" type="button" onClick={() => onMudarPasso(1)}>Voltar</button>
+              <button
+                className="primary-button"
+                type="button"
+                disabled={!destinatarioLogin}
+                onClick={() => onMudarPasso(3)}
+              >
+                Continuar
+              </button>
+            </div>
+          </>
+        )}
+
+        {passo === 3 && jornadaEscolhida && data && (
+          <div className="troca-wizard-resumo">
+            <p className="troca-wizard-frase">
+              Você troca <strong>{jornadaEscolhida.descricao}</strong>
+              {' '}({capitalizar(formatarData(data, { weekday: 'short' })).replace('.', '')}
+              {' '}{formatarData(data, { day: '2-digit', month: 'short' }).replace('.', '')}) com{' '}
+              <strong>{nomeDestinatario}</strong>, que está em{' '}
+              <strong>{destinatario?.jornada.descricao ?? ''}</strong>.
+            </p>
+            <label className="publication-reason">
+              Mensagem (opcional)
+              <textarea
+                value={mensagem}
+                onChange={(evento) => onMudarMensagem(evento.target.value)}
+                placeholder="Ex.: Preciso resolver um compromisso pessoal nesse turno."
+                maxLength={280}
+              />
+              <small>{mensagem.trim().length}/280 caracteres</small>
+            </label>
+            <div className="rollback-actions">
+              <button className="secondary-button" type="button" onClick={() => onMudarPasso(2)}>Voltar</button>
+              <button className="primary-button" type="button" onClick={onEnviar}>
+                <ArrowLeftRight size={16} /> Enviar solicitação
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 export function EmployeeApp() {
   const [agora, setAgora] = useState(() => new Date());
   const referencia = referenciaLocal(agora);
@@ -572,6 +948,10 @@ export function EmployeeApp() {
   const [centralAberta, setCentralAberta] = useState(false);
   const [avisoAtualizacao, setAvisoAtualizacao] = useState('');
   const [dadosCarregados, setDadosCarregados] = useState(false);
+  const [trocas, setTrocas] = useState<SolicitacaoTrocaMock[]>(TROCAS_MOCK);
+  const [abaTrocas, setAbaTrocas] = useState<AbaTrocas>('minhas');
+  const [trocaAberta, setTrocaAberta] = useState<SolicitacaoTrocaMock | null>(null);
+  const [assistenteTroca, setAssistenteTroca] = useState<EstadoAssistenteTroca | null>(null);
   const eventosConhecidos = useRef<Set<string>>(new Set());
   const primeiraCargaEventos = useRef(true);
   const sessao = useRestauracaoSessao({
@@ -793,6 +1173,110 @@ export function EmployeeApp() {
     if ('Notification' in window) {
       await Notification.requestPermission();
     }
+  }
+
+  // --- Protótipo de troca de escala (só em memória, ver docs/spec/TROCA_ESCALA_PLANO.md) ---
+
+  function abrirNovaSolicitacaoTroca(diaPreenchido?: string) {
+    setAssistenteTroca({
+      passo: diaPreenchido ? 2 : 1,
+      data: diaPreenchido ?? null,
+      destinatarioLogin: null,
+      mensagem: '',
+    });
+  }
+
+  function enviarSolicitacaoTroca() {
+    if (usuario === null || assistenteTroca?.data === null || assistenteTroca?.destinatarioLogin == null) {
+      return;
+    }
+    const { data, destinatarioLogin, mensagem } = assistenteTroca;
+    const jornadaMinha = resolverJornadaDia(minhaEscala, catalogo, data);
+    const documentoDestinatario = documentos.find((item) => item.login === destinatarioLogin) ?? null;
+    const jornadaDestinatario = resolverJornadaDia(documentoDestinatario, catalogo, data);
+    const nomeDestinatario = usuarios.find((item) => item.login === destinatarioLogin)?.nome ?? destinatarioLogin;
+    const agora = new Date().toISOString();
+    const nova: SolicitacaoTrocaMock = {
+      id: `mock-${agora}`,
+      equipeId: usuario.equipeId,
+      competencia: competenciaAtiva,
+      solicitanteLogin: usuario.login,
+      solicitanteNome: usuario.nome,
+      destinatarioLogin,
+      destinatarioNome: nomeDestinatario,
+      dataSolicitante: data,
+      turnoSolicitanteAntes: jornadaMinha.codigo,
+      horarioSolicitanteAntes: jornadaMinha.trabalha && jornadaMinha.inicio && jornadaMinha.fim
+        ? `${jornadaMinha.inicio}–${jornadaMinha.fim}`
+        : null,
+      dataDestinatario: data,
+      turnoDestinatarioAntes: jornadaDestinatario.codigo,
+      horarioDestinatarioAntes: jornadaDestinatario.trabalha && jornadaDestinatario.inicio && jornadaDestinatario.fim
+        ? `${jornadaDestinatario.inicio}–${jornadaDestinatario.fim}`
+        : null,
+      status: 'PENDENTE_USUARIO',
+      mensagemSolicitante: mensagem.trim(),
+      criadoEm: agora,
+      atualizadoEm: agora,
+      respondidoEm: null,
+      aprovadoEm: null,
+      publicadoEm: null,
+      gestorLogin: null,
+      gestorNome: null,
+      motivoRecusa: null,
+      historico: [
+        { em: agora, ator: 'SOLICITANTE', atorNome: usuario.nome, acao: 'Solicitação criada' },
+        { em: agora, ator: 'SISTEMA', atorNome: null, acao: `Notificação enviada a ${nomeDestinatario}` },
+      ],
+    };
+    setTrocas((atual) => [nova, ...atual]);
+    setAssistenteTroca(null);
+    setAbaTrocas('minhas');
+  }
+
+  function responderSolicitacaoTroca(id: string, aceitar: boolean) {
+    const agora = new Date().toISOString();
+    setTrocas((atual) => atual.map((troca) => {
+      if (troca.id !== id) {
+        return troca;
+      }
+      return {
+        ...troca,
+        status: aceitar ? 'PENDENTE_GESTOR' : 'RECUSADA_USUARIO',
+        atualizadoEm: agora,
+        respondidoEm: agora,
+        historico: [
+          ...troca.historico,
+          {
+            em: agora,
+            ator: 'DESTINATARIO',
+            atorNome: troca.destinatarioNome,
+            acao: aceitar ? 'Aceite do colega' : 'Recusada pelo colega',
+            detalhe: aceitar ? 'Encaminhada para o gestor' : undefined,
+          },
+        ],
+      };
+    }));
+    setTrocaAberta(null);
+  }
+
+  function cancelarSolicitacaoTroca(id: string) {
+    const agora = new Date().toISOString();
+    setTrocas((atual) => atual.map((troca) => {
+      if (troca.id !== id) {
+        return troca;
+      }
+      return {
+        ...troca,
+        status: 'CANCELADA_SOLICITANTE',
+        atualizadoEm: agora,
+        historico: [
+          ...troca.historico,
+          { em: agora, ator: 'SOLICITANTE', atorNome: troca.solicitanteNome, acao: 'Cancelada pelo solicitante' },
+        ],
+      };
+    }));
+    setTrocaAberta(null);
   }
 
   // Enquanto o Firebase Auth não confirmar a sessão local, o App não mostra
@@ -1081,10 +1565,77 @@ export function EmployeeApp() {
                 dataHoje={dataHoje}
                 escala={minhaEscala}
                 catalogo={catalogo}
+                onSolicitarTroca={(diaEscolhido) => abrirNovaSolicitacaoTroca(diaEscolhido)}
               />
             </div>
           </article>
           <ScheduleLegend catalogo={catalogo} titulo="Legenda" />
+        </section>
+      )}
+
+      {tela === 'trocas' && usuario && (
+        <section className="employee-screen employee-trocas-screen">
+          <header className="page-heading">
+            <div>
+              <p className="eyebrow">Combinar com a equipe</p>
+              <h1>Trocas de escala</h1>
+              <p>Peça e responda trocas de turno — a aprovação final é sempre do gestor.</p>
+            </div>
+            <button className="primary-button" type="button" onClick={() => abrirNovaSolicitacaoTroca()}>
+              <ArrowLeftRight size={16} /> Nova solicitação
+            </button>
+          </header>
+          <div className="segmented-control troca-abas">
+            {([
+              ['minhas', 'Minhas', trocas.filter((item) => item.solicitanteLogin === usuario.login).length],
+              ['responder', 'Para responder', trocas.filter((item) => item.destinatarioLogin === usuario.login && item.status === 'PENDENTE_USUARIO').length],
+              ['gestor', 'Gestor', trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login) && (item.status === 'PENDENTE_GESTOR' || item.status === 'APROVADA_AGUARDANDO_PUBLICACAO')).length],
+              ['historico', 'Histórico', trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login) && !statusEhAtivo(item.status)).length],
+            ] as const).map(([id, rotulo, contagem]) => (
+              <button
+                key={id}
+                type="button"
+                className={abaTrocas === id ? 'active' : ''}
+                onClick={() => setAbaTrocas(id)}
+              >
+                {rotulo}{contagem > 0 && ` (${contagem})`}
+              </button>
+            ))}
+          </div>
+          <div className="troca-lista">
+            {(() => {
+              const minhas = trocas.filter((item) => item.solicitanteLogin === usuario.login);
+              const paraResponder = trocas.filter((item) => item.destinatarioLogin === usuario.login && item.status === 'PENDENTE_USUARIO');
+              const aguardandoGestor = trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login)
+                && (item.status === 'PENDENTE_GESTOR' || item.status === 'APROVADA_AGUARDANDO_PUBLICACAO'));
+              const historicoTrocas = trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login)
+                && !statusEhAtivo(item.status));
+              const listaAtual = abaTrocas === 'minhas' ? minhas
+                : abaTrocas === 'responder' ? paraResponder
+                  : abaTrocas === 'gestor' ? aguardandoGestor
+                    : historicoTrocas;
+              const mensagemVazia = abaTrocas === 'minhas' ? 'Você ainda não pediu nenhuma troca.'
+                : abaTrocas === 'responder' ? 'Nenhuma solicitação esperando sua resposta.'
+                  : abaTrocas === 'gestor' ? 'Nenhuma troca aguardando o gestor agora.'
+                    : 'Nenhuma troca concluída ainda.';
+              if (listaAtual.length === 0) {
+                return (
+                  <div className="notification-empty">
+                    <ArrowLeftRight size={22} />
+                    <span>{mensagemVazia}</span>
+                  </div>
+                );
+              }
+              return listaAtual.map((item) => (
+                <TrocaItemButton
+                  key={item.id}
+                  troca={item}
+                  usuario={usuario}
+                  onAbrir={() => setTrocaAberta(item)}
+                />
+              ));
+            })()}
+          </div>
         </section>
       )}
 
@@ -1165,6 +1716,42 @@ export function EmployeeApp() {
             </button>
           </div>
         </section>
+      )}
+
+      {assistenteTroca && usuario && (
+        <AssistenteNovaTroca
+          estado={assistenteTroca}
+          datas={datas}
+          minhaEscala={minhaEscala}
+          documentos={documentos}
+          usuarios={usuarios}
+          usuario={usuario}
+          catalogo={catalogo}
+          onMudarPasso={(passo) => setAssistenteTroca((atual) => atual && { ...atual, passo })}
+          onEscolherData={(diaEscolhido) => setAssistenteTroca((atual) => atual && { ...atual, data: diaEscolhido })}
+          onEscolherDestinatario={(login) => setAssistenteTroca((atual) => atual && { ...atual, destinatarioLogin: login })}
+          onMudarMensagem={(mensagem) => setAssistenteTroca((atual) => atual && { ...atual, mensagem })}
+          onFechar={() => setAssistenteTroca(null)}
+          onEnviar={enviarSolicitacaoTroca}
+        />
+      )}
+
+      {trocaAberta && usuario && (
+        trocaAberta.destinatarioLogin === usuario.login && trocaAberta.status === 'PENDENTE_USUARIO' ? (
+          <ModalRespostaTroca
+            troca={trocaAberta}
+            onFechar={() => setTrocaAberta(null)}
+            onAceitar={() => responderSolicitacaoTroca(trocaAberta.id, true)}
+            onRecusar={() => responderSolicitacaoTroca(trocaAberta.id, false)}
+          />
+        ) : (
+          <ModalDetalheTroca
+            troca={trocaAberta}
+            usuario={usuario}
+            onFechar={() => setTrocaAberta(null)}
+            onCancelar={() => cancelarSolicitacaoTroca(trocaAberta.id)}
+          />
+        )
       )}
     </AppFrame>
   );

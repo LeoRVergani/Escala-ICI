@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ArrowLeftRight,
   CalendarDays,
   ChevronDown,
   Grid3X3,
@@ -24,7 +25,7 @@ import { ThemeToggle } from './ThemeProvider';
 export interface ItemNavegacao {
   id: string;
   rotulo: string;
-  icone: 'home' | 'upload' | 'calendar' | 'grid' | 'users' | 'user';
+  icone: 'home' | 'upload' | 'calendar' | 'grid' | 'users' | 'user' | 'trocas';
 }
 
 const ICONES: Record<ItemNavegacao['icone'], LucideIcon> = {
@@ -34,6 +35,7 @@ const ICONES: Record<ItemNavegacao['icone'], LucideIcon> = {
   grid: Grid3X3,
   users: Users,
   user: UserRound,
+  trocas: ArrowLeftRight,
 };
 
 interface AppFrameProps {

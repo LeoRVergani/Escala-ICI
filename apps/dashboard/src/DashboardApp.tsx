@@ -13,6 +13,7 @@ import {
 } from '@escala-ici/contrato';
 import {
   AlertTriangle,
+  ArrowLeftRight,
   ArrowUpRight,
   Ban,
   Bell,
@@ -86,9 +87,17 @@ import { mensagemErroFirebase } from '@/lib/firebase/errors';
 import { ambienteFirebaseAtual } from '@/lib/firebase/shared';
 import {
   construirIndiceAlertasGrade,
+  detectarDescansoInsuficiente,
+  detectarSequencias6x1,
   gerarAlertasEscala,
   type AlertaEscala,
 } from '@/lib/alertasEscala';
+import {
+  ROTULO_STATUS_TROCA,
+  SEVERIDADE_STATUS_TROCA,
+  TROCAS_MOCK,
+  type SolicitacaoTrocaMock,
+} from '@/lib/trocaEscalaMock';
 import {
   adicionarMembroGrade,
   criarMembroGrade,
@@ -98,7 +107,8 @@ import {
 import { mapaLogins, normalizarAliasesPlanilha, novoUsuario, validarEdicaoUsuario } from '@/lib/importUsers';
 import type { EventoEscala, LinhaConciliacao, PublicacaoEscala, Usuario } from '@/lib/modelos';
 
-type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios';
+type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas';
+type FiltroTrocas = 'pendentes' | 'aprovadas' | 'recusadas' | 'historico';
 
 function formatarDataCurta(dataIso: string): string {
   const [, mes, dia] = dataIso.split('-');
@@ -366,6 +376,7 @@ const NAVEGACAO: ItemNavegacao[] = [
   { id: 'importar', rotulo: 'Importar escala', icone: 'upload' },
   { id: 'escalas', rotulo: 'Escalas', icone: 'calendar' },
   { id: 'grade', rotulo: 'Grade', icone: 'grid' },
+  { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   { id: 'usuarios', rotulo: 'Usuários', icone: 'users' },
 ];
 
@@ -373,6 +384,150 @@ interface CelulaEditando {
   documento: TurnosMes;
   data: string;
   dia: Dia;
+}
+
+/**
+ * Protótipo de troca de escala (docs/spec/TROCA_ESCALA_PLANO.md) — dados
+ * 100% em memória (`lib/trocaEscalaMock.ts`), nenhuma leitura/escrita no
+ * Firebase. Só os alertas de 6x1/descanso são calculados de verdade, com as
+ * mesmas funções de `lib/alertasEscala.ts` já usadas na grade.
+ */
+function ModalDetalheTrocaGestor({
+  troca,
+  alertasHipoteticos,
+  motivoRecusa,
+  onMudarMotivoRecusa,
+  onFechar,
+  onRecusar,
+  onAprovar,
+  onAprovarEPublicar,
+}: {
+  troca: SolicitacaoTrocaMock;
+  alertasHipoteticos: AlertaEscala[];
+  motivoRecusa: string;
+  onMudarMotivoRecusa: (valor: string) => void;
+  onFechar: () => void;
+  onRecusar: () => void;
+  onAprovar: () => void;
+  onAprovarEPublicar: () => void;
+}) {
+  const podeDecidir = troca.status === 'PENDENTE_GESTOR';
+  const podePublicar = troca.status === 'APROVADA_AGUARDANDO_PUBLICACAO';
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal troca-modal troca-gestor-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="troca-gestor-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">{ROTULO_STATUS_TROCA[troca.status]}</p>
+            <h2 id="troca-gestor-title">{troca.solicitanteNome} ⇄ {troca.destinatarioNome}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="troca-comparacao">
+          <div>
+            <small>{troca.solicitanteNome}</small>
+            <strong>{formatarDataCurta(troca.dataSolicitante)}</strong>
+            <span className="shift-chip" data-code={troca.turnoSolicitanteAntes ?? ''}>
+              {troca.turnoSolicitanteAntes ?? '—'}
+            </span>
+            <small>{troca.horarioSolicitanteAntes ?? 'Sem horário'}</small>
+          </div>
+          <ArrowLeftRight size={18} />
+          <div>
+            <small>{troca.destinatarioNome}</small>
+            <strong>{formatarDataCurta(troca.dataDestinatario)}</strong>
+            <span className="shift-chip" data-code={troca.turnoDestinatarioAntes ?? ''}>
+              {troca.turnoDestinatarioAntes ?? '—'}
+            </span>
+            <small>{troca.horarioDestinatarioAntes ?? 'Sem horário'}</small>
+          </div>
+        </div>
+
+        {troca.mensagemSolicitante && <p className="troca-mensagem">“{troca.mensagemSolicitante}”</p>}
+
+        {alertasHipoteticos.length > 0 && (
+          <div className="alert warning">
+            <strong>
+              Essa troca pode causar {alertasHipoteticos.length === 1 ? '1 inconsistência' : `${alertasHipoteticos.length} inconsistências`}
+            </strong>
+            <ul>
+              {alertasHipoteticos.map((alerta, indice) => (
+                <li key={indice}>
+                  {alerta.tipo === 'SEQUENCIA_6X1'
+                    ? `${alerta.login} passaria a ter 7 dias consecutivos de trabalho (crítico em ${formatarDataCurta(alerta.diaCritico)}).`
+                    : `${alerta.login} teria menos de 11h de descanso entre ${formatarDataCurta(alerta.dataAnterior)} e ${formatarDataCurta(alerta.dataAtual)}.`}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {troca.motivoRecusa && (
+          <div className="alert error">
+            <strong>Motivo da recusa</strong>
+            <p>{troca.motivoRecusa}</p>
+          </div>
+        )}
+
+        <div className="troca-historico">
+          {troca.historico.map((evento, indice) => (
+            <div className="troca-historico-item" key={indice}>
+              <span className="troca-historico-dot" />
+              <div>
+                <strong>{evento.acao}</strong>
+                <small>
+                  {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(evento.em))}
+                  {evento.atorNome ? ` · ${evento.atorNome}` : ''}
+                </small>
+                {evento.detalhe && <p>{evento.detalhe}</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {podeDecidir && (
+          <label className="publication-reason">
+            Motivo (obrigatório só se recusar)
+            <textarea
+              value={motivoRecusa}
+              onChange={(evento) => onMudarMotivoRecusa(evento.target.value)}
+              placeholder="Ex.: causaria descanso insuficiente para o colaborador."
+              maxLength={280}
+            />
+          </label>
+        )}
+
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onFechar}>Fechar</button>
+          {podeDecidir && (
+            <>
+              <button className="secondary-button troca-recusar-button" type="button" onClick={onRecusar}>
+                <Ban size={16} /> Recusar
+              </button>
+              <button className="primary-button" type="button" onClick={onAprovar}>
+                <CheckCircle2 size={16} /> Aprovar
+              </button>
+            </>
+          )}
+          {(podeDecidir || podePublicar) && (
+            <button className="primary-button" type="button" onClick={onAprovarEPublicar}>
+              <Send size={16} /> Aprovar e publicar
+            </button>
+          )}
+        </div>
+      </section>
+    </div>
+  );
 }
 
 export function DashboardApp() {
@@ -408,6 +563,10 @@ export function DashboardApp() {
   const [removerMembroPendente, setRemoverMembroPendente] = useState<TurnosMes | null>(null);
   const [alertasAbertos, setAlertasAbertos] = useState(false);
   const [alertaSelecionado, setAlertaSelecionado] = useState<AlertaVisivel | null>(null);
+  const [trocas, setTrocas] = useState<SolicitacaoTrocaMock[]>(TROCAS_MOCK);
+  const [filtroTrocas, setFiltroTrocas] = useState<FiltroTrocas>('pendentes');
+  const [trocaSelecionada, setTrocaSelecionada] = useState<SolicitacaoTrocaMock | null>(null);
+  const [motivoRecusaTroca, setMotivoRecusaTroca] = useState('');
   const inputArquivo = useRef<HTMLInputElement>(null);
   const escritaBloqueada = !modoDemo && !escritaAdministrativaHabilitada;
   const conciliacaoBloqueiaPublicacao = publicacaoBloqueadaPorConciliacao(linhasConciliacao);
@@ -441,6 +600,13 @@ export function DashboardApp() {
     () => montarCargaColaboradores(documentos, usuarios, catalogo),
     [documentos, usuarios, catalogo],
   );
+  const trocasPendentesGestor = trocas.filter((item) => item.status === 'PENDENTE_GESTOR');
+  const trocasAprovadas = trocas.filter((item) => item.status === 'APROVADA_AGUARDANDO_PUBLICACAO' || item.status === 'APROVADA_PUBLICADA');
+  const trocasRecusadas = trocas.filter((item) => item.status === 'RECUSADA_GESTOR' || item.status === 'RECUSADA_USUARIO');
+  const trocasListaFiltrada = filtroTrocas === 'pendentes' ? trocasPendentesGestor
+    : filtroTrocas === 'aprovadas' ? trocasAprovadas
+      : filtroTrocas === 'recusadas' ? trocasRecusadas
+        : trocas;
   const totaisGerais = useMemo(() => {
     const totalMin = documentos.reduce((soma, documento) =>
       soma + calcularTotais(documento.dias, catalogo).min, 0);
@@ -851,6 +1017,120 @@ export function DashboardApp() {
     }
   }
 
+  // --- Protótipo de troca de escala (só em memória, ver docs/spec/TROCA_ESCALA_PLANO.md) ---
+
+  function recusarTroca(id: string, motivo: string) {
+    const agora = new Date().toISOString();
+    setTrocas((atual) => atual.map((troca) => {
+      if (troca.id !== id) {
+        return troca;
+      }
+      return {
+        ...troca,
+        status: 'RECUSADA_GESTOR',
+        atualizadoEm: agora,
+        gestorLogin: usuario?.login ?? null,
+        gestorNome: usuario?.nome ?? null,
+        motivoRecusa: motivo.trim() || 'Recusada pelo gestor.',
+        historico: [
+          ...troca.historico,
+          { em: agora, ator: 'GESTOR', atorNome: usuario?.nome ?? null, acao: 'Recusada pelo gestor', detalhe: motivo.trim() || undefined },
+        ],
+      };
+    }));
+    setTrocaSelecionada(null);
+    setMotivoRecusaTroca('');
+  }
+
+  function aprovarTroca(id: string) {
+    const agora = new Date().toISOString();
+    setTrocas((atual) => atual.map((troca) => {
+      if (troca.id !== id) {
+        return troca;
+      }
+      return {
+        ...troca,
+        status: 'APROVADA_AGUARDANDO_PUBLICACAO',
+        atualizadoEm: agora,
+        aprovadoEm: agora,
+        gestorLogin: usuario?.login ?? null,
+        gestorNome: usuario?.nome ?? null,
+        historico: [
+          ...troca.historico,
+          { em: agora, ator: 'GESTOR', atorNome: usuario?.nome ?? null, acao: 'Aprovada', detalhe: 'Aguardando publicação' },
+        ],
+      };
+    }));
+    setTrocaSelecionada(null);
+  }
+
+  function aprovarEPublicarTroca(id: string) {
+    const agora = new Date().toISOString();
+    setTrocas((atual) => atual.map((troca) => {
+      if (troca.id !== id) {
+        return troca;
+      }
+      const jaAprovada = troca.status === 'APROVADA_AGUARDANDO_PUBLICACAO';
+      return {
+        ...troca,
+        status: 'APROVADA_PUBLICADA',
+        atualizadoEm: agora,
+        aprovadoEm: troca.aprovadoEm ?? agora,
+        publicadoEm: agora,
+        gestorLogin: usuario?.login ?? null,
+        gestorNome: usuario?.nome ?? null,
+        historico: [
+          ...troca.historico,
+          ...(jaAprovada ? [] : [{ em: agora, ator: 'GESTOR' as const, atorNome: usuario?.nome ?? null, acao: 'Aprovada' }]),
+          {
+            em: agora,
+            ator: 'GESTOR' as const,
+            atorNome: usuario?.nome ?? null,
+            acao: 'Publicada',
+            detalhe: 'Protótipo: a escala real não foi alterada no Firebase.',
+          },
+        ],
+      };
+    }));
+    setTrocaSelecionada(null);
+  }
+
+  /**
+   * Alertas de 6x1/descanso mínimo calculados de verdade (mesmas funções de
+   * `lib/alertasEscala.ts` usadas na grade), sobre uma cópia hipotética dos
+   * dois documentos com o dia trocado — nenhuma lógica de alerta nova.
+   * Retorna vazio se os logins da solicitação mockada não existirem na
+   * grade carregada agora (esperado: o mock é independente da competência
+   * real aberta no Dashboard).
+   */
+  function alertasHipoteticosTroca(troca: SolicitacaoTrocaMock): AlertaEscala[] {
+    const docSolicitante = documentos.find((item) => item.login === troca.solicitanteLogin);
+    const docDestinatario = documentos.find((item) => item.login === troca.destinatarioLogin);
+    if (!docSolicitante || !docDestinatario) {
+      return [];
+    }
+    const docSolicitanteHipotetico: TurnosMes = {
+      ...docSolicitante,
+      dias: {
+        ...docSolicitante.dias,
+        [troca.dataSolicitante]: { ...docSolicitante.dias[troca.dataSolicitante], c: troca.turnoDestinatarioAntes ?? '' },
+      },
+    };
+    const docDestinatarioHipotetico: TurnosMes = {
+      ...docDestinatario,
+      dias: {
+        ...docDestinatario.dias,
+        [troca.dataDestinatario]: { ...docDestinatario.dias[troca.dataDestinatario], c: troca.turnoSolicitanteAntes ?? '' },
+      },
+    };
+    return [
+      ...detectarSequencias6x1(docSolicitanteHipotetico, catalogo),
+      ...detectarSequencias6x1(docDestinatarioHipotetico, catalogo),
+      ...detectarDescansoInsuficiente(docSolicitanteHipotetico, catalogo),
+      ...detectarDescansoInsuficiente(docDestinatarioHipotetico, catalogo),
+    ];
+  }
+
   async function restaurar() {
     if (usuario === null || revisaoParaRestaurar === null || modoDemo) {
       setRevisaoParaRestaurar(null);
@@ -1237,7 +1517,7 @@ export function DashboardApp() {
               <button type="button" onClick={() => setTela('grade')}><Pencil /> Revisar a grade <ArrowUpRight /></button>
             </article>
           </div>
-          <div className="content-grid two-columns">
+          <div className="content-grid three-columns">
             <article className="panel grid-panel">
               <div className="panel-title">
                 <div><h2>Alertas da escala</h2><p>Pontos que merecem atenção do gestor</p></div>
@@ -1310,6 +1590,36 @@ export function DashboardApp() {
                       </div>
                     ));
                   })()}
+                </div>
+              )}
+            </article>
+            <article className="panel grid-panel">
+              <div className="panel-title">
+                <div><h2>Trocas pendentes</h2><p>Aguardando decisão do gestor</p></div>
+                <ArrowLeftRight />
+              </div>
+              {trocasPendentesGestor.length === 0 ? (
+                <div className="notification-empty">
+                  <ArrowLeftRight size={22} />
+                  <span>Nenhuma troca aguardando decisão agora.</span>
+                </div>
+              ) : (
+                <div className="alert-summary-list">
+                  {trocasPendentesGestor.map((troca) => (
+                    <button
+                      key={troca.id}
+                      type="button"
+                      className="alert-item alert-item-button"
+                      onClick={() => { setTela('trocas'); setTrocaSelecionada(troca); }}
+                    >
+                      <ArrowLeftRight size={15} className="alert-icon-aviso" />
+                      <div>
+                        <strong>{troca.solicitanteNome} ⇄ {troca.destinatarioNome}</strong>
+                        <small>{formatarDataCurta(troca.dataSolicitante)} · {troca.turnoSolicitanteAntes} ⇄ {troca.turnoDestinatarioAntes}</small>
+                      </div>
+                      <ChevronRight size={16} />
+                    </button>
+                  ))}
                 </div>
               )}
             </article>
@@ -1779,6 +2089,93 @@ export function DashboardApp() {
         </section>
       )}
 
+      {tela === 'trocas' && (
+        <section>
+          <header className="page-heading">
+            <div>
+              <p className="eyebrow">Combinar com a equipe</p>
+              <h1>Trocas de escala</h1>
+              <p>Revise, aprove ou recuse pedidos de troca entre colaboradores.</p>
+            </div>
+          </header>
+          <div className="metric-grid">
+            <article><span>Aguardando você</span><strong>{trocasPendentesGestor.length}</strong><small>precisam de decisão</small></article>
+            <article><span>Aprovadas</span><strong>{trocasAprovadas.length}</strong><small>aprovadas ou publicadas</small></article>
+            <article><span>Recusadas</span><strong>{trocasRecusadas.length}</strong><small>pelo colega ou pelo gestor</small></article>
+            <article><span>Total no histórico</span><strong>{trocas.length}</strong><small>desde o início</small></article>
+          </div>
+          <article className="panel grid-panel">
+            <div className="toolbar">
+              <div className="segmented-control">
+                {([
+                  ['pendentes', 'Pendentes', trocasPendentesGestor.length],
+                  ['aprovadas', 'Aprovadas', trocasAprovadas.length],
+                  ['recusadas', 'Recusadas', trocasRecusadas.length],
+                  ['historico', 'Histórico', trocas.length],
+                ] as const).map(([id, rotulo, contagem]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={filtroTrocas === id ? 'active' : ''}
+                    onClick={() => setFiltroTrocas(id)}
+                  >
+                    {rotulo} ({contagem})
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="table-scroll">
+              <table className="data-table trocas-table">
+                <thead>
+                  <tr>
+                    <th>Solicitante</th>
+                    <th>Destinatário</th>
+                    <th>Data</th>
+                    <th>Troca solicitada</th>
+                    <th>Status</th>
+                    <th>Atualizado em</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trocasListaFiltrada.length === 0 ? (
+                    <tr><td colSpan={7}><div className="empty-state">Nenhuma troca neste filtro.</div></td></tr>
+                  ) : trocasListaFiltrada.map((troca) => (
+                    <tr key={troca.id}>
+                      <td><strong>{troca.solicitanteNome}</strong><small>{troca.solicitanteLogin}</small></td>
+                      <td><strong>{troca.destinatarioNome}</strong><small>{troca.destinatarioLogin}</small></td>
+                      <td>{formatarDataCurta(troca.dataSolicitante)}</td>
+                      <td>
+                        <span className="shift-chip" data-code={troca.turnoSolicitanteAntes ?? ''}>{troca.turnoSolicitanteAntes ?? '—'}</span>
+                        {' ⇄ '}
+                        <span className="shift-chip" data-code={troca.turnoDestinatarioAntes ?? ''}>{troca.turnoDestinatarioAntes ?? '—'}</span>
+                      </td>
+                      <td>
+                        <span className={`status-badge ${SEVERIDADE_STATUS_TROCA[troca.status]}`}>
+                          {ROTULO_STATUS_TROCA[troca.status]}
+                        </span>
+                      </td>
+                      <td>{new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(troca.atualizadoEm))}</td>
+                      <td>
+                        <button
+                          className="icon-button"
+                          type="button"
+                          title="Ver detalhes"
+                          onClick={() => setTrocaSelecionada(troca)}
+                        >
+                          <ChevronRight size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </article>
+          <ScheduleLegend catalogo={catalogo} />
+        </section>
+      )}
+
       {tela === 'usuarios' && (
         <section>
           <header className="page-heading">
@@ -1902,6 +2299,19 @@ export function DashboardApp() {
             </div>
           </section>
         </div>
+      )}
+
+      {trocaSelecionada && (
+        <ModalDetalheTrocaGestor
+          troca={trocaSelecionada}
+          alertasHipoteticos={alertasHipoteticosTroca(trocaSelecionada)}
+          motivoRecusa={motivoRecusaTroca}
+          onMudarMotivoRecusa={setMotivoRecusaTroca}
+          onFechar={() => { setTrocaSelecionada(null); setMotivoRecusaTroca(''); }}
+          onRecusar={() => recusarTroca(trocaSelecionada.id, motivoRecusaTroca)}
+          onAprovar={() => aprovarTroca(trocaSelecionada.id)}
+          onAprovarEPublicar={() => aprovarEPublicarTroca(trocaSelecionada.id)}
+        />
       )}
 
       {alertaSelecionado && (
