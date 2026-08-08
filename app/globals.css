@@ -24,6 +24,17 @@
   --danger-soft: #fce8ea;
   --shadow: 0 18px 50px rgba(48, 32, 65, 0.08);
   --sidebar-width: 238px;
+
+  /* Escala de espaçamento (base 8px) — vocabulário único para gap/padding/
+   * margin em qualquer componente novo ou existente. Ver docs de UI. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
 }
 
 :root[data-theme="dark"] {
@@ -326,23 +337,29 @@ select:focus-visible,
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 2%, transparent);
+  /* Padding padrão de qualquer card/painel — evita conteúdo colado na borda
+   * em componentes que só usam `.panel` sem um modificador próprio (ex.:
+   * `.conciliation-panel`, que não tinha padding nenhum antes desta regra).
+   * Modificadores com padding próprio (`.grid-panel`, `.profile-card`,
+   * `.today-team-panel` etc.) continuam prevalecendo — mesma especificidade,
+   * definidos depois neste arquivo. */
+  padding: var(--space-5);
 }
-.panel + .panel { margin-top: 18px; }
+.panel + .panel { margin-top: var(--space-5); }
 .panel-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .panel-title h2 { margin: 0; font-size: 17px; letter-spacing: -0.015em; }
 .panel-title p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
 .panel-title > svg { color: var(--cyan); }
 
-.metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
-.metric-grid article { padding: 18px; border: 1px solid var(--border); background: var(--surface); border-radius: 9px; }
+.metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-bottom: var(--space-5); }
+.metric-grid article { padding: var(--space-5); border: 1px solid var(--border); background: var(--surface); border-radius: 9px; }
 .metric-grid span, .metric-grid small { display: block; color: var(--muted); }
 .metric-grid span { font-size: 11px; }
 .metric-grid strong { display: block; font-size: 24px; margin: 9px 0 5px; letter-spacing: -0.035em; }
 .metric-grid small { font-size: 10px; }
-.content-grid { display: grid; gap: 18px; }
-.content-grid + .content-grid { margin-top: 18px; }
+.content-grid { display: grid; gap: var(--space-5); }
+.content-grid + .content-grid { margin-top: var(--space-5); }
 .two-columns { grid-template-columns: 1.25fr 0.75fr; }
-.content-grid .panel { padding: 20px; }
 .publication-progress { margin-top: 22px; }
 .publication-progress > strong { display: block; font-size: 20px; letter-spacing: -0.015em; }
 .publication-progress > p { color: var(--muted); margin: 6px 0 0; font-size: 12px; line-height: 1.5; }
@@ -392,8 +409,8 @@ select:focus-visible,
 .carga-colaborador-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 14px;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
   max-height: 340px;
   overflow-y: auto;
 }
@@ -431,7 +448,7 @@ select:focus-visible,
 .quick-actions > button { display: grid; grid-template-columns: auto 1fr auto; text-align: left; align-items: center; gap: 10px; width: 100%; margin-top: 12px; padding: 12px; background: var(--surface-muted); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
 .quick-actions > button:hover { border-color: var(--primary-bright); }
 
-.import-panel { padding: 18px; display: grid; grid-template-columns: minmax(340px, 1.1fr) 0.9fr; gap: 14px; }
+.import-panel { display: grid; grid-template-columns: minmax(340px, 1.1fr) 0.9fr; gap: var(--space-4); }
 .dropzone {
   min-height: 108px; border: 1px dashed var(--primary-bright); border-radius: 8px;
   display: flex; align-items: center; gap: 14px; padding: 18px;
@@ -459,7 +476,6 @@ select:focus-visible,
 .warning-icon { color: var(--warning); }
 .import-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 
-.error-panel, .grid-panel, .warning-panel { padding: 18px; }
 .error-panel .panel-title, .grid-panel .panel-title, .warning-panel .panel-title { margin-bottom: 14px; }
 .warning-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
 .table-scroll { overflow: auto; }
@@ -645,12 +661,6 @@ button.shift-chip:disabled { cursor: default; }
 .app-shell.product-dashboard .toolbar > span {
   gap: 8px;
 }
-/* Mesmo padding de `.content-grid .panel` (20px) — o Dashboard tinha dois
- * valores de card diferentes (18px aqui, 20px lá), o que deixava o
- * toolbar da tela Usuários visualmente colado na borda do painel. */
-.app-shell.product-dashboard .grid-panel {
-  padding: 20px;
-}
 
 .status-badge, .read-only-badge, .live-badge {
   display: inline-flex; align-items: center; gap: 6px; border-radius: 6px;
@@ -663,7 +673,7 @@ button.shift-chip:disabled { cursor: default; }
 .status-badge.neutral { color: var(--muted); background: var(--surface-muted); }
 .live-badge i { width: 7px; height: 7px; margin: 0; }
 
-.scale-record { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 18px; padding: 18px; }
+.scale-record { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--space-5); padding: var(--space-5); }
 .scale-period { width: 62px; height: 62px; display: grid; place-content: center; text-align: center; background: var(--primary-soft); border-radius: 8px; color: var(--primary-bright); }
 .scale-period span, .scale-period strong { display: block; }
 .scale-period span { font-size: 9px; font-weight: 800; letter-spacing: 0.08em; }
@@ -678,7 +688,7 @@ button.shift-chip:disabled { cursor: default; }
   font-weight: 800;
 }
 .scale-actions { display: flex; gap: 8px; }
-.publication-history-panel { margin-top: 16px; padding: 20px; }
+.publication-history-panel { margin-top: var(--space-4); padding: var(--space-5); }
 .publication-history-list { margin-top: 18px; display: grid; }
 .publication-history-entry + .publication-history-entry { border-top: 1px solid var(--border); }
 .publication-history-item {
@@ -776,7 +786,7 @@ button.shift-chip:disabled { cursor: default; }
 .alert.error { color: var(--danger); background: var(--danger-soft); border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); }
 .alert.warning { color: var(--warning); background: var(--warning-soft); border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent); }
 
-.modal-backdrop { position: fixed; inset: 0; background: rgba(3, 8, 16, 0.64); display: grid; place-items: center; padding: 20px; z-index: 200; backdrop-filter: blur(4px); overflow-y: auto; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(3, 8, 16, 0.64); display: grid; place-items: center; padding: var(--space-5); z-index: 200; backdrop-filter: blur(4px); overflow-y: auto; }
 .edit-modal {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -785,8 +795,22 @@ button.shift-chip:disabled { cursor: default; }
   max-width: 100%;
   max-height: min(88vh, 780px);
   overflow-y: auto;
-  padding: 20px;
+  padding: var(--space-5);
   box-shadow: var(--shadow);
+}
+/*
+ * Respiro padrão entre header/conteúdo/timeline/ações de qualquer modal —
+ * sem isto, blocos como `.troca-comparacao` + `.alert` (nenhum dos dois com
+ * margem própria "pra cima") ficavam colados um no outro. `:where()` zera a
+ * especificidade da regra inteira, então qualquer classe de conteúdo com
+ * margin-top próprio (`.rollback-actions`, `.troca-historico`, `.code-picker`
+ * etc.) continua prevalecendo — isto só preenche quem não define a própria.
+ */
+:where(.edit-modal) > :where(* + *) {
+  margin-top: var(--space-4);
+}
+@media (max-width: 480px) {
+  .edit-modal { padding: var(--space-4); }
 }
 .code-picker { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 18px; }
 .code-picker > button { border: 1px solid var(--border); background: var(--surface-muted); min-height: 48px; border-radius: 7px; display: flex; align-items: center; gap: 10px; padding: 8px; cursor: pointer; text-align: left; }
@@ -837,7 +861,7 @@ button.shift-chip:disabled { cursor: default; }
 .legend-row { display: flex; gap: 10px 16px; flex-wrap: wrap; margin-top: 14px; color: var(--text); font-size: 12px; }
 .legend-row > span { display: inline-flex; align-items: center; gap: 7px; }
 .legend-row .shift-chip { min-width: 32px; min-height: 24px; font-size: 11px; }
-.schedule-legend { padding: 16px 18px; }
+.schedule-legend { padding: var(--space-4) var(--space-5); }
 .schedule-legend-title {
   margin: 0;
   font-size: 11px;
@@ -1094,7 +1118,7 @@ button.shift-chip:disabled { cursor: default; }
 .selected-day-info small { margin-top: 6px; color: var(--muted); line-height: 1.45; }
 .agenda-list {
   display: grid;
-  gap: 7px;
+  gap: var(--space-2);
   max-height: 620px;
   padding-right: 4px;
   overflow: auto;
@@ -1368,6 +1392,12 @@ button.shift-chip:disabled { cursor: default; }
 }
 
 @media (max-width: 780px) {
+  /* Área de toque mínima em qualquer largura mobile — vale para os botões
+   * de ação das telas de Trocas (App e Dashboard) e para qualquer outro
+   * primary/secondary-button do produto. `.compact-button` fica de fora de
+   * propósito: é a ação densa de linha (rollback, adicionar alias) que
+   * precisa continuar pequena mesmo no mobile. */
+  .primary-button, .secondary-button:not(.compact-button) { min-height: 44px; }
   .app-shell, .app-shell.sidebar-collapsed { display: block; }
   .sidebar { position: fixed; left: -260px; width: 238px; transition: left 180ms ease-out; box-shadow: var(--shadow); }
   .sidebar.mobile-open { left: 0; }
@@ -1385,8 +1415,8 @@ button.shift-chip:disabled { cursor: default; }
   .page-heading > button { width: 100%; }
   .grade-header-actions { justify-content: flex-start; }
   .grade-header-actions > button { flex: 1 1 auto; }
-  .metric-grid { grid-template-columns: 1fr 1fr; gap: 9px; }
-  .metric-grid article { padding: 14px; }
+  .metric-grid { grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+  .metric-grid article { padding: var(--space-4); }
   .two-columns, .today-grid { grid-template-columns: 1fr; }
   .import-summary { grid-template-columns: 1fr; }
   .import-summary > div { border-right: 0; border-bottom: 1px solid var(--border); }
@@ -1538,8 +1568,18 @@ button.shift-chip:disabled { cursor: default; }
     align-items: stretch;
     flex-direction: column;
   }
-  .segmented-control { width: 100%; }
-  .segmented-control button { flex: 1; justify-content: center; min-height: 40px; }
+  /* `flex: 1 0 auto` + `min-width: max-content` faz as abas dividirem o
+   * espaço igualmente quando cabem (como antes), mas em vez de espremer o
+   * texto quando não cabem (4 abas com contador, telas de 360-390px), o
+   * container rola na horizontal — nenhuma aba fica cortada ou quebrada. */
+  .segmented-control {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .segmented-control::-webkit-scrollbar { display: none; }
+  .segmented-control button { flex: 1 0 auto; min-width: max-content; justify-content: center; min-height: 44px; padding-inline: var(--space-3); }
   .schedule-explorer { grid-template-columns: 1fr; }
   .selected-day-card {
     position: static;
@@ -1631,7 +1671,7 @@ button.shift-chip:disabled { cursor: default; }
 
 /* Fase 3J-B — histórico e rollback do laboratório local. */
 @media (max-width: 700px) {
-  .publication-history-panel { padding: 15px; }
+  .publication-history-panel { padding: var(--space-4); }
   .publication-history-item {
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 10px;
@@ -2419,7 +2459,6 @@ button.shift-chip:disabled { cursor: default; }
 .app-shell.product-app .shift-group > div > article { padding: 12px 14px; }
 
 .app-shell.product-app .employee-team-screen .grid-panel {
-  padding: 20px;
   border-radius: 14px;
 }
 .app-shell.product-app .employee-team-screen .toolbar { margin-bottom: 16px; }
@@ -3654,6 +3693,21 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
  * ================================================================ */
 
 .content-grid.three-columns { grid-template-columns: repeat(3, 1fr); }
+
+/* --- Abas da tela Trocas (App): mesmo `.segmented-control` do Dashboard,
+ * só com respiro em relação ao cabeçalho da tela. --- */
+.troca-abas { margin-top: var(--space-1); }
+
+/* --- Lista de solicitações (App: Minhas/Para responder/Gestor/Histórico).
+ * Sem esta regra os `.troca-item-button` (que são `<button>`, display
+ * inline-block por padrão) ficavam lado a lado colados um no outro em vez
+ * de empilhados com respiro — container nunca tinha ganhado layout próprio. */
+.troca-lista {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
 
 /* --- Item de lista (App: Minhas/Para responder/Gestor/Histórico). --- */
 .troca-item-button {
