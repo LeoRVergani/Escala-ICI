@@ -357,9 +357,35 @@ select:focus-visible,
 .metric-grid span { font-size: 11px; }
 .metric-grid strong { display: block; font-size: 24px; margin: 9px 0 5px; letter-spacing: -0.035em; }
 .metric-grid small { font-size: 10px; }
-.content-grid { display: grid; gap: var(--space-5); }
-.content-grid + .content-grid { margin-top: var(--space-5); }
-.two-columns { grid-template-columns: 1.25fr 0.75fr; }
+/* Visão geral (Dashboard) — grade única de 12 colunas. Antes, a linha
+ * "Publicação/Próximas ações" (`.two-columns`, 1.25fr/0.75fr) e a linha
+ * "Alertas/Carga/Trocas" (`.three-columns`, repeat(3,1fr)) eram grids
+ * independentes com frações diferentes: as colunas de uma linha nunca
+ * alinhavam com as da outra, daí o efeito de blocos flutuando. Escopado em
+ * `.overview-dashboard` (tela Visão geral) para não afetar outras telas do
+ * Dashboard nem o app do colaborador, que só compartilham `.panel` /
+ * `.grid-panel` / `.metric-grid`. */
+.overview-dashboard .metric-grid { gap: var(--space-5); }
+.overview-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--space-5); }
+.overview-grid + .overview-grid { margin-top: var(--space-5); }
+.overview-span-3 { grid-column: span 3; }
+.overview-span-4 { grid-column: span 4; }
+.overview-span-8 { grid-column: span 8; }
+
+/* Cards de estado vazio/lista dentro da Visão geral: o `.grid-panel` vira
+ * coluna flex para que o conteúdo (lista ou estado vazio) preencha a altura
+ * que o grid já estica para bater com o card mais alto da linha, em vez de
+ * ficar preso no topo e sobrar um vão vazio embaixo. */
+.overview-dashboard .grid-panel { display: flex; flex-direction: column; }
+.overview-dashboard .grid-panel .notification-empty,
+.overview-dashboard .grid-panel .alert-summary-list,
+.overview-dashboard .grid-panel .carga-colaborador-list {
+  flex: 1;
+}
+.overview-dashboard .grid-panel .notification-empty span,
+.overview-dashboard .grid-panel .notification-empty strong {
+  max-width: 210px;
+}
 .publication-progress { margin-top: 22px; }
 .publication-progress > strong { display: block; font-size: 20px; letter-spacing: -0.015em; }
 .publication-progress > p { color: var(--muted); margin: 6px 0 0; font-size: 12px; line-height: 1.5; }
@@ -411,7 +437,7 @@ select:focus-visible,
   flex-direction: column;
   gap: var(--space-2);
   margin-top: var(--space-4);
-  max-height: 340px;
+  max-height: 300px;
   overflow-y: auto;
 }
 .carga-colaborador-item {
@@ -1384,6 +1410,8 @@ button.shift-chip:disabled { cursor: default; }
   .app-shell { grid-template-columns: 78px minmax(0, 1fr); }
   .brand-row > div:nth-child(2), .sidebar-nav button span, .system-status, .collapse-button span { display: none; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-span-3, .overview-span-4, .overview-span-8 { grid-column: span 2; }
   .import-panel { grid-template-columns: 1fr; }
   .file-row { grid-column: auto; }
   .import-actions { justify-content: flex-start; }
@@ -1417,7 +1445,12 @@ button.shift-chip:disabled { cursor: default; }
   .grade-header-actions > button { flex: 1 1 auto; }
   .metric-grid { grid-template-columns: 1fr 1fr; gap: var(--space-2); }
   .metric-grid article { padding: var(--space-4); }
-  .two-columns, .today-grid { grid-template-columns: 1fr; }
+  .today-grid { grid-template-columns: 1fr; }
+  .overview-dashboard .metric-grid { gap: var(--space-4); }
+  .overview-grid { grid-template-columns: 1fr; gap: var(--space-4); }
+  .overview-span-3, .overview-span-4, .overview-span-8 { grid-column: span 1; }
+  .overview-dashboard .panel,
+  .overview-dashboard .metric-grid article { padding: 16px; }
   .import-summary { grid-template-columns: 1fr; }
   .import-summary > div { border-right: 0; border-bottom: 1px solid var(--border); }
   .scale-record { grid-template-columns: auto 1fr; }
@@ -1605,6 +1638,8 @@ button.shift-chip:disabled { cursor: default; }
 
 @media (max-width: 480px) {
   .metric-grid { grid-template-columns: 1fr; }
+  .overview-dashboard .panel,
+  .overview-dashboard .metric-grid article { padding: 14px; }
   .topbar-actions { gap: 6px; }
   .today-hero { min-height: 228px; padding: 20px; }
   .today-hours strong { font-size: 44px; }
@@ -3684,15 +3719,13 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
  * Protótipo de troca de escala (docs/spec/TROCA_ESCALA_PLANO.md).
  *
  * Fase de planejamento + protótipo visual: reaproveita tokens e padrões
- * já existentes (.panel/.grid-panel/.content-grid, .status-badge,
+ * já existentes (.panel/.grid-panel, .status-badge,
  * .modal-backdrop/.edit-modal, .shift-chip[data-code], .metric-grid,
  * .segmented-control, .data-table) — nenhuma cor nova, nenhum componente
  * de card/tabela/modal reinventado do zero. Só o que genuinamente não
  * tinha equivalente (comparação lado a lado, linha do tempo do
  * histórico, assistente em passos) ganhou classe própria abaixo.
  * ================================================================ */
-
-.content-grid.three-columns { grid-template-columns: repeat(3, 1fr); }
 
 /* --- Abas da tela Trocas (App): mesmo `.segmented-control` do Dashboard,
  * só com respiro em relação ao cabeçalho da tela. --- */
@@ -3818,5 +3851,4 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
     text-align: left;
   }
   .troca-comparacao > svg { justify-self: center; transform: rotate(90deg); }
-  .content-grid.three-columns { grid-template-columns: 1fr; }
 }

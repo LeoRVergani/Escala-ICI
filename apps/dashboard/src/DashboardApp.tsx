@@ -1496,7 +1496,7 @@ export function DashboardApp() {
       )}
 
       {tela === 'visao' && (
-        <section>
+        <section className="overview-dashboard">
           <header className="page-heading">
             <div><p className="eyebrow">Operação SOC</p><h1>Visão geral</h1></div>
             <button className="primary-button" type="button" onClick={() => setTela('importar')}>
@@ -1509,8 +1509,8 @@ export function DashboardApp() {
             <article><span>Dias no período</span><strong>{totaisGerais.dias}</strong><small>fechamento 26 → 25</small></article>
             <article><span>Horas planejadas</span><strong>{totaisGerais.horas}</strong><small>recalculadas dos dias</small></article>
           </div>
-          <div className="content-grid two-columns">
-            <article className="panel">
+          <div className="overview-grid">
+            <article className="panel overview-span-8">
               <div className="panel-title"><div><h2>Publicação da escala</h2><p>Disponibilidade no aplicativo</p></div><ShieldCheck /></div>
               <div className={`publication-progress ${resumoPublicacao.estado}`}>
                 <strong>{resumoPublicacao.titulo}</strong>
@@ -1518,21 +1518,21 @@ export function DashboardApp() {
                 <div><i style={{ width: documentos.length ? `${(publicados.length / documentos.length) * 100}%` : '0%' }} /></div>
               </div>
             </article>
-            <article className="panel quick-actions">
+            <article className="panel quick-actions overview-span-4">
               <div className="panel-title"><div><h2>Próximas ações</h2><p>Fluxo recomendado</p></div></div>
               <button type="button" onClick={() => setTela('importar')}><UploadCloud /> Validar nova planilha <ArrowUpRight /></button>
               <button type="button" onClick={() => setTela('grade')}><Pencil /> Revisar a grade <ArrowUpRight /></button>
             </article>
           </div>
-          <div className="content-grid three-columns">
-            <article className="panel grid-panel">
+          <div className="overview-grid">
+            <article className="panel grid-panel overview-span-4">
               <div className="panel-title">
                 <div><h2>Alertas da escala</h2><p>Pontos que merecem atenção do gestor</p></div>
                 <AlertTriangle />
               </div>
               {alertasVisiveis.length === 0 ? (
                 <div className="notification-empty alert-summary-empty">
-                  <ShieldCheck size={22} />
+                  <ShieldCheck size={18} />
                   <strong>Nenhum alerta encontrado</strong>
                   <span>A escala atual não possui inconsistências conhecidas.</span>
                 </div>
@@ -1564,14 +1564,14 @@ export function DashboardApp() {
                 </>
               )}
             </article>
-            <article className="panel grid-panel">
+            <article className="panel grid-panel overview-span-4">
               <div className="panel-title">
                 <div><h2>Carga por colaborador</h2><p>Distribuição de dias e horas no período</p></div>
                 <Users />
               </div>
               {cargaColaboradores.length === 0 ? (
                 <div className="notification-empty">
-                  <Users size={22} />
+                  <Users size={18} />
                   <span>Nenhum colaborador na grade deste período.</span>
                 </div>
               ) : (
@@ -1600,14 +1600,14 @@ export function DashboardApp() {
                 </div>
               )}
             </article>
-            <article className="panel grid-panel">
+            <article className="panel grid-panel overview-span-4">
               <div className="panel-title">
                 <div><h2>Trocas pendentes</h2><p>Aguardando decisão do gestor</p></div>
                 <ArrowLeftRight />
               </div>
               {trocasPendentesGestor.length === 0 ? (
                 <div className="notification-empty">
-                  <ArrowLeftRight size={22} />
+                  <ArrowLeftRight size={18} />
                   <span>Nenhuma troca aguardando decisão agora.</span>
                 </div>
               ) : (
