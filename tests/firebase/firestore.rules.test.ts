@@ -65,6 +65,14 @@ const usuarios = {
     equipeId: 'EQ_CODB_NOC',
     nivelHierarquico: 6,
   },
+  admin: {
+    login: 'paula.ferraz',
+    nome: 'Paula Ferraz',
+    email: 'paula.ferraz@teste.local',
+    equipeId: 'EQ_ADMIN',
+    nivelHierarquico: 0,
+    perfil: 'ADMIN_SISTEMA',
+  },
 } as const;
 
 function autenticarComo(usuario: { login: string; email: string }) {
@@ -916,5 +924,238 @@ describe('regras Firestore do Escala ICI', () => {
         ],
       }));
     });
+  });
+});
+
+/**
+ * ADMIN_SISTEMA — perfil explícito com fallback (não quebra usuários
+ * existentes), escopo global cross-equipe, e a trava contra
+ * escalonamento de privilégio na coleção `usuarios`. `usuarios.admin`
+ * (login `paula.ferraz`) é o único fixture com `perfil` definido — todos
+ * os outros (gestor/colaborador/colega/externo) continuam sem o campo,
+ * de propósito: a suíte inteira acima já é o teste de regressão do
+ * fallback, e precisa continuar passando sem alteração.
+ */
+describe('ADMIN_SISTEMA — perfil explícito e acesso global', () => {
+  it('permite ao admin listar notificacoesTroca de outra equipe (filtro composto equipeId+destinatarioLogin, exigido pela regra); nega para colaborador de fora', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(
+        doc(contexto.firestore(), 'notificacoesTroca', 'notif-colega'),
+        notificacaoTroca({ id: 'notif-colega', destinatarioLogin: usuarios.colega.login }),
+      );
+    });
+    const admin = autenticarComo(usuarios.admin);
+    const resultado = await assertSucceeds(getDocs(query(
+      collection(admin, 'notificacoesTroca'),
+      where('equipeId', '==', 'EQ_COSI_SOC'),
+      where('destinatarioLogin', '==', usuarios.colega.login),
+    )));
+    expect(resultado.docs.map((d) => d.id)).toContain('notif-colega');
+
+    const colaborador = autenticarComo(usuarios.colaborador);
+    await assertFails(getDocs(query(
+      collection(colaborador, 'notificacoesTroca'),
+      where('equipeId', '==', 'EQ_CODB_NOC'),
+      where('destinatarioLogin', '==', usuarios.externo.login),
+    )));
+  });
+
+  it('lê usuarios, turnosMes e trocasEscala de uma equipe que não é a dele', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    await assertSucceeds(getDoc(doc(admin, 'usuarios', usuarios.colaborador.login)));
+    await assertSucceeds(getDoc(doc(admin, 'turnosMes', 'publicada-soc')));
+    await assertSucceeds(getDoc(doc(admin, 'turnosMes', 'publicada-codb-noc')));
+    await assertSucceeds(getDoc(doc(admin, 'trocasEscala', 'troca-1')));
+  });
+
+  it('cria rascunho para uma equipe da qual não é membro', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    await assertSucceeds(setDoc(
+      doc(admin, 'rascunhosTurnosMes', 'rascunho-admin-codb-noc'),
+      escala(usuarios.externo.login, 'EQ_CODB_NOC', 'RASCUNHO'),
+    ));
+  });
+
+  it('gestor não-admin continua bloqueado fora da própria equipe (regressão do podeOperarNaEquipe)', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(getDoc(doc(gestor, 'turnosMes', 'publicada-codb-noc')));
+    await assertFails(setDoc(
+      doc(gestor, 'rascunhosTurnosMes', 'rascunho-gestor-codb-noc'),
+      escala(usuarios.externo.login, 'EQ_CODB_NOC', 'RASCUNHO'),
+    ));
+  });
+
+  it('impede o gestor de setar perfil ou escopo em si mesmo', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(updateDoc(doc(gestor, 'usuarios', usuarios.gestor.login), {
+      perfil: 'ADMIN_SISTEMA',
+    }));
+    await assertFails(updateDoc(doc(gestor, 'usuarios', usuarios.gestor.login), {
+      escopo: 'GLOBAL',
+    }));
+  });
+
+  it('impede o gestor de setar perfil ou escopo em um colega da própria equipe', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(updateDoc(doc(gestor, 'usuarios', usuarios.colaborador.login), {
+      perfil: 'GESTOR_EQUIPE',
+    }));
+    await assertFails(updateDoc(doc(gestor, 'usuarios', usuarios.colaborador.login), {
+      escopo: 'GLOBAL',
+    }));
+  });
+
+  it('impede o gestor de criar um novo usuário com perfil ADMIN_SISTEMA ou escopo GLOBAL', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    const base = {
+      login: 'novo.login',
+      nome: 'Novo Login',
+      email: 'novo.login@empresa.com',
+      cargo: 'ANALISTA_SOC',
+      equipeId: 'EQ_COSI_SOC',
+      gestorUid: usuarios.gestor.login,
+      nivelHierarquico: 6,
+      turnoPadrao: 'M',
+      ativo: true,
+    };
+    await assertFails(setDoc(doc(gestor, 'usuarios', 'novo.login'), {
+      ...base,
+      perfil: 'ADMIN_SISTEMA',
+    }));
+    await assertFails(setDoc(doc(gestor, 'usuarios', 'novo.login'), {
+      ...base,
+      escopo: 'GLOBAL',
+    }));
+  });
+
+  it('permite ao gestor criar um novo usuário sem perfil/escopo, que herda o fallback', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertSucceeds(setDoc(doc(gestor, 'usuarios', 'novo.login'), {
+      login: 'novo.login',
+      nome: 'Novo Login',
+      email: 'novo.login@empresa.com',
+      cargo: 'ANALISTA_SOC',
+      equipeId: 'EQ_COSI_SOC',
+      gestorUid: usuarios.gestor.login,
+      nivelHierarquico: 6,
+      turnoPadrao: 'M',
+      ativo: true,
+    }));
+  });
+
+  it('permite ao admin conceder perfil a um colaborador existente e realocar de equipe', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    await assertSucceeds(updateDoc(doc(admin, 'usuarios', usuarios.colaborador.login), {
+      perfil: 'GESTOR_EQUIPE',
+    }));
+    await assertSucceeds(updateDoc(doc(admin, 'usuarios', usuarios.colaborador.login), {
+      equipeId: 'EQ_CODB_NOC',
+    }));
+  });
+
+  it('permite ao admin criar um segundo ADMIN_SISTEMA', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    await assertSucceeds(setDoc(doc(admin, 'usuarios', 'segundo.admin'), {
+      login: 'segundo.admin',
+      nome: 'Segundo Admin',
+      email: 'segundo.admin@teste.local',
+      cargo: 'ADMIN',
+      equipeId: 'EQ_ADMIN',
+      gestorUid: null,
+      nivelHierarquico: 0,
+      turnoPadrao: 'ADM',
+      ativo: true,
+      perfil: 'ADMIN_SISTEMA',
+      escopo: 'GLOBAL',
+    }));
+  });
+
+  it('permite ao admin excluir usuario, troca e notificação; nega para gestor e colaborador', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(
+        doc(contexto.firestore(), 'notificacoesTroca', 'notif-para-excluir'),
+        notificacaoTroca({ id: 'notif-para-excluir' }),
+      );
+    });
+    const admin = autenticarComo(usuarios.admin);
+    const gestor = autenticarComo(usuarios.gestor);
+    const colaborador = autenticarComo(usuarios.colaborador);
+
+    await assertFails(deleteDoc(doc(gestor, 'trocasEscala', 'troca-1')));
+    await assertFails(deleteDoc(doc(colaborador, 'notificacoesTroca', 'notif-para-excluir')));
+    await assertFails(deleteDoc(doc(gestor, 'usuarios', usuarios.colaborador.login)));
+
+    await assertSucceeds(deleteDoc(doc(admin, 'notificacoesTroca', 'notif-para-excluir')));
+    await assertSucceeds(deleteDoc(doc(admin, 'trocasEscala', 'troca-1')));
+    await assertSucceeds(deleteDoc(doc(admin, 'usuarios', usuarios.colaborador.login)));
+  });
+
+  /**
+   * Reproduz o fluxo real de `excluirUsuario()` (lib/firebase/
+   * adminRepository.ts): list (getDocs com filtro composto equipeId+campo
+   * do candidato) seguido de delete em lote — para um candidato de uma
+   * equipe diferente da do admin (`EQ_ADMIN`), não só a mesma equipe por
+   * coincidência.
+   */
+  it('permite ao admin executar list+delete em lote (padrão de excluirUsuario) para candidato de outra equipe', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(
+        doc(db, 'notificacoesTroca', 'notif-externo'),
+        notificacaoTroca({
+          id: 'notif-externo',
+          equipeId: 'EQ_CODB_NOC',
+          destinatarioLogin: usuarios.externo.login,
+          criadoPorLogin: usuarios.externo.login,
+        }),
+      );
+    });
+    const admin = autenticarComo(usuarios.admin);
+
+    const encontradas = await assertSucceeds(getDocs(query(
+      collection(admin, 'notificacoesTroca'),
+      where('equipeId', '==', 'EQ_CODB_NOC'),
+      where('destinatarioLogin', '==', usuarios.externo.login),
+    )));
+    expect(encontradas.docs.map((d) => d.id)).toEqual(['notif-externo']);
+
+    await Promise.all(encontradas.docs.map((snapshot) => assertSucceeds(deleteDoc(snapshot.ref))));
+  });
+
+  it('equipes/setores: leitura livre para autenticado, escrita só admin, delete sempre negado', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    const gestor = autenticarComo(usuarios.gestor);
+    const equipe = { id: 'EQ_NOVA', nome: 'Nova Equipe', sigla: 'NOVA', ativa: true };
+    const setor = { id: 'SET_NOVO', nome: 'Novo Setor', sigla: 'NOVO', ativo: true };
+
+    await assertSucceeds(setDoc(doc(admin, 'equipes', equipe.id), equipe));
+    await assertSucceeds(setDoc(doc(admin, 'setores', setor.id), setor));
+    await assertFails(setDoc(doc(gestor, 'equipes', 'EQ_OUTRA'), { id: 'EQ_OUTRA', nome: 'x', sigla: 'x', ativa: true }));
+    await assertFails(setDoc(doc(gestor, 'setores', 'SET_OUTRO'), { id: 'SET_OUTRO', nome: 'x', sigla: 'x', ativo: true }));
+    await assertSucceeds(getDoc(doc(gestor, 'equipes', equipe.id)));
+    await assertFails(deleteDoc(doc(admin, 'equipes', equipe.id)));
+    await assertFails(deleteDoc(doc(admin, 'setores', setor.id)));
+  });
+
+  it('impede ANALISTA_SOC de acessar auditoriaAdmin; permite ao admin criar registro com atorRealLogin correto', async () => {
+    const colaborador = autenticarComo(usuarios.colaborador);
+    const admin = autenticarComo(usuarios.admin);
+    const registro = {
+      atorRealLogin: usuarios.admin.login,
+      atorRealNome: usuarios.admin.nome,
+      atorRealPerfil: 'ADMIN_SISTEMA',
+      atorSimuladoLogin: usuarios.gestor.login,
+      atorSimuladoNome: usuarios.gestor.nome,
+      atorSimuladoPerfil: 'GESTOR_EQUIPE',
+      equipeId: usuarios.gestor.equipeId,
+      acao: 'PUBLICAR_ESCALA',
+      em: '2026-08-07T13:00:00.000Z',
+    };
+    await assertFails(setDoc(doc(colaborador, 'auditoriaAdmin', 'evento-1'), registro));
+    await assertFails(setDoc(doc(admin, 'auditoriaAdmin', 'evento-2'), {
+      ...registro,
+      atorRealLogin: usuarios.gestor.login,
+    }));
+    await assertSucceeds(setDoc(doc(admin, 'auditoriaAdmin', 'evento-3'), registro));
   });
 });

@@ -28,8 +28,42 @@ service cloud.firestore {
       return eu().equipeId;
     }
 
+    /**
+     * Espelha `perfilEfetivo()` de lib/sessao.ts. `.get(chave, default)` é
+     * obrigatório — acessar `usuarioDoc.perfil` direto em documento legado
+     * sem o campo é erro de avaliação em Rules (não `null`), o que
+     * reprovaria a expressão inteira para TODO usuário existente.
+     */
+    function perfilDe(usuarioDoc) {
+      return usuarioDoc.get('perfil', null) != null
+        ? usuarioDoc.perfil
+        : (usuarioDoc.nivelHierarquico <= 5 ? 'GESTOR_EQUIPE' : 'ANALISTA_SOC');
+    }
+
+    function meuPerfil() {
+      return perfilDe(eu());
+    }
+
+    function souAdminSistema() {
+      return autenticado() && meuPerfil() == 'ADMIN_SISTEMA';
+    }
+
+    /**
+     * Mantido com o mesmo nome para não obrigar reescrever toda regra que já
+     * chama souGestor() — agora também é true para ADMIN_SISTEMA, que herda
+     * todo poder de gestor mais o cross-equipe de podeOperarNaEquipe().
+     */
     function souGestor() {
-      return autenticado() && eu().nivelHierarquico <= 5;
+      return autenticado() && (meuPerfil() == 'GESTOR_EQUIPE' || souAdminSistema());
+    }
+
+    /**
+     * Substitui toda comparação "X.equipeId == minhaEquipe()" espalhada pelo
+     * arquivo: admin sempre passa, independente da equipe do documento;
+     * qualquer outro perfil só passa se for a própria equipe.
+     */
+    function podeOperarNaEquipe(equipeId) {
+      return autenticado() && (minhaEquipe() == equipeId || souAdminSistema());
     }
 
     match /config/{doc} {
@@ -41,126 +75,189 @@ service cloud.firestore {
       allow read: if autenticado()
         && (
           loginDoAuth() == login
-          || resource.data.equipeId == minhaEquipe()
+          || podeOperarNaEquipe(resource.data.equipeId)
         );
 
       allow update: if autenticado()
         && (
+          // autoatualização: só `nome`, como hoje — perfil/escopo nunca no
+          // payload (nem para "reafirmar" o valor atual).
           (
             loginDoAuth() == login
             && request.resource.data.diff(resource.data)
               .affectedKeys().hasOnly(['nome'])
           )
+
+          // admin: qualquer campo, qualquer equipe, inclusive perfil/escopo
+          // e realocação de equipe — só `login` (o campo) fica imutável.
+          || (
+            souAdminSistema()
+            && request.resource.data.login == resource.data.login
+          )
+
+          // gestor não-admin: exatamente como hoje (equipeId/login
+          // imutáveis), MAIS a trava nova — não pode tocar perfil nem
+          // escopo de ninguém, nem do próprio time.
           || (
             souGestor()
+            && !souAdminSistema()
             && resource.data.equipeId == minhaEquipe()
             && request.resource.data.equipeId == resource.data.equipeId
             && request.resource.data.login == resource.data.login
+            && request.resource.data.get('perfil', null) == resource.data.get('perfil', null)
+            && request.resource.data.get('escopo', null) == resource.data.get('escopo', null)
           )
         );
 
-      allow create: if souGestor()
-        && request.resource.data.equipeId == minhaEquipe()
-        && request.resource.data.login == login;
+      allow create: if autenticado()
+        && request.resource.data.login == login
+        && (
+          // admin cria em qualquer equipe, com qualquer perfil/escopo —
+          // inclusive um novo ADMIN_SISTEMA.
+          souAdminSistema()
 
-      allow delete: if false;
+          || (
+            souGestor()
+            && !souAdminSistema()
+            && request.resource.data.equipeId == minhaEquipe()
+            // gestor não-admin NUNCA pode setar perfil/escopo na criação —
+            // nem um valor "inofensivo": o campo tem que estar ausente do
+            // payload. Novo usuário cai no fallback (perfilEfetivo), igual
+            // hoje.
+            && request.resource.data.get('perfil', null) == null
+            && request.resource.data.get('escopo', null) == null
+          )
+        );
+
+      allow delete: if souAdminSistema();
     }
 
     match /equipes/{equipeId} {
       allow read: if autenticado();
-      allow write: if false;
+      // Antes: `if false` (nunca gravável via client, só seed server-side).
+      // Agora: ADMIN_SISTEMA pode gerenciar equipes pelo app.
+      allow create, update: if souAdminSistema();
+      // Sem delete no MVP: nada no app hoje apaga equipe; desativar é
+      // `ativa: false`. Dezenas de outras coleções referenciam o ID.
+      allow delete: if false;
+    }
+
+    /** Cadastro administrativo simples, mesmas regras de `equipes`. */
+    match /setores/{setorId} {
+      allow read: if autenticado();
+      allow create, update: if souAdminSistema();
+      allow delete: if false;
+    }
+
+    /**
+     * Auditoria do modo simulação de gestor — um doc imutável por ação,
+     * mesmo padrão de `historicoPublicacoes`. `atorRealLogin` sempre tem
+     * que ser quem está de fato autenticado (nunca o ator simulado).
+     */
+    match /auditoriaAdmin/{id} {
+      allow read: if souAdminSistema();
+      allow create: if souAdminSistema()
+        && request.resource.data.atorRealLogin == loginDoAuth();
+      allow update, delete: if false;
     }
 
     match /tiposTurno/{docId} {
       allow read: if autenticado();
       allow write: if souGestor()
-        && request.resource.data.equipeId == minhaEquipe();
+        && podeOperarNaEquipe(request.resource.data.equipeId);
     }
 
     match /turnosMes/{docId} {
       allow read: if autenticado()
-        && resource.data.equipeId == minhaEquipe()
+        && podeOperarNaEquipe(resource.data.equipeId)
         && (
           resource.data.status == 'PUBLICADA'
           || souGestor()
         );
 
       allow create: if souGestor()
-        && request.resource.data.equipeId == minhaEquipe()
+        && podeOperarNaEquipe(request.resource.data.equipeId)
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.status == 'PUBLICADA';
 
       allow update: if souGestor()
-        && resource.data.equipeId == minhaEquipe()
+        && podeOperarNaEquipe(resource.data.equipeId)
         && request.resource.data.equipeId == resource.data.equipeId
         && request.resource.data.login == resource.data.login
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.status == 'PUBLICADA';
 
       allow delete: if souGestor()
-        && resource.data.equipeId == minhaEquipe();
+        && podeOperarNaEquipe(resource.data.equipeId);
     }
 
     match /rascunhosTurnosMes/{docId} {
       allow read: if souGestor()
-        && resource.data.equipeId == minhaEquipe();
+        && podeOperarNaEquipe(resource.data.equipeId);
 
       allow create, update: if souGestor()
-        && request.resource.data.equipeId == minhaEquipe()
+        && podeOperarNaEquipe(request.resource.data.equipeId)
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.status == 'RASCUNHO';
 
       allow delete: if souGestor()
-        && resource.data.equipeId == minhaEquipe();
+        && podeOperarNaEquipe(resource.data.equipeId);
     }
 
     match /publicacoesEscala/{id} {
       allow read: if souGestor()
         && (
           resource == null
-          || resource.data.equipeId == minhaEquipe()
+          || podeOperarNaEquipe(resource.data.equipeId)
         );
       allow create, update: if souGestor()
-        && request.resource.data.equipeId == minhaEquipe();
+        && podeOperarNaEquipe(request.resource.data.equipeId);
       allow delete: if false;
     }
 
     match /historicoPublicacoes/{id} {
       allow read: if souGestor()
-        && resource.data.equipeId == minhaEquipe();
+        && podeOperarNaEquipe(resource.data.equipeId);
       allow create: if souGestor()
-        && request.resource.data.equipeId == minhaEquipe();
+        && podeOperarNaEquipe(request.resource.data.equipeId);
       allow update, delete: if false;
     }
 
     match /versoesEscala/{id} {
       allow read: if souGestor()
-        && resource.data.equipeId == minhaEquipe();
+        && podeOperarNaEquipe(resource.data.equipeId);
       allow create: if souGestor()
-        && request.resource.data.equipeId == minhaEquipe()
+        && podeOperarNaEquipe(request.resource.data.equipeId)
         && request.resource.data.status == 'PUBLICADA';
       allow update, delete: if false;
     }
 
     match /eventosEscala/{id} {
       allow read: if autenticado()
-        && resource.data.equipeId == minhaEquipe()
+        && podeOperarNaEquipe(resource.data.equipeId)
         && (
           souGestor()
           || resource.data.usuarioUid == loginDoAuth()
         );
       allow create: if souGestor()
-        && request.resource.data.equipeId == minhaEquipe()
+        && podeOperarNaEquipe(request.resource.data.equipeId)
         && request.resource.data.publicadoPor == loginDoAuth()
         && request.resource.data.alteracoes is list;
       allow update, delete: if false;
     }
 
     match /importacoes/{id} {
+      // `read` sem filtro de equipe é pré-existente (nenhum código do app
+      // hoje lê/lista `importacoes` — só escreve, em writeRepository.ts) e
+      // fica assim de propósito: introduzir `resource.data.equipeId` num
+      // `read` que cobre `list` reabriria o mesmo risco de erro de
+      // avaliação que exigiu o hotfix de get/list separado em
+      // `trocasEscala` (ver comentário abaixo), por um ganho prático nulo
+      // hoje. `souGestor()` já cobre ADMIN_SISTEMA.
       allow read: if souGestor();
       allow create: if souGestor()
         && request.resource.data.enviadoPor == loginDoAuth()
-        && request.resource.data.equipeId == minhaEquipe();
+        && podeOperarNaEquipe(request.resource.data.equipeId);
       allow update, delete: if false;
     }
 
@@ -193,15 +290,18 @@ service cloud.firestore {
      */
     match /trocasEscala/{id} {
       allow get: if autenticado()
-        && resource.data.equipeId == minhaEquipe()
+        && podeOperarNaEquipe(resource.data.equipeId)
         && (
           souGestor()
           || resource.data.solicitanteLogin == loginDoAuth()
           || resource.data.destinatarioLogin == loginDoAuth()
         );
 
-      allow list: if autenticado() && resource.data.equipeId == minhaEquipe();
+      allow list: if autenticado() && podeOperarNaEquipe(resource.data.equipeId);
 
+      // Autoatendimento — quem cria age como membro da própria equipe, não
+      // como admin cross-equipe. Deliberadamente não usa
+      // podeOperarNaEquipe().
       allow create: if autenticado()
         && request.resource.data.equipeId == minhaEquipe()
         && request.resource.data.solicitanteLogin == loginDoAuth()
@@ -209,7 +309,7 @@ service cloud.firestore {
         && request.resource.data.status == 'PENDENTE_USUARIO';
 
       allow update: if autenticado()
-        && resource.data.equipeId == minhaEquipe()
+        && podeOperarNaEquipe(resource.data.equipeId)
         && request.resource.data.historico.size() > resource.data.historico.size()
         && (
           (
@@ -229,7 +329,10 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if false;
+      // Era `if false` — ADMIN_SISTEMA precisa poder apagar trocas
+      // vinculadas a um usuário excluído (limpeza seletiva, ver
+      // lib/firebase/adminRepository.ts).
+      allow delete: if souAdminSistema();
     }
 
     /**
@@ -242,7 +345,24 @@ service cloud.firestore {
      * em regras não veem escritas pendentes do mesmo lote).
      */
     match /notificacoesTroca/{id} {
-      allow read: if autenticado() && resource.data.destinatarioLogin == loginDoAuth();
+      // Admin precisa enumerar (list/get) notificações de qualquer usuário
+      // para poder excluir as vinculadas a uma conta removida — sem alargar
+      // a exposição para o resto da equipe (diferente de `trocasEscala`
+      // acima): só o próprio destinatário ou um admin de verdade.
+      //
+      // A checagem de admin só passa em `list` se a CONSULTA também filtrar
+      // por `equipeId` — confirmado com teste isolado no emulador: uma
+      // condição de `list` cujo campo não corresponde a nenhum `where()` da
+      // consulta (ex.: checar `equipeId` numa query só com
+      // `destinatarioLogin`) falha com "evaluation error" nesta coleção.
+      // Por isso `excluirUsuario()` (lib/firebase/adminRepository.ts)
+      // sempre inclui `where('equipeId', '==', ...)` além do filtro por
+      // login.
+      allow read: if autenticado()
+        && (
+          resource.data.destinatarioLogin == loginDoAuth()
+          || (resource.data.get('equipeId', null) != null && souAdminSistema())
+        );
 
       allow create: if autenticado()
         && request.resource.data.equipeId == minhaEquipe()
@@ -254,7 +374,22 @@ service cloud.firestore {
         && resource.data.destinatarioLogin == loginDoAuth()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lidaEm']);
 
-      allow delete: if false;
+      // Era `if false` — ADMIN_SISTEMA precisa poder apagar notificações
+      // vinculadas a um usuário excluído.
+      allow delete: if souAdminSistema();
     }
+
+    /**
+     * Riscos conscientemente aceitos nesta fase (não são bugs esquecidos):
+     *
+     * - `LEITURA` (PerfilUsuario) hoje equivale exatamente a ANALISTA_SOC —
+     *   nenhuma regra o restringe mais que isso; é um valor de enum
+     *   reservado para o futuro, sem comportamento próprio ainda.
+     * - Não existe caminho via rules para criar o primeiro ADMIN_SISTEMA
+     *   (`create` em usuarios exige souAdminSistema() já verdadeiro — mesmo
+     *   chicken-and-egg que o bootstrap do primeiro gestor sempre teve).
+     *   Resolvido fora das rules: edição manual do documento no Console do
+     *   Firestore (ver docs/operacao/BOOTSTRAP_ADMIN_STAGING.md).
+     */
   }
 }

@@ -1,6 +1,21 @@
 import type { TipoTurno, TurnosMes } from '@escala-ici/contrato';
 
 /**
+ * Perfil = O QUE o usuário pode fazer (autorização explícita). Diferente de
+ * `nivelHierarquico`, que é só posição/ordem organizacional e nunca deve,
+ * sozinho, autorizar uma ação sensível — ver `perfilEfetivo()` em
+ * `lib/sessao.ts`.
+ *
+ * - ADMIN_SISTEMA: acesso de leitura/escrita a todas as equipes do staging.
+ * - GESTOR_EQUIPE: poderes de gestor de hoje, restritos à própria equipe.
+ * - ANALISTA_SOC: colaborador comum.
+ * - LEITURA: reservado para uso futuro (hoje equivalente a ANALISTA_SOC).
+ */
+export type PerfilUsuario = 'ADMIN_SISTEMA' | 'GESTOR_EQUIPE' | 'ANALISTA_SOC' | 'LEITURA';
+
+export type EscopoUsuario = 'GLOBAL' | 'EQUIPE';
+
+/**
  * O `login` corporativo é a chave funcional e o ID do documento
  * `usuarios/{login}` — estável desde o cadastro, nunca muda. `uid` é
  * metadado interno opcional (o UID do Firebase Authentication, quando
@@ -21,6 +36,22 @@ export interface Usuario {
   ativo: boolean;
 
   /**
+   * Autorização explícita — ver `PerfilUsuario`. Opcional para não quebrar
+   * documentos existentes: quando ausente, `perfilEfetivo()` (lib/sessao.ts)
+   * deriva o comportamento de hoje a partir de `nivelHierarquico`. Só
+   * ADMIN_SISTEMA pode definir ou alterar este campo em qualquer usuário
+   * (ver firestore.rules).
+   */
+  perfil?: PerfilUsuario;
+
+  /**
+   * Alcance da autorização: 'GLOBAL' (todas as equipes — só faz sentido com
+   * perfil ADMIN_SISTEMA) ou 'EQUIPE' (restrito a `equipeId`, o padrão
+   * implícito de todo o resto do sistema). Ausência equivale a 'EQUIPE'.
+   */
+  escopo?: EscopoUsuario;
+
+  /**
    * Nomes alternativos vindos da planilha, usados apenas para comparação
    * normalizada na conciliação de importação (ver `lib/conciliacaoUsuarios.ts`).
    * Diferente de `loginAliases`, que são strings comparadas de forma exata
@@ -36,6 +67,14 @@ export interface Equipe {
   nome: string;
   sigla: string;
   ativa: boolean;
+}
+
+/** Cadastro administrativo simples, mesma forma de `Equipe`. */
+export interface Setor {
+  id: string;
+  nome: string;
+  sigla: string;
+  ativo: boolean;
 }
 
 export interface Importacao {

@@ -1,14 +1,33 @@
 import { describe, expect, it } from 'vitest';
 
+import type { Usuario } from './modelos';
 import {
   chavePreferenciaSessao,
   deveExibirRestauracao,
+  ehAdminSistema,
+  escopoEfetivo,
   estadoInicialSessao,
   nivelPermiteDashboard,
+  perfilEfetivo,
   podeIniciarListeners,
   preferenciaPadraoSessao,
   resolverManterConectado,
 } from './sessao';
+
+function usuarioBase(sobrescritas: Partial<Usuario> = {}): Usuario {
+  return {
+    login: 'fulano',
+    nome: 'Fulano',
+    email: 'fulano@empresa.com',
+    cargo: 'ANALISTA_SOC',
+    equipeId: 'EQ_SOC',
+    gestorUid: null,
+    nivelHierarquico: 6,
+    turnoPadrao: 'M',
+    ativo: true,
+    ...sobrescritas,
+  };
+}
 
 describe('preferência de sessão', () => {
   it('usa chaves distintas por produto', () => {
@@ -91,5 +110,42 @@ describe('nível hierárquico', () => {
   it('libera o dashboard somente para gestores', () => {
     expect(nivelPermiteDashboard(5)).toBe(true);
     expect(nivelPermiteDashboard(6)).toBe(false);
+  });
+});
+
+describe('perfilEfetivo', () => {
+  it('usa o perfil explícito quando definido, mesmo contradizendo nivelHierarquico', () => {
+    expect(perfilEfetivo(usuarioBase({ perfil: 'ADMIN_SISTEMA', nivelHierarquico: 6 }))).toBe('ADMIN_SISTEMA');
+    expect(perfilEfetivo(usuarioBase({ perfil: 'ANALISTA_SOC', nivelHierarquico: 1 }))).toBe('ANALISTA_SOC');
+  });
+
+  it('cai no fallback por nivelHierarquico quando perfil está ausente', () => {
+    expect(perfilEfetivo(usuarioBase({ nivelHierarquico: 5 }))).toBe('GESTOR_EQUIPE');
+    expect(perfilEfetivo(usuarioBase({ nivelHierarquico: 0 }))).toBe('GESTOR_EQUIPE');
+    expect(perfilEfetivo(usuarioBase({ nivelHierarquico: 6 }))).toBe('ANALISTA_SOC');
+  });
+
+  it('nunca retorna ADMIN_SISTEMA por fallback — só quando explícito', () => {
+    for (const nivelHierarquico of [-1, 0, 1, 5, 6, 10]) {
+      expect(perfilEfetivo(usuarioBase({ nivelHierarquico }))).not.toBe('ADMIN_SISTEMA');
+    }
+  });
+});
+
+describe('escopoEfetivo', () => {
+  it('usa o escopo explícito quando definido', () => {
+    expect(escopoEfetivo(usuarioBase({ escopo: 'GLOBAL' }))).toBe('GLOBAL');
+  });
+
+  it('cai em EQUIPE quando ausente', () => {
+    expect(escopoEfetivo(usuarioBase())).toBe('EQUIPE');
+  });
+});
+
+describe('ehAdminSistema', () => {
+  it('é true somente com perfil ADMIN_SISTEMA explícito', () => {
+    expect(ehAdminSistema(usuarioBase({ perfil: 'ADMIN_SISTEMA' }))).toBe(true);
+    expect(ehAdminSistema(usuarioBase({ nivelHierarquico: 0 }))).toBe(false);
+    expect(ehAdminSistema(usuarioBase({ perfil: 'GESTOR_EQUIPE' }))).toBe(false);
   });
 });

@@ -1,4 +1,14 @@
+import type { PerfilUsuario, EscopoUsuario, Usuario } from './modelos';
+
 export type TipoProduto = 'dashboard' | 'app';
+
+/**
+ * O sistema hoje só opera sobre uma única competência ativa por vez — usada
+ * na carga inicial de dados (`autenticar()`/`carregarDadosDaEquipe` no
+ * Dashboard) e na trava de "não excluir a competência atual" (ver
+ * `podeExcluirCompetencia` em `lib/adminGuards.ts`).
+ */
+export const COMPETENCIA_ATUAL = '2026-08';
 
 /**
  * Estados possíveis da restauração de sessão do Firebase Auth.
@@ -77,4 +87,28 @@ export function podeIniciarListeners(opcoes: {
 
 export function nivelPermiteDashboard(nivelHierarquico: number): boolean {
   return nivelHierarquico <= NIVEL_MAXIMO_GESTOR;
+}
+
+/**
+ * Fonte única da verdade de autorização. Se `usuario.perfil` já estiver
+ * definido, ele manda — mesmo que contradiga `nivelHierarquico`. Se estiver
+ * ausente, cai no comportamento de hoje: nivelHierarquico <= 5 vira
+ * equivalente a gestor, senão equivalente a colaborador comum. Espelhado
+ * 1:1 em `firestore.rules` na função `perfilDe()` — qualquer mudança aqui
+ * exige a mudança gêmea lá.
+ */
+export function perfilEfetivo(usuario: Usuario): PerfilUsuario {
+  if (usuario.perfil) {
+    return usuario.perfil;
+  }
+  return usuario.nivelHierarquico <= NIVEL_MAXIMO_GESTOR ? 'GESTOR_EQUIPE' : 'ANALISTA_SOC';
+}
+
+/** Ausência de `escopo` equivale a 'EQUIPE' — o comportamento de hoje. */
+export function escopoEfetivo(usuario: Usuario): EscopoUsuario {
+  return usuario.escopo ?? 'EQUIPE';
+}
+
+export function ehAdminSistema(usuario: Usuario): boolean {
+  return perfilEfetivo(usuario) === 'ADMIN_SISTEMA';
 }
