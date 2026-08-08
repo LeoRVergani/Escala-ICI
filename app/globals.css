@@ -365,7 +365,17 @@ select:focus-visible,
  * `.overview-dashboard` (tela Visão geral) para não afetar outras telas do
  * Dashboard nem o app do colaborador, que só compartilham `.panel` /
  * `.grid-panel` / `.metric-grid`. */
-.overview-dashboard .metric-grid { gap: var(--space-5); }
+.overview-dashboard .metric-grid {
+  /* `repeat(4, 1fr)` sozinho não trava a largura das colunas: o mínimo
+   * implícito de cada item de grid é `auto` (min-content), então um valor
+   * mais longo que o normal em qualquer card de métrica pode empurrar essa
+   * coluna além de 1/4 da largura e tirar as métricas do mesmo eixo das
+   * linhas de baixo (que já usam `minmax(0, 1fr)`). `minmax(0, 1fr)` aqui
+   * garante 4 colunas de largura igual sempre, alinhadas com `.overview-grid`. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+.overview-dashboard .metric-grid article { border-radius: 10px; }
 .overview-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--space-5); }
 .overview-grid + .overview-grid { margin-top: var(--space-5); }
 .overview-span-3 { grid-column: span 3; }
@@ -1410,6 +1420,7 @@ button.shift-chip:disabled { cursor: default; }
   .app-shell { grid-template-columns: 78px minmax(0, 1fr); }
   .brand-row > div:nth-child(2), .sidebar-nav button span, .system-status, .collapse-button span { display: none; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  .overview-dashboard .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .overview-span-3, .overview-span-4, .overview-span-8 { grid-column: span 2; }
   .import-panel { grid-template-columns: 1fr; }
@@ -1446,7 +1457,7 @@ button.shift-chip:disabled { cursor: default; }
   .metric-grid { grid-template-columns: 1fr 1fr; gap: var(--space-2); }
   .metric-grid article { padding: var(--space-4); }
   .today-grid { grid-template-columns: 1fr; }
-  .overview-dashboard .metric-grid { gap: var(--space-4); }
+  .overview-dashboard .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
   .overview-grid { grid-template-columns: 1fr; gap: var(--space-4); }
   .overview-span-3, .overview-span-4, .overview-span-8 { grid-column: span 1; }
   .overview-dashboard .panel,
