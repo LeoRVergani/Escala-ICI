@@ -90,6 +90,19 @@ import {
 import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
 import { ambienteFirebaseAtual } from '@/lib/firebase/shared';
+import {
+  excluirEscalaPublicada,
+  excluirUsuario,
+  listarEquipes,
+  listarSetores,
+  listarTodosUsuarios,
+  salvarEquipe,
+  salvarSetor,
+  type OpcoesExclusaoUsuario,
+} from '@/lib/firebase/adminRepository';
+import { registrarAuditoriaAdmin } from '@/lib/firebase/auditoriaRepository';
+import { exclusaoZeraGestores, podeExcluirCompetencia, podeExcluirUsuario } from '@/lib/adminGuards';
+import { COMPETENCIA_ATUAL, ehAdminSistema, perfilEfetivo } from '@/lib/sessao';
 import { formatarDataHoraSafe } from '@/lib/dataSegura';
 import {
   construirIndiceAlertasGrade,
@@ -111,9 +124,9 @@ import {
   removerMembroGrade,
 } from '@/lib/gradeMembros';
 import { mapaLogins, normalizarAliasesPlanilha, novoUsuario, validarEdicaoUsuario } from '@/lib/importUsers';
-import type { EventoEscala, LinhaConciliacao, PublicacaoEscala, Usuario } from '@/lib/modelos';
+import type { Equipe, EventoEscala, LinhaConciliacao, PublicacaoEscala, Setor, Usuario } from '@/lib/modelos';
 
-type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas';
+type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'administracao';
 type FiltroTrocas = 'pendentes' | 'aprovadas' | 'recusadas' | 'historico';
 
 /**
@@ -417,6 +430,7 @@ const NAVEGACAO: ItemNavegacao[] = [
   { id: 'grade', rotulo: 'Grade', icone: 'grid' },
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   { id: 'usuarios', rotulo: 'Usuários', icone: 'users' },
+  { id: 'administracao', rotulo: 'Administração', icone: 'admin' },
 ];
 
 interface CelulaEditando {
@@ -561,7 +575,17 @@ function ModalDetalheTrocaGestor({
 }
 
 export function DashboardApp() {
-  const [usuario, setUsuario] = useState<Usuario | null>(null);
+  /**
+   * `usuarioReal` é sempre quem está de fato autenticado no Firebase Auth —
+   * nunca muda por simulação. `simulando` é o gestor "vestido" pelo admin
+   * (contexto de UI/operador, não re-autenticação real — ver
+   * `iniciarSimulacao`/`sairDaSimulacao`). `usuarioEfetivo` é o que o resto
+   * do componente lê para escopo de dados/permissões — em operação normal
+   * (sem simulação) é idêntico a `usuarioReal`.
+   */
+  const [usuarioReal, setUsuarioReal] = useState<Usuario | null>(null);
+  const [simulando, setSimulando] = useState<Usuario | null>(null);
+  const usuarioEfetivo = simulando ?? usuarioReal;
   const [modoDemo, setModoDemo] = useState(true);
   const [tela, setTela] = useState<Tela>('importar');
   const [usuarios, setUsuarios] = useState<Usuario[]>(USUARIOS_DEMO);
@@ -603,6 +627,13 @@ export function DashboardApp() {
   const escritaBloqueada = !modoDemo && !escritaAdministrativaHabilitada;
   const conciliacaoBloqueiaPublicacao = publicacaoBloqueadaPorConciliacao(linhasConciliacao);
   const pendenciasConciliacao = contarPendenciasConciliacao(linhasConciliacao);
+  /**
+   * Gate na identidade REAL, nunca na simulada — a aba de Administração
+   * precisa continuar acessível (para "Sair da simulação") mesmo enquanto o
+   * admin está simulando um gestor comum.
+   */
+  const souAdmin = usuarioReal !== null && ehAdminSistema(usuarioReal);
+  const navegacaoVisivel = souAdmin ? NAVEGACAO : NAVEGACAO.filter((item) => item.id !== 'administracao');
 
   const documentos = useMemo(
     () => resultado?.documentos ?? [],
@@ -653,7 +684,7 @@ export function DashboardApp() {
   }, [catalogo, documentos, resultado?.totalDias]);
 
   useEffect(() => {
-    if (usuario === null || !modoDemo || resultado !== null) {
+    if (usuarioEfetivo === null || !modoDemo || resultado !== null) {
       return;
     }
     let cancelado = false;
@@ -684,12 +715,12 @@ export function DashboardApp() {
     return () => {
       cancelado = true;
     };
-  }, [modoDemo, resultado, usuario]);
+  }, [modoDemo, resultado, usuarioEfetivo]);
 
   async function carregarDemo() {
     setProcessando(true);
     try {
-      if (!modoDemo && usuario !== null) {
+      if (!modoDemo && usuarioEfetivo !== null) {
         const resposta = await fetch('/demo/Escala-SOC-Controle-Agosto.xls');
         if (!resposta.ok) {
           throw new Error('Não foi possível carregar a planilha de exemplo.');
@@ -714,69 +745,122 @@ export function DashboardApp() {
     }
   }
 
+  /**
+   * Corpo original de `autenticar()` — extraído para ser reaproveitado pela
+   * troca de contexto do modo simulação (`iniciarSimulacao`/
+   * `sairDaSimulacao`), que precisa recarregar os dados da equipe do
+   * gestor simulado (ou, ao sair, da própria equipe do admin) sem repetir
+   * o login.
+   */
+  async function carregarDadosDaEquipe(alvo: Usuario): Promise<void> {
+    const [
+      usuariosRemotos,
+      catalogoRemoto,
+      escalasRemotas,
+      rascunhosRemotos,
+      historicoRemoto,
+      estadoPublicacao,
+    ] = await Promise.all([
+      listarUsuarios(alvo.equipeId),
+      listarCatalogo(alvo.equipeId),
+      carregarEscalasEquipe(alvo.equipeId, '2026-08', true),
+      carregarRascunhosEquipe(alvo.equipeId, '2026-08'),
+      listarHistoricoPublicacoes(alvo.equipeId, '2026-08'),
+      carregarEstadoPublicacao(alvo.equipeId, '2026-08'),
+    ]);
+    setUsuarios(usuariosRemotos);
+    setCatalogo(catalogoRemoto);
+    setHistorico(historicoRemoto);
+    setRevisaoAtual(estadoPublicacao?.revisaoAtual ?? 0);
+    const documentosCarregados = rascunhosRemotos.length > 0
+      ? rascunhosRemotos
+      : escalasRemotas;
+    if (documentosCarregados.length > 0) {
+      const datas = documentosCarregados.flatMap((documento) => Object.keys(documento.dias));
+      const periodoInicio = datas.sort()[0] ?? '2026-07-26';
+      const periodoFim = datas.sort().at(-1) ?? '2026-08-25';
+      setResultado({
+        ok: true,
+        equipeNome: alvo.equipeId,
+        periodoInicio,
+        periodoFim,
+        totalDias: new Set(datas).size,
+        documentos: documentosCarregados,
+        erros: [],
+        avisos: [],
+      });
+      setTela('escalas');
+    }
+  }
+
   async function autenticar(autenticado: Usuario, demonstracao: boolean) {
-    setUsuario(autenticado);
+    setUsuarioReal(autenticado);
     setModoDemo(demonstracao);
     if (!demonstracao) {
-      const [
-        usuariosRemotos,
-        catalogoRemoto,
-        escalasRemotas,
-        rascunhosRemotos,
-        historicoRemoto,
-        estadoPublicacao,
-      ] = await Promise.all([
-        listarUsuarios(autenticado.equipeId),
-        listarCatalogo(autenticado.equipeId),
-        carregarEscalasEquipe(autenticado.equipeId, '2026-08', true),
-        carregarRascunhosEquipe(autenticado.equipeId, '2026-08'),
-        listarHistoricoPublicacoes(autenticado.equipeId, '2026-08'),
-        carregarEstadoPublicacao(autenticado.equipeId, '2026-08'),
-      ]);
-      setUsuarios(usuariosRemotos);
-      setCatalogo(catalogoRemoto);
-      setHistorico(historicoRemoto);
-      setRevisaoAtual(estadoPublicacao?.revisaoAtual ?? 0);
-      const documentosCarregados = rascunhosRemotos.length > 0
-        ? rascunhosRemotos
-        : escalasRemotas;
-      if (documentosCarregados.length > 0) {
-        const datas = documentosCarregados.flatMap((documento) => Object.keys(documento.dias));
-        const periodoInicio = datas.sort()[0] ?? '2026-07-26';
-        const periodoFim = datas.sort().at(-1) ?? '2026-08-25';
-        setResultado({
-          ok: true,
-          equipeNome: autenticado.equipeId,
-          periodoInicio,
-          periodoFim,
-          totalDias: new Set(datas).size,
-          documentos: documentosCarregados,
-          erros: [],
-          avisos: [],
-        });
-        setTela('escalas');
-      }
+      await carregarDadosDaEquipe(autenticado);
+    }
+  }
+
+  /**
+   * Modo simulação de gestor — não troca o login do Firebase Auth nem a
+   * sessão real: só sobrepõe qual `Usuario` o resto da tela usa para
+   * escopo de dados/permissões (`usuarioEfetivo`). O admin continua
+   * autenticado como admin o tempo todo.
+   */
+  async function iniciarSimulacao(gestor: Usuario) {
+    setSimulando(gestor);
+    if (!modoDemo) {
+      await carregarDadosDaEquipe(gestor);
+    }
+  }
+
+  async function sairDaSimulacao() {
+    setSimulando(null);
+    if (!modoDemo && usuarioReal !== null) {
+      await carregarDadosDaEquipe(usuarioReal);
+    }
+  }
+
+  /**
+   * Registra ator real + ator simulado quando (e só quando) a ação foi
+   * executada em modo simulação — chamada depois do sucesso da escrita
+   * real, nunca antes: falha de auditoria não pode desfazer nem mascarar
+   * uma ação já commitada.
+   */
+  async function registrarAuditoriaSeSimulando(acao: string) {
+    if (simulando === null || usuarioReal === null) {
+      return;
+    }
+    try {
+      await registrarAuditoriaAdmin({
+        atorReal: usuarioReal,
+        atorSimulado: simulando,
+        equipeId: simulando.equipeId,
+        acao,
+      });
+    } catch (falhaAuditoria) {
+      console.error('[auditoriaAdmin] falha ao registrar', falhaAuditoria);
     }
   }
 
   // Trocas em tempo real: o gestor precisa ver, sem F5, o momento em que o
   // destinatário aceita e a solicitação vira PENDENTE_GESTOR.
   useEffect(() => {
-    if (usuario === null || modoDemo) {
+    if (usuarioEfetivo === null || modoDemo) {
       return undefined;
     }
     const cancelar = observarTrocasDoGestor(
-      usuario.equipeId,
+      usuarioEfetivo.equipeId,
       '2026-08',
       setTrocas,
       (falha) => setErroTroca(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de escala.', ambienteFirebaseAtual)),
     );
     return cancelar;
-  }, [modoDemo, usuario]);
+  }, [modoDemo, usuarioEfetivo]);
 
   function reparsear(buffer: ArrayBuffer, loginParaUid: Record<string, string>): ResultadoParse {
     return parsePlanilhaEscala(buffer, {
-      equipeId: usuario?.equipeId ?? EQUIPE_DEMO.id,
+      equipeId: usuarioEfetivo?.equipeId ?? EQUIPE_DEMO.id,
       competencia: '2026-08',
       catalogo,
       loginParaUid,
@@ -924,7 +1008,7 @@ export function DashboardApp() {
       setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
       return;
     }
-    if (usuario === null) {
+    if (usuarioEfetivo === null) {
       return;
     }
     setProcessando(true);
@@ -936,15 +1020,16 @@ export function DashboardApp() {
           .filter((login): login is string => login !== undefined),
       )];
       const novos = logins.map((login, indice) =>
-        novoUsuario(usuarios.length + indice + 1, usuario, login, true));
+        novoUsuario(usuarios.length + indice + 1, usuarioEfetivo, login, true));
       if (!modoDemo) {
         await salvarUsuarios(novos);
+        await registrarAuditoriaSeSimulando('CADASTRAR_USUARIOS');
       }
       const atualizados = [...usuarios, ...novos];
       setUsuarios(atualizados);
       if (arquivo !== null) {
         const parseado = parsePlanilhaEscala(arquivo, {
-          equipeId: usuario.equipeId,
+          equipeId: usuarioEfetivo.equipeId,
           competencia: '2026-08',
           catalogo,
           loginParaUid: mapaLogins(atualizados),
@@ -962,7 +1047,7 @@ export function DashboardApp() {
   }
 
   async function salvar() {
-    if (resultado === null || usuario === null || !resultado.ok) {
+    if (resultado === null || usuarioEfetivo === null || !resultado.ok) {
       return;
     }
     if (escritaBloqueada) {
@@ -976,7 +1061,8 @@ export function DashboardApp() {
     setProcessando(true);
     try {
       if (!modoDemo) {
-        await salvarRascunho(resultado, usuario, nomeArquivo);
+        await salvarRascunho(resultado, usuarioEfetivo, nomeArquivo);
+        await registrarAuditoriaSeSimulando('SALVAR_RASCUNHO');
       }
       setResultado({
         ...resultado,
@@ -996,7 +1082,7 @@ export function DashboardApp() {
 
   async function publicar() {
     setErroPublicacao('');
-    if (resultado === null || usuario === null || !resultado.ok) {
+    if (resultado === null || usuarioEfetivo === null || !resultado.ok) {
       setErroPublicacao('Corrija todos os logins e inconsistências antes de publicar.');
       return;
     }
@@ -1017,11 +1103,12 @@ export function DashboardApp() {
       if (!modoDemo) {
         const publicacao = await publicarEscalas(
           resultado.documentos,
-          usuario.login,
+          usuarioEfetivo.login,
           motivoPublicacao,
         );
         setHistorico((atual) => [publicacao, ...atual]);
         setRevisaoAtual(publicacao.revisao);
+        await registrarAuditoriaSeSimulando('PUBLICAR_ESCALA');
       } else {
         setRevisaoAtual((atual) => atual + 1);
       }
@@ -1031,7 +1118,7 @@ export function DashboardApp() {
         documentos: resultado.documentos.map((documento) => ({
           ...documento,
           status: 'PUBLICADA',
-          publicadoPor: usuario.login,
+          publicadoPor: usuarioEfetivo.login,
           publicadoEm: agora,
         })),
       });
@@ -1056,11 +1143,11 @@ export function DashboardApp() {
       return;
     }
     setPublicacaoExpandida(publicacao.id);
-    if (modoDemo || detalhesPublicacao[publicacao.id] !== undefined || usuario === null) {
+    if (modoDemo || detalhesPublicacao[publicacao.id] !== undefined || usuarioEfetivo === null) {
       return;
     }
     try {
-      const eventos = await listarEventosPublicacao(usuario.equipeId, publicacao.id);
+      const eventos = await listarEventosPublicacao(usuarioEfetivo.equipeId, publicacao.id);
       setDetalhesPublicacao((atuais) => ({ ...atuais, [publicacao.id]: eventos }));
     } catch (falha) {
       setMensagem(mensagemErroFirebase(falha, 'Não foi possível carregar os detalhes da revisão.', ambienteFirebaseAtual));
@@ -1070,13 +1157,14 @@ export function DashboardApp() {
   // --- Troca de escala real (Firestore `trocasEscala`, ver docs/spec/TROCA_ESCALA_PLANO.md) ---
 
   async function recusarTroca(id: string, motivo: string) {
-    if (usuario === null) {
+    if (usuarioEfetivo === null) {
       return;
     }
     setProcessandoTroca(true);
     setErroTroca('');
     try {
-      await gestorRecusarTroca(id, { login: usuario.login, nome: usuario.nome }, motivo);
+      await gestorRecusarTroca(id, { login: usuarioEfetivo.login, nome: usuarioEfetivo.nome }, motivo);
+      await registrarAuditoriaSeSimulando('RECUSAR_TROCA');
       setTrocaSelecionadaId(null);
       setMotivoRecusaTroca('');
     } catch (falha) {
@@ -1087,13 +1175,14 @@ export function DashboardApp() {
   }
 
   async function aprovarEPublicarTroca(id: string) {
-    if (usuario === null) {
+    if (usuarioEfetivo === null) {
       return;
     }
     setProcessandoTroca(true);
     setErroTroca('');
     try {
-      await gestorAprovarEPublicarTroca(id, { login: usuario.login, nome: usuario.nome }, catalogo);
+      await gestorAprovarEPublicarTroca(id, { login: usuarioEfetivo.login, nome: usuarioEfetivo.nome }, catalogo);
+      await registrarAuditoriaSeSimulando('APROVAR_TROCA');
       setTrocaSelecionadaId(null);
     } catch (falha) {
       setErroTroca(mensagemErroTrocaGestor(falha, 'Não foi possível aprovar e publicar a troca.'));
@@ -1136,7 +1225,7 @@ export function DashboardApp() {
   }
 
   async function restaurar() {
-    if (usuario === null || revisaoParaRestaurar === null || modoDemo) {
+    if (usuarioEfetivo === null || revisaoParaRestaurar === null || modoDemo) {
       setRevisaoParaRestaurar(null);
       return;
     }
@@ -1148,17 +1237,18 @@ export function DashboardApp() {
     setProcessando(true);
     try {
       const restaurada = await reverterPublicacao(
-        usuario.equipeId,
+        usuarioEfetivo.equipeId,
         revisaoParaRestaurar.competencia,
         revisaoParaRestaurar.revisao,
-        usuario.login,
+        usuarioEfetivo.login,
       );
       setHistorico((atual) => [restaurada.publicacao, ...atual]);
       setRevisaoAtual(restaurada.publicacao.revisao);
+      await registrarAuditoriaSeSimulando('ROLLBACK_PUBLICACAO');
       const datas = restaurada.documentos.flatMap((documento) => Object.keys(documento.dias));
       setResultado({
         ok: true,
-        equipeNome: usuario.equipeId,
+        equipeNome: usuarioEfetivo.equipeId,
         periodoInicio: datas.sort()[0] ?? '2026-07-26',
         periodoFim: datas.sort().at(-1) ?? '2026-08-25',
         totalDias: new Set(datas).size,
@@ -1268,7 +1358,7 @@ export function DashboardApp() {
   }
 
   async function salvarFormularioUsuario() {
-    if (formularioUsuario === null || usuario === null) {
+    if (formularioUsuario === null || usuarioEfetivo === null) {
       return;
     }
     if (escritaBloqueada) {
@@ -1281,7 +1371,7 @@ export function DashboardApp() {
       candidato = {
         ...novoUsuario(
           usuarios.length + 1,
-          usuario,
+          usuarioEfetivo,
           formularioUsuario.login || `novo.login${usuarios.length + 1}`,
           formularioUsuario.ativo,
         ),
@@ -1319,6 +1409,7 @@ export function DashboardApp() {
     try {
       if (!modoDemo) {
         await salvarUsuario(candidato);
+        await registrarAuditoriaSeSimulando('SALVAR_USUARIO');
       }
       setUsuarios((atuais) => (atuais.some((item) => item.login === candidato.login)
         ? atuais.map((item) => (item.login === candidato.login ? candidato : item))
@@ -1341,6 +1432,7 @@ export function DashboardApp() {
     try {
       if (!modoDemo) {
         await salvarUsuario(atualizado);
+        await registrarAuditoriaSeSimulando('ATIVAR_DESATIVAR_USUARIO');
       }
       setUsuarios((atuais) => atuais.map((existente) => (existente.login === item.login ? atualizado : existente)));
     } catch (falha) {
@@ -1357,7 +1449,7 @@ export function DashboardApp() {
   }
 
   async function confirmarAdicionarMembroGrade() {
-    if (membroGradeDraft === null || resultado === null || usuario === null) {
+    if (membroGradeDraft === null || resultado === null || usuarioEfetivo === null) {
       return;
     }
     if (escritaBloqueada) {
@@ -1374,7 +1466,7 @@ export function DashboardApp() {
       return;
     }
     const referencia = {
-      equipeId: usuario.equipeId,
+      equipeId: usuarioEfetivo.equipeId,
       competencia: resultado.documentos[0]?.competencia ?? '2026-08',
       periodoInicio: resultado.periodoInicio,
       periodoFim: resultado.periodoFim,
@@ -1383,6 +1475,7 @@ export function DashboardApp() {
     try {
       if (!modoDemo) {
         await adicionarMembroRascunho(membro);
+        await registrarAuditoriaSeSimulando('ADICIONAR_MEMBRO_GRADE');
       }
       setResultado((atual) => (atual === null ? atual : {
         ...atual,
@@ -1443,7 +1536,8 @@ export function DashboardApp() {
 
   async function encerrarSessao() {
     await sair();
-    setUsuario(null);
+    setUsuarioReal(null);
+    setSimulando(null);
     setResultado(null);
     setLinhasConciliacao([]);
     setFormularioUsuario(null);
@@ -1453,16 +1547,17 @@ export function DashboardApp() {
     setErroTroca('');
   }
 
-  if (usuario === null) {
+  if (usuarioReal === null) {
     return <LoginPanel tipo="dashboard" onEntrar={autenticar} />;
   }
+  const usuarioParaFrame = simulando ?? usuarioReal;
 
   return (
     <AppFrame
       produto="dashboard"
-      usuario={usuario}
+      usuario={usuarioParaFrame}
       competencia="Agosto 2026"
-      itens={NAVEGACAO}
+      itens={navegacaoVisivel}
       ativo={tela}
       onNavegar={(id) => setTela(id as Tela)}
       onSair={encerrarSessao}
@@ -1492,6 +1587,14 @@ export function DashboardApp() {
         <div className="alert warning" role="status">
           Ambiente real conectado em modo de validação somente leitura.
           Salvar, cadastrar e publicar exigem habilitação administrativa explícita.
+        </div>
+      )}
+      {simulando !== null && (
+        <div className="alert warning" role="status">
+          <strong>Simulando {simulando.nome} — {perfilEfetivo(simulando)}</strong>
+          <button className="secondary-button" type="button" onClick={() => void sairDaSimulacao()}>
+            Sair da simulação
+          </button>
         </div>
       )}
 
@@ -2598,7 +2701,7 @@ export function DashboardApp() {
               </label>
               <label>
                 Equipe
-                <input value={usuario?.equipeId ?? ''} disabled />
+                <input value={usuarioEfetivo?.equipeId ?? ''} disabled />
               </label>
               <label>
                 Nível hierárquico
