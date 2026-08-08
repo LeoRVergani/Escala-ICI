@@ -41,7 +41,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 
 import { AppFrame, type ItemNavegacao } from '@/components/AppFrame';
@@ -439,6 +439,164 @@ interface CelulaEditando {
   dia: Dia;
 }
 
+/**
+ * Confirmação forte genérica para ações destrutivas do admin — digitar uma
+ * frase exata (o login de um usuário, ou "EXCLUIR ESCALA"/a competência)
+ * antes do botão de perigo ficar disponível. Reaproveitada tanto para
+ * exclusão de escala (§4) quanto embutida em `ModalExcluirUsuario` abaixo.
+ */
+function ModalConfirmarComTexto({
+  titulo,
+  mensagem,
+  fraseEsperada,
+  rotuloBotaoConfirmar,
+  processando,
+  onFechar,
+  onConfirmar,
+}: {
+  titulo: string;
+  mensagem: ReactNode;
+  fraseEsperada: string | string[];
+  rotuloBotaoConfirmar: string;
+  processando: boolean;
+  onFechar: () => void;
+  onConfirmar: () => void;
+}) {
+  const [valor, setValor] = useState('');
+  const aceitas = Array.isArray(fraseEsperada) ? fraseEsperada : [fraseEsperada];
+  const confere = aceitas.includes(valor.trim());
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal rollback-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirmar-texto-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div><h2 id="confirmar-texto-title">{titulo}</h2></div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar"><X size={18} /></button>
+        </div>
+        {mensagem}
+        <label>
+          Digite <code>{aceitas.join('</code> ou <code>')}</code> para confirmar
+          <input value={valor} onChange={(evento) => setValor(evento.target.value)} autoFocus />
+        </label>
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
+          <button
+            className="primary-button danger-button"
+            type="button"
+            disabled={!confere || processando}
+            onClick={onConfirmar}
+          >
+            {rotuloBotaoConfirmar}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Exclusão seletiva de usuário: o admin escolhe quais categorias de dados
+ * vinculadas ao login apagar (checkboxes, todas desmarcadas por padrão) e
+ * confirma digitando o login exato. Se `zeraGestores` for true, uma segunda
+ * etapa explícita de confirmação aparece antes do botão ficar disponível —
+ * não é só um aviso maior, é um passo a mais de verdade.
+ */
+function ModalExcluirUsuario({
+  candidato,
+  zeraGestores,
+  processando,
+  onFechar,
+  onConfirmar,
+}: {
+  candidato: Usuario;
+  zeraGestores: boolean;
+  processando: boolean;
+  onFechar: () => void;
+  onConfirmar: (opcoes: OpcoesExclusaoUsuario) => void;
+}) {
+  const [opcoes, setOpcoes] = useState<OpcoesExclusaoUsuario>({
+    cadastro: false,
+    escalasPublicadas: false,
+    rascunhos: false,
+    trocas: false,
+    notificacoes: false,
+  });
+  const [confirmacaoZeraGestores, setConfirmacaoZeraGestores] = useState(false);
+  const [valorLogin, setValorLogin] = useState('');
+  const algumaOpcaoMarcada = Object.values(opcoes).some(Boolean);
+  const loginConfere = valorLogin.trim() === candidato.login;
+  const precisaSegundaEtapa = zeraGestores && opcoes.cadastro;
+  const podeConfirmar = loginConfere
+    && algumaOpcaoMarcada
+    && (!precisaSegundaEtapa || confirmacaoZeraGestores);
+
+  function alternar(campo: keyof OpcoesExclusaoUsuario) {
+    setOpcoes((atual) => ({ ...atual, [campo]: !atual[campo] }));
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal rollback-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="excluir-usuario-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <h2 id="excluir-usuario-title">Excluir dados de {candidato.nome}</h2>
+            <p>Login <code>{candidato.login}</code> · equipe {candidato.equipeId}</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar"><X size={18} /></button>
+        </div>
+        <fieldset>
+          <legend>O que apagar</legend>
+          <label><input type="checkbox" checked={opcoes.cadastro} onChange={() => alternar('cadastro')} /> Cadastro (usuarios/{candidato.login})</label>
+          <label><input type="checkbox" checked={opcoes.escalasPublicadas} onChange={() => alternar('escalasPublicadas')} /> Escalas publicadas</label>
+          <label><input type="checkbox" checked={opcoes.rascunhos} onChange={() => alternar('rascunhos')} /> Rascunhos</label>
+          <label><input type="checkbox" checked={opcoes.trocas} onChange={() => alternar('trocas')} /> Trocas vinculadas</label>
+          <label><input type="checkbox" checked={opcoes.notificacoes} onChange={() => alternar('notificacoes')} /> Notificações vinculadas</label>
+        </fieldset>
+        {precisaSegundaEtapa && (
+          <div className="alert warning" role="status">
+            <strong>Esta é a última conta com perfil de gestor/admin.</strong> Excluir o cadastro pode deixar a
+            equipe sem gestor.
+            <label>
+              <input
+                type="checkbox"
+                checked={confirmacaoZeraGestores}
+                onChange={(evento) => setConfirmacaoZeraGestores(evento.target.checked)}
+              /> Entendo e quero excluir mesmo assim
+            </label>
+          </div>
+        )}
+        <label>
+          Digite <code>{candidato.login}</code> para confirmar
+          <input value={valorLogin} onChange={(evento) => setValorLogin(evento.target.value)} autoFocus />
+        </label>
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
+          <button
+            className="primary-button danger-button"
+            type="button"
+            disabled={!podeConfirmar || processando}
+            onClick={() => onConfirmar(opcoes)}
+          >
+            Excluir selecionado(s)
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function ModalDetalheTrocaGestor({
   troca,
   alertasHipoteticos,
@@ -623,6 +781,20 @@ export function DashboardApp() {
   const [motivoRecusaTroca, setMotivoRecusaTroca] = useState('');
   const [processandoTroca, setProcessandoTroca] = useState(false);
   const [erroTroca, setErroTroca] = useState('');
+  // --- Administração (ADMIN_SISTEMA) ---
+  const [todosUsuariosAdmin, setTodosUsuariosAdmin] = useState<Usuario[]>([]);
+  const [equipesAdmin, setEquipesAdmin] = useState<Equipe[]>([]);
+  const [setoresAdmin, setSetoresAdmin] = useState<Setor[]>([]);
+  const [erroAdmin, setErroAdmin] = useState('');
+  const [formEquipe, setFormEquipe] = useState<Equipe>({ id: '', nome: '', sigla: '', ativa: true });
+  const [formSetor, setFormSetor] = useState<Setor>({ id: '', nome: '', sigla: '', ativo: true });
+  const [gestorParaSimular, setGestorParaSimular] = useState('');
+  const [usuarioParaExcluir, setUsuarioParaExcluir] = useState<Usuario | null>(null);
+  const [processandoExclusaoUsuario, setProcessandoExclusaoUsuario] = useState(false);
+  const [equipeExportar, setEquipeExportar] = useState('');
+  const [competenciaExportar, setCompetenciaExportar] = useState(COMPETENCIA_ATUAL);
+  const [excluirEscalaPendente, setExcluirEscalaPendente] = useState(false);
+  const [processandoEscalaAdmin, setProcessandoEscalaAdmin] = useState(false);
   const inputArquivo = useRef<HTMLInputElement>(null);
   const escritaBloqueada = !modoDemo && !escritaAdministrativaHabilitada;
   const conciliacaoBloqueiaPublicacao = publicacaoBloqueadaPorConciliacao(linhasConciliacao);
@@ -1534,6 +1706,185 @@ export function DashboardApp() {
     }
   }
 
+  // --- Administração (ADMIN_SISTEMA) ---
+
+  async function salvarFormEquipe() {
+    if (formEquipe.id.trim() === '' || formEquipe.nome.trim() === '') {
+      setErroAdmin('Informe ao menos o ID e o nome da equipe.');
+      return;
+    }
+    try {
+      if (!modoDemo) {
+        await salvarEquipe(formEquipe);
+      }
+      setEquipesAdmin((atuais) => (atuais.some((item) => item.id === formEquipe.id)
+        ? atuais.map((item) => (item.id === formEquipe.id ? formEquipe : item))
+        : [...atuais, formEquipe]));
+      setFormEquipe({ id: '', nome: '', sigla: '', ativa: true });
+    } catch (falha) {
+      setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível salvar a equipe.', ambienteFirebaseAtual));
+    }
+  }
+
+  async function salvarFormSetor() {
+    if (formSetor.id.trim() === '' || formSetor.nome.trim() === '') {
+      setErroAdmin('Informe ao menos o ID e o nome do setor.');
+      return;
+    }
+    try {
+      if (!modoDemo) {
+        await salvarSetor(formSetor);
+      }
+      setSetoresAdmin((atuais) => (atuais.some((item) => item.id === formSetor.id)
+        ? atuais.map((item) => (item.id === formSetor.id ? formSetor : item))
+        : [...atuais, formSetor]));
+      setFormSetor({ id: '', nome: '', sigla: '', ativo: true });
+    } catch (falha) {
+      setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível salvar o setor.', ambienteFirebaseAtual));
+    }
+  }
+
+  function iniciarSimulacaoSelecionada() {
+    const gestor = todosUsuariosAdmin.find((item) => item.login === gestorParaSimular);
+    if (gestor === undefined) {
+      setErroAdmin('Selecione um gestor válido para simular.');
+      return;
+    }
+    void iniciarSimulacao(gestor);
+  }
+
+  async function confirmarExclusaoUsuario(opcoes: OpcoesExclusaoUsuario) {
+    if (usuarioParaExcluir === null) {
+      return;
+    }
+    setProcessandoExclusaoUsuario(true);
+    try {
+      if (!modoDemo) {
+        await excluirUsuario(usuarioParaExcluir, opcoes);
+      }
+      if (opcoes.cadastro) {
+        setTodosUsuariosAdmin((atuais) => atuais.filter((item) => item.login !== usuarioParaExcluir.login));
+      }
+      setMensagem(`Dados de ${usuarioParaExcluir.nome} excluídos conforme selecionado.`);
+      setUsuarioParaExcluir(null);
+    } catch (falha) {
+      setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível excluir os dados selecionados.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoExclusaoUsuario(false);
+    }
+  }
+
+  async function exportarEscalaXlsx() {
+    if (equipeExportar.trim() === '') {
+      setErroAdmin('Selecione uma equipe para exportar.');
+      return;
+    }
+    try {
+      const documentosEquipe = modoDemo
+        ? documentos
+        : await carregarEscalasEquipe(equipeExportar, competenciaExportar, true);
+      const cabecalho = ['Login', 'Dias trabalhados', 'Folgas', 'Total'];
+      const linhas = documentosEquipe.map((documento) => {
+        const totais = calcularTotais(documento.dias, catalogo);
+        const dias = Object.values(documento.dias);
+        return [
+          documento.login,
+          dias.filter((dia) => dia.c !== 'F' && dia.c !== null).length,
+          dias.filter((dia) => dia.c === 'F').length,
+          formatarMinutos(totais.min),
+        ];
+      });
+      const planilha = XLSX.utils.aoa_to_sheet([cabecalho, ...linhas]);
+      const livro = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(livro, planilha, 'Escala');
+      const bytes = XLSX.write(livro, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+      const blob = new Blob([bytes], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `escala-${equipeExportar}-${competenciaExportar}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (falha) {
+      setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível exportar a escala.', ambienteFirebaseAtual));
+    }
+  }
+
+  async function imprimirEscala() {
+    if (equipeExportar.trim() === '') {
+      setErroAdmin('Selecione uma equipe para imprimir.');
+      return;
+    }
+    try {
+      const documentosEquipe = modoDemo
+        ? documentos
+        : await carregarEscalasEquipe(equipeExportar, competenciaExportar, true);
+      const linhasHtml = documentosEquipe.map((documento) => {
+        const totais = calcularTotais(documento.dias, catalogo);
+        return `<tr><td>${documento.login}</td><td>${formatarMinutos(totais.min)}</td></tr>`;
+      }).join('');
+      const janela = window.open('', '_blank');
+      if (janela === null) {
+        setErroAdmin('Não foi possível abrir a janela de impressão (bloqueada pelo navegador?).');
+        return;
+      }
+      janela.document.write(`
+        <title>Escala ${equipeExportar} — ${competenciaExportar}</title>
+        <table border="1" cellpadding="6" style="border-collapse:collapse;font-family:sans-serif;">
+          <thead><tr><th>Login</th><th>Total</th></tr></thead>
+          <tbody>${linhasHtml}</tbody>
+        </table>
+      `);
+      janela.document.close();
+      janela.focus();
+      janela.print();
+    } catch (falha) {
+      setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível preparar a impressão.', ambienteFirebaseAtual));
+    }
+  }
+
+  async function confirmarExclusaoEscala() {
+    if (equipeExportar.trim() === '') {
+      setErroAdmin('Selecione uma equipe.');
+      return;
+    }
+    setProcessandoEscalaAdmin(true);
+    try {
+      if (!modoDemo) {
+        await excluirEscalaPublicada(equipeExportar, competenciaExportar);
+      }
+      setMensagem(`Escala de ${equipeExportar} (${competenciaExportar}) excluída.`);
+      setExcluirEscalaPendente(false);
+    } catch (falha) {
+      setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível excluir a escala.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoEscalaAdmin(false);
+    }
+  }
+
+  useEffect(() => {
+    if (tela !== 'administracao' || !souAdmin || modoDemo) {
+      return undefined;
+    }
+    let cancelado = false;
+    void Promise.all([listarTodosUsuarios(), listarEquipes(), listarSetores()])
+      .then(([todos, equipes, setores]) => {
+        if (!cancelado) {
+          setTodosUsuariosAdmin(todos);
+          setEquipesAdmin(equipes);
+          setSetoresAdmin(setores);
+        }
+      })
+      .catch((falha: unknown) => {
+        if (!cancelado) {
+          setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível carregar os dados de administração.', ambienteFirebaseAtual));
+        }
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [tela, souAdmin, modoDemo]);
+
   async function encerrarSessao() {
     await sair();
     setUsuarioReal(null);
@@ -2356,6 +2707,184 @@ export function DashboardApp() {
             </div>
           </article>
         </section>
+      )}
+
+      {tela === 'administracao' && souAdmin && (
+        <section>
+          <header className="page-heading">
+            <div><p className="eyebrow">Área restrita</p><h1>Administração</h1><p>Visível só para ADMIN_SISTEMA — escopo global do staging.</p></div>
+          </header>
+          {erroAdmin && <div className="alert error" role="alert">{erroAdmin}</div>}
+
+          <article className="panel grid-panel">
+            <div className="panel-title"><div><h2>Equipes</h2><p>Cadastro simples — criar e editar, sem exclusão.</p></div></div>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead><tr><th>ID</th><th>Nome</th><th>Sigla</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  {equipesAdmin.map((item) => (
+                    <tr key={item.id}>
+                      <td><code className="login-code">{item.id}</code></td>
+                      <td>{item.nome}</td>
+                      <td>{item.sigla}</td>
+                      <td><span className={`status-badge ${item.ativa ? 'success' : 'neutral'}`}>{item.ativa ? 'Ativa' : 'Inativa'}</span></td>
+                      <td>
+                        <button className="icon-button" type="button" title="Editar" onClick={() => setFormEquipe(item)}>
+                          <Pencil size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="toolbar">
+              <input placeholder="ID (ex.: EQ_SOC)" value={formEquipe.id} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, id: evento.target.value }))} />
+              <input placeholder="Nome" value={formEquipe.nome} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, nome: evento.target.value }))} />
+              <input placeholder="Sigla" value={formEquipe.sigla} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, sigla: evento.target.value }))} />
+              <label><input type="checkbox" checked={formEquipe.ativa} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, ativa: evento.target.checked }))} /> Ativa</label>
+              <button className="primary-button" type="button" onClick={() => void salvarFormEquipe()}>Salvar equipe</button>
+            </div>
+          </article>
+
+          <article className="panel grid-panel">
+            <div className="panel-title"><div><h2>Setores</h2><p>Cadastro simples — criar e editar, sem exclusão.</p></div></div>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead><tr><th>ID</th><th>Nome</th><th>Sigla</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  {setoresAdmin.map((item) => (
+                    <tr key={item.id}>
+                      <td><code className="login-code">{item.id}</code></td>
+                      <td>{item.nome}</td>
+                      <td>{item.sigla}</td>
+                      <td><span className={`status-badge ${item.ativo ? 'success' : 'neutral'}`}>{item.ativo ? 'Ativo' : 'Inativo'}</span></td>
+                      <td>
+                        <button className="icon-button" type="button" title="Editar" onClick={() => setFormSetor(item)}>
+                          <Pencil size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="toolbar">
+              <input placeholder="ID (ex.: SET_SOC)" value={formSetor.id} onChange={(evento) => setFormSetor((atual) => ({ ...atual, id: evento.target.value }))} />
+              <input placeholder="Nome" value={formSetor.nome} onChange={(evento) => setFormSetor((atual) => ({ ...atual, nome: evento.target.value }))} />
+              <input placeholder="Sigla" value={formSetor.sigla} onChange={(evento) => setFormSetor((atual) => ({ ...atual, sigla: evento.target.value }))} />
+              <label><input type="checkbox" checked={formSetor.ativo} onChange={(evento) => setFormSetor((atual) => ({ ...atual, ativo: evento.target.checked }))} /> Ativo</label>
+              <button className="primary-button" type="button" onClick={() => void salvarFormSetor()}>Salvar setor</button>
+            </div>
+          </article>
+
+          <article className="panel grid-panel">
+            <div className="panel-title"><div><h2>Usuários</h2><p>Exclusão seletiva de cadastros fake/teste, com confirmação forte.</p></div></div>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead><tr><th>Colaborador</th><th>Login</th><th>Perfil</th><th>Equipe</th><th>Ações</th></tr></thead>
+                <tbody>
+                  {todosUsuariosAdmin.map((item) => {
+                    const autoExclusao = !podeExcluirUsuario(item, usuarioReal);
+                    return (
+                      <tr key={item.login}>
+                        <td><strong>{item.nome}</strong></td>
+                        <td><code className="login-code">{item.login}</code></td>
+                        <td>{perfilEfetivo(item)}</td>
+                        <td>{item.equipeId}</td>
+                        <td>
+                          <button
+                            className="icon-button"
+                            type="button"
+                            title={autoExclusao ? 'Não é possível excluir a própria conta logada' : 'Excluir dados'}
+                            disabled={autoExclusao}
+                            onClick={() => setUsuarioParaExcluir(item)}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article className="panel grid-panel">
+            <div className="panel-title"><div><h2>Simular gestor</h2><p>Testar o Dashboard como se fosse aquele gestor, sem trocar de login.</p></div></div>
+            <div className="toolbar">
+              <select value={gestorParaSimular} onChange={(evento) => setGestorParaSimular(evento.target.value)}>
+                <option value="">Selecione um gestor</option>
+                {todosUsuariosAdmin
+                  .filter((item) => perfilEfetivo(item) === 'GESTOR_EQUIPE')
+                  .map((item) => (
+                    <option key={item.login} value={item.login}>{item.nome} — {item.equipeId}</option>
+                  ))}
+              </select>
+              <button className="primary-button" type="button" onClick={iniciarSimulacaoSelecionada}>Simular</button>
+            </div>
+          </article>
+
+          <article className="panel grid-panel">
+            <div className="panel-title"><div><h2>Limpeza / Histórico</h2><p>Exportar antes de excluir escalas antigas.</p></div></div>
+            <div className="toolbar">
+              <select value={equipeExportar} onChange={(evento) => setEquipeExportar(evento.target.value)}>
+                <option value="">Selecione uma equipe</option>
+                {equipesAdmin.map((item) => (
+                  <option key={item.id} value={item.id}>{item.nome}</option>
+                ))}
+              </select>
+              <input
+                placeholder="Competência (AAAA-MM)"
+                value={competenciaExportar}
+                onChange={(evento) => setCompetenciaExportar(evento.target.value)}
+              />
+            </div>
+            <div className="rollback-actions">
+              <button className="secondary-button" type="button" onClick={() => void exportarEscalaXlsx()}>Exportar XLSX</button>
+              <button className="secondary-button" type="button" onClick={() => void imprimirEscala()}>Imprimir · Salvar PDF</button>
+            </div>
+            {!podeExcluirCompetencia(competenciaExportar, COMPETENCIA_ATUAL) ? (
+              <p className="alert-detail-meta">A competência atual ({COMPETENCIA_ATUAL}) não pode ser excluída por aqui.</p>
+            ) : (
+              <button
+                className="secondary-button danger-button"
+                type="button"
+                onClick={() => setExcluirEscalaPendente(true)}
+              >
+                <Trash2 size={15} /> Excluir escala desta equipe/competência
+              </button>
+            )}
+          </article>
+        </section>
+      )}
+
+      {usuarioParaExcluir && usuarioReal && (
+        <ModalExcluirUsuario
+          candidato={usuarioParaExcluir}
+          zeraGestores={exclusaoZeraGestores(todosUsuariosAdmin, usuarioParaExcluir.login)}
+          processando={processandoExclusaoUsuario}
+          onFechar={() => setUsuarioParaExcluir(null)}
+          onConfirmar={(opcoes) => void confirmarExclusaoUsuario(opcoes)}
+        />
+      )}
+
+      {excluirEscalaPendente && (
+        <ModalConfirmarComTexto
+          titulo="Excluir escala"
+          mensagem={(
+            <p>
+              Escalas publicadas e rascunhos de <strong>{equipeExportar}</strong> / <strong>{competenciaExportar}</strong> serão
+              excluídos. Histórico e usuários não são afetados.
+            </p>
+          )}
+          fraseEsperada={['EXCLUIR ESCALA', competenciaExportar]}
+          rotuloBotaoConfirmar="Excluir escala"
+          processando={processandoEscalaAdmin}
+          onFechar={() => setExcluirEscalaPendente(false)}
+          onConfirmar={() => void confirmarExclusaoEscala()}
+        />
       )}
 
       {publicacaoPendente && (
