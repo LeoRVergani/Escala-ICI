@@ -381,6 +381,17 @@ select:focus-visible,
 .overview-span-3 { grid-column: span 3; }
 .overview-span-4 { grid-column: span 4; }
 .overview-span-8 { grid-column: span 8; }
+/* `.panel + .panel { margin-top: ... }` (acima) foi escrita para painéis
+ * empilhados verticalmente no fluxo normal — dentro de `.overview-grid`,
+ * onde os cards são irmãos lado a lado no grid, essa mesma regra ainda
+ * casa (é só CSS de irmão adjacente, não olha o `display` do pai) e
+ * empurra cada card depois do primeiro 20px para baixo dentro da própria
+ * célula, tirando-o do topo dos vizinhos da linha. O espaçamento entre
+ * cards já vem do `gap` do grid; aqui só zeramos a margem herdada. */
+.overview-dashboard .overview-grid > .panel,
+.overview-dashboard .metric-grid > article {
+  margin: 0;
+}
 
 /* Cards de estado vazio/lista dentro da Visão geral: o `.grid-panel` vira
  * coluna flex para que o conteúdo (lista ou estado vazio) preencha a altura
