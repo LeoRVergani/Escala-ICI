@@ -6,6 +6,7 @@ export default defineConfig({
     include: [
       'packages/contrato/test/**/*.test.ts',
       'lib/**/*.test.ts',
+      'apps/push-worker/test/**/*.test.ts',
     ],
   },
   resolve: {

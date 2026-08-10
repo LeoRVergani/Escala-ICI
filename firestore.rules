@@ -380,6 +380,44 @@ service cloud.firestore {
     }
 
     /**
+     * Dispositivos com token FCM para push (Fase Push-1, ver
+     * apps/push-worker). A chave é `deviceId`, não `login` — um usuário
+     * pode ter mais de um aparelho. O worker (Admin SDK) ignora estas
+     * regras via IAM; elas só protegem o caminho do app Android via client
+     * SDK, garantindo que cada usuário só veja/gerencie o próprio
+     * dispositivo.
+     */
+    match /dispositivosPush/{deviceId} {
+      allow get: if autenticado() && resource.data.login == loginDoAuth();
+
+      // Sem `list`: o app só precisa checar/atualizar o próprio
+      // dispositivo, cujo id ele já conhece — nunca enumerar dispositivos
+      // de outra pessoa. O token nunca fica listável por terceiros.
+      allow list: if false;
+
+      allow create: if autenticado()
+        && request.resource.data.login == loginDoAuth()
+        && request.resource.data.deviceId == deviceId;
+
+      allow update: if autenticado()
+        && resource.data.login == loginDoAuth()
+        && request.resource.data.login == resource.data.login
+        && request.resource.data.deviceId == resource.data.deviceId;
+
+      allow delete: if autenticado() && resource.data.login == loginDoAuth();
+    }
+
+    /**
+     * Controle técnico de idempotência/entrega do push-worker (Fase
+     * Push-1). Zero acesso via client SDK, propositalmente — só o Admin
+     * SDK, autenticado por IAM, lê/escreve aqui. Nunca "abrir" esta coleção
+     * para facilitar o worker: Admin SDK não depende de Security Rules.
+     */
+    match /pushEntregas/{notificacaoId} {
+      allow read, write: if false;
+    }
+
+    /**
      * Riscos conscientemente aceitos nesta fase (não são bugs esquecidos):
      *
      * - `LEITURA` (PerfilUsuario) hoje equivale exatamente a ANALISTA_SOC —

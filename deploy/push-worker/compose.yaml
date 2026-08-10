@@ -1,0 +1,29 @@
+services:
+  push-worker:
+    image: escala-ici-push-worker:local
+    build:
+      context: ../..
+      dockerfile: deploy/push-worker/Dockerfile
+    profiles: ["push"]
+    environment:
+      # Fixos, nunca vindos de --env-file: nenhum arquivo de ambiente pode
+      # desviar a guarda de projeto para outro projeto Firebase.
+      FIREBASE_PROJECT_ID: escala-ici-staging
+      PUSH_ENVIRONMENT: staging
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase_push_worker_credentials
+      PUSH_ENABLED: ${PUSH_ENABLED:-false}
+      PUSH_ACTIVATED_AT: ${PUSH_ACTIVATED_AT}
+    secrets:
+      - firebase_push_worker_credentials
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=8m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+
+secrets:
+  firebase_push_worker_credentials:
+    file: /opt/escala-ici/secrets/escala-ici-staging-push-worker.json
