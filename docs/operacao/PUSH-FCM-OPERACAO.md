@@ -119,7 +119,7 @@ docker compose --env-file .env.staging.push-worker \
   --profile push run --rm -e PUSH_ENABLED=true push-worker node dist/cli/pushTest.js --login=<login>
 ```
 
-Retorna só `devicesFound`/`successCount`/`failureCount` — nunca um token.
+Retorna só `devicesFound`/`successCount`/`failureCount` — nunca um FID.
 
 ## Como desativar push (kill switch)
 
@@ -132,12 +132,18 @@ O worker continua rodando e assinando o Firestore, só não chama o FCM. Isso
 **não** afeta o Dashboard, o PWA, o Firestore nem as Trocas — eles continuam
 funcionando normalmente por conta própria (push é só aviso).
 
-## Como identificar token inválido
+## Como identificar FID inválido
 
-Um dispositivo com token permanentemente inválido é automaticamente marcado
-`ativo: false` em `dispositivosPush` pelo próprio worker (nunca aparece nos
-logs). Para investigar manualmente: no Console do Firestore, filtrar
-`dispositivosPush` por `ativo == false` e `login == <login>`.
+Um dispositivo com FID (Firebase Installation ID) permanentemente inválido
+ou não registrado é automaticamente marcado `ativo: false` em
+`dispositivosPush` pelo próprio worker (nunca aparece nos logs). Para
+investigar manualmente: no Console do Firestore, filtrar `dispositivosPush`
+por `ativo == false` e `login == <login>`.
+
+Desde a Fase PUSH-1B, `dispositivosPush` usa `fid` como identificador —
+`token` não é mais o contrato oficial (ver `CHECKPOINT-FASE-PUSH-1B-FID.md`).
+Documentos legados que só têm `token` são ignorados com segurança pelo
+worker (nunca causam erro, nunca são apagados automaticamente).
 
 ## Como recuperar de um restart
 

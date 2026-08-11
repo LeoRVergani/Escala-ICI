@@ -2,7 +2,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import type { Messaging } from 'firebase-admin/messaging';
 import { claim, finalizeEnvio, markSemDispositivo } from './deliveryRepository.js';
 import { deactivateDevice, listActiveDevices } from './deviceRepository.js';
-import { buildMessage, CODIGOS_TOKEN_INVALIDO, sendToDevices, type RespostaEnvio } from './pushSender.js';
+import { buildMessage, CODIGOS_FID_INVALIDO, sendToDevices, type RespostaEnvio } from './pushSender.js';
 import type { PushWorkerConfig } from './config.js';
 import type { NotificacaoTroca } from './types.js';
 
@@ -37,8 +37,8 @@ const logConsole: Logger = {
 /**
  * Pipeline completo para uma notificação: filtros pré-claim (ativação,
  * já-lida, kill switch) → claim idempotente/com lease → busca de
- * dispositivos → envio multicast → desativação de tokens inválidos →
- * finalização do registro técnico. Nunca loga token, e-mail completo ou
+ * dispositivos → envio multicast → desativação de FIDs inválidos →
+ * finalização do registro técnico. Nunca loga FID, e-mail completo ou
  * conteúdo de credencial — apenas `eventId`, `tipo`, `destinatarioLogin`
  * (login corporativo, não e-mail) e contadores/códigos de erro.
  */
@@ -81,13 +81,13 @@ export async function handleNotificacao(
     return { outcome: 'sem-dispositivo' };
   }
 
-  const mensagem = buildMessage(notificacao, dispositivos.map((dispositivo) => dispositivo.token));
+  const mensagem = buildMessage(notificacao, dispositivos.map((dispositivo) => dispositivo.fid));
   const resultado = await sendToDevices(messaging, mensagem);
 
   await Promise.all(
     resultado.responses.map((resposta, index) => {
       const dispositivo = dispositivos[index];
-      if (dispositivo && !resposta.success && ehTokenInvalido(resposta)) {
+      if (dispositivo && !resposta.success && ehFidInvalido(resposta)) {
         return deactivateDevice(db, dispositivo.deviceId);
       }
       return undefined;
@@ -118,14 +118,14 @@ export async function handleNotificacao(
   return { outcome: 'erro', status, successCount: resultado.successCount, failureCount: resultado.failureCount };
 }
 
-function ehTokenInvalido(resposta: RespostaEnvio): boolean {
-  return resposta.errorCode !== null && CODIGOS_TOKEN_INVALIDO.has(resposta.errorCode);
+function ehFidInvalido(resposta: RespostaEnvio): boolean {
+  return resposta.errorCode !== null && CODIGOS_FID_INVALIDO.has(resposta.errorCode);
 }
 
 function resolverStatusFinal(respostas: RespostaEnvio[], successCount: number): 'ENVIADO' | 'ERRO_RETRY' | 'ERRO_FINAL' {
   if (successCount > 0) {
     return 'ENVIADO';
   }
-  const todasPermanentes = respostas.every((resposta) => resposta.success || ehTokenInvalido(resposta));
+  const todasPermanentes = respostas.every((resposta) => resposta.success || ehFidInvalido(resposta));
   return todasPermanentes ? 'ERRO_FINAL' : 'ERRO_RETRY';
 }

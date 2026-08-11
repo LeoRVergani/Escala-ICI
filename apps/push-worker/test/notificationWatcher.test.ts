@@ -101,7 +101,7 @@ describe('iniciarWatcher', () => {
     const sendEachForMulticast = vi.fn().mockResolvedValue({ successCount: 1, failureCount: 0, responses: [{ success: true }] });
     const messaging = { sendEachForMulticast } as unknown as Messaging;
 
-    fake.seed('dispositivosPush', 'dev-a', { deviceId: 'dev-a', login: 'lvergani', ativo: true, environment: 'STAGING', token: 'tok-a' });
+    fake.seed('dispositivosPush', 'dev-a', { deviceId: 'dev-a', login: 'lvergani', ativo: true, environment: 'STAGING', plataforma: 'ANDROID', fid: 'fid-a' });
     fake.seed('notificacoesTroca', 'notif-1', notificacaoBase());
 
     const { promessa, onResultado } = aguardarResultado();

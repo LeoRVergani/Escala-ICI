@@ -174,6 +174,29 @@ function notificacaoTroca(ajustes: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * Contrato pós Fase PUSH-1B (`apps/push-worker/src/types.ts`): `fid`, nunca
+ * `token`. `deviceId` default combina com o ID de documento usado pela
+ * maioria dos testes (`dev-1`) — sobrescrever os dois juntos quando o
+ * cenário precisar de um ID diferente.
+ */
+function dispositivoPush(login: string, ajustes: Record<string, unknown> = {}) {
+  return {
+    deviceId: 'dev-1',
+    login,
+    plataforma: 'WEB',
+    fid: 'fid-teste-1',
+    ativo: true,
+    criadoEm: '2026-08-07T13:00:00.000Z',
+    atualizadoEm: '2026-08-07T13:00:00.000Z',
+    ultimaConfirmacaoEm: null,
+    appVersion: null,
+    environment: 'STAGING',
+    schemaVersion: 1,
+    ...ajustes,
+  };
+}
+
 beforeEach(async () => {
   await ambiente.clearFirestore();
   await ambiente.withSecurityRulesDisabled(async (contexto) => {
@@ -691,6 +714,126 @@ describe('regras Firestore do Escala ICI', () => {
       });
       const db = autenticarComo(usuarios.colega);
       await assertFails(deleteDoc(doc(db, 'notificacoesTroca', 'notif-1')));
+    });
+  });
+
+  describe('dispositivosPush (Fase PUSH-1B — FID, sem token)', () => {
+    it('permite criar dispositivo WEB próprio com fid', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(setDoc(
+        doc(db, 'dispositivosPush', 'dev-1'),
+        dispositivoPush(usuarios.colaborador.login, { plataforma: 'WEB' }),
+      ));
+    });
+
+    it('permite criar dispositivo ANDROID próprio com fid', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(setDoc(
+        doc(db, 'dispositivosPush', 'dev-1'),
+        dispositivoPush(usuarios.colaborador.login, { plataforma: 'ANDROID' }),
+      ));
+    });
+
+    it('nega criar dispositivo para outro login', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(setDoc(
+        doc(db, 'dispositivosPush', 'dev-1'),
+        dispositivoPush(usuarios.colega.login),
+      ));
+    });
+
+    it('nega list mesmo para o próprio usuário', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'dispositivosPush', 'dev-1'), dispositivoPush(usuarios.colaborador.login));
+      });
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(getDocs(collection(db, 'dispositivosPush')));
+    });
+
+    it('nega criar com campo token', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(setDoc(
+        doc(db, 'dispositivosPush', 'dev-1'),
+        { ...dispositivoPush(usuarios.colaborador.login), token: 'tok-1' },
+      ));
+    });
+
+    it('nega criar com fid vazio', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(setDoc(
+        doc(db, 'dispositivosPush', 'dev-1'),
+        dispositivoPush(usuarios.colaborador.login, { fid: '' }),
+      ));
+    });
+
+    it('nega criar com environment diferente de STAGING', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(setDoc(
+        doc(db, 'dispositivosPush', 'dev-1'),
+        dispositivoPush(usuarios.colaborador.login, { environment: 'PRODUCTION' }),
+      ));
+    });
+
+    it('nega criar quando deviceId do corpo diverge do ID do documento', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(setDoc(
+        doc(db, 'dispositivosPush', 'dev-1'),
+        dispositivoPush(usuarios.colaborador.login, { deviceId: 'outro-id' }),
+      ));
+    });
+
+    it('permite ao próprio usuário ler o próprio dispositivo e nega a outro login', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'dispositivosPush', 'dev-1'), dispositivoPush(usuarios.colaborador.login));
+      });
+      await assertSucceeds(getDoc(doc(autenticarComo(usuarios.colaborador), 'dispositivosPush', 'dev-1')));
+      await assertFails(getDoc(doc(autenticarComo(usuarios.colega), 'dispositivosPush', 'dev-1')));
+    });
+
+    it('permite renovação controlada do fid do próprio dispositivo', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'dispositivosPush', 'dev-1'), dispositivoPush(usuarios.colaborador.login));
+      });
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(updateDoc(
+        doc(db, 'dispositivosPush', 'dev-1'),
+        { fid: 'fid-renovado', atualizadoEm: '2026-08-08T00:00:00.000Z' },
+      ));
+    });
+
+    it('preserva imutabilidade de login/deviceId/environment na atualização', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'dispositivosPush', 'dev-1'), dispositivoPush(usuarios.colaborador.login));
+      });
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(updateDoc(doc(db, 'dispositivosPush', 'dev-1'), { login: usuarios.colega.login }));
+      await assertFails(updateDoc(doc(db, 'dispositivosPush', 'dev-1'), { deviceId: 'outro-id' }));
+      await assertFails(updateDoc(doc(db, 'dispositivosPush', 'dev-1'), { environment: 'PRODUCTION' }));
+    });
+
+    it('nega update que reintroduz campo token', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'dispositivosPush', 'dev-1'), dispositivoPush(usuarios.colaborador.login));
+      });
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(updateDoc(doc(db, 'dispositivosPush', 'dev-1'), { token: 'tok-reintroduzido' }));
+    });
+
+    it('nega update de outro usuário sobre o dispositivo', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'dispositivosPush', 'dev-1'), dispositivoPush(usuarios.colaborador.login));
+      });
+      const db = autenticarComo(usuarios.colega);
+      await assertFails(updateDoc(doc(db, 'dispositivosPush', 'dev-1'), { ativo: false }));
+    });
+
+    it('permite delete pelo próprio usuário e nega para outro', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'dispositivosPush', 'dev-1'), dispositivoPush(usuarios.colaborador.login));
+        await setDoc(doc(contexto.firestore(), 'dispositivosPush', 'dev-2'), dispositivoPush(usuarios.colega.login, { deviceId: 'dev-2' }));
+      });
+      await assertFails(deleteDoc(doc(autenticarComo(usuarios.colaborador), 'dispositivosPush', 'dev-2')));
+      await assertSucceeds(deleteDoc(doc(autenticarComo(usuarios.colaborador), 'dispositivosPush', 'dev-1')));
     });
   });
 

@@ -20,7 +20,7 @@ async function main(): Promise<void> {
 
   await messaging.sendEachForMulticast(
     {
-      tokens: ['push-worker-check-dry-run'],
+      fids: ['push-worker-check-dry-run'],
       notification: { title: 'check', body: 'check' },
     },
     true,

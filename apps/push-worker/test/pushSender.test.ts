@@ -22,9 +22,10 @@ function criarMessagingFake(sendEachForMulticast: Messaging['sendEachForMulticas
 }
 
 describe('buildMessage', () => {
-  it('inclui eventId/trocaId/tipo/route nos dados e mantém notification curta', () => {
-    const mensagem = buildMessage(notificacao, ['tok-1']);
-    expect(mensagem.tokens).toEqual(['tok-1']);
+  it('constrói a mensagem com fids e nunca com tokens', () => {
+    const mensagem = buildMessage(notificacao, ['fid-1']);
+    expect(mensagem.fids).toEqual(['fid-1']);
+    expect('tokens' in mensagem).toBe(false);
     expect(mensagem.notification).toEqual({ title: 'Troca aprovada', body: 'Sua troca foi aprovada.' });
     expect(mensagem.data).toEqual({
       eventId: 'notif-1',
@@ -38,7 +39,7 @@ describe('buildMessage', () => {
 });
 
 describe('sendToDevices', () => {
-  it('envia com sucesso para um único dispositivo', async () => {
+  it('envia com sucesso para um único FID', async () => {
     const sendEachForMulticast = vi.fn().mockResolvedValue({
       successCount: 1,
       failureCount: 0,
@@ -46,12 +47,12 @@ describe('sendToDevices', () => {
     });
     const messaging = criarMessagingFake(sendEachForMulticast);
 
-    const resultado = await sendToDevices(messaging, buildMessage(notificacao, ['tok-1']));
+    const resultado = await sendToDevices(messaging, buildMessage(notificacao, ['fid-1']));
 
     expect(resultado).toEqual({ successCount: 1, failureCount: 0, responses: [{ success: true, errorCode: null }] });
   });
 
-  it('trata multicast para dois dispositivos', async () => {
+  it('trata multicast para múltiplos FIDs', async () => {
     const sendEachForMulticast = vi.fn().mockResolvedValue({
       successCount: 2,
       failureCount: 0,
@@ -59,28 +60,28 @@ describe('sendToDevices', () => {
     });
     const messaging = criarMessagingFake(sendEachForMulticast);
 
-    const resultado = await sendToDevices(messaging, buildMessage(notificacao, ['tok-1', 'tok-2']));
+    const resultado = await sendToDevices(messaging, buildMessage(notificacao, ['fid-1', 'fid-2']));
 
     expect(resultado.successCount).toBe(2);
     expect(resultado.responses).toHaveLength(2);
   });
 
-  it('reporta sucesso parcial: 1 sucesso + 1 token inválido, sem invalidar o lote inteiro', async () => {
+  it('reporta sucesso parcial: 1 sucesso + 1 FID inválido, sem invalidar o lote inteiro', async () => {
     const sendEachForMulticast = vi.fn().mockResolvedValue({
       successCount: 1,
       failureCount: 1,
       responses: [
         { success: true },
-        { success: false, error: { code: 'messaging/registration-token-not-registered' } },
+        { success: false, error: { code: 'messaging/installation-id-not-registered' } },
       ],
     });
     const messaging = criarMessagingFake(sendEachForMulticast);
 
-    const resultado = await sendToDevices(messaging, buildMessage(notificacao, ['tok-1', 'tok-2']));
+    const resultado = await sendToDevices(messaging, buildMessage(notificacao, ['fid-1', 'fid-2']));
 
     expect(resultado.successCount).toBe(1);
     expect(resultado.failureCount).toBe(1);
-    expect(resultado.responses[1]).toEqual({ success: false, errorCode: 'messaging/registration-token-not-registered' });
+    expect(resultado.responses[1]).toEqual({ success: false, errorCode: 'messaging/installation-id-not-registered' });
   });
 
   it('reporta falha total sem lançar exceção', async () => {
@@ -88,13 +89,13 @@ describe('sendToDevices', () => {
       successCount: 0,
       failureCount: 2,
       responses: [
-        { success: false, error: { code: 'messaging/invalid-registration-token' } },
+        { success: false, error: { code: 'messaging/installation-id-not-registered' } },
         { success: false, error: { code: 'messaging/internal-error' } },
       ],
     });
     const messaging = criarMessagingFake(sendEachForMulticast);
 
-    const resultado = await sendToDevices(messaging, buildMessage(notificacao, ['tok-1', 'tok-2']));
+    const resultado = await sendToDevices(messaging, buildMessage(notificacao, ['fid-1', 'fid-2']));
 
     expect(resultado.successCount).toBe(0);
     expect(resultado.failureCount).toBe(2);

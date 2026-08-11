@@ -380,29 +380,58 @@ service cloud.firestore {
     }
 
     /**
-     * Dispositivos com token FCM para push (Fase Push-1, ver
-     * apps/push-worker). A chave é `deviceId`, não `login` — um usuário
-     * pode ter mais de um aparelho. O worker (Admin SDK) ignora estas
-     * regras via IAM; elas só protegem o caminho do app Android via client
-     * SDK, garantindo que cada usuário só veja/gerencie o próprio
-     * dispositivo.
+     * Dispositivos com Firebase Installation ID (FID) para push (Fase
+     * Push-1B, ver apps/push-worker e CHECKPOINT-FASE-PUSH-1B-FID.md — a
+     * Fase Push-1A original usava `token`, migrado sem compatibilidade
+     * ativa). A chave é `deviceId`, não `login` — um usuário pode ter mais
+     * de um aparelho (WEB e/ou ANDROID). O worker (Admin SDK) ignora estas
+     * regras via IAM; elas só protegem o caminho do client SDK (PWA/app),
+     * garantindo que cada usuário só veja/gerencie o próprio dispositivo,
+     * com o `fid` sempre presente e nunca um campo `token` legado.
      */
     match /dispositivosPush/{deviceId} {
       allow get: if autenticado() && resource.data.login == loginDoAuth();
 
-      // Sem `list`: o app só precisa checar/atualizar o próprio
+      // Sem `list`: o client só precisa checar/atualizar o próprio
       // dispositivo, cujo id ele já conhece — nunca enumerar dispositivos
-      // de outra pessoa. O token nunca fica listável por terceiros.
+      // de outra pessoa. O FID nunca fica listável por terceiros.
       allow list: if false;
 
       allow create: if autenticado()
         && request.resource.data.login == loginDoAuth()
-        && request.resource.data.deviceId == deviceId;
+        && request.resource.data.deviceId == deviceId
+        && request.resource.data.fid is string
+        && request.resource.data.fid.size() > 0
+        && request.resource.data.plataforma in ['WEB', 'ANDROID']
+        && request.resource.data.ativo is bool
+        && request.resource.data.environment == 'STAGING'
+        && request.resource.data.schemaVersion in [1]
+        && !('token' in request.resource.data)
+        && request.resource.data.keys().hasOnly([
+          'deviceId', 'login', 'plataforma', 'fid', 'ativo',
+          'criadoEm', 'atualizadoEm', 'ultimaConfirmacaoEm', 'appVersion',
+          'environment', 'schemaVersion',
+        ]);
 
+      // `login`/`deviceId`/`environment` imutáveis; `fid` pode ser
+      // renovado (é exatamente o caso de uso — o FID muda com o tempo);
+      // `ativo`/timestamps/`plataforma`/`appVersion`/`schemaVersion` podem
+      // ser atualizados. Nunca aceita reintroduzir `token`.
       allow update: if autenticado()
         && resource.data.login == loginDoAuth()
         && request.resource.data.login == resource.data.login
-        && request.resource.data.deviceId == resource.data.deviceId;
+        && request.resource.data.deviceId == resource.data.deviceId
+        && request.resource.data.environment == resource.data.environment
+        && request.resource.data.fid is string
+        && request.resource.data.fid.size() > 0
+        && request.resource.data.plataforma in ['WEB', 'ANDROID']
+        && request.resource.data.ativo is bool
+        && !('token' in request.resource.data)
+        && request.resource.data.keys().hasOnly([
+          'deviceId', 'login', 'plataforma', 'fid', 'ativo',
+          'criadoEm', 'atualizadoEm', 'ultimaConfirmacaoEm', 'appVersion',
+          'environment', 'schemaVersion',
+        ]);
 
       allow delete: if autenticado() && resource.data.login == loginDoAuth();
     }

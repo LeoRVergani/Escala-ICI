@@ -19,7 +19,7 @@ function lerLoginDoArgv(argv: string[]): string {
 /**
  * `npm run push:test -- --login=X` — ferramenta manual de diagnóstico.
  * Respeita PUSH_ENABLED (não faz bypass do kill switch: se
- * PUSH_ENABLED=false, informa e não envia nada). Nunca imprime token.
+ * PUSH_ENABLED=false, informa e não envia nada). Nunca imprime FID.
  * Não passa pelo `pushEntregas`/claim — é um envio direto, fora do fluxo
  * de domínio, só para validar a infraestrutura sem fabricar uma Troca.
  */
@@ -56,7 +56,7 @@ async function main(): Promise<void> {
     acao: 'ABRIR_TROCA',
   };
 
-  const mensagem = buildMessage(notificacaoDeTeste, dispositivos.map((dispositivo) => dispositivo.token));
+  const mensagem = buildMessage(notificacaoDeTeste, dispositivos.map((dispositivo) => dispositivo.fid));
   const resultado = await sendToDevices(messaging, mensagem);
 
   console.info(

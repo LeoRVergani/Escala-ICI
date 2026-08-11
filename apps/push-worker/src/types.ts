@@ -27,19 +27,28 @@ export interface NotificacaoTroca {
   acao: 'ABRIR_TROCA';
 }
 
-export type PlataformaDispositivo = 'ANDROID';
+export type PlataformaDispositivo = 'WEB' | 'ANDROID';
 
+/**
+ * Fase PUSH-1B — migração direta de registration tokens (obsoletos) para
+ * Firebase Installation IDs (`fid`). Não existe compatibilidade ativa com
+ * `token`: documentos legados que só têm `token` são ignorados com
+ * segurança pelo `deviceRepository`, nunca interpretados como `fid` (ver
+ * CHECKPOINT-FASE-PUSH-1B-FID.md). `schemaVersion` segue a convenção do
+ * projeto (`packages/contrato/src/tipos.ts`) — valor atual `1`.
+ */
 export interface DispositivoPush {
   deviceId: string;
   login: string;
   plataforma: PlataformaDispositivo;
-  token: string;
+  fid: string;
   ativo: boolean;
   criadoEm: string;
   atualizadoEm: string;
   ultimaConfirmacaoEm: string | null;
   appVersion: string | null;
   environment: 'STAGING';
+  schemaVersion: number;
 }
 
 export type StatusPushEntrega =

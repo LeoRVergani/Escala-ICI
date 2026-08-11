@@ -201,17 +201,23 @@ corrigidas por estar fora de escopo):**
   `node_modules` raiz). Funciona e está isolada (multi-stage, sem
   devDependencies), mas não é minimizada; otimização futura possível
   (ex.: lockfile próprio do workspace) se o tamanho da imagem importar.
-- `pushSender.ts` usa `MulticastMessage.tokens`, campo marcado
-  `@deprecated` no `firebase-admin` 14.x em favor de `fids`
-  (Firebase Installation IDs) — decisão deliberada e já prevista no pedido
-  original (seção 15): não bloquear esta fase pela migração de FIDs, que é
-  pendência futura documentada abaixo.
+- ~~`pushSender.ts` usa `MulticastMessage.tokens`, campo marcado
+  `@deprecated` no `firebase-admin` 14.x em favor de `fids`~~ — **resolvido
+  na Fase PUSH-1B** (migração direta para FID, sem compatibilidade ativa
+  com `token`; ver `CHECKPOINT-FASE-PUSH-1B-FID.md`). Nesta fase (PUSH-1A)
+  o contrato de `dispositivosPush` ainda usava `token` como identificador
+  — registrado aqui por fidelidade histórica, não é mais o estado atual do
+  código.
 - `SEM_DISPOSITIVO` não é retentado automaticamente se o usuário registrar
   um dispositivo depois — comportamento aceito nesta fase, documentado no
   runbook.
 
 ## Pendências explícitas (fora de escopo desta fase, não resolvidas)
 
+- **Migração de `token` para FID** — resolvida na Fase PUSH-1B (ver
+  `CHECKPOINT-FASE-PUSH-1B-FID.md`). Todo `token` mencionado neste
+  documento é o identificador que a Fase PUSH-1A de fato usava na época;
+  não reflete o contrato atual de `dispositivosPush` (`fid`).
 - **`PUSH_GESTOR_EVENTO_DOMINIO_PENDENTE`** — auditado: `notificacoesTroca`
   nunca tem `destinatarioLogin` de um gestor hoje (confirmado lendo todos
   os pontos de criação em `lib/firebase/trocasRepository.ts`). O worker só
