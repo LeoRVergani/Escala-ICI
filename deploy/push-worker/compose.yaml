@@ -15,6 +15,8 @@ services:
       PUSH_ACTIVATED_AT: ${PUSH_ACTIVATED_AT}
     secrets:
       - firebase_push_worker_credentials
+    group_add:
+      - "${PUSH_SECRET_GID:?Defina PUSH_SECRET_GID no ambiente do push worker}"
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=8m

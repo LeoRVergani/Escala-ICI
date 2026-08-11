@@ -16,8 +16,10 @@ Documentação operacional completa: `docs/operacao/PUSH-FCM-OPERACAO.md`.
    `/opt/escala-ici/secrets/escala-ici-staging-push-worker.json` na VM,
    permissões restritas, dono `root`.
 3. `cp .env.staging.push-worker.example .env.staging.push-worker` na raiz do
-   repo e ajustar `PUSH_ACTIVATED_AT` (e manter `PUSH_ENABLED=false` até
-   validar tudo).
+   repo, ajustar `PUSH_ACTIVATED_AT`, definir `PUSH_SECRET_GID` com o GID do
+   grupo dedicado criado no host (ver
+   `docs/operacao/PUSH-FCM-OPERACAO.md`) e manter `PUSH_ENABLED=false` até
+   validar tudo.
 
 Nenhum destes três passos é feito por este repositório nem por automação —
 são deliberadamente manuais.
@@ -27,13 +29,16 @@ são deliberadamente manuais.
 ```bash
 npm run docker:push-worker:staging:build
 npm run docker:push-worker:staging:up
-docker compose -f deploy/push-worker/compose.yaml -f deploy/push-worker/compose.staging.yaml ps
+docker compose --env-file .env.staging.push-worker \
+  -f deploy/push-worker/compose.yaml -f deploy/push-worker/compose.staging.yaml \
+  --profile push ps
 ```
 
 ## Verificar sem enviar push
 
 ```bash
-docker compose -f deploy/push-worker/compose.yaml -f deploy/push-worker/compose.staging.yaml \
+docker compose --env-file .env.staging.push-worker \
+  -f deploy/push-worker/compose.yaml -f deploy/push-worker/compose.staging.yaml \
   --profile push run --rm push-worker node dist/cli/check.js
 ```
 
@@ -47,5 +52,7 @@ npm run docker:push-worker:staging:down
 
 ```bash
 docker build -f deploy/push-worker/Dockerfile -t escala-ici-push-worker:local .
-docker compose -f deploy/push-worker/compose.yaml -f deploy/push-worker/compose.staging.yaml config
+PUSH_SECRET_GID=3999 docker compose --env-file .env.staging.push-worker \
+  -f deploy/push-worker/compose.yaml -f deploy/push-worker/compose.staging.yaml \
+  --profile push config --quiet
 ```

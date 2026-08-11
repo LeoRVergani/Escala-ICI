@@ -88,3 +88,31 @@ test('o pacote push-worker permanece isolado: workspace próprio, sem entrar no 
   assert.match(vitest, /apps\/push-worker\/test/);
   assert.match(tsconfigRaiz, /apps\/push-worker/);
 });
+
+test('o Docker do push-worker lê o secret via grupo suplementar, nunca como root', async () => {
+  const [dockerfile, compose, operacao] = await Promise.all([
+    ler('deploy/push-worker/Dockerfile'),
+    ler('deploy/push-worker/compose.yaml'),
+    ler('docs/operacao/PUSH-FCM-OPERACAO.md'),
+  ]);
+
+  assert.match(dockerfile, /^USER node$/m, 'o processo principal deve continuar rodando como node');
+
+  assert.doesNotMatch(compose, /^\s*user:\s*["']?(root|0)["']?/m, 'compose não deve fixar user: root/0');
+  assert.match(compose, /group_add:/, 'compose deve conceder acesso ao secret via group_add');
+  assert.match(compose, /PUSH_SECRET_GID/, 'group_add deve referenciar PUSH_SECRET_GID');
+
+  const conteudos = [compose, operacao, dockerfile].join('\n');
+  assert.doesNotMatch(compose, /0444/, 'compose não deve recomendar 0444 (leitura pública) para a chave');
+  assert.doesNotMatch(
+    operacao,
+    /chmod\s+0444/,
+    'o runbook não deve instruir chmod 0444 (leitura pública) para a chave',
+  );
+  assert.doesNotMatch(
+    conteudos,
+    /private_key|BEGIN PRIVATE KEY|client_email/i,
+    'nenhum arquivo de deploy/docs deve conter conteúdo de credencial',
+  );
+  assert.doesNotMatch(compose, /^\s*ports:/m, 'push-worker não deve publicar porta');
+});
