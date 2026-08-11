@@ -838,6 +838,43 @@ describe('regras Firestore do Escala ICI', () => {
   });
 
   /**
+   * Hotfix PUSH-PWA-2A.1 — `registrarOuRenovarDispositivo()` sempre faz um
+   * `getDoc()` antes do `setDoc()`, para decidir criar vs. renovar. Na
+   * primeira ativação de um `deviceId` novo, esse documento ainda não
+   * existe: `resource` é `null` na regra de `get`, e ler `resource.data`
+   * nesse caso é erro de avaliação — que o Firestore trata como negado.
+   * Os testes abaixo reproduzem exatamente esse `get` sem pré-seed (nenhum
+   * teste anterior de `get` fazia isso — todos pré-criavam o documento).
+   */
+  describe('dispositivosPush — primeira inscrição (documento ainda inexistente)', () => {
+    it('nega get em documento inexistente para usuário não autenticado', async () => {
+      const db = ambiente.unauthenticatedContext().firestore();
+      await assertFails(getDoc(doc(db, 'dispositivosPush', 'dev-novo')));
+    });
+
+    it('permite get em documento inexistente pelo próprio dono do deviceId e retorna snapshot inexistente', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      const snapshot = await assertSucceeds(getDoc(doc(db, 'dispositivosPush', 'dev-novo')));
+      expect(snapshot.exists()).toBe(false);
+    });
+
+    it('permite criar o próprio documento depois do get em ID inexistente (fluxo real de primeira ativação)', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      const snapshotAntes = await assertSucceeds(getDoc(doc(db, 'dispositivosPush', 'dev-novo')));
+      expect(snapshotAntes.exists()).toBe(false);
+
+      await assertSucceeds(setDoc(
+        doc(db, 'dispositivosPush', 'dev-novo'),
+        dispositivoPush(usuarios.colaborador.login, { deviceId: 'dev-novo' }),
+      ));
+
+      const snapshotDepois = await assertSucceeds(getDoc(doc(db, 'dispositivosPush', 'dev-novo')));
+      expect(snapshotDepois.exists()).toBe(true);
+      expect(snapshotDepois.data()?.login).toBe(usuarios.colaborador.login);
+    });
+  });
+
+  /**
    * Hotfix 2 — os testes acima só exercitam get/set/update/delete em um
    * documento por vez. As operações reais de `lib/firebase/trocasRepository.ts`
    * fazem `getDocs(query(...))` (list, não get) e uma `runTransaction` com

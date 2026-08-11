@@ -390,7 +390,14 @@ service cloud.firestore {
      * com o `fid` sempre presente e nunca um campo `token` legado.
      */
     match /dispositivosPush/{deviceId} {
-      allow get: if autenticado() && resource.data.login == loginDoAuth();
+      // `resource == null` cobre a primeira ativação: `registrarOuRenovarDispositivo()`
+      // sempre faz um `getDoc()` antes do `setDoc()` para decidir criar vs.
+      // renovar, e nessa primeira chamada o documento ainda não existe —
+      // sem esse curto-circuito, `resource.data.login` avalia contra um
+      // `resource` nulo e o Firestore nega o `get` com erro de avaliação
+      // antes mesmo do cliente chegar ao `create`. Documento existente
+      // continua exigindo o mesmo login do dono.
+      allow get: if autenticado() && (resource == null || resource.data.login == loginDoAuth());
 
       // Sem `list`: o client só precisa checar/atualizar o próprio
       // dispositivo, cujo id ele já conhece — nunca enumerar dispositivos
