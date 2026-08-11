@@ -145,6 +145,14 @@ Desde a Fase PUSH-1B, `dispositivosPush` usa `fid` como identificador —
 Documentos legados que só têm `token` são ignorados com segurança pelo
 worker (nunca causam erro, nunca são apagados automaticamente).
 
+Desde a Fase PUSH-PWA-1, o PWA (`apps/app`) já sabe registrar dispositivos
+`WEB` pelo card "Notificações" do Perfil (ver
+`CHECKPOINT-FASE-PUSH-PWA-1.md`) — exige
+`VITE_FIREBASE_MESSAGING_SENDER_ID`/`VITE_FIREBASE_VAPID_KEY` configurados
+no ambiente do App (Cloudflare Pages em staging), fora deste repositório.
+Sem esses dois valores, o App continua funcionando normalmente; só o card
+fica em "Não configuradas neste ambiente".
+
 ## Como recuperar de um restart
 
 Não é preciso fazer nada manualmente. `docker compose restart push-worker`

@@ -2018,6 +2018,15 @@ button.shift-chip:disabled { cursor: default; }
 .profile-details strong { overflow-wrap: anywhere; font-size: 12px; }
 .profile-logout { grid-column: 1 / -1; justify-self: end; }
 
+.profile-notifications { grid-column: 1 / -1; padding: 18px 22px; display: flex; flex-direction: column; gap: 8px; }
+.profile-notifications-cabecalho { display: flex; align-items: center; gap: 9px; color: var(--primary-bright); }
+.profile-notifications-cabecalho h3 { margin: 0; font-size: 14px; color: var(--text); }
+.profile-notifications-status { margin: 0; color: var(--muted); font-size: 12px; }
+.profile-notifications-erro { margin: 0; color: var(--danger); font-size: 12px; }
+.profile-notifications-orientacao { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.profile-notifications-acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.profile-notifications-acoes .secondary-button { min-width: 0; }
+
 @media (max-width: 780px) {
   .app-shell.product-app .topbar {
     height: 62px;
@@ -2147,6 +2156,8 @@ button.shift-chip:disabled { cursor: default; }
   .profile-layout { grid-template-columns: 1fr; }
   .profile-details > div { grid-template-columns: 22px 80px minmax(0, 1fr); }
   .profile-logout { justify-self: stretch; }
+  .profile-notifications { padding: 16px 18px; }
+  .profile-notifications-acoes .secondary-button { flex: 1 1 auto; }
 }
 
 @media (max-width: 480px) {

@@ -12,6 +12,7 @@ const [
   manifesto,
   manifestoCompatibilidade,
   serviceWorker,
+  swFonte,
   headers,
   redirects,
 ] = await Promise.all([
@@ -19,6 +20,13 @@ const [
   ler('dist/apps/app/manifest.webmanifest'),
   ler('dist/apps/app/manifest-app.webmanifest'),
   ler('dist/apps/app/service-worker.js'),
+  // O build de `dist/apps/app/service-worker.js` é minificado
+  // (`apps/app/vite.sw.config.ts`) — nomes de identificador como
+  // SCOPE_PATH/APP_ENTRY são renomeados pelo minificador, então essas
+  // checagens leem a fonte legível; strings literais (ex.:
+  // `manifest-app.webmanifest`, `fase-3k-c-v1`) sobrevivem à minificação e
+  // continuam sendo checadas no artefato de fato distribuído.
+  ler('apps/app/src/sw/serviceWorker.js'),
   ler('dist/apps/app/_headers'),
   ler('dist/apps/app/_redirects'),
 ]);
@@ -40,10 +48,16 @@ assert.equal(pwaCompatibilidade.id, '/app');
 assert.equal(pwaCompatibilidade.start_url, '/app');
 assert.equal(pwaCompatibilidade.scope, '/app');
 
-assert.match(serviceWorker, /SCOPE_PATH/);
-assert.match(serviceWorker, /APP_ENTRY/);
+assert.match(swFonte, /SCOPE_PATH/);
+assert.match(swFonte, /APP_ENTRY/);
 assert.match(serviceWorker, /manifest-app\.webmanifest/);
 assert.match(serviceWorker, /fase-3k-c-v1/);
+assert.match(serviceWorker, /onBackgroundMessage/);
+assert.equal(
+  serviceWorker.includes('firebase-messaging-sw'),
+  false,
+  'o artefato distribuído nunca deve referenciar um segundo service worker',
+);
 assert.match(headers, /service-worker\.js[\s\S]*no-cache/);
 assert.match(headers, /X-Content-Type-Options: nosniff/);
 assert.match(redirects, /^\/\* \/index\.html 200\s*$/);

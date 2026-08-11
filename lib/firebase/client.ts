@@ -30,15 +30,66 @@ export interface FirebaseServices {
   db: Firestore;
 }
 
+const messagingSenderId = import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string | undefined;
+const vapidKeyPublica = import.meta.env.VITE_FIREBASE_VAPID_KEY as string | undefined;
+
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string | undefined,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID as string | undefined,
   appId: import.meta.env.VITE_FIREBASE_APP_ID as string | undefined,
+  // Incluído no config do FirebaseApp (getMessaging pode precisar dele),
+  // mas nunca entra na checagem de `firebaseConfigurado` abaixo — só os
+  // quatro campos originais decidem se Auth/Firestore podem inicializar.
+  // Auth/Firestore continuam funcionando normalmente sem push configurado.
+  messagingSenderId,
 };
 
-export const firebaseConfigurado = Object.values(firebaseConfig)
+export const firebaseConfigurado = ['apiKey', 'authDomain', 'projectId', 'appId']
+  .map((chave) => firebaseConfig[chave as keyof typeof firebaseConfig])
   .every((valor) => typeof valor === 'string' && valor.trim() !== '');
+
+/**
+ * Estado separado de `firebaseConfigurado`: exige, além da configuração
+ * base, o sender ID e a VAPID pública, ambiente `staging` (Fase Push
+ * hoje só existe lá), HTTPS ou `localhost` (Web Push exige contexto
+ * seguro) e ausência de emuladores (nunca registra FID contra o
+ * emulador). Qualquer condição faltando é tratada como "push não
+ * configurado neste ambiente" — nunca um erro, nunca bloqueia o resto do
+ * App.
+ */
+export function pushConfigurado(): boolean {
+  if (!firebaseConfigurado) {
+    return false;
+  }
+  if (typeof messagingSenderId !== 'string' || messagingSenderId.trim() === '') {
+    return false;
+  }
+  if (typeof vapidKeyPublica !== 'string' || vapidKeyPublica.trim() === '') {
+    return false;
+  }
+  if ((import.meta.env.VITE_FIREBASE_ENVIRONMENT as string | undefined) !== 'staging') {
+    return false;
+  }
+  if (emuladoresHabilitados()) {
+    return false;
+  }
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const contextoSeguro = window.location.protocol === 'https:'
+    || window.location.hostname === 'localhost'
+    || window.location.hostname === '127.0.0.1';
+  return contextoSeguro;
+}
+
+export function obterVapidKeyPublica(): string | undefined {
+  return vapidKeyPublica;
+}
+
+export function obterMessagingSenderId(): string | undefined {
+  return messagingSenderId;
+}
 
 let services: FirebaseServices | null | undefined;
 let usarCachePersistente = true;

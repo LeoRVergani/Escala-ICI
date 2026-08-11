@@ -19,6 +19,7 @@ import {
 } from '@escala-ici/contrato';
 import {
   ArrowLeftRight,
+  BellOff,
   BriefcaseBusiness,
   Bell,
   BellRing,
@@ -32,6 +33,7 @@ import {
   Coffee,
   Filter,
   List,
+  LoaderCircle,
   LogOut,
   Mail,
   Moon,
@@ -56,6 +58,24 @@ import { ScheduleLegend } from '@/components/ScheduleLegend';
 import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
 import { ambienteFirebaseAtual } from '@/lib/firebase/shared';
+import { pushConfigurado } from '@/lib/firebase/client';
+import {
+  desativarDispositivo,
+  deviceIdExistenteLocal,
+  obterOuCriarDeviceId,
+  registrarOuRenovarDispositivo,
+  removerDeviceIdLocal,
+  verificarDispositivoAtivo,
+} from '@/lib/firebase/pushDeviceRepository';
+import {
+  ativarPush,
+  assinarMensagensEmPrimeiroPlano,
+  assinarRenovacaoFid,
+  avaliarSuporte,
+  desativarPush,
+  limparPushAoSair as limparPushAoSairAdapter,
+  retomarPushSeAderido,
+} from '@/lib/firebase/pushMessaging';
 import { formatarDataHoraSafe, formatarDiaTrocaSafe } from '@/lib/dataSegura';
 import {
   carregarEscalasEquipe,
@@ -87,6 +107,21 @@ import {
 type Tela = 'hoje' | 'minha' | 'trocas' | 'equipe' | 'perfil';
 type ModoEscala = 'calendario' | 'agenda';
 type AbaTrocas = 'minhas' | 'responder' | 'gestor' | 'historico';
+
+/**
+ * Estado do card "Notificações" do Perfil (Fase PUSH-PWA-1). `DEMO` e
+ * `NAO_CONFIGURADO` nunca chegam a pedir permissão nem a chamar
+ * `ativarPush()` — só descrevem por que a ativação não está disponível.
+ */
+type EstadoNotificacoesPush =
+  | 'DEMO'
+  | 'NAO_CONFIGURADO'
+  | 'INDISPONIVEL'
+  | 'BLOQUEADO'
+  | 'DISPONIVEL'
+  | 'ATIVANDO'
+  | 'ATIVO'
+  | 'ERRO';
 
 const NAVEGACAO: ItemNavegacao[] = [
   { id: 'hoje', rotulo: 'Hoje', icone: 'home' },
@@ -640,6 +675,74 @@ function TrocaNotificationBell({
   );
 }
 
+const TEXTO_ESTADO_NOTIFICACOES: Record<EstadoNotificacoesPush, string> = {
+  DEMO: 'Notificações disponíveis somente com conta autenticada.',
+  NAO_CONFIGURADO: 'Não configuradas neste ambiente.',
+  INDISPONIVEL: 'Indisponíveis neste navegador.',
+  BLOQUEADO: 'Bloqueadas no navegador.',
+  DISPONIVEL: 'Disponíveis para ativar.',
+  ATIVANDO: 'Ativando…',
+  ATIVO: 'Ativas neste dispositivo.',
+  ERRO: 'Não foi possível concluir a ativação.',
+};
+
+interface CardNotificacoesPushProps {
+  estado: EstadoNotificacoesPush;
+  erro: string;
+  onAtivar: () => void;
+  onDesativar: () => void;
+}
+
+/**
+ * Card "Notificações" do Perfil (Fase PUSH-PWA-1). Nunca pede permissão
+ * sozinho — só reage a clique explícito. `aria-live` no status para leitor
+ * de tela acompanhar a transição sem precisar focar o card de novo.
+ */
+function CardNotificacoesPush({ estado, erro, onAtivar, onDesativar }: CardNotificacoesPushProps) {
+  const desabilitado = estado === 'ATIVANDO';
+  return (
+    <article className="panel profile-notifications">
+      <div className="profile-notifications-cabecalho">
+        {estado === 'ATIVO' ? <BellRing size={18} /> : <Bell size={18} />}
+        <h3>Notificações</h3>
+      </div>
+      <p className="profile-notifications-status" aria-live="polite">
+        {TEXTO_ESTADO_NOTIFICACOES[estado]}
+      </p>
+      {estado === 'ERRO' && erro && (
+        <p className="profile-notifications-erro" role="alert">{erro}</p>
+      )}
+      {estado === 'BLOQUEADO' && (
+        <p className="profile-notifications-orientacao">
+          Abra as configurações do navegador para este site e permita notificações, depois tente novamente.
+        </p>
+      )}
+      <div className="profile-notifications-acoes">
+        {(estado === 'DISPONIVEL' || estado === 'ERRO') && (
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={onAtivar}
+            disabled={desabilitado}
+          >
+            <Bell size={16} /> Ativar notificações
+          </button>
+        )}
+        {estado === 'ATIVANDO' && (
+          <button className="secondary-button" type="button" disabled>
+            <LoaderCircle size={16} className="spin" /> Ativando…
+          </button>
+        )}
+        {estado === 'ATIVO' && (
+          <button className="secondary-button" type="button" onClick={onDesativar}>
+            <BellOff size={16} /> Desativar neste dispositivo
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
 function TrocaItemButton({
   troca,
   usuario,
@@ -1032,8 +1135,25 @@ export function EmployeeApp() {
   const [assistenteTroca, setAssistenteTroca] = useState<EstadoAssistenteTroca | null>(null);
   const [processandoTroca, setProcessandoTroca] = useState(false);
   const [erroTroca, setErroTroca] = useState('');
+  const [estadoNotificacoesPush, setEstadoNotificacoesPush] = useState<EstadoNotificacoesPush>('NAO_CONFIGURADO');
+  const [erroNotificacoesPush, setErroNotificacoesPush] = useState('');
+  // Lido uma única vez na primeira renderização (inicializador tardio, não
+  // um efeito) e some da URL logo depois — nunca reprocessado num F5.
+  const [deepLinkTrocaId, setDeepLinkTrocaId] = useState<string | null>(() => {
+    const parametros = new URLSearchParams(window.location.search);
+    const trocaId = parametros.get('trocaId');
+    if (trocaId === null || trocaId.trim() === '') {
+      return null;
+    }
+    parametros.delete('trocaId');
+    const query = parametros.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+    return trocaId;
+  });
   const eventosConhecidos = useRef<Set<string>>(new Set());
   const primeiraCargaEventos = useRef(true);
+  const deviceIdPushRef = useRef<string | null>(null);
+  const eventIdsPushConhecidos = useRef<Set<string>>(new Set());
   const sessao = useRestauracaoSessao({
     tipo: 'app',
     aoRestaurar: (restaurado) => autenticar(restaurado, false),
@@ -1111,6 +1231,73 @@ export function EmployeeApp() {
     };
   }, [competenciaAtiva, equipeUsuario, listenersLiberados, loginUsuario]);
 
+  // Renovação de FID (chamada de novo por `pushsubscriptionchange` ou por
+  // outra aba) — assinatura de longa duração, só enquanto o dispositivo
+  // está de fato ATIVO. Idempotente: `registrarOuRenovarDispositivo`
+  // sempre atualiza o mesmo documento, nunca cria um novo.
+  useEffect(() => {
+    if (usuario === null || modoDemonstracao || estadoNotificacoesPush !== 'ATIVO') {
+      return undefined;
+    }
+    const login = usuario.login;
+    const cancelar = assinarRenovacaoFid((fid) => {
+      const deviceId = deviceIdPushRef.current ?? deviceIdExistenteLocal(login);
+      if (deviceId === null) {
+        return;
+      }
+      void registrarOuRenovarDispositivo({ deviceId, login, fid }).catch(() => {
+        // Melhor esforço — uma renovação perdida não é crítica; a próxima
+        // notificação já usa o `fid` mais atual do lado do FCM mesmo assim.
+      });
+    });
+    return () => cancelar?.();
+  }, [usuario, modoDemonstracao, estadoNotificacoesPush]);
+
+  // Foreground: o Firestore (`observarNotificacoesTroca`, acima) já é a
+  // fonte da verdade e já atualiza a central em tempo real. Este canal só
+  // participa da dedupe por `eventId` — nunca exibe uma segunda notificação
+  // do sistema, nunca navega sozinho.
+  useEffect(() => {
+    if (usuario === null || modoDemonstracao) {
+      return undefined;
+    }
+    const cancelar = assinarMensagensEmPrimeiroPlano((payload) => {
+      const eventId = payload.data?.eventId;
+      if (typeof eventId !== 'string' || eventIdsPushConhecidos.current.has(eventId)) {
+        return;
+      }
+      eventIdsPushConhecidos.current.add(eventId);
+    });
+    return () => cancelar?.();
+  }, [usuario, modoDemonstracao]);
+
+  // Deep link de clique em notificação de Troca (`?trocaId=...`, ver
+  // `public/service-worker.js`) — aplicado depois que a sessão e a carga
+  // inicial terminam, nunca perde o destino por a sessão ainda estar sendo
+  // restaurada. `window.requestAnimationFrame` (mesmo padrão de
+  // `PwaProvider.tsx`) tira as chamadas de `setState` do corpo síncrono do
+  // efeito, evitando cascata de renders na mesma commit.
+  useEffect(() => {
+    if (deepLinkTrocaId === null || usuario === null || !dadosCarregados) {
+      return undefined;
+    }
+    const quadro = window.requestAnimationFrame(() => {
+      setCentralTrocasAberta(false);
+      setTela('trocas');
+      setTrocaAbertaId(deepLinkTrocaId);
+      setDeepLinkTrocaId(null);
+    });
+    const notificacaoCorrespondente = notificacoesTroca.find(
+      (item) => item.trocaId === deepLinkTrocaId && item.lidaEm === null,
+    );
+    if (notificacaoCorrespondente) {
+      void marcarNotificacaoTrocaComoLida(notificacaoCorrespondente.id).catch(() => {
+        // Falha em marcar como lida não impede abrir a troca — só o badge fica desatualizado.
+      });
+    }
+    return () => window.cancelAnimationFrame(quadro);
+  }, [deepLinkTrocaId, usuario, dadosCarregados, notificacoesTroca]);
+
   // Derivado (não um segundo `useState`) para o modal aberto ficar sempre
   // sincronizado com o snapshot em tempo real — por exemplo, se o colega
   // responder num outro dispositivo enquanto o solicitante ainda está com o
@@ -1161,6 +1348,9 @@ export function EmployeeApp() {
     : turnosTrabalho.filter((codigo) => codigo === filtroTurno);
 
   async function autenticar(autenticado: Usuario, demonstracao: boolean) {
+    setEstadoNotificacoesPush(demonstracao ? 'DEMO' : 'NAO_CONFIGURADO');
+    setErroNotificacoesPush('');
+    deviceIdPushRef.current = null;
     if (demonstracao) {
       setIdsLidos(new Set());
     } else {
@@ -1246,6 +1436,13 @@ export function EmployeeApp() {
   }
 
   async function encerrarSessao() {
+    // Orquestração: limpa o push (best-effort, nunca bloqueia) antes de
+    // sair — evita que o próximo usuário deste navegador reaproveite em
+    // silêncio o registro FCM da pessoa anterior. `sair()` continua sem
+    // saber nada sobre push (assinatura pública inalterada).
+    if (usuario !== null && !modoDemonstracao) {
+      await limparPushLocalAoSair(usuario.login);
+    }
     await sair();
     setUsuario(null);
     setDocumentos([]);
@@ -1257,6 +1454,8 @@ export function EmployeeApp() {
     setCentralAberta(false);
     setCentralTrocasAberta(false);
     setAvisoAtualizacao('');
+    setEstadoNotificacoesPush('NAO_CONFIGURADO');
+    setErroNotificacoesPush('');
     setTela('hoje');
   }
 
@@ -1289,6 +1488,192 @@ export function EmployeeApp() {
       await Notification.requestPermission();
     }
   }
+
+  /**
+   * Só descreve o estado atual — nunca pede permissão nem chama
+   * `register()`. Chamada ao abrir o Perfil e depois de ativar/desativar,
+   * nunca no carregamento do App.
+   */
+  async function avaliarEstadoNotificacoesPush() {
+    if (modoDemonstracao) {
+      setEstadoNotificacoesPush('DEMO');
+      return;
+    }
+    if (!pushConfigurado()) {
+      setEstadoNotificacoesPush('NAO_CONFIGURADO');
+      return;
+    }
+    if (!('Notification' in window)) {
+      setEstadoNotificacoesPush('INDISPONIVEL');
+      return;
+    }
+    const suportado = await avaliarSuporte().catch(() => false);
+    if (!suportado) {
+      setEstadoNotificacoesPush('INDISPONIVEL');
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      setEstadoNotificacoesPush('BLOQUEADO');
+      return;
+    }
+    if (Notification.permission === 'granted' && usuario !== null) {
+      const deviceId = deviceIdExistenteLocal(usuario.login);
+      if (deviceId !== null) {
+        const ativo = await verificarDispositivoAtivo(deviceId).catch(() => false);
+        deviceIdPushRef.current = deviceId;
+        setEstadoNotificacoesPush(ativo ? 'ATIVO' : 'DISPONIVEL');
+        return;
+      }
+    }
+    setEstadoNotificacoesPush('DISPONIVEL');
+  }
+
+  async function ativarNotificacoesPush() {
+    if (usuario === null) {
+      return;
+    }
+    setErroNotificacoesPush('');
+    setEstadoNotificacoesPush('ATIVANDO');
+    const resultado = await ativarPush();
+    if (resultado.estado === 'ATIVO' && resultado.fid) {
+      const deviceId = obterOuCriarDeviceId(usuario.login);
+      deviceIdPushRef.current = deviceId;
+      try {
+        await registrarOuRenovarDispositivo({ deviceId, login: usuario.login, fid: resultado.fid });
+        setEstadoNotificacoesPush('ATIVO');
+      } catch {
+        setErroNotificacoesPush('Permissão concedida, mas não foi possível salvar o dispositivo. Tente novamente.');
+        setEstadoNotificacoesPush('ERRO');
+      }
+      return;
+    }
+    if (resultado.estado === 'PERMISSAO_NEGADA') {
+      setEstadoNotificacoesPush('BLOQUEADO');
+      return;
+    }
+    if (resultado.estado === 'NAO_SUPORTADO') {
+      setEstadoNotificacoesPush('INDISPONIVEL');
+      return;
+    }
+    if (resultado.estado === 'NAO_CONFIGURADO') {
+      setEstadoNotificacoesPush('NAO_CONFIGURADO');
+      return;
+    }
+    setErroNotificacoesPush(resultado.erro ?? 'Não foi possível ativar as notificações.');
+    setEstadoNotificacoesPush('ERRO');
+  }
+
+  async function desativarNotificacoesPush() {
+    if (usuario === null) {
+      return;
+    }
+    const deviceId = deviceIdExistenteLocal(usuario.login);
+    await desativarPush().catch(() => {
+      // Sem assinatura ativa neste navegador — nada a desfazer no push subscription.
+    });
+    if (deviceId !== null) {
+      await desativarDispositivo(deviceId).catch(() => {
+        // Falha ao desativar remotamente não deve travar a ação local do usuário.
+      });
+    }
+    removerDeviceIdLocal(usuario.login);
+    deviceIdPushRef.current = null;
+    setEstadoNotificacoesPush('DISPONIVEL');
+  }
+
+  /**
+   * Chamada pelo orquestrador de logout (`encerrarSessao`). A orquestração
+   * (nunca lança, nunca bloqueia `sair()` por muito tempo — timeout de 3s
+   * cobre o caso offline) vive em `limparPushAoSairAdapter`
+   * (`lib/firebase/pushMessaging.ts`, extraída para ser testável sem
+   * React); esta função só resolve o `deviceId` local e limpa o
+   * armazenamento local depois. Se a limpeza remota falhar ou não der
+   * tempo, o registro residual será desativado pelo próprio push-worker
+   * quando o FID deixar de existir — não é um vazamento permanente, só um
+   * dispositivo "ativo" por mais tempo do que o ideal.
+   */
+  async function limparPushLocalAoSair(login: string) {
+    const deviceId = deviceIdExistenteLocal(login);
+    await limparPushAoSairAdapter({ deviceIdExistente: deviceId, desativarDispositivo });
+    removerDeviceIdLocal(login);
+    deviceIdPushRef.current = null;
+  }
+
+  /**
+   * Retomada automática no recarregamento/reabertura do PWA (auditoria
+   * PUSH-PWA-1.1, cenário do item 5 do pedido). A decisão de agir ou não
+   * — e o próprio "nunca pede permissão de novo" — vive em
+   * `retomarPushSeAderido` (`lib/firebase/pushMessaging.ts`), extraída
+   * para ser testável sem depender de React/DOM. Esta função só orquestra
+   * UI/persistência em volta do resultado: a UI só muda para `ATIVO`
+   * depois que `registrarOuRenovarDispositivo` confirma a persistência;
+   * falha de rede aqui é silenciosa (o usuário só veria o estado real ao
+   * abrir o Perfil, sem interrupção do resto do App).
+   */
+  async function retomarPushAutomaticamente() {
+    if (usuario === null || modoDemonstracao) {
+      return;
+    }
+    // Checagem síncrona e barata só para decidir se vale mostrar
+    // "Ativando…" — quem nunca aderiu (sem deviceId local) nem chega a
+    // ver esse estado. A decisão completa (incluindo a confirmação no
+    // Firestore) continua só em `retomarPushSeAderido`.
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+      return;
+    }
+    const login = usuario.login;
+    const deviceId = deviceIdExistenteLocal(login);
+    if (deviceId === null) {
+      return;
+    }
+    setEstadoNotificacoesPush('ATIVANDO');
+    const resultado = await retomarPushSeAderido({
+      deviceIdExistente: deviceId,
+      verificarDispositivoAtivo,
+    });
+    if (resultado.estado === 'ATIVO' && resultado.fid) {
+      deviceIdPushRef.current = deviceId;
+      try {
+        await registrarOuRenovarDispositivo({ deviceId, login, fid: resultado.fid });
+        setEstadoNotificacoesPush('ATIVO');
+      } catch {
+        setErroNotificacoesPush('Não foi possível confirmar o dispositivo automaticamente. Abra o Perfil para tentar novamente.');
+        setEstadoNotificacoesPush('ERRO');
+      }
+      return;
+    }
+    setEstadoNotificacoesPush('DISPONIVEL');
+  }
+
+  // Avalia o estado do card de notificações só quando o Perfil é aberto —
+  // nunca no carregamento do App, nunca pede permissão sozinho.
+  // `requestAnimationFrame` (mesmo padrão de `PwaProvider.tsx`) tira a
+  // chamada — que internamente atualiza estado — do corpo síncrono do
+  // efeito.
+  useEffect(() => {
+    if (tela !== 'perfil' || usuario === null) {
+      return undefined;
+    }
+    const quadro = window.requestAnimationFrame(() => {
+      void avaliarEstadoNotificacoesPush();
+    });
+    return () => window.cancelAnimationFrame(quadro);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tela, usuario, modoDemonstracao]);
+
+  // Retomada automática (ver `retomarPushAutomaticamente` acima) — uma vez
+  // por sessão autenticada, depois que a carga inicial termina. Nunca pede
+  // permissão; só age se já havia adesão confirmada.
+  useEffect(() => {
+    if (usuario === null || modoDemonstracao || !dadosCarregados) {
+      return undefined;
+    }
+    const quadro = window.requestAnimationFrame(() => {
+      void retomarPushAutomaticamente();
+    });
+    return () => window.cancelAnimationFrame(quadro);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuario, modoDemonstracao, dadosCarregados]);
 
   function alternarCentralTrocas() {
     setCentralTrocasAberta((atual) => !atual);
@@ -1822,6 +2207,12 @@ export function EmployeeApp() {
               <div><Building2 /><span>Equipe</span><strong>{usuario.equipeId}</strong></div>
               <div><UserRound /><span>Nível</span><strong>{usuario.nivelHierarquico}</strong></div>
             </article>
+            <CardNotificacoesPush
+              estado={estadoNotificacoesPush}
+              erro={erroNotificacoesPush}
+              onAtivar={() => void ativarNotificacoesPush()}
+              onDesativar={() => void desativarNotificacoesPush()}
+            />
             <button className="secondary-button profile-logout" type="button" onClick={() => void encerrarSessao()}>
               <LogOut size={17} /> Sair deste dispositivo
             </button>

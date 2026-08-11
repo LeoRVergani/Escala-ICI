@@ -22,19 +22,26 @@ function criarMessagingFake(sendEachForMulticast: Messaging['sendEachForMulticas
 }
 
 describe('buildMessage', () => {
-  it('constrói a mensagem com fids e nunca com tokens', () => {
+  it('constrói a mensagem só com data — nunca notification no nível superior, nunca tokens', () => {
     const mensagem = buildMessage(notificacao, ['fid-1']);
     expect(mensagem.fids).toEqual(['fid-1']);
     expect('tokens' in mensagem).toBe(false);
-    expect(mensagem.notification).toEqual({ title: 'Troca aprovada', body: 'Sua troca foi aprovada.' });
+    expect('notification' in mensagem).toBe(false);
     expect(mensagem.data).toEqual({
       eventId: 'notif-1',
       trocaId: 'troca-1',
       tipo: 'TROCA_APROVADA_PUBLICADA',
       route: 'trocas/detalhe',
+      titulo: 'Troca aprovada',
+      corpo: 'Sua troca foi aprovada.',
     });
     expect(mensagem.android?.priority).toBe('normal');
-    expect(mensagem.android?.notification?.channelId).toBe('trocas_escala');
+  });
+
+  it('usa o texto padrão do tipo quando titulo/mensagem da notificação estão vazios', () => {
+    const mensagem = buildMessage({ ...notificacao, titulo: '', mensagem: '' }, ['fid-1']);
+    expect(mensagem.data?.titulo).toBe('Troca aprovada');
+    expect(mensagem.data?.corpo).toBe('Sua troca foi aprovada. Abra o app para ver a escala atualizada.');
   });
 });
 

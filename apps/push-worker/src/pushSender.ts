@@ -4,7 +4,6 @@ import type { NotificacaoTroca, TipoNotificacaoTroca } from './types.js';
 /** Push é aviso, não fonte da verdade — TTL curto; se a pessoa abrir depois, o Firestore sincroniza o estado real. */
 const TTL_MS = 24 * 60 * 60 * 1000;
 
-const CANAL_TROCAS_ESCALA = 'trocas_escala';
 const ROTA_DETALHE_TROCA = 'trocas/detalhe';
 
 /**
@@ -35,33 +34,38 @@ const TEXTOS_PADRAO: Record<TipoNotificacaoTroca, { titulo: string; corpo: strin
 };
 
 /**
- * Monta o payload FCM: `notification` curto (seguro para lockscreen, sem
- * dados de escala) + `data` com o mínimo necessário para o Android
- * deduplicar (`eventId`) e navegar (`route`/`trocaId`). Prioridade normal
- * (nunca alta/alarme) e TTL de 24h. Usa `FidMulticastMessage` (só `fids`,
- * sem `tokens`) — o tipo não tem campo `tokens` nenhum, então não há como
- * reintroduzir o caminho obsoleto por acidente.
+ * Monta o payload FCM — **só `data`, nunca `notification` no nível
+ * superior** (decisão da auditoria PUSH-PWA-1.1, ver
+ * `CHECKPOINT-FASE-PUSH-PWA-1.md`). Motivo: a documentação oficial do FCM
+ * Web confirma que um payload com `notification` faz o SDK/navegador
+ * exibir a notificação automaticamente — se o service worker (que agora
+ * integra `firebase/messaging/sw` para renovação de FID via
+ * `pushsubscriptionchange`) também chamar `showNotification()` em
+ * `onBackgroundMessage`, o mesmo evento apareceria duplicado. Indo
+ * só-`data`, o único código que chama `showNotification()` é o
+ * `onBackgroundMessage` do PWA (`apps/app/src/sw/serviceWorker.js`), que
+ * também dá controle total sobre ícone/badge — impossível com a exibição
+ * automática do SDK. `titulo`/`corpo` viajam como campos de `data`
+ * (strings, como o restante do payload) para o worker/SW montar a
+ * notificação com o mesmo conteúdo que antes vinha em `notification`.
+ * Preserva `eventId`/`trocaId`/`tipo`/`route`. TTL de 24h. Usa
+ * `FidMulticastMessage` (só `fids`, sem `tokens`).
  */
 export function buildMessage(notificacao: NotificacaoTroca, fids: string[]): FidMulticastMessage {
   const padrao = TEXTOS_PADRAO[notificacao.tipo];
   return {
     fids,
-    notification: {
-      title: notificacao.titulo || padrao.titulo,
-      body: notificacao.mensagem || padrao.corpo,
-    },
     data: {
       eventId: notificacao.id,
       trocaId: notificacao.trocaId,
       tipo: notificacao.tipo,
       route: ROTA_DETALHE_TROCA,
+      titulo: notificacao.titulo || padrao.titulo,
+      corpo: notificacao.mensagem || padrao.corpo,
     },
     android: {
       priority: 'normal',
       ttl: TTL_MS,
-      notification: {
-        channelId: CANAL_TROCAS_ESCALA,
-      },
     },
   };
 }

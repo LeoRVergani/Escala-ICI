@@ -36,7 +36,7 @@
     "test": "npm run test:unit && npm run build && node --test tests/rendered-html.test.mjs",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:push-worker": "npm run test --workspace @escala-ici/push-worker",
-    "test:boundaries": "node --test tests/app-boundaries.test.mjs tests/local-launchers.test.mjs tests/deployment-boundaries.test.mjs tests/uuid-boundaries.test.mjs tests/push-worker-boundaries.test.mjs",
+    "test:boundaries": "node --test tests/app-boundaries.test.mjs tests/local-launchers.test.mjs tests/deployment-boundaries.test.mjs tests/uuid-boundaries.test.mjs tests/push-worker-boundaries.test.mjs tests/pwa-push-boundaries.test.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:apps": "npm run typecheck --workspace @escala-ici/dashboard && npm run typecheck --workspace @escala-ici/app-web",
     "typecheck:worker": "npm run typecheck --workspace @escala-ici/push-worker",
@@ -85,7 +85,7 @@
   "dependencies": {
     "@escala-ici/contrato": "file:packages/contrato",
     "drizzle-orm": "0.45.2",
-    "firebase": "12.1.0",
+    "firebase": "12.17.1",
     "lucide-react": "0.468.0",
     "next": "16.2.6",
     "react": "19.2.6",

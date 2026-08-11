@@ -8,13 +8,13 @@
     "dev": "vite --config vite.config.ts",
     "dev:emulator": "vite --config vite.config.ts --mode emulator --host 127.0.0.1 --port 4174",
     "dev:emulator:lan": "vite --config vite.config.ts --mode emulator --host 0.0.0.0 --port 4174",
-    "build": "vite build --config vite.config.ts",
+    "build": "vite build --config vite.config.ts && vite build --config vite.sw.config.ts",
     "preview": "vite preview --config vite.config.ts --host 127.0.0.1 --port 4174",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@escala-ici/contrato": "file:../../packages/contrato",
-    "firebase": "12.1.0",
+    "firebase": "12.17.1",
     "lucide-react": "0.468.0",
     "react": "19.2.6",
     "react-dom": "19.2.6"
