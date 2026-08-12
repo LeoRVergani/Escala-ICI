@@ -3494,13 +3494,20 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
 .alias-chip button:hover { opacity: 1; }
 
 .user-form-modal { width: min(640px, 100%); }
-.user-form-grid {
+/*
+ * `.admin-form-grid` reaproveita exatamente o mesmo grid 2 colunas /
+ * responsivo do formulário de usuário — usado pelos formulários de
+ * Equipe/Unidade organizacional na Administração (ver DashboardApp.tsx).
+ */
+.user-form-grid,
+.admin-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
   margin-top: 18px;
 }
-.user-form-grid label {
+.user-form-grid label,
+.admin-form-grid label {
   display: grid;
   gap: 6px;
   font-size: 11px;
@@ -3508,7 +3515,9 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
   color: var(--text);
 }
 .user-form-grid input,
-.user-form-grid select {
+.user-form-grid select,
+.admin-form-grid input,
+.admin-form-grid select {
   height: 40px;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -3517,16 +3526,47 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
   color: var(--text);
   font: inherit;
 }
-.user-form-grid input:disabled { opacity: 0.6; background: var(--surface-muted); }
-.user-form-grid .user-form-full { grid-column: 1 / -1; }
-.user-form-grid .user-form-full > small { font-weight: 500; color: var(--muted); }
-.user-form-active {
+.user-form-grid input:disabled,
+.admin-form-grid input:disabled { opacity: 0.6; background: var(--surface-muted); }
+.user-form-grid .user-form-full,
+.admin-form-grid .admin-form-full { grid-column: 1 / -1; }
+.user-form-grid .user-form-full > small,
+.admin-form-grid .admin-form-full > small { font-weight: 500; color: var(--muted); }
+.user-form-active,
+.admin-form-active {
   flex-direction: row;
   align-items: center;
   gap: 8px;
   align-self: end;
 }
-.user-form-active input { width: 16px; height: 16px; accent-color: var(--primary); }
+.user-form-active input,
+.admin-form-active input { width: 16px; height: 16px; accent-color: var(--primary); }
+
+/*
+ * Texto de prévia embaixo dos selects de Equipe/Unidade — "Esta equipe
+ * ficará em: ..." / "Caminho final: ...". Sempre ocupa a linha cheia do
+ * grid, mesmo dentro de `.admin-form-full`.
+ */
+.admin-form-preview {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.admin-form-preview strong { color: var(--text); font-weight: 700; }
+
+.admin-form-erro {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 700;
+}
 
 .alias-editor { display: grid; gap: 10px; }
 .alias-editor-list { display: flex; flex-wrap: wrap; min-height: 24px; }
@@ -3543,9 +3583,63 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
   font: inherit;
 }
 
+/*
+ * Seção admin-only (perfil/escopo/unidadesPermitidas/equipesPermitidas) no
+ * modal de usuário — antes sem estilo próprio (fieldset/legend cru do
+ * navegador). `.checkbox-inline` também é reaproveitado pelas listas de
+ * unidades/equipes permitidas.
+ */
+.admin-only-fields {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+  padding: 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  display: grid;
+  gap: 12px;
+}
+.admin-only-fields > legend {
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.admin-only-fields fieldset {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.admin-only-fields fieldset > legend {
+  width: 100%;
+  padding: 0 0 6px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.checkbox-inline {
+  display: inline-flex !important;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500 !important;
+  color: var(--text);
+}
+.checkbox-inline input { width: 14px; height: 14px; accent-color: var(--primary); }
+
 @media (max-width: 780px) {
-  .user-form-grid { grid-template-columns: 1fr; }
-  .user-form-grid .user-form-full { grid-column: 1; }
+  .user-form-grid,
+  .admin-form-grid { grid-template-columns: 1fr; }
+  .user-form-grid .user-form-full,
+  .admin-form-grid .admin-form-full { grid-column: 1; }
 }
 
 /* ================================================================
@@ -3874,3 +3968,69 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
   }
   .troca-comparacao > svg { justify-self: center; transform: rotate(90deg); }
 }
+
+/* ================================================================
+ * Correção UX/UI — Administração com Unidades Organizacionais.
+ *
+ * `.legacy-panel` dá ao `<details>` do card "Setores (legado)" a mesma
+ * aparência de `.panel` (recolhido por padrão — ver DashboardApp.tsx), e
+ * `.org-tree*` é a árvore simples de unidades organizacionais (Parte 4),
+ * puramente `<ul>`/`<li>` aninhados com indentação por borda, sem
+ * biblioteca de árvore.
+ * ================================================================ */
+
+.legacy-panel {
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-raised, var(--surface));
+}
+.legacy-panel + .panel,
+.panel + .legacy-panel { margin-top: var(--space-5); }
+.legacy-panel > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: var(--space-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.legacy-panel > summary::-webkit-details-marker { display: none; }
+.legacy-panel > summary h2 { margin: 0; font-size: 17px; letter-spacing: -0.015em; }
+.legacy-panel > summary p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.legacy-panel > summary::after {
+  content: '▾';
+  color: var(--muted);
+  transition: transform 0.15s ease;
+  flex: 0 0 auto;
+}
+.legacy-panel[open] > summary::after { transform: rotate(180deg); }
+.legacy-panel > summary:hover { background: var(--surface-muted); border-radius: 14px; }
+.legacy-panel-body { padding: 0 var(--space-5) var(--space-5); }
+.legacy-panel-warning {
+  margin: 0 0 var(--space-4);
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.org-tree { list-style: none; margin: 0; padding: 0; }
+.org-tree .org-tree { margin-top: 6px; padding-left: 18px; border-left: 1px dashed var(--border-strong); }
+.org-tree-node {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  margin: 3px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.org-tree-node-info { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.org-tree-node-info strong { font-size: 12.5px; }
+.org-tree-node-info small { color: var(--muted); font-size: 10.5px; }
+.org-tree-node-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }

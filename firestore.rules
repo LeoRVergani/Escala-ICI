@@ -58,12 +58,28 @@ service cloud.firestore {
     }
 
     /**
+     * Espelha `equipesPermitidasEfetivas()` de lib/sessao.ts: lista explícita
+     * (não-vazia) manda; na ausência, `equipeId` (sempre presente) vira lista
+     * implícita de 1 elemento — é o que mantém todo GESTOR_EQUIPE/
+     * ANALISTA_SOC existente funcionando sem qualquer migração de dado, sem
+     * precisar setar `equipesPermitidas` explicitamente.
+     */
+    function minhasEquipesPermitidas() {
+      return eu().get('equipesPermitidas', []).size() > 0
+        ? eu().equipesPermitidas
+        : [eu().equipeId];
+    }
+
+    /**
      * Substitui toda comparação "X.equipeId == minhaEquipe()" espalhada pelo
      * arquivo: admin sempre passa, independente da equipe do documento;
-     * qualquer outro perfil só passa se for a própria equipe.
+     * qualquer outro perfil só passa se `equipeId` estiver em
+     * `minhasEquipesPermitidas()` — que já cobre o caso de hoje (uma única
+     * equipe, via fallback) e também um GESTOR_EQUIPE/SUPERVISOR_EQUIPE com
+     * `equipesPermitidas` explícito cobrindo mais de uma equipe.
      */
     function podeOperarNaEquipe(equipeId) {
-      return autenticado() && (minhaEquipe() == equipeId || souAdminSistema());
+      return autenticado() && (souAdminSistema() || equipeId in minhasEquipesPermitidas());
     }
 
     /**
@@ -77,18 +93,6 @@ service cloud.firestore {
       return eu().get('unidadesPermitidas', []).size() > 0
         ? eu().unidadesPermitidas
         : (eu().get('unidadeId', null) != null ? [eu().unidadeId] : []);
-    }
-
-    /**
-     * Espelha `equipesPermitidasEfetivas()` de lib/sessao.ts: lista explícita
-     * (não-vazia) manda; na ausência, `equipeId` (sempre presente) vira lista
-     * implícita de 1 elemento — é o que mantém todo GESTOR_EQUIPE/
-     * ANALISTA_SOC existente funcionando sem qualquer migração de dado.
-     */
-    function minhasEquipesPermitidas() {
-      return eu().get('equipesPermitidas', []).size() > 0
-        ? eu().equipesPermitidas
-        : [eu().equipeId];
     }
 
     function souGestorUnidade() {
@@ -183,23 +187,16 @@ service cloud.firestore {
     match /equipes/{equipeId} {
       allow read: if autenticado();
       // Antes: `if false` (nunca gravável via client, só seed server-side).
-      // ADMIN_SISTEMA sempre pode. GESTOR_UNIDADE só pode criar/editar uma
-      // equipe cujo `unidadeId` esteja em `minhasUnidadesPermitidas()` — o
-      // campo já vem no próprio documento (`request.resource.data`/
-      // `resource.data`), então não é preciso nenhum `get()` extra nem
-      // travessia de `parentId`.
+      // ADMIN_SISTEMA sempre pode, mesmo sem `unidadeId` (equipe legada,
+      // sem unidade organizacional atribuída). GESTOR_UNIDADE só pode
+      // criar/editar uma equipe cujo `unidadeId` esteja em
+      // `podeOperarNaUnidade()` — o campo já vem no próprio documento
+      // (`request.resource.data`/`resource.data`), então não é preciso
+      // nenhum `get()` extra nem travessia de `parentId`.
       allow create: if souAdminSistema()
-        || (
-          souGestorUnidade()
-          && request.resource.data.get('unidadeId', null) != null
-          && request.resource.data.unidadeId in minhasUnidadesPermitidas()
-        );
+        || (request.resource.data.get('unidadeId', null) != null && podeOperarNaUnidade(request.resource.data.unidadeId));
       allow update: if souAdminSistema()
-        || (
-          souGestorUnidade()
-          && resource.data.get('unidadeId', null) != null
-          && resource.data.unidadeId in minhasUnidadesPermitidas()
-        );
+        || (resource.data.get('unidadeId', null) != null && podeOperarNaUnidade(resource.data.unidadeId));
       // Sem delete no MVP: nada no app hoje apaga equipe; desativar é
       // `ativa: false`. Dezenas de outras coleções referenciam o ID.
       allow delete: if false;
@@ -240,19 +237,12 @@ service cloud.firestore {
         && request.resource.data.criadoPorLogin == loginDoAuth()
         && (
           souAdminSistema()
-          || (
-            souGestorUnidade()
-            && request.resource.data.parentId != null
-            && request.resource.data.parentId in minhasUnidadesPermitidas()
-          )
+          || (request.resource.data.parentId != null && podeOperarNaUnidade(request.resource.data.parentId))
         );
 
       allow update: if autenticado()
         && request.resource.data.unidadeId == resource.data.unidadeId
-        && (
-          souAdminSistema()
-          || (souGestorUnidade() && unidadeId in minhasUnidadesPermitidas())
-        );
+        && podeOperarNaUnidade(unidadeId);
 
       allow delete: if false;
     }
