@@ -112,3 +112,64 @@ export function escopoEfetivo(usuario: Usuario): EscopoUsuario {
 export function ehAdminSistema(usuario: Usuario): boolean {
   return perfilEfetivo(usuario) === 'ADMIN_SISTEMA';
 }
+
+/**
+ * `unidadesPermitidas` explícito (não-vazio) manda. Na ausência, um
+ * `unidadeId` único vira lista implícita de 1 elemento (compat: usuário
+ * migrado que só tem `unidadeId`, sem lista). Sem nenhum dos dois, lista
+ * vazia — nunca lança erro. GESTOR_EQUIPE/ANALISTA_SOC de hoje tipicamente
+ * não têm unidade, e isso é esperado (o recurso simplesmente não se aplica
+ * a eles). Espelhado 1:1 em `firestore.rules`, função
+ * `minhasUnidadesPermitidas()` — qualquer mudança aqui exige a mudança
+ * gêmea lá.
+ */
+export function unidadesPermitidasEfetivas(usuario: Usuario): string[] {
+  if (usuario.unidadesPermitidas && usuario.unidadesPermitidas.length > 0) {
+    return usuario.unidadesPermitidas;
+  }
+  return usuario.unidadeId ? [usuario.unidadeId] : [];
+}
+
+/**
+ * `equipesPermitidas` explícito (não-vazio) manda. Na ausência, `equipeId`
+ * (sempre presente em `Usuario`) vira lista implícita de 1 elemento — é o
+ * que mantém TODO GESTOR_EQUIPE/ANALISTA_SOC existente funcionando sem
+ * qualquer migração de dado. Espelhado 1:1 em `firestore.rules`, função
+ * `minhasEquipesPermitidas()`.
+ */
+export function equipesPermitidasEfetivas(usuario: Usuario): string[] {
+  if (usuario.equipesPermitidas && usuario.equipesPermitidas.length > 0) {
+    return usuario.equipesPermitidas;
+  }
+  return [usuario.equipeId];
+}
+
+/**
+ * ADMIN_SISTEMA sempre pode gerenciar (criar/editar) qualquer unidade.
+ * Fora disso, só GESTOR_UNIDADE, e só quando `unidadeId` está em
+ * `unidadesPermitidasEfetivas()` — nunca por travessia de `parentId`.
+ */
+export function podeGerenciarUnidade(usuario: Usuario, unidadeId: string): boolean {
+  if (ehAdminSistema(usuario)) {
+    return true;
+  }
+  return (
+    perfilEfetivo(usuario) === 'GESTOR_UNIDADE'
+    && unidadesPermitidasEfetivas(usuario).includes(unidadeId)
+  );
+}
+
+/**
+ * ADMIN_SISTEMA sempre pode gerenciar (operar sobre) qualquer equipe. Fora
+ * disso, qualquer perfil com `equipeId` em `equipesPermitidasEfetivas()` —
+ * é o que mantém o fallback por `equipeId` funcionando para GESTOR_EQUIPE/
+ * ANALISTA_SOC de hoje. Não autoriza CRIAR uma equipe nova (isso depende de
+ * `podeGerenciarUnidade()` sobre a unidade-pai pretendida) — só operar
+ * sobre uma equipe já existente.
+ */
+export function podeGerenciarEquipe(usuario: Usuario, equipeId: string): boolean {
+  if (ehAdminSistema(usuario)) {
+    return true;
+  }
+  return equipesPermitidasEfetivas(usuario).includes(equipeId);
+}

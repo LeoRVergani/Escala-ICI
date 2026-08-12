@@ -66,6 +66,45 @@ service cloud.firestore {
       return autenticado() && (minhaEquipe() == equipeId || souAdminSistema());
     }
 
+    /**
+     * Espelha `unidadesPermitidasEfetivas()` de lib/sessao.ts: lista
+     * explícita (não-vazia) manda; na ausência, `unidadeId` único vira lista
+     * implícita de 1 elemento; sem nenhum dos dois, lista vazia. `.get(chave,
+     * default)` é obrigatório pelo mesmo motivo de `perfilDe()` — documento
+     * legado sem o campo não pode virar erro de avaliação.
+     */
+    function minhasUnidadesPermitidas() {
+      return eu().get('unidadesPermitidas', []).size() > 0
+        ? eu().unidadesPermitidas
+        : (eu().get('unidadeId', null) != null ? [eu().unidadeId] : []);
+    }
+
+    /**
+     * Espelha `equipesPermitidasEfetivas()` de lib/sessao.ts: lista explícita
+     * (não-vazia) manda; na ausência, `equipeId` (sempre presente) vira lista
+     * implícita de 1 elemento — é o que mantém todo GESTOR_EQUIPE/
+     * ANALISTA_SOC existente funcionando sem qualquer migração de dado.
+     */
+    function minhasEquipesPermitidas() {
+      return eu().get('equipesPermitidas', []).size() > 0
+        ? eu().equipesPermitidas
+        : [eu().equipeId];
+    }
+
+    function souGestorUnidade() {
+      return autenticado() && meuPerfil() == 'GESTOR_UNIDADE';
+    }
+
+    /**
+     * NÃO percorre `parentId`/árvore de unidades — só checa se `unidadeId`
+     * está literalmente em `minhasUnidadesPermitidas()` (array explícito).
+     * ADMIN_SISTEMA sempre passa.
+     */
+    function podeOperarNaUnidade(unidadeId) {
+      return autenticado()
+        && (souAdminSistema() || (souGestorUnidade() && unidadeId in minhasUnidadesPermitidas()));
+    }
+
     match /config/{doc} {
       allow read: if true;
       allow write: if false;
@@ -96,8 +135,10 @@ service cloud.firestore {
           )
 
           // gestor não-admin: exatamente como hoje (equipeId/login
-          // imutáveis), MAIS a trava nova — não pode tocar perfil nem
-          // escopo de ninguém, nem do próprio time.
+          // imutáveis), MAIS a trava nova — não pode tocar perfil, escopo,
+          // nem os campos do modelo organizacional flexível
+          // (unidadeId/unidadesPermitidas/equipesPermitidas) de ninguém,
+          // nem do próprio time.
           || (
             souGestor()
             && !souAdminSistema()
@@ -106,26 +147,33 @@ service cloud.firestore {
             && request.resource.data.login == resource.data.login
             && request.resource.data.get('perfil', null) == resource.data.get('perfil', null)
             && request.resource.data.get('escopo', null) == resource.data.get('escopo', null)
+            && request.resource.data.get('unidadeId', null) == resource.data.get('unidadeId', null)
+            && request.resource.data.get('unidadesPermitidas', null) == resource.data.get('unidadesPermitidas', null)
+            && request.resource.data.get('equipesPermitidas', null) == resource.data.get('equipesPermitidas', null)
           )
         );
 
       allow create: if autenticado()
         && request.resource.data.login == login
         && (
-          // admin cria em qualquer equipe, com qualquer perfil/escopo —
-          // inclusive um novo ADMIN_SISTEMA.
+          // admin cria em qualquer equipe, com qualquer perfil/escopo/campo
+          // organizacional — inclusive um novo ADMIN_SISTEMA.
           souAdminSistema()
 
           || (
             souGestor()
             && !souAdminSistema()
             && request.resource.data.equipeId == minhaEquipe()
-            // gestor não-admin NUNCA pode setar perfil/escopo na criação —
-            // nem um valor "inofensivo": o campo tem que estar ausente do
-            // payload. Novo usuário cai no fallback (perfilEfetivo), igual
-            // hoje.
+            // gestor não-admin NUNCA pode setar perfil/escopo/campos
+            // organizacionais na criação — nem um valor "inofensivo": o
+            // campo tem que estar ausente do payload. Novo usuário cai no
+            // fallback (perfilEfetivo/unidadesPermitidasEfetivas/
+            // equipesPermitidasEfetivas), igual hoje.
             && request.resource.data.get('perfil', null) == null
             && request.resource.data.get('escopo', null) == null
+            && request.resource.data.get('unidadeId', null) == null
+            && request.resource.data.get('unidadesPermitidas', null) == null
+            && request.resource.data.get('equipesPermitidas', null) == null
           )
         );
 
@@ -135,17 +183,77 @@ service cloud.firestore {
     match /equipes/{equipeId} {
       allow read: if autenticado();
       // Antes: `if false` (nunca gravável via client, só seed server-side).
-      // Agora: ADMIN_SISTEMA pode gerenciar equipes pelo app.
-      allow create, update: if souAdminSistema();
+      // ADMIN_SISTEMA sempre pode. GESTOR_UNIDADE só pode criar/editar uma
+      // equipe cujo `unidadeId` esteja em `minhasUnidadesPermitidas()` — o
+      // campo já vem no próprio documento (`request.resource.data`/
+      // `resource.data`), então não é preciso nenhum `get()` extra nem
+      // travessia de `parentId`.
+      allow create: if souAdminSistema()
+        || (
+          souGestorUnidade()
+          && request.resource.data.get('unidadeId', null) != null
+          && request.resource.data.unidadeId in minhasUnidadesPermitidas()
+        );
+      allow update: if souAdminSistema()
+        || (
+          souGestorUnidade()
+          && resource.data.get('unidadeId', null) != null
+          && resource.data.unidadeId in minhasUnidadesPermitidas()
+        );
       // Sem delete no MVP: nada no app hoje apaga equipe; desativar é
       // `ativa: false`. Dezenas de outras coleções referenciam o ID.
       allow delete: if false;
     }
 
-    /** Cadastro administrativo simples, mesmas regras de `equipes`. */
+    /**
+     * Cadastro administrativo simples antigo — mantido intacto por
+     * compatibilidade (não referenciado por `usuarios`/`equipes`/
+     * `turnosMes`). A tela "Administração" do dashboard passou a usar
+     * `unidadesOrganizacionais` para novos cadastros, mas `setores`
+     * continua funcionando exatamente como antes.
+     */
     match /setores/{setorId} {
       allow read: if autenticado();
       allow create, update: if souAdminSistema();
+      allow delete: if false;
+    }
+
+    /**
+     * Hierarquia organizacional flexível (qualquer nível acima de
+     * `equipes`: diretoria, gerência, coordenação, supervisão...) —
+     * coleção ADITIVA, não substitui `setores`/`equipes`.
+     *
+     * Delete sempre negado: nada apaga uma unidade que possa estar
+     * referenciada por `equipes.unidadeId` ou por `unidadeId`/
+     * `unidadesPermitidas` de algum usuário.
+     *
+     * NÃO percorre `parentId`: a checagem de "abaixo de uma unidade
+     * permitida" olha só o `parentId` do PRÓPRIO documento sendo criado
+     * (um único campo do payload, não uma travessia), contra o array
+     * explícito `minhasUnidadesPermitidas()`.
+     */
+    match /unidadesOrganizacionais/{unidadeId} {
+      allow read: if autenticado();
+
+      allow create: if autenticado()
+        && request.resource.data.unidadeId == unidadeId
+        && request.resource.data.criadoPorLogin == loginDoAuth()
+        && (
+          souAdminSistema()
+          || (
+            souGestorUnidade()
+            && request.resource.data.parentId != null
+            && request.resource.data.parentId in minhasUnidadesPermitidas()
+          )
+        );
+
+      allow update: if autenticado()
+        && request.resource.data.unidadeId == resource.data.unidadeId
+        && (
+          souAdminSistema()
+          || (souGestorUnidade() && unidadeId in minhasUnidadesPermitidas())
+        );
+
       allow delete: if false;
     }
 

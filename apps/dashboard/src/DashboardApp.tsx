@@ -96,13 +96,20 @@ import {
   listarEquipes,
   listarSetores,
   listarTodosUsuarios,
+  listarUnidadesOrganizacionais,
   salvarEquipe,
   salvarSetor,
+  salvarUnidadeOrganizacional,
   type OpcoesExclusaoUsuario,
 } from '@/lib/firebase/adminRepository';
 import { registrarAuditoriaAdmin } from '@/lib/firebase/auditoriaRepository';
 import { exclusaoZeraGestores, podeExcluirCompetencia, podeExcluirUsuario } from '@/lib/adminGuards';
-import { COMPETENCIA_ATUAL, ehAdminSistema, perfilEfetivo } from '@/lib/sessao';
+import {
+  COMPETENCIA_ATUAL,
+  ehAdminSistema,
+  perfilEfetivo,
+  unidadesPermitidasEfetivas,
+} from '@/lib/sessao';
 import { formatarDataHoraSafe } from '@/lib/dataSegura';
 import {
   construirIndiceAlertasGrade,
@@ -124,7 +131,16 @@ import {
   removerMembroGrade,
 } from '@/lib/gradeMembros';
 import { mapaLogins, normalizarAliasesPlanilha, novoUsuario, validarEdicaoUsuario } from '@/lib/importUsers';
-import type { Equipe, EventoEscala, LinhaConciliacao, PublicacaoEscala, Setor, Usuario } from '@/lib/modelos';
+import type {
+  Equipe,
+  EventoEscala,
+  LinhaConciliacao,
+  PublicacaoEscala,
+  Setor,
+  TipoUnidadeOrganizacional,
+  UnidadeOrganizacional,
+  Usuario,
+} from '@/lib/modelos';
 
 type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'administracao';
 type FiltroTrocas = 'pendentes' | 'aprovadas' | 'recusadas' | 'historico';
@@ -411,6 +427,52 @@ interface FormularioUsuario {
   turnoPadrao: string;
   ativo: boolean;
   aliasesPlanilha: string[];
+
+  /**
+   * Campos administrativos (perfil/escopo/organização) — só entram no
+   * payload enviado a `salvarUsuario` quando `souAdmin` for `true` (ver
+   * `salvarFormularioUsuario`); as rules rejeitam esses campos no payload
+   * de um gestor comum, então omiti-los aqui evita erro de permissão.
+   */
+  perfil?: Usuario['perfil'];
+  escopo?: Usuario['escopo'];
+  unidadeId?: string;
+  unidadesPermitidas: string[];
+  equipesPermitidas: string[];
+}
+
+const TIPOS_UNIDADE_ORGANIZACIONAL: TipoUnidadeOrganizacional[] = [
+  'PRESIDENCIA',
+  'DIRETORIA',
+  'GERENCIA',
+  'COORDENACAO',
+  'SUPERVISAO',
+  'AREA',
+  'SETOR',
+  'DEPARTAMENTO',
+];
+
+const PERFIS_ADMINISTRAVEIS: NonNullable<Usuario['perfil']>[] = [
+  'ADMIN_SISTEMA',
+  'GESTOR_UNIDADE',
+  'GESTOR_EQUIPE',
+  'SUPERVISOR_EQUIPE',
+  'ANALISTA_SOC',
+  'ANALISTA_SUPORTE',
+  'LEITURA',
+];
+
+/**
+ * Breadcrumb legível de uma unidade organizacional — puramente client-side,
+ * a partir de `caminho` (já resolvido na criação) + lookup de nomes. Nunca
+ * percorre `parentId` (isso é proibido em `firestore.rules`; aqui não há
+ * essa restrição, mas manter o mesmo princípio evita depender de unidades
+ * que o usuário talvez não tenha carregado).
+ */
+function caminhoLegivel(caminho: string[], todasUnidades: UnidadeOrganizacional[]): string {
+  return caminho
+    .map((id) => todasUnidades.find((unidade) => unidade.unidadeId === id)?.nome ?? id)
+    .join(' > ');
 }
 
 const STATUS_CONCILIACAO_LABEL: Record<LinhaConciliacao['status'], string> = {
@@ -785,9 +847,29 @@ export function DashboardApp() {
   const [todosUsuariosAdmin, setTodosUsuariosAdmin] = useState<Usuario[]>([]);
   const [equipesAdmin, setEquipesAdmin] = useState<Equipe[]>([]);
   const [setoresAdmin, setSetoresAdmin] = useState<Setor[]>([]);
+  const [unidadesAdmin, setUnidadesAdmin] = useState<UnidadeOrganizacional[]>([]);
   const [erroAdmin, setErroAdmin] = useState('');
   const [formEquipe, setFormEquipe] = useState<Equipe>({ id: '', nome: '', sigla: '', ativa: true });
   const [formSetor, setFormSetor] = useState<Setor>({ id: '', nome: '', sigla: '', ativo: true });
+  const [formUnidade, setFormUnidade] = useState<UnidadeOrganizacional>({
+    unidadeId: '',
+    nome: '',
+    sigla: '',
+    tipo: 'SETOR',
+    parentId: null,
+    caminho: [],
+    ativa: true,
+    criadoPorLogin: '',
+  });
+  /**
+   * ID original de quem está sendo editado (`null` = cadastro novo) — só
+   * assim dá para distinguir "editando o registro X" de "criando um
+   * registro novo cujo ID por acaso colide com X" (o `id`/`unidadeId` do
+   * formulário muda a cada tecla digitada, então comparar o objeto do
+   * formulário com o item da lista não seria confiável).
+   */
+  const [idEmEdicaoEquipe, setIdEmEdicaoEquipe] = useState<string | null>(null);
+  const [idEmEdicaoUnidade, setIdEmEdicaoUnidade] = useState<string | null>(null);
   const [gestorParaSimular, setGestorParaSimular] = useState('');
   const [usuarioParaExcluir, setUsuarioParaExcluir] = useState<Usuario | null>(null);
   const [processandoExclusaoUsuario, setProcessandoExclusaoUsuario] = useState(false);
@@ -805,7 +887,19 @@ export function DashboardApp() {
    * admin está simulando um gestor comum.
    */
   const souAdmin = usuarioReal !== null && ehAdminSistema(usuarioReal);
-  const navegacaoVisivel = souAdmin ? NAVEGACAO : NAVEGACAO.filter((item) => item.id !== 'administracao');
+  /**
+   * Mesmo gate na identidade REAL de `souAdmin` — GESTOR_UNIDADE só vê a
+   * aba Administração restrita ao painel de Unidades organizacionais/
+   * Equipes dentro do seu escopo (`unidadesPermitidasEfetivas`); os demais
+   * painéis (Usuários, Simular gestor, Limpeza/Histórico) continuam presos
+   * a `souAdmin`.
+   */
+  const souGestorUnidade = usuarioReal !== null && perfilEfetivo(usuarioReal) === 'GESTOR_UNIDADE';
+  const podeAcessarAdministracao = souAdmin || souGestorUnidade;
+  const minhasUnidadesPermitidas = usuarioReal !== null ? unidadesPermitidasEfetivas(usuarioReal) : [];
+  const navegacaoVisivel = podeAcessarAdministracao
+    ? NAVEGACAO
+    : NAVEGACAO.filter((item) => item.id !== 'administracao');
 
   const documentos = useMemo(
     () => resultado?.documentos ?? [],
@@ -1481,6 +1575,8 @@ export function DashboardApp() {
       turnoPadrao: 'M',
       ativo: true,
       aliasesPlanilha: [],
+      unidadesPermitidas: [],
+      equipesPermitidas: [],
     });
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
@@ -1497,6 +1593,11 @@ export function DashboardApp() {
       turnoPadrao: item.turnoPadrao,
       ativo: item.ativo,
       aliasesPlanilha: item.aliasesPlanilha ?? [],
+      perfil: item.perfil,
+      escopo: item.escopo,
+      unidadeId: item.unidadeId,
+      unidadesPermitidas: item.unidadesPermitidas ?? [],
+      equipesPermitidas: item.equipesPermitidas ?? [],
     });
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
@@ -1529,6 +1630,25 @@ export function DashboardApp() {
     });
   }
 
+  /**
+   * Alterna um ID dentro de `unidadesPermitidas`/`equipesPermitidas` do
+   * formulário — usado pelos checkboxes da seção administrativa (visível só
+   * para `souAdmin`, ver JSX do modal).
+   */
+  function alternarNaListaFormularioUsuario(
+    campo: 'unidadesPermitidas' | 'equipesPermitidas',
+    id: string,
+  ) {
+    if (formularioUsuario === null) {
+      return;
+    }
+    const atual = formularioUsuario[campo];
+    setFormularioUsuario({
+      ...formularioUsuario,
+      [campo]: atual.includes(id) ? atual.filter((item) => item !== id) : [...atual, id],
+    });
+  }
+
   async function salvarFormularioUsuario() {
     if (formularioUsuario === null || usuarioEfetivo === null) {
       return;
@@ -1537,6 +1657,23 @@ export function DashboardApp() {
       setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
       return;
     }
+
+    /**
+     * Campos administrativos (perfil/escopo/unidadeId/unidadesPermitidas/
+     * equipesPermitidas) só entram no payload quando `souAdmin` — as rules
+     * exigem que um gestor comum NUNCA envie esses campos (nem para
+     * "reafirmar" o valor atual), então omiti-los aqui é obrigatório, não
+     * só desabilitar os inputs no formulário.
+     */
+    const camposAdministrativos: Partial<Usuario> = souAdmin
+      ? {
+        perfil: formularioUsuario.perfil,
+        escopo: formularioUsuario.escopo,
+        unidadeId: formularioUsuario.unidadeId,
+        unidadesPermitidas: formularioUsuario.unidadesPermitidas,
+        equipesPermitidas: formularioUsuario.equipesPermitidas,
+      }
+      : {};
 
     let candidato: Usuario;
     if (formularioUsuario.loginOriginal === null) {
@@ -1553,6 +1690,7 @@ export function DashboardApp() {
         nivelHierarquico: formularioUsuario.nivelHierarquico,
         turnoPadrao: formularioUsuario.turnoPadrao,
         aliasesPlanilha: formularioUsuario.aliasesPlanilha,
+        ...camposAdministrativos,
       };
     } else {
       const original = usuarios.find((item) => item.login === formularioUsuario.loginOriginal);
@@ -1568,6 +1706,7 @@ export function DashboardApp() {
         turnoPadrao: formularioUsuario.turnoPadrao,
         ativo: formularioUsuario.ativo,
         aliasesPlanilha: formularioUsuario.aliasesPlanilha,
+        ...camposAdministrativos,
         atualizadoEm: new Date().toISOString(),
       };
     }
@@ -1713,14 +1852,25 @@ export function DashboardApp() {
       setErroAdmin('Informe ao menos o ID e o nome da equipe.');
       return;
     }
+    const jaExiste = equipesAdmin.some((item) => item.id === formEquipe.id);
+    if (jaExiste && formEquipe.id !== idEmEdicaoEquipe) {
+      setErroAdmin('Já existe uma equipe com esse ID.');
+      return;
+    }
+    const unidade = unidadesAdmin.find((item) => item.unidadeId === formEquipe.unidadeId);
+    const candidato: Equipe = {
+      ...formEquipe,
+      caminhoUnidade: unidade?.caminho,
+    };
     try {
       if (!modoDemo) {
-        await salvarEquipe(formEquipe);
+        await salvarEquipe(candidato);
       }
-      setEquipesAdmin((atuais) => (atuais.some((item) => item.id === formEquipe.id)
-        ? atuais.map((item) => (item.id === formEquipe.id ? formEquipe : item))
-        : [...atuais, formEquipe]));
+      setEquipesAdmin((atuais) => (atuais.some((item) => item.id === candidato.id)
+        ? atuais.map((item) => (item.id === candidato.id ? candidato : item))
+        : [...atuais, candidato]));
       setFormEquipe({ id: '', nome: '', sigla: '', ativa: true });
+      setIdEmEdicaoEquipe(null);
     } catch (falha) {
       setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível salvar a equipe.', ambienteFirebaseAtual));
     }
@@ -1741,6 +1891,55 @@ export function DashboardApp() {
       setFormSetor({ id: '', nome: '', sigla: '', ativo: true });
     } catch (falha) {
       setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível salvar o setor.', ambienteFirebaseAtual));
+    }
+  }
+
+  async function salvarFormUnidade() {
+    if (usuarioReal === null) {
+      return;
+    }
+    if (formUnidade.unidadeId.trim() === '' || formUnidade.nome.trim() === '') {
+      setErroAdmin('Informe ao menos o ID e o nome da unidade organizacional.');
+      return;
+    }
+    const jaExiste = unidadesAdmin.some((item) => item.unidadeId === formUnidade.unidadeId);
+    if (jaExiste && formUnidade.unidadeId !== idEmEdicaoUnidade) {
+      setErroAdmin('Já existe uma unidade organizacional com esse ID.');
+      return;
+    }
+    // GESTOR_UNIDADE só cria filha abaixo de uma unidade em unidadesPermitidas
+    // (mesma trava que a rule aplica no servidor — checada aqui só para dar
+    // um erro amigável antes da chamada de rede).
+    if (!souAdmin && (formUnidade.parentId === null || !minhasUnidadesPermitidas.includes(formUnidade.parentId))) {
+      setErroAdmin('Você só pode criar unidades abaixo de uma unidade organizacional sob sua permissão.');
+      return;
+    }
+    const unidadePai = unidadesAdmin.find((item) => item.unidadeId === formUnidade.parentId);
+    const candidato: UnidadeOrganizacional = {
+      ...formUnidade,
+      caminho: [...(unidadePai?.caminho ?? []), formUnidade.unidadeId],
+      criadoPorLogin: formUnidade.criadoPorLogin || usuarioReal.login,
+    };
+    try {
+      if (!modoDemo) {
+        await salvarUnidadeOrganizacional(candidato);
+      }
+      setUnidadesAdmin((atuais) => (atuais.some((item) => item.unidadeId === candidato.unidadeId)
+        ? atuais.map((item) => (item.unidadeId === candidato.unidadeId ? candidato : item))
+        : [...atuais, candidato]));
+      setFormUnidade({
+        unidadeId: '',
+        nome: '',
+        sigla: '',
+        tipo: 'SETOR',
+        parentId: null,
+        caminho: [],
+        ativa: true,
+        criadoPorLogin: '',
+      });
+      setIdEmEdicaoUnidade(null);
+    } catch (falha) {
+      setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível salvar a unidade organizacional.', ambienteFirebaseAtual));
     }
   }
 
@@ -1863,16 +2062,22 @@ export function DashboardApp() {
   }
 
   useEffect(() => {
-    if (tela !== 'administracao' || !souAdmin || modoDemo) {
+    if (tela !== 'administracao' || !podeAcessarAdministracao || modoDemo) {
       return undefined;
     }
     let cancelado = false;
-    void Promise.all([listarTodosUsuarios(), listarEquipes(), listarSetores()])
-      .then(([todos, equipes, setores]) => {
+    // `listarTodosUsuarios()` só é útil (e só retorna tudo, pelas rules) para
+    // ADMIN_SISTEMA — GESTOR_UNIDADE não usa o painel "Usuários"/"Simular
+    // gestor" (ambos presos a `souAdmin` na renderização), então nem
+    // dispara essa leitura.
+    const carregarUsuarios = souAdmin ? listarTodosUsuarios() : Promise.resolve<Usuario[]>([]);
+    void Promise.all([carregarUsuarios, listarEquipes(), listarSetores(), listarUnidadesOrganizacionais()])
+      .then(([todos, equipes, setores, unidades]) => {
         if (!cancelado) {
           setTodosUsuariosAdmin(todos);
           setEquipesAdmin(equipes);
           setSetoresAdmin(setores);
+          setUnidadesAdmin(unidades);
         }
       })
       .catch((falha: unknown) => {
@@ -1883,7 +2088,7 @@ export function DashboardApp() {
     return () => {
       cancelado = true;
     };
-  }, [tela, souAdmin, modoDemo]);
+  }, [tela, podeAcessarAdministracao, souAdmin, modoDemo]);
 
   async function encerrarSessao() {
     await sair();
@@ -2709,27 +2914,41 @@ export function DashboardApp() {
         </section>
       )}
 
-      {tela === 'administracao' && souAdmin && (
+      {tela === 'administracao' && podeAcessarAdministracao && (
         <section>
           <header className="page-heading">
-            <div><p className="eyebrow">Área restrita</p><h1>Administração</h1><p>Visível só para ADMIN_SISTEMA — escopo global do staging.</p></div>
+            <div>
+              <p className="eyebrow">Área restrita</p>
+              <h1>Administração</h1>
+              <p>
+                {souAdmin
+                  ? 'Visível só para ADMIN_SISTEMA — escopo global do staging.'
+                  : 'Visível para GESTOR_UNIDADE — restrito às unidades/equipes sob sua permissão.'}
+              </p>
+            </div>
           </header>
           {erroAdmin && <div className="alert error" role="alert">{erroAdmin}</div>}
 
           <article className="panel grid-panel">
-            <div className="panel-title"><div><h2>Equipes</h2><p>Cadastro simples — criar e editar, sem exclusão.</p></div></div>
+            <div className="panel-title"><div><h2>Equipes</h2><p>Vínculo direto da escala (turnosMes) — criar e editar, sem exclusão.</p></div></div>
             <div className="table-scroll">
               <table className="data-table">
-                <thead><tr><th>ID</th><th>Nome</th><th>Sigla</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>ID</th><th>Nome</th><th>Sigla</th><th>Unidade</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                   {equipesAdmin.map((item) => (
                     <tr key={item.id}>
                       <td><code className="login-code">{item.id}</code></td>
                       <td>{item.nome}</td>
                       <td>{item.sigla}</td>
+                      <td>{item.caminhoUnidade ? caminhoLegivel(item.caminhoUnidade, unidadesAdmin) : '—'}</td>
                       <td><span className={`status-badge ${item.ativa ? 'success' : 'neutral'}`}>{item.ativa ? 'Ativa' : 'Inativa'}</span></td>
                       <td>
-                        <button className="icon-button" type="button" title="Editar" onClick={() => setFormEquipe(item)}>
+                        <button
+                          className="icon-button"
+                          type="button"
+                          title="Editar"
+                          onClick={() => { setFormEquipe(item); setIdEmEdicaoEquipe(item.id); }}
+                        >
                           <Pencil size={15} />
                         </button>
                       </td>
@@ -2742,13 +2961,86 @@ export function DashboardApp() {
               <input placeholder="ID (ex.: EQ_SOC)" value={formEquipe.id} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, id: evento.target.value }))} />
               <input placeholder="Nome" value={formEquipe.nome} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, nome: evento.target.value }))} />
               <input placeholder="Sigla" value={formEquipe.sigla} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, sigla: evento.target.value }))} />
+              <select
+                value={formEquipe.unidadeId ?? ''}
+                onChange={(evento) => setFormEquipe((atual) => ({ ...atual, unidadeId: evento.target.value || undefined }))}
+              >
+                <option value="">Sem unidade organizacional</option>
+                {unidadesAdmin
+                  .filter((unidade) => souAdmin || minhasUnidadesPermitidas.includes(unidade.unidadeId))
+                  .map((unidade) => (
+                    <option key={unidade.unidadeId} value={unidade.unidadeId}>{caminhoLegivel(unidade.caminho, unidadesAdmin)}</option>
+                  ))}
+              </select>
               <label><input type="checkbox" checked={formEquipe.ativa} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, ativa: evento.target.checked }))} /> Ativa</label>
               <button className="primary-button" type="button" onClick={() => void salvarFormEquipe()}>Salvar equipe</button>
             </div>
           </article>
 
           <article className="panel grid-panel">
-            <div className="panel-title"><div><h2>Setores</h2><p>Cadastro simples — criar e editar, sem exclusão.</p></div></div>
+            <div className="panel-title">
+              <div>
+                <h2>Unidades organizacionais</h2>
+                <p>Hierarquia flexível (diretoria, gerência, coordenação, supervisão...) acima das equipes — criar e editar, sem exclusão.</p>
+              </div>
+            </div>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead><tr><th>ID</th><th>Nome</th><th>Tipo</th><th>Caminho</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  {unidadesAdmin.map((item) => (
+                    <tr key={item.unidadeId}>
+                      <td><code className="login-code">{item.unidadeId}</code></td>
+                      <td>{item.nome}</td>
+                      <td>{item.tipo}</td>
+                      <td>{caminhoLegivel(item.caminho, unidadesAdmin)}</td>
+                      <td><span className={`status-badge ${item.ativa ? 'success' : 'neutral'}`}>{item.ativa ? 'Ativa' : 'Inativa'}</span></td>
+                      <td>
+                        {(souAdmin || minhasUnidadesPermitidas.includes(item.unidadeId)) && (
+                          <button
+                            className="icon-button"
+                            type="button"
+                            title="Editar"
+                            onClick={() => { setFormUnidade(item); setIdEmEdicaoUnidade(item.unidadeId); }}
+                          >
+                            <Pencil size={15} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="toolbar">
+              <input placeholder="ID (ex.: COSI)" value={formUnidade.unidadeId} onChange={(evento) => setFormUnidade((atual) => ({ ...atual, unidadeId: evento.target.value }))} />
+              <input placeholder="Nome" value={formUnidade.nome} onChange={(evento) => setFormUnidade((atual) => ({ ...atual, nome: evento.target.value }))} />
+              <input placeholder="Sigla" value={formUnidade.sigla} onChange={(evento) => setFormUnidade((atual) => ({ ...atual, sigla: evento.target.value }))} />
+              <select
+                value={formUnidade.tipo}
+                onChange={(evento) => setFormUnidade((atual) => ({ ...atual, tipo: evento.target.value as TipoUnidadeOrganizacional }))}
+              >
+                {TIPOS_UNIDADE_ORGANIZACIONAL.map((tipo) => <option key={tipo} value={tipo}>{tipo}</option>)}
+              </select>
+              <select
+                value={formUnidade.parentId ?? ''}
+                onChange={(evento) => setFormUnidade((atual) => ({ ...atual, parentId: evento.target.value || null }))}
+              >
+                <option value="">(raiz — sem unidade pai)</option>
+                {unidadesAdmin
+                  .filter((unidade) => souAdmin || minhasUnidadesPermitidas.includes(unidade.unidadeId))
+                  .map((unidade) => (
+                    <option key={unidade.unidadeId} value={unidade.unidadeId}>{caminhoLegivel(unidade.caminho, unidadesAdmin)}</option>
+                  ))}
+              </select>
+              <label><input type="checkbox" checked={formUnidade.ativa} onChange={(evento) => setFormUnidade((atual) => ({ ...atual, ativa: evento.target.checked }))} /> Ativa</label>
+              <button className="primary-button" type="button" onClick={() => void salvarFormUnidade()}>Salvar unidade</button>
+            </div>
+          </article>
+
+          {souAdmin && (
+          <article className="panel grid-panel">
+            <div className="panel-title"><div><h2>Setores (legado)</h2><p>Cadastro antigo, mantido só por compatibilidade — novos cadastros usam Unidades organizacionais.</p></div></div>
             <div className="table-scroll">
               <table className="data-table">
                 <thead><tr><th>ID</th><th>Nome</th><th>Sigla</th><th>Status</th><th></th></tr></thead>
@@ -2777,7 +3069,9 @@ export function DashboardApp() {
               <button className="primary-button" type="button" onClick={() => void salvarFormSetor()}>Salvar setor</button>
             </div>
           </article>
+          )}
 
+          {souAdmin && (
           <article className="panel grid-panel">
             <div className="panel-title"><div><h2>Usuários</h2><p>Exclusão seletiva de cadastros fake/teste, com confirmação forte.</p></div></div>
             <div className="table-scroll">
@@ -2810,7 +3104,9 @@ export function DashboardApp() {
               </table>
             </div>
           </article>
+          )}
 
+          {souAdmin && (
           <article className="panel grid-panel">
             <div className="panel-title"><div><h2>Simular gestor</h2><p>Testar o Dashboard como se fosse aquele gestor, sem trocar de login.</p></div></div>
             <div className="toolbar">
@@ -2825,7 +3121,9 @@ export function DashboardApp() {
               <button className="primary-button" type="button" onClick={iniciarSimulacaoSelecionada}>Simular</button>
             </div>
           </article>
+          )}
 
+          {souAdmin && (
           <article className="panel grid-panel">
             <div className="panel-title"><div><h2>Limpeza / Histórico</h2><p>Exportar antes de excluir escalas antigas.</p></div></div>
             <div className="toolbar">
@@ -2857,6 +3155,7 @@ export function DashboardApp() {
               </button>
             )}
           </article>
+          )}
         </section>
       )}
 
@@ -3297,6 +3596,90 @@ export function DashboardApp() {
                   </div>
                 </div>
               </label>
+              {souAdmin && (
+                <fieldset className="user-form-full admin-only-fields">
+                  <legend>Administração (perfil/escopo/organização)</legend>
+                  <label>
+                    Perfil
+                    <select
+                      value={formularioUsuario.perfil ?? ''}
+                      onChange={(evento) => setFormularioUsuario({
+                        ...formularioUsuario,
+                        perfil: (evento.target.value || undefined) as FormularioUsuario['perfil'],
+                      })}
+                    >
+                      <option value="">(padrão pelo nível hierárquico)</option>
+                      {PERFIS_ADMINISTRAVEIS.map((perfil) => (
+                        <option key={perfil} value={perfil}>{perfil}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Escopo
+                    <select
+                      value={formularioUsuario.escopo ?? ''}
+                      onChange={(evento) => setFormularioUsuario({
+                        ...formularioUsuario,
+                        escopo: (evento.target.value || undefined) as FormularioUsuario['escopo'],
+                      })}
+                    >
+                      <option value="">(padrão EQUIPE)</option>
+                      <option value="GLOBAL">GLOBAL</option>
+                      <option value="EQUIPE">EQUIPE</option>
+                      <option value="UNIDADE">UNIDADE</option>
+                    </select>
+                  </label>
+                  <label>
+                    Unidade organizacional
+                    <select
+                      value={formularioUsuario.unidadeId ?? ''}
+                      onChange={(evento) => setFormularioUsuario({
+                        ...formularioUsuario,
+                        unidadeId: evento.target.value || undefined,
+                      })}
+                    >
+                      <option value="">(nenhuma)</option>
+                      {unidadesAdmin.map((unidade) => (
+                        <option key={unidade.unidadeId} value={unidade.unidadeId}>
+                          {caminhoLegivel(unidade.caminho, unidadesAdmin)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <fieldset className="user-form-full">
+                    <legend>Unidades permitidas (GESTOR_UNIDADE)</legend>
+                    {unidadesAdmin.length === 0 && (
+                      <small className="empty-inline">Abra a tela Administração nesta sessão para carregar a lista de unidades.</small>
+                    )}
+                    {unidadesAdmin.map((unidade) => (
+                      <label key={unidade.unidadeId} className="checkbox-inline">
+                        <input
+                          type="checkbox"
+                          checked={formularioUsuario.unidadesPermitidas.includes(unidade.unidadeId)}
+                          onChange={() => alternarNaListaFormularioUsuario('unidadesPermitidas', unidade.unidadeId)}
+                        />
+                        {unidade.nome}
+                      </label>
+                    ))}
+                  </fieldset>
+                  <fieldset className="user-form-full">
+                    <legend>Equipes permitidas</legend>
+                    {equipesAdmin.length === 0 && (
+                      <small className="empty-inline">Abra a tela Administração nesta sessão para carregar a lista de equipes.</small>
+                    )}
+                    {equipesAdmin.map((equipe) => (
+                      <label key={equipe.id} className="checkbox-inline">
+                        <input
+                          type="checkbox"
+                          checked={formularioUsuario.equipesPermitidas.includes(equipe.id)}
+                          onChange={() => alternarNaListaFormularioUsuario('equipesPermitidas', equipe.id)}
+                        />
+                        {equipe.nome}
+                      </label>
+                    ))}
+                  </fieldset>
+                </fieldset>
+              )}
             </div>
             {errosFormularioUsuario.length > 0 && (
               <div className="alert error">

@@ -8,12 +8,26 @@ import type { TipoTurno, TurnosMes } from '@escala-ici/contrato';
  *
  * - ADMIN_SISTEMA: acesso de leitura/escrita a todas as equipes do staging.
  * - GESTOR_EQUIPE: poderes de gestor de hoje, restritos à própria equipe.
+ * - GESTOR_UNIDADE: poderes de gestor sobre `unidadesPermitidas`/
+ *   `equipesPermitidas` — pode criar unidades/equipes abaixo das unidades
+ *   permitidas. Ver `unidadesPermitidasEfetivas()`/`equipesPermitidasEfetivas()`.
+ * - SUPERVISOR_EQUIPE: mesmo alcance de GESTOR_EQUIPE (via `equipesPermitidas`),
+ *   nome distinto só para refletir o cargo real na hierarquia.
  * - ANALISTA_SOC: colaborador comum.
+ * - ANALISTA_SUPORTE: colaborador comum de outra área — mesmo alcance de
+ *   ANALISTA_SOC, nome distinto só para refletir o cargo real.
  * - LEITURA: reservado para uso futuro (hoje equivalente a ANALISTA_SOC).
  */
-export type PerfilUsuario = 'ADMIN_SISTEMA' | 'GESTOR_EQUIPE' | 'ANALISTA_SOC' | 'LEITURA';
+export type PerfilUsuario =
+  | 'ADMIN_SISTEMA'
+  | 'GESTOR_EQUIPE'
+  | 'ANALISTA_SOC'
+  | 'LEITURA'
+  | 'GESTOR_UNIDADE'
+  | 'SUPERVISOR_EQUIPE'
+  | 'ANALISTA_SUPORTE';
 
-export type EscopoUsuario = 'GLOBAL' | 'EQUIPE';
+export type EscopoUsuario = 'GLOBAL' | 'EQUIPE' | 'UNIDADE';
 
 /**
  * O `login` corporativo é a chave funcional e o ID do documento
@@ -52,6 +66,32 @@ export interface Usuario {
   escopo?: EscopoUsuario;
 
   /**
+   * Unidade organizacional "principal" do usuário (ver `UnidadeOrganizacional`).
+   * Hoje é sobretudo metadado informativo/UX (breadcrumb no cadastro) — a
+   * autorização de fato usa `unidadesPermitidas`, que cai de volta para
+   * `[unidadeId]` quando ausente (ver `unidadesPermitidasEfetivas()` em
+   * `lib/sessao.ts`). Ausência é normal — usuário sem unidade atribuída não
+   * quebra nada.
+   */
+  unidadeId?: string;
+
+  /**
+   * Unidades sobre as quais este usuário (tipicamente GESTOR_UNIDADE) tem
+   * poder de gestor, inclusive para criar sub-unidades/equipes abaixo de
+   * qualquer uma delas. Ausente => fallback para `[unidadeId]` se existir,
+   * senão `[]` — nunca lança erro. Ver `unidadesPermitidasEfetivas()`.
+   */
+  unidadesPermitidas?: string[];
+
+  /**
+   * Equipes sobre as quais este usuário tem poder de gestor/leitura
+   * administrativa. Ausente => fallback para `[equipeId]` — é assim que
+   * todo GESTOR_EQUIPE/ANALISTA_SOC existente continua funcionando sem
+   * qualquer migração de dado. Ver `equipesPermitidasEfetivas()`.
+   */
+  equipesPermitidas?: string[];
+
+  /**
    * Nomes alternativos vindos da planilha, usados apenas para comparação
    * normalizada na conciliação de importação (ver `lib/conciliacaoUsuarios.ts`).
    * Diferente de `loginAliases`, que são strings comparadas de forma exata
@@ -67,14 +107,66 @@ export interface Equipe {
   nome: string;
   sigla: string;
   ativa: boolean;
+
+  /**
+   * Opcionais — equipes antigas continuam válidas em todo lugar sem eles
+   * (rules, repositório e telas nunca exigem `unidadeId`/`caminhoUnidade`).
+   * `caminhoUnidade` é o `caminho` (verbatim, sem anexar o id da própria
+   * equipe) da `UnidadeOrganizacional` selecionada no momento da
+   * criação/edição — só metadado de breadcrumb, nunca usado em rules.
+   */
+  unidadeId?: string;
+  caminhoUnidade?: string[];
 }
 
-/** Cadastro administrativo simples, mesma forma de `Equipe`. */
+/** Cadastro administrativo simples, mesma forma de `Equipe`. Mantido intacto
+ * por compatibilidade — não referenciado por nada (`Usuario`/`Equipe`/
+ * `turnosMes`); a tela "Administração" passou a usar
+ * `UnidadeOrganizacional` para novos cadastros, mas `setores` continua
+ * funcionando (rules e repositório inalterados).
+ */
 export interface Setor {
   id: string;
   nome: string;
   sigla: string;
   ativo: boolean;
+}
+
+/**
+ * Nó genérico da hierarquia organizacional acima de `Equipe` — qualquer
+ * nível (diretoria, gerência, coordenação, supervisão...) é uma
+ * `UnidadeOrganizacional`; só o nó que efetivamente recebe escala é uma
+ * `Equipe`. Coleção aditiva: não substitui `setores`/`equipes`.
+ */
+export type TipoUnidadeOrganizacional =
+  | 'PRESIDENCIA'
+  | 'DIRETORIA'
+  | 'GERENCIA'
+  | 'COORDENACAO'
+  | 'SUPERVISAO'
+  | 'AREA'
+  | 'SETOR'
+  | 'DEPARTAMENTO';
+
+export interface UnidadeOrganizacional {
+  unidadeId: string;
+  nome: string;
+  sigla: string;
+  tipo: TipoUnidadeOrganizacional;
+  /** `null` só para a raiz da hierarquia (ex.: Diretor Presidente). */
+  parentId: string | null;
+  /**
+   * Caminho completo de `unidadeId`s da raiz até o próprio nó, INCLUSIVE o
+   * próprio `unidadeId` como último elemento. Calculado uma única vez na
+   * criação (a partir do `caminho` da unidade-pai) e nunca recomputado em
+   * `firestore.rules` — rules só leem arrays explícitos, nunca percorrem
+   * `parentId`.
+   */
+  caminho: string[];
+  ativa: boolean;
+  criadoPorLogin: string;
+  criadoEm?: string;
+  atualizadoEm?: string;
 }
 
 export interface Importacao {

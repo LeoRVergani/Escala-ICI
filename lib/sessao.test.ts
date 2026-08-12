@@ -5,13 +5,17 @@ import {
   chavePreferenciaSessao,
   deveExibirRestauracao,
   ehAdminSistema,
+  equipesPermitidasEfetivas,
   escopoEfetivo,
   estadoInicialSessao,
   nivelPermiteDashboard,
   perfilEfetivo,
+  podeGerenciarEquipe,
+  podeGerenciarUnidade,
   podeIniciarListeners,
   preferenciaPadraoSessao,
   resolverManterConectado,
+  unidadesPermitidasEfetivas,
 } from './sessao';
 
 function usuarioBase(sobrescritas: Partial<Usuario> = {}): Usuario {
@@ -147,5 +151,74 @@ describe('ehAdminSistema', () => {
     expect(ehAdminSistema(usuarioBase({ perfil: 'ADMIN_SISTEMA' }))).toBe(true);
     expect(ehAdminSistema(usuarioBase({ nivelHierarquico: 0 }))).toBe(false);
     expect(ehAdminSistema(usuarioBase({ perfil: 'GESTOR_EQUIPE' }))).toBe(false);
+  });
+});
+
+describe('unidadesPermitidasEfetivas', () => {
+  it('usa a lista explícita quando presente', () => {
+    expect(unidadesPermitidasEfetivas(usuarioBase({ unidadesPermitidas: ['GEDSI', 'COSI'] })))
+      .toEqual(['GEDSI', 'COSI']);
+  });
+
+  it('cai para [unidadeId] quando a lista está ausente', () => {
+    expect(unidadesPermitidasEfetivas(usuarioBase({ unidadeId: 'COSI' }))).toEqual(['COSI']);
+  });
+
+  it('cai para [unidadeId] quando a lista está presente mas vazia', () => {
+    expect(unidadesPermitidasEfetivas(usuarioBase({ unidadeId: 'COSI', unidadesPermitidas: [] })))
+      .toEqual(['COSI']);
+  });
+
+  it('devolve lista vazia quando não há unidadeId nem lista — usuário antigo sem unidade', () => {
+    expect(unidadesPermitidasEfetivas(usuarioBase())).toEqual([]);
+  });
+});
+
+describe('equipesPermitidasEfetivas', () => {
+  it('usa a lista explícita quando presente', () => {
+    expect(equipesPermitidasEfetivas(usuarioBase({ equipesPermitidas: ['EQ_SOC', 'EQ_NOC'] })))
+      .toEqual(['EQ_SOC', 'EQ_NOC']);
+  });
+
+  it('cai para [equipeId] quando a lista está ausente — compat com GESTOR_EQUIPE/ANALISTA_SOC existente', () => {
+    expect(equipesPermitidasEfetivas(usuarioBase({ equipeId: 'EQ_SOC' }))).toEqual(['EQ_SOC']);
+  });
+
+  it('cai para [equipeId] quando a lista está presente mas vazia', () => {
+    expect(equipesPermitidasEfetivas(usuarioBase({ equipeId: 'EQ_SOC', equipesPermitidas: [] })))
+      .toEqual(['EQ_SOC']);
+  });
+});
+
+describe('podeGerenciarUnidade', () => {
+  it('admin sempre pode, independente de unidadesPermitidas', () => {
+    expect(podeGerenciarUnidade(usuarioBase({ perfil: 'ADMIN_SISTEMA' }), 'QUALQUER_UNIDADE')).toBe(true);
+  });
+
+  it('GESTOR_UNIDADE só pode dentro de unidadesPermitidasEfetivas', () => {
+    const gestor = usuarioBase({ perfil: 'GESTOR_UNIDADE', unidadesPermitidas: ['GEDSI', 'COSI'] });
+    expect(podeGerenciarUnidade(gestor, 'COSI')).toBe(true);
+    expect(podeGerenciarUnidade(gestor, 'CODB')).toBe(false);
+  });
+
+  it('nenhum outro perfil gerencia unidade, mesmo com unidadeId próprio', () => {
+    expect(podeGerenciarUnidade(usuarioBase({ perfil: 'GESTOR_EQUIPE', unidadeId: 'COSI' }), 'COSI')).toBe(false);
+  });
+});
+
+describe('podeGerenciarEquipe', () => {
+  it('admin sempre pode, independente de equipesPermitidas', () => {
+    expect(podeGerenciarEquipe(usuarioBase({ perfil: 'ADMIN_SISTEMA' }), 'QUALQUER_EQUIPE')).toBe(true);
+  });
+
+  it('qualquer perfil com equipeId próprio continua podendo gerenciar a própria equipe sem equipesPermitidas explícito', () => {
+    expect(podeGerenciarEquipe(usuarioBase({ equipeId: 'EQ_SOC' }), 'EQ_SOC')).toBe(true);
+    expect(podeGerenciarEquipe(usuarioBase({ equipeId: 'EQ_SOC' }), 'EQ_NOC')).toBe(false);
+  });
+
+  it('GESTOR_UNIDADE com equipesPermitidas explícito respeita a lista', () => {
+    const gestor = usuarioBase({ perfil: 'GESTOR_UNIDADE', equipeId: 'EQ_SOC', equipesPermitidas: ['EQ_SOC', 'EQ_NOC'] });
+    expect(podeGerenciarEquipe(gestor, 'EQ_NOC')).toBe(true);
+    expect(podeGerenciarEquipe(gestor, 'EQ_OUTRA')).toBe(false);
   });
 });
