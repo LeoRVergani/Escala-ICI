@@ -535,7 +535,13 @@ function ArvoreUnidadesOrganizacionais({
             </div>
             <div className="org-tree-node-actions">
               {podeEditar(no.unidade.unidadeId) && (
-                <button className="icon-button" type="button" title="Editar" onClick={() => aoEditar(no.unidade)}>
+                <button
+                  className="icon-button"
+                  type="button"
+                  title="Editar"
+                  aria-label={`Editar unidade ${no.unidade.nome}`}
+                  onClick={() => aoEditar(no.unidade)}
+                >
                   <Pencil size={14} />
                 </button>
               )}
@@ -3463,15 +3469,17 @@ export function DashboardApp() {
                       </td>
                       <td><span className={`status-badge ${item.ativa ? 'success' : 'neutral'}`}>{item.ativa ? 'Ativa' : 'Inativa'}</span></td>
                       <td>
-                        <button
-                          className="icon-button"
-                          type="button"
-                          title="Editar"
-                          aria-label={`Editar equipe ${item.nome}`}
-                          onClick={() => abrirEdicaoEquipe(item)}
-                        >
-                          <Pencil size={15} />
-                        </button>
+                        {(souAdmin || (item.unidadeId !== undefined && minhasUnidadesPermitidas.includes(item.unidadeId))) && (
+                          <button
+                            className="icon-button"
+                            type="button"
+                            title="Editar"
+                            aria-label={`Editar equipe ${item.nome}`}
+                            onClick={() => abrirEdicaoEquipe(item)}
+                          >
+                            <Pencil size={15} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -3526,6 +3534,7 @@ export function DashboardApp() {
                             className="icon-button"
                             type="button"
                             title={autoExclusao ? 'Não é possível excluir a própria conta logada' : 'Excluir dados'}
+                            aria-label={autoExclusao ? 'Não é possível excluir a própria conta logada' : `Excluir dados de ${item.nome}`}
                             disabled={autoExclusao}
                             onClick={() => setUsuarioParaExcluir(item)}
                           >
