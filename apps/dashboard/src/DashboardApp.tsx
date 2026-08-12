@@ -96,13 +96,34 @@ import {
   listarEquipes,
   listarSetores,
   listarTodosUsuarios,
+  listarUnidadesOrganizacionais,
   salvarEquipe,
   salvarSetor,
+  salvarUnidadeOrganizacional,
   type OpcoesExclusaoUsuario,
 } from '@/lib/firebase/adminRepository';
 import { registrarAuditoriaAdmin } from '@/lib/firebase/auditoriaRepository';
 import { exclusaoZeraGestores, podeExcluirCompetencia, podeExcluirUsuario } from '@/lib/adminGuards';
-import { COMPETENCIA_ATUAL, ehAdminSistema, perfilEfetivo } from '@/lib/sessao';
+import {
+  COMPETENCIA_ATUAL,
+  ehAdminSistema,
+  perfilEfetivo,
+  unidadesPermitidasEfetivas,
+} from '@/lib/sessao';
+import {
+  achatarArvore,
+  calcularResumoOrganizacional,
+  caminhoCurto,
+  caminhoLegivel,
+  construirArvoreUnidades,
+  ehUsuarioTecnicoOuFake,
+  formariaCiclo,
+  gestoresParaSimulacao,
+  type NoArvoreUnidade,
+  rotuloGestorParaSimulacao,
+  rotuloOpcaoUnidade,
+  trechoFinalCaminho,
+} from '@/lib/organizacao';
 import { formatarDataHoraSafe } from '@/lib/dataSegura';
 import {
   construirIndiceAlertasGrade,
@@ -124,7 +145,16 @@ import {
   removerMembroGrade,
 } from '@/lib/gradeMembros';
 import { mapaLogins, normalizarAliasesPlanilha, novoUsuario, validarEdicaoUsuario } from '@/lib/importUsers';
-import type { Equipe, EventoEscala, LinhaConciliacao, PublicacaoEscala, Setor, Usuario } from '@/lib/modelos';
+import type {
+  Equipe,
+  EventoEscala,
+  LinhaConciliacao,
+  PublicacaoEscala,
+  Setor,
+  TipoUnidadeOrganizacional,
+  UnidadeOrganizacional,
+  Usuario,
+} from '@/lib/modelos';
 
 type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'administracao';
 type FiltroTrocas = 'pendentes' | 'aprovadas' | 'recusadas' | 'historico';
@@ -411,7 +441,40 @@ interface FormularioUsuario {
   turnoPadrao: string;
   ativo: boolean;
   aliasesPlanilha: string[];
+
+  /**
+   * Campos administrativos (perfil/escopo/organização) — só entram no
+   * payload enviado a `salvarUsuario` quando `souAdmin` for `true` (ver
+   * `salvarFormularioUsuario`); as rules rejeitam esses campos no payload
+   * de um gestor comum, então omiti-los aqui evita erro de permissão.
+   */
+  perfil?: Usuario['perfil'];
+  escopo?: Usuario['escopo'];
+  unidadeId?: string;
+  unidadesPermitidas: string[];
+  equipesPermitidas: string[];
 }
+
+const TIPOS_UNIDADE_ORGANIZACIONAL: TipoUnidadeOrganizacional[] = [
+  'PRESIDENCIA',
+  'DIRETORIA',
+  'GERENCIA',
+  'COORDENACAO',
+  'SUPERVISAO',
+  'AREA',
+  'SETOR',
+  'DEPARTAMENTO',
+];
+
+const PERFIS_ADMINISTRAVEIS: NonNullable<Usuario['perfil']>[] = [
+  'ADMIN_SISTEMA',
+  'GESTOR_UNIDADE',
+  'GESTOR_EQUIPE',
+  'SUPERVISOR_EQUIPE',
+  'ANALISTA_SOC',
+  'ANALISTA_SUPORTE',
+  'LEITURA',
+];
 
 const STATUS_CONCILIACAO_LABEL: Record<LinhaConciliacao['status'], string> = {
   VINCULADO_LOGIN: 'Vinculado automaticamente por login/e-mail',
@@ -437,6 +500,419 @@ interface CelulaEditando {
   documento: TurnosMes;
   data: string;
   dia: Dia;
+}
+
+/**
+ * Árvore simples (Parte 4 da correção UX/UI) — `<ul>`/`<li>` aninhados a
+ * partir de `construirArvoreUnidades()` (lib/organizacao.ts), sem nenhuma
+ * biblioteca de árvore. `podeEditar` decide, nó a nó, se o botão de editar
+ * aparece (admin sempre; GESTOR_UNIDADE só dentro de `unidadesPermitidas`).
+ */
+function ArvoreUnidadesOrganizacionais({
+  nos,
+  podeEditar,
+  aoEditar,
+}: {
+  nos: NoArvoreUnidade[];
+  podeEditar: (unidadeId: string) => boolean;
+  aoEditar: (unidade: UnidadeOrganizacional) => void;
+}) {
+  if (nos.length === 0) {
+    return <p className="empty-inline">Nenhuma unidade organizacional cadastrada ainda.</p>;
+  }
+  return (
+    <ul className="org-tree">
+      {nos.map((no) => (
+        <li key={no.unidade.unidadeId}>
+          <div className="org-tree-node">
+            <div className="org-tree-node-info">
+              <strong>{no.unidade.nome}</strong>
+              <small>{no.unidade.sigla}</small>
+              <small>{no.unidade.tipo}</small>
+              <span className={`status-badge ${no.unidade.ativa ? 'success' : 'neutral'}`}>
+                {no.unidade.ativa ? 'Ativa' : 'Inativa'}
+              </span>
+            </div>
+            <div className="org-tree-node-actions">
+              {podeEditar(no.unidade.unidadeId) && (
+                <button
+                  className="icon-button"
+                  type="button"
+                  title="Editar"
+                  aria-label={`Editar unidade ${no.unidade.nome}`}
+                  onClick={() => aoEditar(no.unidade)}
+                >
+                  <Pencil size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+          {no.filhos.length > 0 && (
+            <ArvoreUnidadesOrganizacionais nos={no.filhos} podeEditar={podeEditar} aoEditar={aoEditar} />
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Fecha qualquer modal ao apertar Esc — usado pelos modais novos desta correção de UX. */
+function useTeclaEsc(aoFechar: () => void) {
+  useEffect(() => {
+    function aoTeclar(evento: KeyboardEvent) {
+      if (evento.key === 'Escape') {
+        aoFechar();
+      }
+    }
+    window.addEventListener('keydown', aoTeclar);
+    return () => window.removeEventListener('keydown', aoTeclar);
+  }, [aoFechar]);
+}
+
+/**
+ * Modal de criação/edição de unidade organizacional (Parte 1-2 da correção
+ * de UX) — substitui o formulário fixo no rodapé do card. Validação (ID/
+ * nome/sigla obrigatórios, duplicidade, ciclo, escopo de GESTOR_UNIDADE)
+ * acontece aqui, antes de chamar `onSalvar`; falhas de rede/rules chegam
+ * como `Error` de `onSalvar` e aparecem no mesmo lugar, sem fechar o modal.
+ */
+function ModalUnidadeOrganizacional({
+  modo,
+  inicial,
+  unidadesExistentes,
+  unidadesPermitidas,
+  loginAtual,
+  onFechar,
+  onSalvar,
+}: {
+  modo: 'criar' | 'editar';
+  inicial: UnidadeOrganizacional;
+  unidadesExistentes: UnidadeOrganizacional[];
+  /** `null` = sem restrição de escopo (ADMIN_SISTEMA). */
+  unidadesPermitidas: string[] | null;
+  loginAtual: string;
+  onFechar: () => void;
+  onSalvar: (unidade: UnidadeOrganizacional) => Promise<void>;
+}) {
+  const [form, setForm] = useState(inicial);
+  const [erro, setErro] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  useTeclaEsc(onFechar);
+
+  const opcoesUnidadePai = achatarArvore(construirArvoreUnidades(unidadesExistentes))
+    .filter((no) => no.unidade.unidadeId !== form.unidadeId)
+    .filter((no) => unidadesPermitidas === null || unidadesPermitidas.includes(no.unidade.unidadeId));
+  const unidadePaiSelecionada = unidadesExistentes.find((item) => item.unidadeId === form.parentId);
+
+  async function aoClicarSalvar() {
+    if (form.unidadeId.trim() === '') {
+      setErro('Informe o ID da unidade organizacional.');
+      return;
+    }
+    if (form.nome.trim() === '') {
+      setErro('Informe o nome da unidade organizacional.');
+      return;
+    }
+    if (form.sigla.trim() === '') {
+      setErro('Informe a sigla da unidade organizacional.');
+      return;
+    }
+    if (modo === 'criar' && unidadesExistentes.some((item) => item.unidadeId === form.unidadeId)) {
+      setErro('Já existe uma unidade organizacional com esse ID.');
+      return;
+    }
+    if (formariaCiclo(form.unidadeId, form.parentId, unidadesExistentes)) {
+      setErro('Essa unidade pai criaria um ciclo na hierarquia (uma unidade não pode ser sua própria ancestral).');
+      return;
+    }
+    if (unidadesPermitidas !== null && (form.parentId === null || !unidadesPermitidas.includes(form.parentId))) {
+      setErro('Você só pode usar uma unidade pai sob sua permissão.');
+      return;
+    }
+    const candidato: UnidadeOrganizacional = {
+      ...form,
+      caminho: [...(unidadePaiSelecionada?.caminho ?? []), form.unidadeId],
+      criadoPorLogin: form.criadoPorLogin || loginAtual,
+    };
+    setSalvando(true);
+    try {
+      await onSalvar(candidato);
+    } catch (falha) {
+      setErro(falha instanceof Error ? falha.message : 'Não foi possível salvar a unidade organizacional.');
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal admin-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="unidade-modal-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <h2 id="unidade-modal-title">{modo === 'criar' ? 'Nova unidade organizacional' : 'Editar unidade organizacional'}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="admin-form-grid">
+          <label htmlFor="unidade-modal-id">
+            ID da unidade
+            <input
+              id="unidade-modal-id"
+              autoFocus
+              placeholder="Ex.: COSI"
+              value={form.unidadeId}
+              disabled={modo === 'editar'}
+              onChange={(evento) => setForm((atual) => ({ ...atual, unidadeId: evento.target.value }))}
+            />
+            {modo === 'editar' && <small>O ID não pode ser alterado depois de criado.</small>}
+          </label>
+          <label htmlFor="unidade-modal-nome">
+            Nome
+            <input
+              id="unidade-modal-nome"
+              placeholder="Nome completo"
+              value={form.nome}
+              onChange={(evento) => setForm((atual) => ({ ...atual, nome: evento.target.value }))}
+            />
+          </label>
+          <label htmlFor="unidade-modal-sigla">
+            Sigla
+            <input
+              id="unidade-modal-sigla"
+              placeholder="Ex.: COSI"
+              value={form.sigla}
+              onChange={(evento) => setForm((atual) => ({ ...atual, sigla: evento.target.value }))}
+            />
+          </label>
+          <label htmlFor="unidade-modal-tipo">
+            Tipo
+            <select
+              id="unidade-modal-tipo"
+              value={form.tipo}
+              onChange={(evento) => setForm((atual) => ({ ...atual, tipo: evento.target.value as TipoUnidadeOrganizacional }))}
+            >
+              {TIPOS_UNIDADE_ORGANIZACIONAL.map((tipo) => <option key={tipo} value={tipo}>{tipo}</option>)}
+            </select>
+          </label>
+          <label htmlFor="unidade-modal-pai">
+            Unidade pai
+            <select
+              id="unidade-modal-pai"
+              value={form.parentId ?? ''}
+              onChange={(evento) => setForm((atual) => ({ ...atual, parentId: evento.target.value || null }))}
+            >
+              <option value="">(raiz — sem unidade pai)</option>
+              {opcoesUnidadePai.map((no) => (
+                <option key={no.unidade.unidadeId} value={no.unidade.unidadeId}>
+                  {'  '.repeat(no.profundidade)}{rotuloOpcaoUnidade(no.unidade, unidadesExistentes)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="checkbox-row admin-form-active" htmlFor="unidade-modal-ativa">
+            <input
+              id="unidade-modal-ativa"
+              type="checkbox"
+              checked={form.ativa}
+              onChange={(evento) => setForm((atual) => ({ ...atual, ativa: evento.target.checked }))}
+            />
+            <span>Ativa</span>
+          </label>
+          <p className="admin-form-preview admin-form-full">
+            {form.parentId === null
+              ? 'Esta unidade ficará na raiz.'
+              : (
+                <>
+                  Caminho final: <strong>
+                    {caminhoLegivel(
+                      [...(unidadePaiSelecionada?.caminho ?? []), form.unidadeId || '(novo ID)'],
+                      unidadesExistentes,
+                    )}
+                  </strong>
+                </>
+              )}
+          </p>
+        </div>
+        {erro && <p className="admin-form-erro">{erro}</p>}
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
+          <button className="primary-button" type="button" disabled={salvando} onClick={() => void aoClicarSalvar()}>
+            {salvando ? <LoaderCircle className="spin" size={16} /> : null} Salvar unidade
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Modal de criação/edição de equipe (Parte 1-3 da correção de UX). Unidade
+ * organizacional é obrigatória para equipes novas (spec Parte 3); equipes
+ * antigas sem unidade continuam podendo ser editadas sem uma, mas com
+ * aviso — nunca bloqueadas por isso.
+ */
+function ModalEquipe({
+  modo,
+  inicial,
+  equipesExistentes,
+  unidadesExistentes,
+  unidadesPermitidas,
+  onFechar,
+  onSalvar,
+}: {
+  modo: 'criar' | 'editar';
+  inicial: Equipe;
+  equipesExistentes: Equipe[];
+  unidadesExistentes: UnidadeOrganizacional[];
+  /** `null` = sem restrição de escopo (ADMIN_SISTEMA). */
+  unidadesPermitidas: string[] | null;
+  onFechar: () => void;
+  onSalvar: (equipe: Equipe) => Promise<void>;
+}) {
+  const [form, setForm] = useState(inicial);
+  const [erro, setErro] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  useTeclaEsc(onFechar);
+
+  const opcoesUnidade = achatarArvore(construirArvoreUnidades(unidadesExistentes))
+    .filter((no) => unidadesPermitidas === null || unidadesPermitidas.includes(no.unidade.unidadeId));
+  const unidadeSelecionada = unidadesExistentes.find((item) => item.unidadeId === form.unidadeId);
+
+  async function aoClicarSalvar() {
+    if (form.id.trim() === '') {
+      setErro('Informe o ID da equipe.');
+      return;
+    }
+    if (form.nome.trim() === '') {
+      setErro('Informe o nome da equipe.');
+      return;
+    }
+    if (form.sigla.trim() === '') {
+      setErro('Informe a sigla da equipe.');
+      return;
+    }
+    if (modo === 'criar' && equipesExistentes.some((item) => item.id === form.id)) {
+      setErro('Já existe uma equipe com esse ID.');
+      return;
+    }
+    if (modo === 'criar' && unidadesExistentes.length > 0 && !form.unidadeId) {
+      setErro('Selecione a unidade organizacional desta equipe.');
+      return;
+    }
+    const candidato: Equipe = {
+      ...form,
+      caminhoUnidade: unidadeSelecionada?.caminho,
+    };
+    setSalvando(true);
+    try {
+      await onSalvar(candidato);
+    } catch (falha) {
+      setErro(falha instanceof Error ? falha.message : 'Não foi possível salvar a equipe.');
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal admin-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="equipe-modal-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <h2 id="equipe-modal-title">{modo === 'criar' ? 'Nova equipe' : 'Editar equipe'}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="admin-form-grid">
+          <label htmlFor="equipe-modal-id">
+            ID da equipe
+            <input
+              id="equipe-modal-id"
+              autoFocus
+              placeholder="Ex.: EQ_SOC"
+              value={form.id}
+              disabled={modo === 'editar'}
+              onChange={(evento) => setForm((atual) => ({ ...atual, id: evento.target.value }))}
+            />
+            {modo === 'editar' && <small>O ID não pode ser alterado — é a chave usada pela escala (turnosMes).</small>}
+          </label>
+          <label htmlFor="equipe-modal-nome">
+            Nome
+            <input
+              id="equipe-modal-nome"
+              placeholder="Nome da equipe"
+              value={form.nome}
+              onChange={(evento) => setForm((atual) => ({ ...atual, nome: evento.target.value }))}
+            />
+          </label>
+          <label htmlFor="equipe-modal-sigla">
+            Sigla
+            <input
+              id="equipe-modal-sigla"
+              placeholder="Ex.: SOC"
+              value={form.sigla}
+              onChange={(evento) => setForm((atual) => ({ ...atual, sigla: evento.target.value }))}
+            />
+          </label>
+          <label htmlFor="equipe-modal-unidade">
+            Unidade organizacional
+            <select
+              id="equipe-modal-unidade"
+              value={form.unidadeId ?? ''}
+              onChange={(evento) => setForm((atual) => ({ ...atual, unidadeId: evento.target.value || undefined }))}
+            >
+              <option value="">Sem unidade organizacional</option>
+              {opcoesUnidade.map((no) => (
+                <option key={no.unidade.unidadeId} value={no.unidade.unidadeId}>
+                  {'  '.repeat(no.profundidade)}{rotuloOpcaoUnidade(no.unidade, unidadesExistentes)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="checkbox-row admin-form-active" htmlFor="equipe-modal-ativa">
+            <input
+              id="equipe-modal-ativa"
+              type="checkbox"
+              checked={form.ativa}
+              onChange={(evento) => setForm((atual) => ({ ...atual, ativa: evento.target.checked }))}
+            />
+            <span>Ativa</span>
+          </label>
+          <p className="admin-form-preview admin-form-full">
+            {form.unidadeId
+              ? (
+                <>
+                  Esta equipe ficará em: <strong>{caminhoLegivel(unidadeSelecionada?.caminho ?? [form.unidadeId], unidadesExistentes)}</strong>
+                </>
+              )
+              : 'Sem unidade organizacional vinculada — recomendamos escolher uma, mas equipes antigas podem continuar assim.'}
+          </p>
+        </div>
+        {erro && <p className="admin-form-erro">{erro}</p>}
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
+          <button className="primary-button" type="button" disabled={salvando} onClick={() => void aoClicarSalvar()}>
+            {salvando ? <LoaderCircle className="spin" size={16} /> : null} Salvar equipe
+          </button>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 /**
@@ -500,12 +976,28 @@ function ModalConfirmarComTexto({
   );
 }
 
+const OPCOES_EXCLUSAO_USUARIO: Array<{
+  campo: keyof OpcoesExclusaoUsuario;
+  titulo: string;
+  descricao: (login: string) => string;
+}> = [
+  { campo: 'cadastro', titulo: 'Cadastro do usuário', descricao: (login) => `Remove usuarios/${login}` },
+  { campo: 'escalasPublicadas', titulo: 'Escalas publicadas', descricao: () => 'Remove turnosMes vinculados a este usuário' },
+  { campo: 'rascunhos', titulo: 'Rascunhos', descricao: () => 'Remove rascunhosTurnosMes vinculados' },
+  { campo: 'trocas', titulo: 'Trocas vinculadas', descricao: () => 'Remove solicitações de troca relacionadas' },
+  { campo: 'notificacoes', titulo: 'Notificações vinculadas', descricao: () => 'Remove notificações relacionadas' },
+];
+
 /**
  * Exclusão seletiva de usuário: o admin escolhe quais categorias de dados
- * vinculadas ao login apagar (checkboxes, todas desmarcadas por padrão) e
- * confirma digitando o login exato. Se `zeraGestores` for true, uma segunda
- * etapa explícita de confirmação aparece antes do botão ficar disponível —
- * não é só um aviso maior, é um passo a mais de verdade.
+ * vinculadas ao login apagar (cada opção em card próprio, todas desmarcadas
+ * por padrão) e confirma digitando o login exato. Se `zeraGestores` for
+ * true, uma segunda etapa explícita de confirmação aparece antes do botão
+ * ficar disponível — não é só um aviso maior, é um passo a mais de verdade.
+ *
+ * Cadastro técnico/fake (`ehUsuarioTecnicoOuFake`) é sinalizado no
+ * cabeçalho — o identificador (login/docId técnico, ex. `usuario-123` ou
+ * um UID) nunca é tratado como "nome" na tela, sempre em `<code>`.
  */
 function ModalExcluirUsuario({
   candidato,
@@ -529,6 +1021,8 @@ function ModalExcluirUsuario({
   });
   const [confirmacaoZeraGestores, setConfirmacaoZeraGestores] = useState(false);
   const [valorLogin, setValorLogin] = useState('');
+  useTeclaEsc(onFechar);
+  const tecnico = ehUsuarioTecnicoOuFake(candidato);
   const algumaOpcaoMarcada = Object.values(opcoes).some(Boolean);
   const loginConfere = valorLogin.trim() === candidato.login;
   const precisaSegundaEtapa = zeraGestores && opcoes.cadastro;
@@ -551,35 +1045,56 @@ function ModalExcluirUsuario({
       >
         <div className="panel-title">
           <div>
-            <h2 id="excluir-usuario-title">Excluir dados de {candidato.nome}</h2>
-            <p>Login <code>{candidato.login}</code> · equipe {candidato.equipeId}</p>
+            <h2 id="excluir-usuario-title">
+              {tecnico ? 'Excluir cadastro técnico/fake' : `Excluir dados de ${candidato.nome}`}
+            </h2>
+            <p>
+              {tecnico && <span className="status-badge warning">Cadastro técnico/fake</span>}
+              {' '}Login <code>{candidato.login}</code> · equipe {candidato.equipeId}
+            </p>
           </div>
           <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar"><X size={18} /></button>
         </div>
-        <fieldset>
+        <fieldset className="checkbox-card-list">
           <legend>O que apagar</legend>
-          <label><input type="checkbox" checked={opcoes.cadastro} onChange={() => alternar('cadastro')} /> Cadastro (usuarios/{candidato.login})</label>
-          <label><input type="checkbox" checked={opcoes.escalasPublicadas} onChange={() => alternar('escalasPublicadas')} /> Escalas publicadas</label>
-          <label><input type="checkbox" checked={opcoes.rascunhos} onChange={() => alternar('rascunhos')} /> Rascunhos</label>
-          <label><input type="checkbox" checked={opcoes.trocas} onChange={() => alternar('trocas')} /> Trocas vinculadas</label>
-          <label><input type="checkbox" checked={opcoes.notificacoes} onChange={() => alternar('notificacoes')} /> Notificações vinculadas</label>
+          {OPCOES_EXCLUSAO_USUARIO.map(({ campo, titulo, descricao }) => (
+            <label key={campo} className="checkbox-card" htmlFor={`excluir-usuario-${campo}`}>
+              <input
+                id={`excluir-usuario-${campo}`}
+                type="checkbox"
+                checked={opcoes[campo]}
+                onChange={() => alternar(campo)}
+              />
+              <span>
+                <strong>{titulo}</strong>
+                <small>{descricao(candidato.login)}</small>
+              </span>
+            </label>
+          ))}
         </fieldset>
         {precisaSegundaEtapa && (
           <div className="alert warning" role="status">
             <strong>Esta é a última conta com perfil de gestor/admin.</strong> Excluir o cadastro pode deixar a
             equipe sem gestor.
-            <label>
+            <label className="checkbox-row" htmlFor="excluir-usuario-confirma-zera-gestores">
               <input
+                id="excluir-usuario-confirma-zera-gestores"
                 type="checkbox"
                 checked={confirmacaoZeraGestores}
                 onChange={(evento) => setConfirmacaoZeraGestores(evento.target.checked)}
-              /> Entendo e quero excluir mesmo assim
+              />
+              <span>Entendo e quero excluir mesmo assim</span>
             </label>
           </div>
         )}
-        <label>
+        <label htmlFor="excluir-usuario-confirmacao-login">
           Digite <code>{candidato.login}</code> para confirmar
-          <input value={valorLogin} onChange={(evento) => setValorLogin(evento.target.value)} autoFocus />
+          <input
+            id="excluir-usuario-confirmacao-login"
+            value={valorLogin}
+            onChange={(evento) => setValorLogin(evento.target.value)}
+            autoFocus
+          />
         </label>
         <div className="rollback-actions">
           <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
@@ -785,9 +1300,23 @@ export function DashboardApp() {
   const [todosUsuariosAdmin, setTodosUsuariosAdmin] = useState<Usuario[]>([]);
   const [equipesAdmin, setEquipesAdmin] = useState<Equipe[]>([]);
   const [setoresAdmin, setSetoresAdmin] = useState<Setor[]>([]);
+  const [unidadesAdmin, setUnidadesAdmin] = useState<UnidadeOrganizacional[]>([]);
   const [erroAdmin, setErroAdmin] = useState('');
-  const [formEquipe, setFormEquipe] = useState<Equipe>({ id: '', nome: '', sigla: '', ativa: true });
   const [formSetor, setFormSetor] = useState<Setor>({ id: '', nome: '', sigla: '', ativo: true });
+  /**
+   * `null` = modal fechado. Guarda o modo (criar/editar) e o valor inicial
+   * do formulário — a edição em si vive dentro do modal (`ModalUnidadeOrganizacional`/
+   * `ModalEquipe`), então não precisa de estado espelhado aqui fora.
+   */
+  const [modalUnidade, setModalUnidade] = useState<{ modo: 'criar' | 'editar'; inicial: UnidadeOrganizacional } | null>(null);
+  const [modalEquipe, setModalEquipe] = useState<{ modo: 'criar' | 'editar'; inicial: Equipe } | null>(null);
+  // --- Usuários (Administração): busca + filtros, ver `usuariosAdminFiltrados` ---
+  const [buscaUsuarioAdmin, setBuscaUsuarioAdmin] = useState('');
+  const [filtroEquipeUsuarioAdmin, setFiltroEquipeUsuarioAdmin] = useState('');
+  const [filtroPerfilUsuarioAdmin, setFiltroPerfilUsuarioAdmin] = useState('');
+  const [filtroTipoUsuarioAdmin, setFiltroTipoUsuarioAdmin] = useState<
+    'TODOS' | 'REAIS' | 'TECNICOS' | 'GESTORES' | 'ANALISTAS'
+  >('TODOS');
   const [gestorParaSimular, setGestorParaSimular] = useState('');
   const [usuarioParaExcluir, setUsuarioParaExcluir] = useState<Usuario | null>(null);
   const [processandoExclusaoUsuario, setProcessandoExclusaoUsuario] = useState(false);
@@ -805,7 +1334,44 @@ export function DashboardApp() {
    * admin está simulando um gestor comum.
    */
   const souAdmin = usuarioReal !== null && ehAdminSistema(usuarioReal);
-  const navegacaoVisivel = souAdmin ? NAVEGACAO : NAVEGACAO.filter((item) => item.id !== 'administracao');
+  /**
+   * Mesmo gate na identidade REAL de `souAdmin` — GESTOR_UNIDADE só vê a
+   * aba Administração restrita ao painel de Unidades organizacionais/
+   * Equipes dentro do seu escopo (`unidadesPermitidasEfetivas`); os demais
+   * painéis (Usuários, Simular gestor, Limpeza/Histórico) continuam presos
+   * a `souAdmin`.
+   */
+  const souGestorUnidade = usuarioReal !== null && perfilEfetivo(usuarioReal) === 'GESTOR_UNIDADE';
+  const podeAcessarAdministracao = souAdmin || souGestorUnidade;
+  const minhasUnidadesPermitidas = usuarioReal !== null ? unidadesPermitidasEfetivas(usuarioReal) : [];
+  const navegacaoVisivel = podeAcessarAdministracao
+    ? NAVEGACAO
+    : NAVEGACAO.filter((item) => item.id !== 'administracao');
+
+  // --- Derivados da tela Administração (Resumo, árvore, filtros de Usuários) ---
+  const arvoreUnidadesAdmin = construirArvoreUnidades(unidadesAdmin);
+  const unidadesEmArvoreParaSelect = achatarArvore(arvoreUnidadesAdmin);
+  const resumoOrganizacional = calcularResumoOrganizacional(unidadesAdmin, equipesAdmin, todosUsuariosAdmin);
+  const usuariosAdminFiltrados = todosUsuariosAdmin.filter((item) => {
+    const termo = buscaUsuarioAdmin.trim().toLowerCase();
+    const bateBusca = termo === ''
+      || item.nome.toLowerCase().includes(termo)
+      || item.login.toLowerCase().includes(termo)
+      || item.email.toLowerCase().includes(termo);
+    const bateEquipe = filtroEquipeUsuarioAdmin === '' || item.equipeId === filtroEquipeUsuarioAdmin;
+    const perfilItem = perfilEfetivo(item);
+    const batePerfil = filtroPerfilUsuarioAdmin === '' || perfilItem === filtroPerfilUsuarioAdmin;
+    const ehTecnico = ehUsuarioTecnicoOuFake(item);
+    const bateTipo = filtroTipoUsuarioAdmin === 'TODOS'
+      || (filtroTipoUsuarioAdmin === 'REAIS' && !ehTecnico)
+      || (filtroTipoUsuarioAdmin === 'TECNICOS' && ehTecnico)
+      || (filtroTipoUsuarioAdmin === 'GESTORES' && ['GESTOR_UNIDADE', 'GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'].includes(perfilItem))
+      || (filtroTipoUsuarioAdmin === 'ANALISTAS' && ['ANALISTA_SOC', 'ANALISTA_SUPORTE', 'LEITURA'].includes(perfilItem));
+    return bateBusca && bateEquipe && batePerfil && bateTipo;
+  });
+  const gestoresSimulaveis = [...gestoresParaSimulacao(todosUsuariosAdmin)]
+    .sort((a, b) => a.nome.localeCompare(b.nome));
+  const gestorSelecionadoParaSimular = gestoresSimulaveis.find((item) => item.login === gestorParaSimular) ?? null;
 
   const documentos = useMemo(
     () => resultado?.documentos ?? [],
@@ -1481,6 +2047,8 @@ export function DashboardApp() {
       turnoPadrao: 'M',
       ativo: true,
       aliasesPlanilha: [],
+      unidadesPermitidas: [],
+      equipesPermitidas: [],
     });
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
@@ -1497,6 +2065,11 @@ export function DashboardApp() {
       turnoPadrao: item.turnoPadrao,
       ativo: item.ativo,
       aliasesPlanilha: item.aliasesPlanilha ?? [],
+      perfil: item.perfil,
+      escopo: item.escopo,
+      unidadeId: item.unidadeId,
+      unidadesPermitidas: item.unidadesPermitidas ?? [],
+      equipesPermitidas: item.equipesPermitidas ?? [],
     });
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
@@ -1529,6 +2102,25 @@ export function DashboardApp() {
     });
   }
 
+  /**
+   * Alterna um ID dentro de `unidadesPermitidas`/`equipesPermitidas` do
+   * formulário — usado pelos checkboxes da seção administrativa (visível só
+   * para `souAdmin`, ver JSX do modal).
+   */
+  function alternarNaListaFormularioUsuario(
+    campo: 'unidadesPermitidas' | 'equipesPermitidas',
+    id: string,
+  ) {
+    if (formularioUsuario === null) {
+      return;
+    }
+    const atual = formularioUsuario[campo];
+    setFormularioUsuario({
+      ...formularioUsuario,
+      [campo]: atual.includes(id) ? atual.filter((item) => item !== id) : [...atual, id],
+    });
+  }
+
   async function salvarFormularioUsuario() {
     if (formularioUsuario === null || usuarioEfetivo === null) {
       return;
@@ -1537,6 +2129,23 @@ export function DashboardApp() {
       setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
       return;
     }
+
+    /**
+     * Campos administrativos (perfil/escopo/unidadeId/unidadesPermitidas/
+     * equipesPermitidas) só entram no payload quando `souAdmin` — as rules
+     * exigem que um gestor comum NUNCA envie esses campos (nem para
+     * "reafirmar" o valor atual), então omiti-los aqui é obrigatório, não
+     * só desabilitar os inputs no formulário.
+     */
+    const camposAdministrativos: Partial<Usuario> = souAdmin
+      ? {
+        perfil: formularioUsuario.perfil,
+        escopo: formularioUsuario.escopo,
+        unidadeId: formularioUsuario.unidadeId,
+        unidadesPermitidas: formularioUsuario.unidadesPermitidas,
+        equipesPermitidas: formularioUsuario.equipesPermitidas,
+      }
+      : {};
 
     let candidato: Usuario;
     if (formularioUsuario.loginOriginal === null) {
@@ -1553,6 +2162,7 @@ export function DashboardApp() {
         nivelHierarquico: formularioUsuario.nivelHierarquico,
         turnoPadrao: formularioUsuario.turnoPadrao,
         aliasesPlanilha: formularioUsuario.aliasesPlanilha,
+        ...camposAdministrativos,
       };
     } else {
       const original = usuarios.find((item) => item.login === formularioUsuario.loginOriginal);
@@ -1568,6 +2178,7 @@ export function DashboardApp() {
         turnoPadrao: formularioUsuario.turnoPadrao,
         ativo: formularioUsuario.ativo,
         aliasesPlanilha: formularioUsuario.aliasesPlanilha,
+        ...camposAdministrativos,
         atualizadoEm: new Date().toISOString(),
       };
     }
@@ -1708,21 +2319,25 @@ export function DashboardApp() {
 
   // --- Administração (ADMIN_SISTEMA) ---
 
-  async function salvarFormEquipe() {
-    if (formEquipe.id.trim() === '' || formEquipe.nome.trim() === '') {
-      setErroAdmin('Informe ao menos o ID e o nome da equipe.');
-      return;
-    }
+  function abrirNovaEquipe() {
+    setModalEquipe({ modo: 'criar', inicial: { id: '', nome: '', sigla: '', ativa: true } });
+  }
+
+  function abrirEdicaoEquipe(equipe: Equipe) {
+    setModalEquipe({ modo: 'editar', inicial: equipe });
+  }
+
+  async function salvarEquipeDoModal(equipe: Equipe) {
     try {
       if (!modoDemo) {
-        await salvarEquipe(formEquipe);
+        await salvarEquipe(equipe);
       }
-      setEquipesAdmin((atuais) => (atuais.some((item) => item.id === formEquipe.id)
-        ? atuais.map((item) => (item.id === formEquipe.id ? formEquipe : item))
-        : [...atuais, formEquipe]));
-      setFormEquipe({ id: '', nome: '', sigla: '', ativa: true });
+      setEquipesAdmin((atuais) => (atuais.some((item) => item.id === equipe.id)
+        ? atuais.map((item) => (item.id === equipe.id ? equipe : item))
+        : [...atuais, equipe]));
+      setModalEquipe(null);
     } catch (falha) {
-      setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível salvar a equipe.', ambienteFirebaseAtual));
+      throw new Error(mensagemErroFirebase(falha, 'Não foi possível salvar a equipe.', ambienteFirebaseAtual));
     }
   }
 
@@ -1744,6 +2359,40 @@ export function DashboardApp() {
     }
   }
 
+  function abrirNovaUnidade() {
+    setModalUnidade({
+      modo: 'criar',
+      inicial: {
+        unidadeId: '',
+        nome: '',
+        sigla: '',
+        tipo: 'SETOR',
+        parentId: null,
+        caminho: [],
+        ativa: true,
+        criadoPorLogin: usuarioReal?.login ?? '',
+      },
+    });
+  }
+
+  function abrirEdicaoUnidade(unidade: UnidadeOrganizacional) {
+    setModalUnidade({ modo: 'editar', inicial: unidade });
+  }
+
+  async function salvarUnidadeDoModal(unidade: UnidadeOrganizacional) {
+    try {
+      if (!modoDemo) {
+        await salvarUnidadeOrganizacional(unidade);
+      }
+      setUnidadesAdmin((atuais) => (atuais.some((item) => item.unidadeId === unidade.unidadeId)
+        ? atuais.map((item) => (item.unidadeId === unidade.unidadeId ? unidade : item))
+        : [...atuais, unidade]));
+      setModalUnidade(null);
+    } catch (falha) {
+      throw new Error(mensagemErroFirebase(falha, 'Não foi possível salvar a unidade organizacional.', ambienteFirebaseAtual));
+    }
+  }
+
   function iniciarSimulacaoSelecionada() {
     const gestor = todosUsuariosAdmin.find((item) => item.login === gestorParaSimular);
     if (gestor === undefined) {
@@ -1757,15 +2406,20 @@ export function DashboardApp() {
     if (usuarioParaExcluir === null) {
       return;
     }
+    // Snapshot local — o toast e a atualização da lista usam este valor, não
+    // `usuarioParaExcluir` direto, para nunca depender de como o estado do
+    // componente evoluiu durante o `await` (o modal já fecha, mas nada
+    // impede outro re-render de trocar a seleção antes da resposta chegar).
+    const candidato = usuarioParaExcluir;
     setProcessandoExclusaoUsuario(true);
     try {
       if (!modoDemo) {
-        await excluirUsuario(usuarioParaExcluir, opcoes);
+        await excluirUsuario(candidato, opcoes);
       }
       if (opcoes.cadastro) {
-        setTodosUsuariosAdmin((atuais) => atuais.filter((item) => item.login !== usuarioParaExcluir.login));
+        setTodosUsuariosAdmin((atuais) => atuais.filter((item) => item.login !== candidato.login));
       }
-      setMensagem(`Dados de ${usuarioParaExcluir.nome} excluídos conforme selecionado.`);
+      setMensagem(`Dados de ${candidato.nome} excluídos conforme selecionado.`);
       setUsuarioParaExcluir(null);
     } catch (falha) {
       setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível excluir os dados selecionados.', ambienteFirebaseAtual));
@@ -1863,16 +2517,22 @@ export function DashboardApp() {
   }
 
   useEffect(() => {
-    if (tela !== 'administracao' || !souAdmin || modoDemo) {
+    if (tela !== 'administracao' || !podeAcessarAdministracao || modoDemo) {
       return undefined;
     }
     let cancelado = false;
-    void Promise.all([listarTodosUsuarios(), listarEquipes(), listarSetores()])
-      .then(([todos, equipes, setores]) => {
+    // `listarTodosUsuarios()` só é útil (e só retorna tudo, pelas rules) para
+    // ADMIN_SISTEMA — GESTOR_UNIDADE não usa o painel "Usuários"/"Simular
+    // gestor" (ambos presos a `souAdmin` na renderização), então nem
+    // dispara essa leitura.
+    const carregarUsuarios = souAdmin ? listarTodosUsuarios() : Promise.resolve<Usuario[]>([]);
+    void Promise.all([carregarUsuarios, listarEquipes(), listarSetores(), listarUnidadesOrganizacionais()])
+      .then(([todos, equipes, setores, unidades]) => {
         if (!cancelado) {
           setTodosUsuariosAdmin(todos);
           setEquipesAdmin(equipes);
           setSetoresAdmin(setores);
+          setUnidadesAdmin(unidades);
         }
       })
       .catch((falha: unknown) => {
@@ -1883,7 +2543,7 @@ export function DashboardApp() {
     return () => {
       cancelado = true;
     };
-  }, [tela, souAdmin, modoDemo]);
+  }, [tela, podeAcessarAdministracao, souAdmin, modoDemo]);
 
   async function encerrarSessao() {
     await sair();
@@ -2709,94 +3369,172 @@ export function DashboardApp() {
         </section>
       )}
 
-      {tela === 'administracao' && souAdmin && (
+      {tela === 'administracao' && podeAcessarAdministracao && (
         <section>
           <header className="page-heading">
-            <div><p className="eyebrow">Área restrita</p><h1>Administração</h1><p>Visível só para ADMIN_SISTEMA — escopo global do staging.</p></div>
+            <div>
+              <p className="eyebrow">Área restrita conforme perfil e escopo do usuário</p>
+              <h1>Administração</h1>
+              {souAdmin && <p>Você está como <strong>ADMIN_SISTEMA</strong> — acesso global ao staging.</p>}
+              {!souAdmin && souGestorUnidade && (
+                <p>Você está como <strong>GESTOR_UNIDADE</strong> — acesso restrito às unidades e equipes permitidas.</p>
+              )}
+            </div>
           </header>
           {erroAdmin && <div className="alert error" role="alert">{erroAdmin}</div>}
 
+          <article className="panel">
+            <div className="panel-title"><div><h2>Resumo organizacional</h2><p>Contagens gerais — atualiza ao entrar nesta tela.</p></div></div>
+            <div className="metric-grid">
+              <article><span>Unidades</span><strong>{resumoOrganizacional.totalUnidades}</strong></article>
+              <article><span>Equipes</span><strong>{resumoOrganizacional.totalEquipes}</strong></article>
+              {souAdmin && (
+                <>
+                  <article><span>Usuários ativos</span><strong>{resumoOrganizacional.usuariosAtivos}</strong></article>
+                  <article><span>Usuários técnicos/fake</span><strong>{resumoOrganizacional.usuariosTecnicosOuFake}</strong></article>
+                  <article><span>Gestores</span><strong>{resumoOrganizacional.totalGestores}</strong></article>
+                </>
+              )}
+              <article><span>Equipes sem unidade</span><strong>{resumoOrganizacional.equipesSemUnidade}</strong></article>
+            </div>
+          </article>
+
           <article className="panel grid-panel">
-            <div className="panel-title"><div><h2>Equipes</h2><p>Cadastro simples — criar e editar, sem exclusão.</p></div></div>
+            <div className="panel-title">
+              <div>
+                <h2>Unidades organizacionais</h2>
+                <p>Hierarquia flexível (diretoria, gerência, coordenação, supervisão...) acima das equipes — criar e editar, sem exclusão.</p>
+              </div>
+              <button className="primary-button" type="button" onClick={abrirNovaUnidade}>
+                <Plus size={16} /> Nova unidade
+              </button>
+            </div>
+            <ArvoreUnidadesOrganizacionais
+              nos={arvoreUnidadesAdmin}
+              podeEditar={(unidadeId) => souAdmin || minhasUnidadesPermitidas.includes(unidadeId)}
+              aoEditar={abrirEdicaoUnidade}
+            />
             <div className="table-scroll">
               <table className="data-table">
-                <thead><tr><th>ID</th><th>Nome</th><th>Sigla</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>ID</th><th>Nome</th><th>Tipo</th><th>Caminho</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  {unidadesAdmin.map((item) => (
+                    <tr key={item.unidadeId}>
+                      <td><code className="login-code">{item.unidadeId}</code></td>
+                      <td>{item.nome}</td>
+                      <td>{item.tipo}</td>
+                      <td title={caminhoLegivel(item.caminho, unidadesAdmin)}>{caminhoCurto(item.caminho, unidadesAdmin, 2)}</td>
+                      <td><span className={`status-badge ${item.ativa ? 'success' : 'neutral'}`}>{item.ativa ? 'Ativa' : 'Inativa'}</span></td>
+                      <td>
+                        {(souAdmin || minhasUnidadesPermitidas.includes(item.unidadeId)) && (
+                          <button
+                            className="icon-button"
+                            type="button"
+                            title="Editar"
+                            aria-label={`Editar unidade ${item.nome}`}
+                            onClick={() => abrirEdicaoUnidade(item)}
+                          >
+                            <Pencil size={15} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article className="panel grid-panel">
+            <div className="panel-title">
+              <div>
+                <h2>Equipes</h2>
+                <p>Equipe é o grupo que recebe escala — a escala continua vinculada ao <code>equipeId</code>. Criar e editar, sem exclusão.</p>
+              </div>
+              <button className="primary-button" type="button" onClick={abrirNovaEquipe}>
+                <Plus size={16} /> Nova equipe
+              </button>
+            </div>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead><tr><th>ID</th><th>Nome</th><th>Sigla</th><th>Unidade</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                   {equipesAdmin.map((item) => (
                     <tr key={item.id}>
                       <td><code className="login-code">{item.id}</code></td>
                       <td>{item.nome}</td>
                       <td>{item.sigla}</td>
+                      <td title={item.caminhoUnidade ? caminhoLegivel(item.caminhoUnidade, unidadesAdmin) : undefined}>
+                        {item.caminhoUnidade ? caminhoCurto(item.caminhoUnidade, unidadesAdmin, 2) : '—'}
+                      </td>
                       <td><span className={`status-badge ${item.ativa ? 'success' : 'neutral'}`}>{item.ativa ? 'Ativa' : 'Inativa'}</span></td>
                       <td>
-                        <button className="icon-button" type="button" title="Editar" onClick={() => setFormEquipe(item)}>
-                          <Pencil size={15} />
-                        </button>
+                        {(souAdmin || (item.unidadeId !== undefined && minhasUnidadesPermitidas.includes(item.unidadeId))) && (
+                          <button
+                            className="icon-button"
+                            type="button"
+                            title="Editar"
+                            aria-label={`Editar equipe ${item.nome}`}
+                            onClick={() => abrirEdicaoEquipe(item)}
+                          >
+                            <Pencil size={15} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <div className="toolbar">
-              <input placeholder="ID (ex.: EQ_SOC)" value={formEquipe.id} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, id: evento.target.value }))} />
-              <input placeholder="Nome" value={formEquipe.nome} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, nome: evento.target.value }))} />
-              <input placeholder="Sigla" value={formEquipe.sigla} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, sigla: evento.target.value }))} />
-              <label><input type="checkbox" checked={formEquipe.ativa} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, ativa: evento.target.checked }))} /> Ativa</label>
-              <button className="primary-button" type="button" onClick={() => void salvarFormEquipe()}>Salvar equipe</button>
-            </div>
           </article>
 
+          {souAdmin && (
           <article className="panel grid-panel">
-            <div className="panel-title"><div><h2>Setores</h2><p>Cadastro simples — criar e editar, sem exclusão.</p></div></div>
-            <div className="table-scroll">
-              <table className="data-table">
-                <thead><tr><th>ID</th><th>Nome</th><th>Sigla</th><th>Status</th><th></th></tr></thead>
-                <tbody>
-                  {setoresAdmin.map((item) => (
-                    <tr key={item.id}>
-                      <td><code className="login-code">{item.id}</code></td>
-                      <td>{item.nome}</td>
-                      <td>{item.sigla}</td>
-                      <td><span className={`status-badge ${item.ativo ? 'success' : 'neutral'}`}>{item.ativo ? 'Ativo' : 'Inativo'}</span></td>
-                      <td>
-                        <button className="icon-button" type="button" title="Editar" onClick={() => setFormSetor(item)}>
-                          <Pencil size={15} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <div className="panel-title"><div><h2>Usuários</h2><p>Busca, filtros e exclusão seletiva de cadastros fake/teste, com confirmação forte.</p></div></div>
             <div className="toolbar">
-              <input placeholder="ID (ex.: SET_SOC)" value={formSetor.id} onChange={(evento) => setFormSetor((atual) => ({ ...atual, id: evento.target.value }))} />
-              <input placeholder="Nome" value={formSetor.nome} onChange={(evento) => setFormSetor((atual) => ({ ...atual, nome: evento.target.value }))} />
-              <input placeholder="Sigla" value={formSetor.sigla} onChange={(evento) => setFormSetor((atual) => ({ ...atual, sigla: evento.target.value }))} />
-              <label><input type="checkbox" checked={formSetor.ativo} onChange={(evento) => setFormSetor((atual) => ({ ...atual, ativo: evento.target.checked }))} /> Ativo</label>
-              <button className="primary-button" type="button" onClick={() => void salvarFormSetor()}>Salvar setor</button>
+              <label className="search-control"><Search size={16} /><input value={buscaUsuarioAdmin} onChange={(evento) => setBuscaUsuarioAdmin(evento.target.value)} placeholder="Buscar nome, login ou e-mail" /></label>
+              <select value={filtroEquipeUsuarioAdmin} onChange={(evento) => setFiltroEquipeUsuarioAdmin(evento.target.value)}>
+                <option value="">Todas as equipes</option>
+                {equipesAdmin.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}
+              </select>
+              <select value={filtroPerfilUsuarioAdmin} onChange={(evento) => setFiltroPerfilUsuarioAdmin(evento.target.value)}>
+                <option value="">Todos os perfis</option>
+                {PERFIS_ADMINISTRAVEIS.map((perfil) => <option key={perfil} value={perfil}>{perfil}</option>)}
+              </select>
+              <select value={filtroTipoUsuarioAdmin} onChange={(evento) => setFiltroTipoUsuarioAdmin(evento.target.value as typeof filtroTipoUsuarioAdmin)}>
+                <option value="TODOS">Todos</option>
+                <option value="REAIS">Reais</option>
+                <option value="TECNICOS">Técnicos/fake</option>
+                <option value="GESTORES">Gestores</option>
+                <option value="ANALISTAS">Analistas</option>
+              </select>
+              <span><Users size={16} /> {usuariosAdminFiltrados.length} de {todosUsuariosAdmin.length}</span>
             </div>
-          </article>
-
-          <article className="panel grid-panel">
-            <div className="panel-title"><div><h2>Usuários</h2><p>Exclusão seletiva de cadastros fake/teste, com confirmação forte.</p></div></div>
             <div className="table-scroll">
               <table className="data-table">
-                <thead><tr><th>Colaborador</th><th>Login</th><th>Perfil</th><th>Equipe</th><th>Ações</th></tr></thead>
+                <thead><tr><th>Colaborador</th><th>Login</th><th>Perfil</th><th>Equipe</th><th>Tipo</th><th>Ações</th></tr></thead>
                 <tbody>
-                  {todosUsuariosAdmin.map((item) => {
+                  {usuariosAdminFiltrados.map((item) => {
                     const autoExclusao = !podeExcluirUsuario(item, usuarioReal);
+                    const tecnico = ehUsuarioTecnicoOuFake(item);
                     return (
                       <tr key={item.login}>
-                        <td><strong>{item.nome}</strong></td>
+                        <td>
+                          <strong>{tecnico ? (item.nome || '(sem nome humano)') : item.nome}</strong>
+                          {tecnico && <small>cadastro técnico/gerado, não um colaborador identificado</small>}
+                        </td>
                         <td><code className="login-code">{item.login}</code></td>
                         <td>{perfilEfetivo(item)}</td>
                         <td>{item.equipeId}</td>
+                        <td>
+                          <span className={`status-badge ${tecnico ? 'warning' : 'success'}`}>{tecnico ? 'Técnico/fake' : 'Real'}</span>
+                        </td>
                         <td>
                           <button
                             className="icon-button"
                             type="button"
                             title={autoExclusao ? 'Não é possível excluir a própria conta logada' : 'Excluir dados'}
+                            aria-label={autoExclusao ? 'Não é possível excluir a própria conta logada' : `Excluir dados de ${item.nome}`}
                             disabled={autoExclusao}
                             onClick={() => setUsuarioParaExcluir(item)}
                           >
@@ -2806,58 +3544,170 @@ export function DashboardApp() {
                       </tr>
                     );
                   })}
+                  {usuariosAdminFiltrados.length === 0 && (
+                    <tr><td colSpan={6}><div className="empty-state">Nenhum usuário bate com esses filtros.</div></td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
           </article>
+          )}
 
+          {souAdmin && (
           <article className="panel grid-panel">
             <div className="panel-title"><div><h2>Simular gestor</h2><p>Testar o Dashboard como se fosse aquele gestor, sem trocar de login.</p></div></div>
             <div className="toolbar">
-              <select value={gestorParaSimular} onChange={(evento) => setGestorParaSimular(evento.target.value)}>
-                <option value="">Selecione um gestor</option>
-                {todosUsuariosAdmin
-                  .filter((item) => perfilEfetivo(item) === 'GESTOR_EQUIPE')
-                  .map((item) => (
-                    <option key={item.login} value={item.login}>{item.nome} — {item.equipeId}</option>
+              <label htmlFor="select-gestor-simular" className="search-control">
+                <Users size={16} />
+                <select
+                  id="select-gestor-simular"
+                  value={gestorParaSimular}
+                  onChange={(evento) => setGestorParaSimular(evento.target.value)}
+                >
+                  <option value="">Selecione um gestor</option>
+                  {gestoresSimulaveis.map((item) => (
+                    <option key={item.login} value={item.login}>{rotuloGestorParaSimulacao(item)}</option>
                   ))}
-              </select>
-              <button className="primary-button" type="button" onClick={iniciarSimulacaoSelecionada}>Simular</button>
-            </div>
-          </article>
-
-          <article className="panel grid-panel">
-            <div className="panel-title"><div><h2>Limpeza / Histórico</h2><p>Exportar antes de excluir escalas antigas.</p></div></div>
-            <div className="toolbar">
-              <select value={equipeExportar} onChange={(evento) => setEquipeExportar(evento.target.value)}>
-                <option value="">Selecione uma equipe</option>
-                {equipesAdmin.map((item) => (
-                  <option key={item.id} value={item.id}>{item.nome}</option>
-                ))}
-              </select>
-              <input
-                placeholder="Competência (AAAA-MM)"
-                value={competenciaExportar}
-                onChange={(evento) => setCompetenciaExportar(evento.target.value)}
-              />
-            </div>
-            <div className="rollback-actions">
-              <button className="secondary-button" type="button" onClick={() => void exportarEscalaXlsx()}>Exportar XLSX</button>
-              <button className="secondary-button" type="button" onClick={() => void imprimirEscala()}>Imprimir · Salvar PDF</button>
-            </div>
-            {!podeExcluirCompetencia(competenciaExportar, COMPETENCIA_ATUAL) ? (
-              <p className="alert-detail-meta">A competência atual ({COMPETENCIA_ATUAL}) não pode ser excluída por aqui.</p>
-            ) : (
-              <button
-                className="secondary-button danger-button"
-                type="button"
-                onClick={() => setExcluirEscalaPendente(true)}
-              >
-                <Trash2 size={15} /> Excluir escala desta equipe/competência
+                </select>
+              </label>
+              <button className="primary-button" type="button" disabled={gestorSelecionadoParaSimular === null} onClick={iniciarSimulacaoSelecionada}>
+                Simular
               </button>
+            </div>
+            {gestorSelecionadoParaSimular && (
+              <p className="admin-form-preview">
+                Simulando: <strong>{rotuloGestorParaSimulacao(gestorSelecionadoParaSimular)}</strong>
+              </p>
             )}
           </article>
+          )}
+
+          {souAdmin && (
+          <article className="panel grid-panel">
+            <div className="panel-title"><div><h2>Limpeza / Histórico</h2><p>Exportar antes de excluir escalas antigas.</p></div></div>
+            <div className="admin-form-grid">
+              <label htmlFor="limpeza-equipe">
+                Equipe
+                <select id="limpeza-equipe" value={equipeExportar} onChange={(evento) => setEquipeExportar(evento.target.value)}>
+                  <option value="">Selecione uma equipe</option>
+                  {equipesAdmin.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.nome}{item.caminhoUnidade && item.caminhoUnidade.length > 0 ? ` — ${trechoFinalCaminho(item.caminhoUnidade, unidadesAdmin, 2)}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label htmlFor="limpeza-competencia">
+                Competência
+                <input
+                  id="limpeza-competencia"
+                  placeholder="AAAA-MM"
+                  value={competenciaExportar}
+                  onChange={(evento) => setCompetenciaExportar(evento.target.value)}
+                />
+              </label>
+              <div className="admin-form-full rollback-actions">
+                <button className="secondary-button" type="button" onClick={() => void exportarEscalaXlsx()}>Exportar XLSX</button>
+                <button className="secondary-button" type="button" onClick={() => void imprimirEscala()}>Imprimir · Salvar PDF</button>
+              </div>
+              {!podeExcluirCompetencia(competenciaExportar, COMPETENCIA_ATUAL) ? (
+                <p className="admin-form-preview admin-form-full">
+                  A competência atual (<strong>{COMPETENCIA_ATUAL}</strong>) não pode ser excluída por aqui.
+                </p>
+              ) : (
+                <button
+                  className="secondary-button danger-button admin-form-full"
+                  type="button"
+                  onClick={() => setExcluirEscalaPendente(true)}
+                >
+                  <Trash2 size={15} /> Excluir escala desta equipe/competência
+                </button>
+              )}
+            </div>
+          </article>
+          )}
+
+          {souAdmin && (
+          <details className="legacy-panel">
+            <summary>
+              <div>
+                <h2>Setores (legado)</h2>
+                <p>Cadastro antigo, mantido só por compatibilidade — novos cadastros usam Unidades organizacionais.</p>
+              </div>
+            </summary>
+            <div className="legacy-panel-body">
+              <p className="legacy-panel-warning">
+                Cadastro antigo mantido apenas por compatibilidade. Novos cadastros devem usar Unidades organizacionais.
+              </p>
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead><tr><th>ID</th><th>Nome</th><th>Sigla</th><th>Status</th><th></th></tr></thead>
+                  <tbody>
+                    {setoresAdmin.map((item) => (
+                      <tr key={item.id}>
+                        <td><code className="login-code">{item.id}</code></td>
+                        <td>{item.nome}</td>
+                        <td>{item.sigla}</td>
+                        <td><span className={`status-badge ${item.ativo ? 'success' : 'neutral'}`}>{item.ativo ? 'Ativo' : 'Inativo'}</span></td>
+                        <td>
+                          <button
+                            className="icon-button"
+                            type="button"
+                            title="Editar"
+                            aria-label={`Editar setor ${item.nome}`}
+                            onClick={() => setFormSetor(item)}
+                          >
+                            <Pencil size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="legacy-panel-form toolbar">
+                <input aria-label="ID do setor" placeholder="ID (ex.: SET_SOC)" value={formSetor.id} onChange={(evento) => setFormSetor((atual) => ({ ...atual, id: evento.target.value }))} />
+                <input aria-label="Nome do setor" placeholder="Nome" value={formSetor.nome} onChange={(evento) => setFormSetor((atual) => ({ ...atual, nome: evento.target.value }))} />
+                <input aria-label="Sigla do setor" placeholder="Sigla" value={formSetor.sigla} onChange={(evento) => setFormSetor((atual) => ({ ...atual, sigla: evento.target.value }))} />
+                <label className="checkbox-row" htmlFor="setor-legado-ativo">
+                  <input
+                    id="setor-legado-ativo"
+                    type="checkbox"
+                    checked={formSetor.ativo}
+                    onChange={(evento) => setFormSetor((atual) => ({ ...atual, ativo: evento.target.checked }))}
+                  />
+                  <span>Ativo</span>
+                </label>
+                <button className="secondary-button compact-button" type="button" onClick={() => void salvarFormSetor()}>Salvar setor</button>
+              </div>
+            </div>
+          </details>
+          )}
         </section>
+      )}
+
+      {modalUnidade && (
+        <ModalUnidadeOrganizacional
+          modo={modalUnidade.modo}
+          inicial={modalUnidade.inicial}
+          unidadesExistentes={unidadesAdmin}
+          unidadesPermitidas={souAdmin ? null : minhasUnidadesPermitidas}
+          loginAtual={usuarioReal?.login ?? ''}
+          onFechar={() => setModalUnidade(null)}
+          onSalvar={salvarUnidadeDoModal}
+        />
+      )}
+
+      {modalEquipe && (
+        <ModalEquipe
+          modo={modalEquipe.modo}
+          inicial={modalEquipe.inicial}
+          equipesExistentes={equipesAdmin}
+          unidadesExistentes={unidadesAdmin}
+          unidadesPermitidas={souAdmin ? null : minhasUnidadesPermitidas}
+          onFechar={() => setModalEquipe(null)}
+          onSalvar={salvarEquipeDoModal}
+        />
       )}
 
       {usuarioParaExcluir && usuarioReal && (
@@ -3297,6 +4147,90 @@ export function DashboardApp() {
                   </div>
                 </div>
               </label>
+              {souAdmin && (
+                <fieldset className="user-form-full admin-only-fields">
+                  <legend>Administração (perfil/escopo/organização)</legend>
+                  <label>
+                    Perfil
+                    <select
+                      value={formularioUsuario.perfil ?? ''}
+                      onChange={(evento) => setFormularioUsuario({
+                        ...formularioUsuario,
+                        perfil: (evento.target.value || undefined) as FormularioUsuario['perfil'],
+                      })}
+                    >
+                      <option value="">(padrão pelo nível hierárquico)</option>
+                      {PERFIS_ADMINISTRAVEIS.map((perfil) => (
+                        <option key={perfil} value={perfil}>{perfil}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Escopo
+                    <select
+                      value={formularioUsuario.escopo ?? ''}
+                      onChange={(evento) => setFormularioUsuario({
+                        ...formularioUsuario,
+                        escopo: (evento.target.value || undefined) as FormularioUsuario['escopo'],
+                      })}
+                    >
+                      <option value="">(padrão EQUIPE)</option>
+                      <option value="GLOBAL">GLOBAL</option>
+                      <option value="EQUIPE">EQUIPE</option>
+                      <option value="UNIDADE">UNIDADE</option>
+                    </select>
+                  </label>
+                  <label>
+                    Unidade organizacional
+                    <select
+                      value={formularioUsuario.unidadeId ?? ''}
+                      onChange={(evento) => setFormularioUsuario({
+                        ...formularioUsuario,
+                        unidadeId: evento.target.value || undefined,
+                      })}
+                    >
+                      <option value="">(nenhuma)</option>
+                      {unidadesEmArvoreParaSelect.map((no) => (
+                        <option key={no.unidade.unidadeId} value={no.unidade.unidadeId}>
+                          {'  '.repeat(no.profundidade)}{rotuloOpcaoUnidade(no.unidade, unidadesAdmin)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <fieldset className="user-form-full">
+                    <legend>Unidades permitidas (GESTOR_UNIDADE)</legend>
+                    {unidadesAdmin.length === 0 && (
+                      <small className="empty-inline">Abra a tela Administração nesta sessão para carregar a lista de unidades.</small>
+                    )}
+                    {unidadesAdmin.map((unidade) => (
+                      <label key={unidade.unidadeId} className="checkbox-inline">
+                        <input
+                          type="checkbox"
+                          checked={formularioUsuario.unidadesPermitidas.includes(unidade.unidadeId)}
+                          onChange={() => alternarNaListaFormularioUsuario('unidadesPermitidas', unidade.unidadeId)}
+                        />
+                        {unidade.nome}
+                      </label>
+                    ))}
+                  </fieldset>
+                  <fieldset className="user-form-full">
+                    <legend>Equipes permitidas</legend>
+                    {equipesAdmin.length === 0 && (
+                      <small className="empty-inline">Abra a tela Administração nesta sessão para carregar a lista de equipes.</small>
+                    )}
+                    {equipesAdmin.map((equipe) => (
+                      <label key={equipe.id} className="checkbox-inline">
+                        <input
+                          type="checkbox"
+                          checked={formularioUsuario.equipesPermitidas.includes(equipe.id)}
+                          onChange={() => alternarNaListaFormularioUsuario('equipesPermitidas', equipe.id)}
+                        />
+                        {equipe.nome}
+                      </label>
+                    ))}
+                  </fieldset>
+                </fieldset>
+              )}
             </div>
             {errosFormularioUsuario.length > 0 && (
               <div className="alert error">

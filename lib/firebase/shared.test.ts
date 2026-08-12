@@ -36,4 +36,41 @@ describe('lerUsuario', () => {
     expect(usuario.perfil).toBeUndefined();
     expect(usuario.escopo).toBeUndefined();
   });
+
+  it('aceita os novos perfis/escopo do modelo organizacional flexível', () => {
+    const usuario = lerUsuario('renato.pires', {
+      nome: 'Renato Pires',
+      equipeId: 'EQ_SOC',
+      nivelHierarquico: 3,
+      perfil: 'GESTOR_UNIDADE',
+      escopo: 'UNIDADE',
+    });
+    expect(usuario.perfil).toBe('GESTOR_UNIDADE');
+    expect(usuario.escopo).toBe('UNIDADE');
+  });
+
+  it('lê unidadeId/unidadesPermitidas/equipesPermitidas quando presentes', () => {
+    const usuario = lerUsuario('renato.pires', {
+      nome: 'Renato Pires',
+      equipeId: 'EQ_SOC',
+      nivelHierarquico: 3,
+      unidadeId: 'GEDSI',
+      unidadesPermitidas: ['GEDSI', 'COSI'],
+      equipesPermitidas: ['EQ_SOC', 'EQ_NOC'],
+    });
+    expect(usuario.unidadeId).toBe('GEDSI');
+    expect(usuario.unidadesPermitidas).toEqual(['GEDSI', 'COSI']);
+    expect(usuario.equipesPermitidas).toEqual(['EQ_SOC', 'EQ_NOC']);
+  });
+
+  it('devolve undefined para unidadeId/unidadesPermitidas/equipesPermitidas ausentes (compat com usuário antigo)', () => {
+    const usuario = lerUsuario('marina.azevedo', {
+      nome: 'Marina Azevedo',
+      equipeId: 'EQ_SOC',
+      nivelHierarquico: 4,
+    });
+    expect(usuario.unidadeId).toBeUndefined();
+    expect(usuario.unidadesPermitidas).toBeUndefined();
+    expect(usuario.equipesPermitidas).toBeUndefined();
+  });
 });

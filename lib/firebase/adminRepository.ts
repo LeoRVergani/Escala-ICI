@@ -11,7 +11,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 
-import type { Equipe, Setor, Usuario } from '../modelos';
+import type { Equipe, Setor, UnidadeOrganizacional, Usuario } from '../modelos';
 import { fatiarEmLotes } from './batches';
 import { removerUndefined } from './sanitizar';
 import { exigirEscritaAdministrativaHabilitada, exigirFirebase, lerUsuario } from './shared';
@@ -151,4 +151,24 @@ export async function salvarSetor(setor: Setor): Promise<void> {
   exigirEscritaAdministrativaHabilitada();
   const { db } = exigirFirebase();
   await setDoc(doc(db, 'setores', setor.id), removerUndefined(setor), { merge: true });
+}
+
+/**
+ * Hierarquia organizacional flexível — coleção aditiva, não substitui
+ * `listarSetores`/`salvarSetor` (mantidas intactas por compatibilidade).
+ */
+export async function listarUnidadesOrganizacionais(): Promise<UnidadeOrganizacional[]> {
+  const { db } = exigirFirebase();
+  const resultado = await getDocs(collection(db, 'unidadesOrganizacionais'));
+  return resultado.docs.map((snapshot) => snapshot.data() as UnidadeOrganizacional);
+}
+
+export async function salvarUnidadeOrganizacional(unidade: UnidadeOrganizacional): Promise<void> {
+  exigirEscritaAdministrativaHabilitada();
+  const { db } = exigirFirebase();
+  await setDoc(
+    doc(db, 'unidadesOrganizacionais', unidade.unidadeId),
+    removerUndefined({ ...unidade, atualizadoEm: new Date().toISOString() }),
+    { merge: true },
+  );
 }
