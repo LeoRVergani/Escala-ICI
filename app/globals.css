@@ -3534,6 +3534,7 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
 .admin-form-grid .admin-form-full > small { font-weight: 500; color: var(--muted); }
 .user-form-active,
 .admin-form-active {
+  display: flex;
   flex-direction: row;
   align-items: center;
   gap: 8px;
@@ -4034,3 +4035,74 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
 .org-tree-node-info strong { font-size: 12.5px; }
 .org-tree-node-info small { color: var(--muted); font-size: 10.5px; }
 .org-tree-node-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+
+/* ================================================================
+ * Correção UX/UI — edição em modal, formulários e limpeza visual.
+ *
+ * `.admin-modal` é o mesmo padrão de `.user-form-modal` (modal um pouco
+ * mais largo, para caber `.admin-form-grid` em 2 colunas) — reaproveita
+ * `.edit-modal` para largura máxima/rolagem interna (Parte 10).
+ *
+ * `.checkbox-row`/`.checkbox-card`/`.checkbox-inline` (Parte 9) são os três
+ * padrões de checkbox+label deste app: `-row` para um único checkbox solto
+ * (ex. "Ativa"), `-card` para uma lista de opções com título+descrição
+ * (ex. modal de exclusão de usuário), `-inline` para listas compactas
+ * lado a lado (ex. unidades/equipes permitidas no cadastro de usuário).
+ * Nenhum checkbox deve ficar sem label visualmente colado ao lado.
+ * ================================================================ */
+
+.admin-modal { width: min(640px, 100%); }
+
+.checkbox-row {
+  display: flex !important;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.checkbox-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary); flex: 0 0 auto; }
+.checkbox-row span { font-size: 12px; font-weight: 600; color: var(--text); }
+
+fieldset.checkbox-card-list {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+fieldset.checkbox-card-list > legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.checkbox-card {
+  display: flex !important;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.checkbox-card:hover { border-color: var(--border-strong); background: var(--surface-muted); }
+.checkbox-card input[type="checkbox"] { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--primary); flex: 0 0 auto; }
+.checkbox-card > span { display: grid; gap: 2px; font-weight: 400; }
+.checkbox-card strong { font-size: 12.5px; }
+.checkbox-card small { color: var(--muted); font-size: 11px; }
+
+/*
+ * Formulário de "Setores (legado)", dentro do `<details>` já recolhido —
+ * fundo sutilmente diferente do resto do card, pra sinalizar visualmente
+ * que é secundário/legado mesmo quando aberto (Parte 8).
+ */
+.legacy-panel-form {
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}

@@ -222,3 +222,42 @@ export function rotuloGestorParaSimulacao(usuario: Usuario): string {
     : equipesPermitidasEfetivas(usuario);
   return `${usuario.nome} — ${perfil} — ${permitidas.length > 0 ? permitidas.join(', ') : '—'}`;
 }
+
+const PERFIS_SIMULAVEIS: ReadonlySet<PerfilUsuario> = new Set(['GESTOR_UNIDADE', 'GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE']);
+
+/**
+ * Lista de gestores para o select de "Simular gestor" — nunca ADMIN_SISTEMA
+ * (não faz sentido simular quem já tem acesso total) e nunca cadastro
+ * técnico/fake (`ehUsuarioTecnicoOuFake`).
+ *
+ * Deduplicação: a causa real da duplicidade observada ("Marina aparece
+ * duas vezes") é histórica — a migração de `usuarios/{uid}` para
+ * `usuarios/{login}` (ver `scripts/migrate-usuarios-login.mjs`) nunca apaga
+ * o documento antigo, então um mesmo colaborador pode ter dois documentos
+ * com o mesmo `nome`. Agrupamos por nome normalizado e, ao encontrar mais
+ * de um candidato com o mesmo nome, mantemos o que tem "cara" de login
+ * humano (contém `.`, como `nome.sobrenome`) em vez do documento técnico
+ * (ID legado, sem ponto) — o mesmo critério usado em
+ * `ehUsuarioTecnicoOuFake()`.
+ */
+export function gestoresParaSimulacao(usuarios: Usuario[]): Usuario[] {
+  const candidatos = usuarios.filter((usuario) => (
+    PERFIS_SIMULAVEIS.has(perfilEfetivo(usuario)) && !ehUsuarioTecnicoOuFake(usuario)
+  ));
+
+  const porNome = new Map<string, Usuario>();
+  for (const usuario of candidatos) {
+    const chave = usuario.nome.trim().toLowerCase() || usuario.login;
+    const existente = porNome.get(chave);
+    if (existente === undefined) {
+      porNome.set(chave, usuario);
+      continue;
+    }
+    const existenteParecehumano = existente.login.includes('.');
+    const candidatoParecehumano = usuario.login.includes('.');
+    if (candidatoParecehumano && !existenteParecehumano) {
+      porNome.set(chave, usuario);
+    }
+  }
+  return [...porNome.values()];
+}

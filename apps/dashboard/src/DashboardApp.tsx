@@ -118,6 +118,7 @@ import {
   construirArvoreUnidades,
   ehUsuarioTecnicoOuFake,
   formariaCiclo,
+  gestoresParaSimulacao,
   type NoArvoreUnidade,
   rotuloGestorParaSimulacao,
   rotuloOpcaoUnidade,
@@ -549,6 +550,365 @@ function ArvoreUnidadesOrganizacionais({
   );
 }
 
+/** Fecha qualquer modal ao apertar Esc — usado pelos modais novos desta correção de UX. */
+function useTeclaEsc(aoFechar: () => void) {
+  useEffect(() => {
+    function aoTeclar(evento: KeyboardEvent) {
+      if (evento.key === 'Escape') {
+        aoFechar();
+      }
+    }
+    window.addEventListener('keydown', aoTeclar);
+    return () => window.removeEventListener('keydown', aoTeclar);
+  }, [aoFechar]);
+}
+
+/**
+ * Modal de criação/edição de unidade organizacional (Parte 1-2 da correção
+ * de UX) — substitui o formulário fixo no rodapé do card. Validação (ID/
+ * nome/sigla obrigatórios, duplicidade, ciclo, escopo de GESTOR_UNIDADE)
+ * acontece aqui, antes de chamar `onSalvar`; falhas de rede/rules chegam
+ * como `Error` de `onSalvar` e aparecem no mesmo lugar, sem fechar o modal.
+ */
+function ModalUnidadeOrganizacional({
+  modo,
+  inicial,
+  unidadesExistentes,
+  unidadesPermitidas,
+  loginAtual,
+  onFechar,
+  onSalvar,
+}: {
+  modo: 'criar' | 'editar';
+  inicial: UnidadeOrganizacional;
+  unidadesExistentes: UnidadeOrganizacional[];
+  /** `null` = sem restrição de escopo (ADMIN_SISTEMA). */
+  unidadesPermitidas: string[] | null;
+  loginAtual: string;
+  onFechar: () => void;
+  onSalvar: (unidade: UnidadeOrganizacional) => Promise<void>;
+}) {
+  const [form, setForm] = useState(inicial);
+  const [erro, setErro] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  useTeclaEsc(onFechar);
+
+  const opcoesUnidadePai = achatarArvore(construirArvoreUnidades(unidadesExistentes))
+    .filter((no) => no.unidade.unidadeId !== form.unidadeId)
+    .filter((no) => unidadesPermitidas === null || unidadesPermitidas.includes(no.unidade.unidadeId));
+  const unidadePaiSelecionada = unidadesExistentes.find((item) => item.unidadeId === form.parentId);
+
+  async function aoClicarSalvar() {
+    if (form.unidadeId.trim() === '') {
+      setErro('Informe o ID da unidade organizacional.');
+      return;
+    }
+    if (form.nome.trim() === '') {
+      setErro('Informe o nome da unidade organizacional.');
+      return;
+    }
+    if (form.sigla.trim() === '') {
+      setErro('Informe a sigla da unidade organizacional.');
+      return;
+    }
+    if (modo === 'criar' && unidadesExistentes.some((item) => item.unidadeId === form.unidadeId)) {
+      setErro('Já existe uma unidade organizacional com esse ID.');
+      return;
+    }
+    if (formariaCiclo(form.unidadeId, form.parentId, unidadesExistentes)) {
+      setErro('Essa unidade pai criaria um ciclo na hierarquia (uma unidade não pode ser sua própria ancestral).');
+      return;
+    }
+    if (unidadesPermitidas !== null && (form.parentId === null || !unidadesPermitidas.includes(form.parentId))) {
+      setErro('Você só pode usar uma unidade pai sob sua permissão.');
+      return;
+    }
+    const candidato: UnidadeOrganizacional = {
+      ...form,
+      caminho: [...(unidadePaiSelecionada?.caminho ?? []), form.unidadeId],
+      criadoPorLogin: form.criadoPorLogin || loginAtual,
+    };
+    setSalvando(true);
+    try {
+      await onSalvar(candidato);
+    } catch (falha) {
+      setErro(falha instanceof Error ? falha.message : 'Não foi possível salvar a unidade organizacional.');
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal admin-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="unidade-modal-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <h2 id="unidade-modal-title">{modo === 'criar' ? 'Nova unidade organizacional' : 'Editar unidade organizacional'}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="admin-form-grid">
+          <label htmlFor="unidade-modal-id">
+            ID da unidade
+            <input
+              id="unidade-modal-id"
+              autoFocus
+              placeholder="Ex.: COSI"
+              value={form.unidadeId}
+              disabled={modo === 'editar'}
+              onChange={(evento) => setForm((atual) => ({ ...atual, unidadeId: evento.target.value }))}
+            />
+            {modo === 'editar' && <small>O ID não pode ser alterado depois de criado.</small>}
+          </label>
+          <label htmlFor="unidade-modal-nome">
+            Nome
+            <input
+              id="unidade-modal-nome"
+              placeholder="Nome completo"
+              value={form.nome}
+              onChange={(evento) => setForm((atual) => ({ ...atual, nome: evento.target.value }))}
+            />
+          </label>
+          <label htmlFor="unidade-modal-sigla">
+            Sigla
+            <input
+              id="unidade-modal-sigla"
+              placeholder="Ex.: COSI"
+              value={form.sigla}
+              onChange={(evento) => setForm((atual) => ({ ...atual, sigla: evento.target.value }))}
+            />
+          </label>
+          <label htmlFor="unidade-modal-tipo">
+            Tipo
+            <select
+              id="unidade-modal-tipo"
+              value={form.tipo}
+              onChange={(evento) => setForm((atual) => ({ ...atual, tipo: evento.target.value as TipoUnidadeOrganizacional }))}
+            >
+              {TIPOS_UNIDADE_ORGANIZACIONAL.map((tipo) => <option key={tipo} value={tipo}>{tipo}</option>)}
+            </select>
+          </label>
+          <label htmlFor="unidade-modal-pai">
+            Unidade pai
+            <select
+              id="unidade-modal-pai"
+              value={form.parentId ?? ''}
+              onChange={(evento) => setForm((atual) => ({ ...atual, parentId: evento.target.value || null }))}
+            >
+              <option value="">(raiz — sem unidade pai)</option>
+              {opcoesUnidadePai.map((no) => (
+                <option key={no.unidade.unidadeId} value={no.unidade.unidadeId}>
+                  {'  '.repeat(no.profundidade)}{rotuloOpcaoUnidade(no.unidade, unidadesExistentes)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="checkbox-row admin-form-active" htmlFor="unidade-modal-ativa">
+            <input
+              id="unidade-modal-ativa"
+              type="checkbox"
+              checked={form.ativa}
+              onChange={(evento) => setForm((atual) => ({ ...atual, ativa: evento.target.checked }))}
+            />
+            <span>Ativa</span>
+          </label>
+          <p className="admin-form-preview admin-form-full">
+            {form.parentId === null
+              ? 'Esta unidade ficará na raiz.'
+              : (
+                <>
+                  Caminho final: <strong>
+                    {caminhoLegivel(
+                      [...(unidadePaiSelecionada?.caminho ?? []), form.unidadeId || '(novo ID)'],
+                      unidadesExistentes,
+                    )}
+                  </strong>
+                </>
+              )}
+          </p>
+        </div>
+        {erro && <p className="admin-form-erro">{erro}</p>}
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
+          <button className="primary-button" type="button" disabled={salvando} onClick={() => void aoClicarSalvar()}>
+            {salvando ? <LoaderCircle className="spin" size={16} /> : null} Salvar unidade
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Modal de criação/edição de equipe (Parte 1-3 da correção de UX). Unidade
+ * organizacional é obrigatória para equipes novas (spec Parte 3); equipes
+ * antigas sem unidade continuam podendo ser editadas sem uma, mas com
+ * aviso — nunca bloqueadas por isso.
+ */
+function ModalEquipe({
+  modo,
+  inicial,
+  equipesExistentes,
+  unidadesExistentes,
+  unidadesPermitidas,
+  onFechar,
+  onSalvar,
+}: {
+  modo: 'criar' | 'editar';
+  inicial: Equipe;
+  equipesExistentes: Equipe[];
+  unidadesExistentes: UnidadeOrganizacional[];
+  /** `null` = sem restrição de escopo (ADMIN_SISTEMA). */
+  unidadesPermitidas: string[] | null;
+  onFechar: () => void;
+  onSalvar: (equipe: Equipe) => Promise<void>;
+}) {
+  const [form, setForm] = useState(inicial);
+  const [erro, setErro] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  useTeclaEsc(onFechar);
+
+  const opcoesUnidade = achatarArvore(construirArvoreUnidades(unidadesExistentes))
+    .filter((no) => unidadesPermitidas === null || unidadesPermitidas.includes(no.unidade.unidadeId));
+  const unidadeSelecionada = unidadesExistentes.find((item) => item.unidadeId === form.unidadeId);
+
+  async function aoClicarSalvar() {
+    if (form.id.trim() === '') {
+      setErro('Informe o ID da equipe.');
+      return;
+    }
+    if (form.nome.trim() === '') {
+      setErro('Informe o nome da equipe.');
+      return;
+    }
+    if (form.sigla.trim() === '') {
+      setErro('Informe a sigla da equipe.');
+      return;
+    }
+    if (modo === 'criar' && equipesExistentes.some((item) => item.id === form.id)) {
+      setErro('Já existe uma equipe com esse ID.');
+      return;
+    }
+    if (modo === 'criar' && unidadesExistentes.length > 0 && !form.unidadeId) {
+      setErro('Selecione a unidade organizacional desta equipe.');
+      return;
+    }
+    const candidato: Equipe = {
+      ...form,
+      caminhoUnidade: unidadeSelecionada?.caminho,
+    };
+    setSalvando(true);
+    try {
+      await onSalvar(candidato);
+    } catch (falha) {
+      setErro(falha instanceof Error ? falha.message : 'Não foi possível salvar a equipe.');
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal admin-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="equipe-modal-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <h2 id="equipe-modal-title">{modo === 'criar' ? 'Nova equipe' : 'Editar equipe'}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="admin-form-grid">
+          <label htmlFor="equipe-modal-id">
+            ID da equipe
+            <input
+              id="equipe-modal-id"
+              autoFocus
+              placeholder="Ex.: EQ_SOC"
+              value={form.id}
+              disabled={modo === 'editar'}
+              onChange={(evento) => setForm((atual) => ({ ...atual, id: evento.target.value }))}
+            />
+            {modo === 'editar' && <small>O ID não pode ser alterado — é a chave usada pela escala (turnosMes).</small>}
+          </label>
+          <label htmlFor="equipe-modal-nome">
+            Nome
+            <input
+              id="equipe-modal-nome"
+              placeholder="Nome da equipe"
+              value={form.nome}
+              onChange={(evento) => setForm((atual) => ({ ...atual, nome: evento.target.value }))}
+            />
+          </label>
+          <label htmlFor="equipe-modal-sigla">
+            Sigla
+            <input
+              id="equipe-modal-sigla"
+              placeholder="Ex.: SOC"
+              value={form.sigla}
+              onChange={(evento) => setForm((atual) => ({ ...atual, sigla: evento.target.value }))}
+            />
+          </label>
+          <label htmlFor="equipe-modal-unidade">
+            Unidade organizacional
+            <select
+              id="equipe-modal-unidade"
+              value={form.unidadeId ?? ''}
+              onChange={(evento) => setForm((atual) => ({ ...atual, unidadeId: evento.target.value || undefined }))}
+            >
+              <option value="">Sem unidade organizacional</option>
+              {opcoesUnidade.map((no) => (
+                <option key={no.unidade.unidadeId} value={no.unidade.unidadeId}>
+                  {'  '.repeat(no.profundidade)}{rotuloOpcaoUnidade(no.unidade, unidadesExistentes)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="checkbox-row admin-form-active" htmlFor="equipe-modal-ativa">
+            <input
+              id="equipe-modal-ativa"
+              type="checkbox"
+              checked={form.ativa}
+              onChange={(evento) => setForm((atual) => ({ ...atual, ativa: evento.target.checked }))}
+            />
+            <span>Ativa</span>
+          </label>
+          <p className="admin-form-preview admin-form-full">
+            {form.unidadeId
+              ? (
+                <>
+                  Esta equipe ficará em: <strong>{caminhoLegivel(unidadeSelecionada?.caminho ?? [form.unidadeId], unidadesExistentes)}</strong>
+                </>
+              )
+              : 'Sem unidade organizacional vinculada — recomendamos escolher uma, mas equipes antigas podem continuar assim.'}
+          </p>
+        </div>
+        {erro && <p className="admin-form-erro">{erro}</p>}
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
+          <button className="primary-button" type="button" disabled={salvando} onClick={() => void aoClicarSalvar()}>
+            {salvando ? <LoaderCircle className="spin" size={16} /> : null} Salvar equipe
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 /**
  * Confirmação forte genérica para ações destrutivas do admin — digitar uma
  * frase exata (o login de um usuário, ou "EXCLUIR ESCALA"/a competência)
@@ -610,12 +970,28 @@ function ModalConfirmarComTexto({
   );
 }
 
+const OPCOES_EXCLUSAO_USUARIO: Array<{
+  campo: keyof OpcoesExclusaoUsuario;
+  titulo: string;
+  descricao: (login: string) => string;
+}> = [
+  { campo: 'cadastro', titulo: 'Cadastro do usuário', descricao: (login) => `Remove usuarios/${login}` },
+  { campo: 'escalasPublicadas', titulo: 'Escalas publicadas', descricao: () => 'Remove turnosMes vinculados a este usuário' },
+  { campo: 'rascunhos', titulo: 'Rascunhos', descricao: () => 'Remove rascunhosTurnosMes vinculados' },
+  { campo: 'trocas', titulo: 'Trocas vinculadas', descricao: () => 'Remove solicitações de troca relacionadas' },
+  { campo: 'notificacoes', titulo: 'Notificações vinculadas', descricao: () => 'Remove notificações relacionadas' },
+];
+
 /**
  * Exclusão seletiva de usuário: o admin escolhe quais categorias de dados
- * vinculadas ao login apagar (checkboxes, todas desmarcadas por padrão) e
- * confirma digitando o login exato. Se `zeraGestores` for true, uma segunda
- * etapa explícita de confirmação aparece antes do botão ficar disponível —
- * não é só um aviso maior, é um passo a mais de verdade.
+ * vinculadas ao login apagar (cada opção em card próprio, todas desmarcadas
+ * por padrão) e confirma digitando o login exato. Se `zeraGestores` for
+ * true, uma segunda etapa explícita de confirmação aparece antes do botão
+ * ficar disponível — não é só um aviso maior, é um passo a mais de verdade.
+ *
+ * Cadastro técnico/fake (`ehUsuarioTecnicoOuFake`) é sinalizado no
+ * cabeçalho — o identificador (login/docId técnico, ex. `usuario-123` ou
+ * um UID) nunca é tratado como "nome" na tela, sempre em `<code>`.
  */
 function ModalExcluirUsuario({
   candidato,
@@ -639,6 +1015,8 @@ function ModalExcluirUsuario({
   });
   const [confirmacaoZeraGestores, setConfirmacaoZeraGestores] = useState(false);
   const [valorLogin, setValorLogin] = useState('');
+  useTeclaEsc(onFechar);
+  const tecnico = ehUsuarioTecnicoOuFake(candidato);
   const algumaOpcaoMarcada = Object.values(opcoes).some(Boolean);
   const loginConfere = valorLogin.trim() === candidato.login;
   const precisaSegundaEtapa = zeraGestores && opcoes.cadastro;
@@ -661,35 +1039,56 @@ function ModalExcluirUsuario({
       >
         <div className="panel-title">
           <div>
-            <h2 id="excluir-usuario-title">Excluir dados de {candidato.nome}</h2>
-            <p>Login <code>{candidato.login}</code> · equipe {candidato.equipeId}</p>
+            <h2 id="excluir-usuario-title">
+              {tecnico ? 'Excluir cadastro técnico/fake' : `Excluir dados de ${candidato.nome}`}
+            </h2>
+            <p>
+              {tecnico && <span className="status-badge warning">Cadastro técnico/fake</span>}
+              {' '}Login <code>{candidato.login}</code> · equipe {candidato.equipeId}
+            </p>
           </div>
           <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar"><X size={18} /></button>
         </div>
-        <fieldset>
+        <fieldset className="checkbox-card-list">
           <legend>O que apagar</legend>
-          <label><input type="checkbox" checked={opcoes.cadastro} onChange={() => alternar('cadastro')} /> Cadastro (usuarios/{candidato.login})</label>
-          <label><input type="checkbox" checked={opcoes.escalasPublicadas} onChange={() => alternar('escalasPublicadas')} /> Escalas publicadas</label>
-          <label><input type="checkbox" checked={opcoes.rascunhos} onChange={() => alternar('rascunhos')} /> Rascunhos</label>
-          <label><input type="checkbox" checked={opcoes.trocas} onChange={() => alternar('trocas')} /> Trocas vinculadas</label>
-          <label><input type="checkbox" checked={opcoes.notificacoes} onChange={() => alternar('notificacoes')} /> Notificações vinculadas</label>
+          {OPCOES_EXCLUSAO_USUARIO.map(({ campo, titulo, descricao }) => (
+            <label key={campo} className="checkbox-card" htmlFor={`excluir-usuario-${campo}`}>
+              <input
+                id={`excluir-usuario-${campo}`}
+                type="checkbox"
+                checked={opcoes[campo]}
+                onChange={() => alternar(campo)}
+              />
+              <span>
+                <strong>{titulo}</strong>
+                <small>{descricao(candidato.login)}</small>
+              </span>
+            </label>
+          ))}
         </fieldset>
         {precisaSegundaEtapa && (
           <div className="alert warning" role="status">
             <strong>Esta é a última conta com perfil de gestor/admin.</strong> Excluir o cadastro pode deixar a
             equipe sem gestor.
-            <label>
+            <label className="checkbox-row" htmlFor="excluir-usuario-confirma-zera-gestores">
               <input
+                id="excluir-usuario-confirma-zera-gestores"
                 type="checkbox"
                 checked={confirmacaoZeraGestores}
                 onChange={(evento) => setConfirmacaoZeraGestores(evento.target.checked)}
-              /> Entendo e quero excluir mesmo assim
+              />
+              <span>Entendo e quero excluir mesmo assim</span>
             </label>
           </div>
         )}
-        <label>
+        <label htmlFor="excluir-usuario-confirmacao-login">
           Digite <code>{candidato.login}</code> para confirmar
-          <input value={valorLogin} onChange={(evento) => setValorLogin(evento.target.value)} autoFocus />
+          <input
+            id="excluir-usuario-confirmacao-login"
+            value={valorLogin}
+            onChange={(evento) => setValorLogin(evento.target.value)}
+            autoFocus
+          />
         </label>
         <div className="rollback-actions">
           <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
@@ -897,27 +1296,14 @@ export function DashboardApp() {
   const [setoresAdmin, setSetoresAdmin] = useState<Setor[]>([]);
   const [unidadesAdmin, setUnidadesAdmin] = useState<UnidadeOrganizacional[]>([]);
   const [erroAdmin, setErroAdmin] = useState('');
-  const [formEquipe, setFormEquipe] = useState<Equipe>({ id: '', nome: '', sigla: '', ativa: true });
   const [formSetor, setFormSetor] = useState<Setor>({ id: '', nome: '', sigla: '', ativo: true });
-  const [formUnidade, setFormUnidade] = useState<UnidadeOrganizacional>({
-    unidadeId: '',
-    nome: '',
-    sigla: '',
-    tipo: 'SETOR',
-    parentId: null,
-    caminho: [],
-    ativa: true,
-    criadoPorLogin: '',
-  });
   /**
-   * ID original de quem está sendo editado (`null` = cadastro novo) — só
-   * assim dá para distinguir "editando o registro X" de "criando um
-   * registro novo cujo ID por acaso colide com X" (o `id`/`unidadeId` do
-   * formulário muda a cada tecla digitada, então comparar o objeto do
-   * formulário com o item da lista não seria confiável).
+   * `null` = modal fechado. Guarda o modo (criar/editar) e o valor inicial
+   * do formulário — a edição em si vive dentro do modal (`ModalUnidadeOrganizacional`/
+   * `ModalEquipe`), então não precisa de estado espelhado aqui fora.
    */
-  const [idEmEdicaoEquipe, setIdEmEdicaoEquipe] = useState<string | null>(null);
-  const [idEmEdicaoUnidade, setIdEmEdicaoUnidade] = useState<string | null>(null);
+  const [modalUnidade, setModalUnidade] = useState<{ modo: 'criar' | 'editar'; inicial: UnidadeOrganizacional } | null>(null);
+  const [modalEquipe, setModalEquipe] = useState<{ modo: 'criar' | 'editar'; inicial: Equipe } | null>(null);
   // --- Usuários (Administração): busca + filtros, ver `usuariosAdminFiltrados` ---
   const [buscaUsuarioAdmin, setBuscaUsuarioAdmin] = useState('');
   const [filtroEquipeUsuarioAdmin, setFiltroEquipeUsuarioAdmin] = useState('');
@@ -977,6 +1363,9 @@ export function DashboardApp() {
       || (filtroTipoUsuarioAdmin === 'ANALISTAS' && ['ANALISTA_SOC', 'ANALISTA_SUPORTE', 'LEITURA'].includes(perfilItem));
     return bateBusca && bateEquipe && batePerfil && bateTipo;
   });
+  const gestoresSimulaveis = [...gestoresParaSimulacao(todosUsuariosAdmin)]
+    .sort((a, b) => a.nome.localeCompare(b.nome));
+  const gestorSelecionadoParaSimular = gestoresSimulaveis.find((item) => item.login === gestorParaSimular) ?? null;
 
   const documentos = useMemo(
     () => resultado?.documentos ?? [],
@@ -1924,40 +2313,25 @@ export function DashboardApp() {
 
   // --- Administração (ADMIN_SISTEMA) ---
 
-  async function salvarFormEquipe() {
-    if (formEquipe.id.trim() === '') {
-      setErroAdmin('Informe o ID da equipe.');
-      return;
-    }
-    if (formEquipe.nome.trim() === '') {
-      setErroAdmin('Informe o nome da equipe.');
-      return;
-    }
-    if (formEquipe.sigla.trim() === '') {
-      setErroAdmin('Informe a sigla da equipe.');
-      return;
-    }
-    const jaExiste = equipesAdmin.some((item) => item.id === formEquipe.id);
-    if (jaExiste && formEquipe.id !== idEmEdicaoEquipe) {
-      setErroAdmin('Já existe uma equipe com esse ID.');
-      return;
-    }
-    const unidade = unidadesAdmin.find((item) => item.unidadeId === formEquipe.unidadeId);
-    const candidato: Equipe = {
-      ...formEquipe,
-      caminhoUnidade: unidade?.caminho,
-    };
+  function abrirNovaEquipe() {
+    setModalEquipe({ modo: 'criar', inicial: { id: '', nome: '', sigla: '', ativa: true } });
+  }
+
+  function abrirEdicaoEquipe(equipe: Equipe) {
+    setModalEquipe({ modo: 'editar', inicial: equipe });
+  }
+
+  async function salvarEquipeDoModal(equipe: Equipe) {
     try {
       if (!modoDemo) {
-        await salvarEquipe(candidato);
+        await salvarEquipe(equipe);
       }
-      setEquipesAdmin((atuais) => (atuais.some((item) => item.id === candidato.id)
-        ? atuais.map((item) => (item.id === candidato.id ? candidato : item))
-        : [...atuais, candidato]));
-      setFormEquipe({ id: '', nome: '', sigla: '', ativa: true });
-      setIdEmEdicaoEquipe(null);
+      setEquipesAdmin((atuais) => (atuais.some((item) => item.id === equipe.id)
+        ? atuais.map((item) => (item.id === equipe.id ? equipe : item))
+        : [...atuais, equipe]));
+      setModalEquipe(null);
     } catch (falha) {
-      setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível salvar a equipe.', ambienteFirebaseAtual));
+      throw new Error(mensagemErroFirebase(falha, 'Não foi possível salvar a equipe.', ambienteFirebaseAtual));
     }
   }
 
@@ -1979,54 +2353,10 @@ export function DashboardApp() {
     }
   }
 
-  async function salvarFormUnidade() {
-    if (usuarioReal === null) {
-      return;
-    }
-    if (formUnidade.unidadeId.trim() === '') {
-      setErroAdmin('Informe o ID da unidade organizacional.');
-      return;
-    }
-    if (formUnidade.nome.trim() === '') {
-      setErroAdmin('Informe o nome da unidade organizacional.');
-      return;
-    }
-    if (formUnidade.sigla.trim() === '') {
-      setErroAdmin('Informe a sigla da unidade organizacional.');
-      return;
-    }
-    const jaExiste = unidadesAdmin.some((item) => item.unidadeId === formUnidade.unidadeId);
-    if (jaExiste && formUnidade.unidadeId !== idEmEdicaoUnidade) {
-      setErroAdmin('Já existe uma unidade organizacional com esse ID.');
-      return;
-    }
-    // Cobre tanto "parentId igual ao próprio ID" quanto ciclos indiretos
-    // (colocar uma unidade como pai de um dos seus próprios ancestrais).
-    if (formariaCiclo(formUnidade.unidadeId, formUnidade.parentId, unidadesAdmin)) {
-      setErroAdmin('Essa unidade pai criaria um ciclo na hierarquia (uma unidade não pode ser sua própria ancestral).');
-      return;
-    }
-    // GESTOR_UNIDADE só cria filha abaixo de uma unidade em unidadesPermitidas
-    // (mesma trava que a rule aplica no servidor — checada aqui só para dar
-    // um erro amigável antes da chamada de rede).
-    if (!souAdmin && (formUnidade.parentId === null || !minhasUnidadesPermitidas.includes(formUnidade.parentId))) {
-      setErroAdmin('Você só pode criar unidades abaixo de uma unidade organizacional sob sua permissão.');
-      return;
-    }
-    const unidadePai = unidadesAdmin.find((item) => item.unidadeId === formUnidade.parentId);
-    const candidato: UnidadeOrganizacional = {
-      ...formUnidade,
-      caminho: [...(unidadePai?.caminho ?? []), formUnidade.unidadeId],
-      criadoPorLogin: formUnidade.criadoPorLogin || usuarioReal.login,
-    };
-    try {
-      if (!modoDemo) {
-        await salvarUnidadeOrganizacional(candidato);
-      }
-      setUnidadesAdmin((atuais) => (atuais.some((item) => item.unidadeId === candidato.unidadeId)
-        ? atuais.map((item) => (item.unidadeId === candidato.unidadeId ? candidato : item))
-        : [...atuais, candidato]));
-      setFormUnidade({
+  function abrirNovaUnidade() {
+    setModalUnidade({
+      modo: 'criar',
+      inicial: {
         unidadeId: '',
         nome: '',
         sigla: '',
@@ -2034,11 +2364,26 @@ export function DashboardApp() {
         parentId: null,
         caminho: [],
         ativa: true,
-        criadoPorLogin: '',
-      });
-      setIdEmEdicaoUnidade(null);
+        criadoPorLogin: usuarioReal?.login ?? '',
+      },
+    });
+  }
+
+  function abrirEdicaoUnidade(unidade: UnidadeOrganizacional) {
+    setModalUnidade({ modo: 'editar', inicial: unidade });
+  }
+
+  async function salvarUnidadeDoModal(unidade: UnidadeOrganizacional) {
+    try {
+      if (!modoDemo) {
+        await salvarUnidadeOrganizacional(unidade);
+      }
+      setUnidadesAdmin((atuais) => (atuais.some((item) => item.unidadeId === unidade.unidadeId)
+        ? atuais.map((item) => (item.unidadeId === unidade.unidadeId ? unidade : item))
+        : [...atuais, unidade]));
+      setModalUnidade(null);
     } catch (falha) {
-      setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível salvar a unidade organizacional.', ambienteFirebaseAtual));
+      throw new Error(mensagemErroFirebase(falha, 'Não foi possível salvar a unidade organizacional.', ambienteFirebaseAtual));
     }
   }
 
@@ -2055,15 +2400,20 @@ export function DashboardApp() {
     if (usuarioParaExcluir === null) {
       return;
     }
+    // Snapshot local — o toast e a atualização da lista usam este valor, não
+    // `usuarioParaExcluir` direto, para nunca depender de como o estado do
+    // componente evoluiu durante o `await` (o modal já fecha, mas nada
+    // impede outro re-render de trocar a seleção antes da resposta chegar).
+    const candidato = usuarioParaExcluir;
     setProcessandoExclusaoUsuario(true);
     try {
       if (!modoDemo) {
-        await excluirUsuario(usuarioParaExcluir, opcoes);
+        await excluirUsuario(candidato, opcoes);
       }
       if (opcoes.cadastro) {
-        setTodosUsuariosAdmin((atuais) => atuais.filter((item) => item.login !== usuarioParaExcluir.login));
+        setTodosUsuariosAdmin((atuais) => atuais.filter((item) => item.login !== candidato.login));
       }
-      setMensagem(`Dados de ${usuarioParaExcluir.nome} excluídos conforme selecionado.`);
+      setMensagem(`Dados de ${candidato.nome} excluídos conforme selecionado.`);
       setUsuarioParaExcluir(null);
     } catch (falha) {
       setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível excluir os dados selecionados.', ambienteFirebaseAtual));
@@ -3049,11 +3399,14 @@ export function DashboardApp() {
                 <h2>Unidades organizacionais</h2>
                 <p>Hierarquia flexível (diretoria, gerência, coordenação, supervisão...) acima das equipes — criar e editar, sem exclusão.</p>
               </div>
+              <button className="primary-button" type="button" onClick={abrirNovaUnidade}>
+                <Plus size={16} /> Nova unidade
+              </button>
             </div>
             <ArvoreUnidadesOrganizacionais
               nos={arvoreUnidadesAdmin}
               podeEditar={(unidadeId) => souAdmin || minhasUnidadesPermitidas.includes(unidadeId)}
-              aoEditar={(unidade) => { setFormUnidade(unidade); setIdEmEdicaoUnidade(unidade.unidadeId); }}
+              aoEditar={abrirEdicaoUnidade}
             />
             <div className="table-scroll">
               <table className="data-table">
@@ -3072,7 +3425,8 @@ export function DashboardApp() {
                             className="icon-button"
                             type="button"
                             title="Editar"
-                            onClick={() => { setFormUnidade(item); setIdEmEdicaoUnidade(item.unidadeId); }}
+                            aria-label={`Editar unidade ${item.nome}`}
+                            onClick={() => abrirEdicaoUnidade(item)}
                           >
                             <Pencil size={15} />
                           </button>
@@ -3083,64 +3437,6 @@ export function DashboardApp() {
                 </tbody>
               </table>
             </div>
-            <div className="admin-form-grid">
-              <label>
-                ID da unidade
-                <input placeholder="Ex.: COSI" value={formUnidade.unidadeId} onChange={(evento) => setFormUnidade((atual) => ({ ...atual, unidadeId: evento.target.value }))} />
-              </label>
-              <label>
-                Nome
-                <input placeholder="Nome completo" value={formUnidade.nome} onChange={(evento) => setFormUnidade((atual) => ({ ...atual, nome: evento.target.value }))} />
-              </label>
-              <label>
-                Sigla
-                <input placeholder="Ex.: COSI" value={formUnidade.sigla} onChange={(evento) => setFormUnidade((atual) => ({ ...atual, sigla: evento.target.value }))} />
-              </label>
-              <label>
-                Tipo
-                <select
-                  value={formUnidade.tipo}
-                  onChange={(evento) => setFormUnidade((atual) => ({ ...atual, tipo: evento.target.value as TipoUnidadeOrganizacional }))}
-                >
-                  {TIPOS_UNIDADE_ORGANIZACIONAL.map((tipo) => <option key={tipo} value={tipo}>{tipo}</option>)}
-                </select>
-              </label>
-              <label>
-                Unidade pai
-                <select
-                  value={formUnidade.parentId ?? ''}
-                  onChange={(evento) => setFormUnidade((atual) => ({ ...atual, parentId: evento.target.value || null }))}
-                >
-                  <option value="">(raiz — sem unidade pai)</option>
-                  {unidadesEmArvoreParaSelect
-                    .filter((no) => souAdmin || minhasUnidadesPermitidas.includes(no.unidade.unidadeId))
-                    .map((no) => (
-                      <option key={no.unidade.unidadeId} value={no.unidade.unidadeId}>
-                        {'  '.repeat(no.profundidade)}{rotuloOpcaoUnidade(no.unidade, unidadesAdmin)}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <label className="admin-form-active">
-                <input type="checkbox" checked={formUnidade.ativa} onChange={(evento) => setFormUnidade((atual) => ({ ...atual, ativa: evento.target.checked }))} />
-                <span>Ativa</span>
-              </label>
-              <p className="admin-form-preview admin-form-full">
-                {formUnidade.parentId === null
-                  ? 'Esta unidade será criada na raiz.'
-                  : (
-                    <>
-                      Caminho final: <strong>
-                        {caminhoLegivel(
-                          [...(unidadesAdmin.find((u) => u.unidadeId === formUnidade.parentId)?.caminho ?? []), formUnidade.unidadeId || '(novo ID)'],
-                          unidadesAdmin,
-                        )}
-                      </strong>
-                    </>
-                  )}
-              </p>
-              <button className="primary-button admin-form-full" type="button" onClick={() => void salvarFormUnidade()}>Salvar unidade</button>
-            </div>
           </article>
 
           <article className="panel grid-panel">
@@ -3149,6 +3445,9 @@ export function DashboardApp() {
                 <h2>Equipes</h2>
                 <p>Equipe é o grupo que recebe escala — a escala continua vinculada ao <code>equipeId</code>. Criar e editar, sem exclusão.</p>
               </div>
+              <button className="primary-button" type="button" onClick={abrirNovaEquipe}>
+                <Plus size={16} /> Nova equipe
+              </button>
             </div>
             <div className="table-scroll">
               <table className="data-table">
@@ -3168,7 +3467,8 @@ export function DashboardApp() {
                           className="icon-button"
                           type="button"
                           title="Editar"
-                          onClick={() => { setFormEquipe(item); setIdEmEdicaoEquipe(item.id); }}
+                          aria-label={`Editar equipe ${item.nome}`}
+                          onClick={() => abrirEdicaoEquipe(item)}
                         >
                           <Pencil size={15} />
                         </button>
@@ -3177,52 +3477,6 @@ export function DashboardApp() {
                   ))}
                 </tbody>
               </table>
-            </div>
-            <div className="admin-form-grid">
-              <label>
-                ID da equipe
-                <input placeholder="Ex.: EQ_SOC" value={formEquipe.id} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, id: evento.target.value }))} />
-              </label>
-              <label>
-                Nome
-                <input placeholder="Nome da equipe" value={formEquipe.nome} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, nome: evento.target.value }))} />
-              </label>
-              <label>
-                Sigla
-                <input placeholder="Ex.: SOC" value={formEquipe.sigla} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, sigla: evento.target.value }))} />
-              </label>
-              <label>
-                Unidade organizacional
-                <select
-                  value={formEquipe.unidadeId ?? ''}
-                  onChange={(evento) => setFormEquipe((atual) => ({ ...atual, unidadeId: evento.target.value || undefined }))}
-                >
-                  <option value="">Sem unidade organizacional</option>
-                  {unidadesEmArvoreParaSelect
-                    .filter((no) => souAdmin || minhasUnidadesPermitidas.includes(no.unidade.unidadeId))
-                    .map((no) => (
-                      <option key={no.unidade.unidadeId} value={no.unidade.unidadeId}>
-                        {'  '.repeat(no.profundidade)}{rotuloOpcaoUnidade(no.unidade, unidadesAdmin)}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <label className="admin-form-active">
-                <input type="checkbox" checked={formEquipe.ativa} onChange={(evento) => setFormEquipe((atual) => ({ ...atual, ativa: evento.target.checked }))} />
-                <span>Ativa</span>
-              </label>
-              <p className="admin-form-preview admin-form-full">
-                {formEquipe.unidadeId
-                  ? (
-                    <>
-                      Esta equipe ficará em: <strong>
-                        {caminhoLegivel(unidadesAdmin.find((u) => u.unidadeId === formEquipe.unidadeId)?.caminho ?? [formEquipe.unidadeId], unidadesAdmin)}
-                      </strong>
-                    </>
-                  )
-                  : 'Sem unidade organizacional vinculada.'}
-              </p>
-              <button className="primary-button admin-form-full" type="button" onClick={() => void salvarFormEquipe()}>Salvar equipe</button>
             </div>
           </article>
 
@@ -3294,52 +3548,73 @@ export function DashboardApp() {
           <article className="panel grid-panel">
             <div className="panel-title"><div><h2>Simular gestor</h2><p>Testar o Dashboard como se fosse aquele gestor, sem trocar de login.</p></div></div>
             <div className="toolbar">
-              <select value={gestorParaSimular} onChange={(evento) => setGestorParaSimular(evento.target.value)}>
-                <option value="">Selecione um gestor</option>
-                {todosUsuariosAdmin
-                  .filter((item) => ['GESTOR_EQUIPE', 'GESTOR_UNIDADE', 'SUPERVISOR_EQUIPE'].includes(perfilEfetivo(item)))
-                  .map((item) => (
+              <label htmlFor="select-gestor-simular" className="search-control">
+                <Users size={16} />
+                <select
+                  id="select-gestor-simular"
+                  value={gestorParaSimular}
+                  onChange={(evento) => setGestorParaSimular(evento.target.value)}
+                >
+                  <option value="">Selecione um gestor</option>
+                  {gestoresSimulaveis.map((item) => (
                     <option key={item.login} value={item.login}>{rotuloGestorParaSimulacao(item)}</option>
                   ))}
-              </select>
-              <button className="primary-button" type="button" onClick={iniciarSimulacaoSelecionada}>Simular</button>
+                </select>
+              </label>
+              <button className="primary-button" type="button" disabled={gestorSelecionadoParaSimular === null} onClick={iniciarSimulacaoSelecionada}>
+                Simular
+              </button>
             </div>
+            {gestorSelecionadoParaSimular && (
+              <p className="admin-form-preview">
+                Simulando: <strong>{rotuloGestorParaSimulacao(gestorSelecionadoParaSimular)}</strong>
+              </p>
+            )}
           </article>
           )}
 
           {souAdmin && (
           <article className="panel grid-panel">
             <div className="panel-title"><div><h2>Limpeza / Histórico</h2><p>Exportar antes de excluir escalas antigas.</p></div></div>
-            <div className="toolbar">
-              <select value={equipeExportar} onChange={(evento) => setEquipeExportar(evento.target.value)}>
-                <option value="">Selecione uma equipe</option>
-                {equipesAdmin.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.nome}{item.caminhoUnidade && item.caminhoUnidade.length > 0 ? ` — ${trechoFinalCaminho(item.caminhoUnidade, unidadesAdmin, 2)}` : ''}
-                  </option>
-                ))}
-              </select>
-              <input
-                placeholder="Competência (AAAA-MM)"
-                value={competenciaExportar}
-                onChange={(evento) => setCompetenciaExportar(evento.target.value)}
-              />
+            <div className="admin-form-grid">
+              <label htmlFor="limpeza-equipe">
+                Equipe
+                <select id="limpeza-equipe" value={equipeExportar} onChange={(evento) => setEquipeExportar(evento.target.value)}>
+                  <option value="">Selecione uma equipe</option>
+                  {equipesAdmin.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.nome}{item.caminhoUnidade && item.caminhoUnidade.length > 0 ? ` — ${trechoFinalCaminho(item.caminhoUnidade, unidadesAdmin, 2)}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label htmlFor="limpeza-competencia">
+                Competência
+                <input
+                  id="limpeza-competencia"
+                  placeholder="AAAA-MM"
+                  value={competenciaExportar}
+                  onChange={(evento) => setCompetenciaExportar(evento.target.value)}
+                />
+              </label>
+              <div className="admin-form-full rollback-actions">
+                <button className="secondary-button" type="button" onClick={() => void exportarEscalaXlsx()}>Exportar XLSX</button>
+                <button className="secondary-button" type="button" onClick={() => void imprimirEscala()}>Imprimir · Salvar PDF</button>
+              </div>
+              {!podeExcluirCompetencia(competenciaExportar, COMPETENCIA_ATUAL) ? (
+                <p className="admin-form-preview admin-form-full">
+                  A competência atual (<strong>{COMPETENCIA_ATUAL}</strong>) não pode ser excluída por aqui.
+                </p>
+              ) : (
+                <button
+                  className="secondary-button danger-button admin-form-full"
+                  type="button"
+                  onClick={() => setExcluirEscalaPendente(true)}
+                >
+                  <Trash2 size={15} /> Excluir escala desta equipe/competência
+                </button>
+              )}
             </div>
-            <div className="rollback-actions">
-              <button className="secondary-button" type="button" onClick={() => void exportarEscalaXlsx()}>Exportar XLSX</button>
-              <button className="secondary-button" type="button" onClick={() => void imprimirEscala()}>Imprimir · Salvar PDF</button>
-            </div>
-            {!podeExcluirCompetencia(competenciaExportar, COMPETENCIA_ATUAL) ? (
-              <p className="alert-detail-meta">A competência atual ({COMPETENCIA_ATUAL}) não pode ser excluída por aqui.</p>
-            ) : (
-              <button
-                className="secondary-button danger-button"
-                type="button"
-                onClick={() => setExcluirEscalaPendente(true)}
-              >
-                <Trash2 size={15} /> Excluir escala desta equipe/competência
-              </button>
-            )}
           </article>
           )}
 
@@ -3366,7 +3641,13 @@ export function DashboardApp() {
                         <td>{item.sigla}</td>
                         <td><span className={`status-badge ${item.ativo ? 'success' : 'neutral'}`}>{item.ativo ? 'Ativo' : 'Inativo'}</span></td>
                         <td>
-                          <button className="icon-button" type="button" title="Editar" onClick={() => setFormSetor(item)}>
+                          <button
+                            className="icon-button"
+                            type="button"
+                            title="Editar"
+                            aria-label={`Editar setor ${item.nome}`}
+                            onClick={() => setFormSetor(item)}
+                          >
                             <Pencil size={15} />
                           </button>
                         </td>
@@ -3375,17 +3656,49 @@ export function DashboardApp() {
                   </tbody>
                 </table>
               </div>
-              <div className="toolbar">
-                <input placeholder="ID (ex.: SET_SOC)" value={formSetor.id} onChange={(evento) => setFormSetor((atual) => ({ ...atual, id: evento.target.value }))} />
-                <input placeholder="Nome" value={formSetor.nome} onChange={(evento) => setFormSetor((atual) => ({ ...atual, nome: evento.target.value }))} />
-                <input placeholder="Sigla" value={formSetor.sigla} onChange={(evento) => setFormSetor((atual) => ({ ...atual, sigla: evento.target.value }))} />
-                <label><input type="checkbox" checked={formSetor.ativo} onChange={(evento) => setFormSetor((atual) => ({ ...atual, ativo: evento.target.checked }))} /> Ativo</label>
-                <button className="primary-button" type="button" onClick={() => void salvarFormSetor()}>Salvar setor</button>
+              <div className="legacy-panel-form toolbar">
+                <input aria-label="ID do setor" placeholder="ID (ex.: SET_SOC)" value={formSetor.id} onChange={(evento) => setFormSetor((atual) => ({ ...atual, id: evento.target.value }))} />
+                <input aria-label="Nome do setor" placeholder="Nome" value={formSetor.nome} onChange={(evento) => setFormSetor((atual) => ({ ...atual, nome: evento.target.value }))} />
+                <input aria-label="Sigla do setor" placeholder="Sigla" value={formSetor.sigla} onChange={(evento) => setFormSetor((atual) => ({ ...atual, sigla: evento.target.value }))} />
+                <label className="checkbox-row" htmlFor="setor-legado-ativo">
+                  <input
+                    id="setor-legado-ativo"
+                    type="checkbox"
+                    checked={formSetor.ativo}
+                    onChange={(evento) => setFormSetor((atual) => ({ ...atual, ativo: evento.target.checked }))}
+                  />
+                  <span>Ativo</span>
+                </label>
+                <button className="secondary-button compact-button" type="button" onClick={() => void salvarFormSetor()}>Salvar setor</button>
               </div>
             </div>
           </details>
           )}
         </section>
+      )}
+
+      {modalUnidade && (
+        <ModalUnidadeOrganizacional
+          modo={modalUnidade.modo}
+          inicial={modalUnidade.inicial}
+          unidadesExistentes={unidadesAdmin}
+          unidadesPermitidas={souAdmin ? null : minhasUnidadesPermitidas}
+          loginAtual={usuarioReal?.login ?? ''}
+          onFechar={() => setModalUnidade(null)}
+          onSalvar={salvarUnidadeDoModal}
+        />
+      )}
+
+      {modalEquipe && (
+        <ModalEquipe
+          modo={modalEquipe.modo}
+          inicial={modalEquipe.inicial}
+          equipesExistentes={equipesAdmin}
+          unidadesExistentes={unidadesAdmin}
+          unidadesPermitidas={souAdmin ? null : minhasUnidadesPermitidas}
+          onFechar={() => setModalEquipe(null)}
+          onSalvar={salvarEquipeDoModal}
+        />
       )}
 
       {usuarioParaExcluir && usuarioReal && (

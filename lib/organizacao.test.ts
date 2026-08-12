@@ -9,6 +9,7 @@ import {
   construirArvoreUnidades,
   ehUsuarioTecnicoOuFake,
   formariaCiclo,
+  gestoresParaSimulacao,
   rotuloCompacto,
   rotuloGestorParaSimulacao,
   rotuloOpcaoUnidade,
@@ -237,5 +238,50 @@ describe('rotuloGestorParaSimulacao', () => {
 
     const supervisor = usuarioBase({ nome: 'Supervisor NOC', perfil: 'SUPERVISOR_EQUIPE', equipeId: 'EQ_NOC' });
     expect(rotuloGestorParaSimulacao(supervisor)).toBe('Supervisor NOC — SUPERVISOR_EQUIPE — EQ_NOC');
+  });
+});
+
+describe('gestoresParaSimulacao', () => {
+  it('exclui ADMIN_SISTEMA e perfis não-gestores', () => {
+    const usuarios = [
+      usuarioBase({ login: 'paula.ferraz', nome: 'Paula Ferraz', email: 'paula.ferraz@empresa.com', perfil: 'ADMIN_SISTEMA' }),
+      usuarioBase({ login: 'caio.monteiro', nome: 'Caio Monteiro', email: 'caio.monteiro@empresa.com', perfil: 'ANALISTA_SOC' }),
+      usuarioBase({ login: 'marina.azevedo', nome: 'Marina Azevedo', email: 'marina.azevedo@empresa.com', perfil: 'GESTOR_EQUIPE' }),
+    ];
+    const resultado = gestoresParaSimulacao(usuarios);
+    expect(resultado.map((u) => u.login)).toEqual(['marina.azevedo']);
+  });
+
+  it('oculta cadastro técnico/fake por padrão', () => {
+    const usuarios = [
+      usuarioBase({ login: 'usuario-999', nome: 'Marina Azevedo', email: '', perfil: 'GESTOR_EQUIPE' }),
+    ];
+    expect(gestoresParaSimulacao(usuarios)).toEqual([]);
+  });
+
+  it('deduplica por nome, mantendo o login com cara humana sobre o técnico', () => {
+    const legado = usuarioBase({
+      login: 'aB3dEf7gH9iJ1kL2mN3o',
+      nome: 'Marina Azevedo',
+      email: 'marina.azevedo@empresa.com',
+      perfil: 'GESTOR_EQUIPE',
+    });
+    const atual = usuarioBase({
+      login: 'marina.azevedo',
+      nome: 'Marina Azevedo',
+      email: 'marina.azevedo@empresa.com',
+      perfil: 'GESTOR_EQUIPE',
+    });
+    // Ordem não deveria importar — testamos as duas.
+    expect(gestoresParaSimulacao([legado, atual]).map((u) => u.login)).toEqual(['marina.azevedo']);
+    expect(gestoresParaSimulacao([atual, legado]).map((u) => u.login)).toEqual(['marina.azevedo']);
+  });
+
+  it('mantém gestores distintos sem nome em comum', () => {
+    const usuarios = [
+      usuarioBase({ login: 'marina.azevedo', nome: 'Marina Azevedo', email: 'marina.azevedo@empresa.com', perfil: 'GESTOR_EQUIPE' }),
+      usuarioBase({ login: 'wanessa.lima', nome: 'Wanessa Lima', email: 'wanessa.lima@empresa.com', perfil: 'SUPERVISOR_EQUIPE' }),
+    ];
+    expect(gestoresParaSimulacao(usuarios).map((u) => u.login).sort()).toEqual(['marina.azevedo', 'wanessa.lima']);
   });
 });
