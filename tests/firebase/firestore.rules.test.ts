@@ -65,6 +65,25 @@ const usuarios = {
     equipeId: 'EQ_CODB_NOC',
     nivelHierarquico: 6,
   },
+  admin: {
+    login: 'paula.ferraz',
+    nome: 'Paula Ferraz',
+    email: 'paula.ferraz@teste.local',
+    equipeId: 'EQ_ADMIN',
+    nivelHierarquico: 0,
+    perfil: 'ADMIN_SISTEMA',
+  },
+  /** Escopo UNIDADE — só sobre GEDSI, ver `unidadesOrganizacionais e equipes — escopo GESTOR_UNIDADE`. */
+  gestorUnidade: {
+    login: 'renato.pires',
+    nome: 'Renato Pires',
+    email: 'renato.pires@teste.local',
+    equipeId: 'EQ_GEDSI_ADM',
+    nivelHierarquico: 4,
+    perfil: 'GESTOR_UNIDADE',
+    escopo: 'UNIDADE',
+    unidadesPermitidas: ['GEDSI'],
+  },
 } as const;
 
 function autenticarComo(usuario: { login: string; email: string }) {
@@ -916,5 +935,412 @@ describe('regras Firestore do Escala ICI', () => {
         ],
       }));
     });
+  });
+});
+
+/**
+ * ADMIN_SISTEMA — perfil explícito com fallback (não quebra usuários
+ * existentes), escopo global cross-equipe, e a trava contra
+ * escalonamento de privilégio na coleção `usuarios`. `usuarios.admin`
+ * (login `paula.ferraz`) é o único fixture com `perfil` definido — todos
+ * os outros (gestor/colaborador/colega/externo) continuam sem o campo,
+ * de propósito: a suíte inteira acima já é o teste de regressão do
+ * fallback, e precisa continuar passando sem alteração.
+ */
+describe('ADMIN_SISTEMA — perfil explícito e acesso global', () => {
+  it('permite ao admin listar notificacoesTroca de outra equipe (filtro composto equipeId+destinatarioLogin, exigido pela regra); nega para colaborador de fora', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(
+        doc(contexto.firestore(), 'notificacoesTroca', 'notif-colega'),
+        notificacaoTroca({ id: 'notif-colega', destinatarioLogin: usuarios.colega.login }),
+      );
+    });
+    const admin = autenticarComo(usuarios.admin);
+    const resultado = await assertSucceeds(getDocs(query(
+      collection(admin, 'notificacoesTroca'),
+      where('equipeId', '==', 'EQ_COSI_SOC'),
+      where('destinatarioLogin', '==', usuarios.colega.login),
+    )));
+    expect(resultado.docs.map((d) => d.id)).toContain('notif-colega');
+
+    const colaborador = autenticarComo(usuarios.colaborador);
+    await assertFails(getDocs(query(
+      collection(colaborador, 'notificacoesTroca'),
+      where('equipeId', '==', 'EQ_CODB_NOC'),
+      where('destinatarioLogin', '==', usuarios.externo.login),
+    )));
+  });
+
+  it('lê usuarios, turnosMes e trocasEscala de uma equipe que não é a dele', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    await assertSucceeds(getDoc(doc(admin, 'usuarios', usuarios.colaborador.login)));
+    await assertSucceeds(getDoc(doc(admin, 'turnosMes', 'publicada-soc')));
+    await assertSucceeds(getDoc(doc(admin, 'turnosMes', 'publicada-codb-noc')));
+    await assertSucceeds(getDoc(doc(admin, 'trocasEscala', 'troca-1')));
+  });
+
+  it('cria rascunho para uma equipe da qual não é membro', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    await assertSucceeds(setDoc(
+      doc(admin, 'rascunhosTurnosMes', 'rascunho-admin-codb-noc'),
+      escala(usuarios.externo.login, 'EQ_CODB_NOC', 'RASCUNHO'),
+    ));
+  });
+
+  it('gestor não-admin continua bloqueado fora da própria equipe (regressão do podeOperarNaEquipe)', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(getDoc(doc(gestor, 'turnosMes', 'publicada-codb-noc')));
+    await assertFails(setDoc(
+      doc(gestor, 'rascunhosTurnosMes', 'rascunho-gestor-codb-noc'),
+      escala(usuarios.externo.login, 'EQ_CODB_NOC', 'RASCUNHO'),
+    ));
+  });
+
+  it('impede o gestor de setar perfil ou escopo em si mesmo', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(updateDoc(doc(gestor, 'usuarios', usuarios.gestor.login), {
+      perfil: 'ADMIN_SISTEMA',
+    }));
+    await assertFails(updateDoc(doc(gestor, 'usuarios', usuarios.gestor.login), {
+      escopo: 'GLOBAL',
+    }));
+  });
+
+  it('impede o gestor de setar perfil ou escopo em um colega da própria equipe', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(updateDoc(doc(gestor, 'usuarios', usuarios.colaborador.login), {
+      perfil: 'GESTOR_EQUIPE',
+    }));
+    await assertFails(updateDoc(doc(gestor, 'usuarios', usuarios.colaborador.login), {
+      escopo: 'GLOBAL',
+    }));
+  });
+
+  it('impede o gestor de criar um novo usuário com perfil ADMIN_SISTEMA ou escopo GLOBAL', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    const base = {
+      login: 'novo.login',
+      nome: 'Novo Login',
+      email: 'novo.login@empresa.com',
+      cargo: 'ANALISTA_SOC',
+      equipeId: 'EQ_COSI_SOC',
+      gestorUid: usuarios.gestor.login,
+      nivelHierarquico: 6,
+      turnoPadrao: 'M',
+      ativo: true,
+    };
+    await assertFails(setDoc(doc(gestor, 'usuarios', 'novo.login'), {
+      ...base,
+      perfil: 'ADMIN_SISTEMA',
+    }));
+    await assertFails(setDoc(doc(gestor, 'usuarios', 'novo.login'), {
+      ...base,
+      escopo: 'GLOBAL',
+    }));
+  });
+
+  it('permite ao gestor criar um novo usuário sem perfil/escopo, que herda o fallback', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertSucceeds(setDoc(doc(gestor, 'usuarios', 'novo.login'), {
+      login: 'novo.login',
+      nome: 'Novo Login',
+      email: 'novo.login@empresa.com',
+      cargo: 'ANALISTA_SOC',
+      equipeId: 'EQ_COSI_SOC',
+      gestorUid: usuarios.gestor.login,
+      nivelHierarquico: 6,
+      turnoPadrao: 'M',
+      ativo: true,
+    }));
+  });
+
+  it('permite ao admin conceder perfil a um colaborador existente e realocar de equipe', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    await assertSucceeds(updateDoc(doc(admin, 'usuarios', usuarios.colaborador.login), {
+      perfil: 'GESTOR_EQUIPE',
+    }));
+    await assertSucceeds(updateDoc(doc(admin, 'usuarios', usuarios.colaborador.login), {
+      equipeId: 'EQ_CODB_NOC',
+    }));
+  });
+
+  it('permite ao admin criar um segundo ADMIN_SISTEMA', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    await assertSucceeds(setDoc(doc(admin, 'usuarios', 'segundo.admin'), {
+      login: 'segundo.admin',
+      nome: 'Segundo Admin',
+      email: 'segundo.admin@teste.local',
+      cargo: 'ADMIN',
+      equipeId: 'EQ_ADMIN',
+      gestorUid: null,
+      nivelHierarquico: 0,
+      turnoPadrao: 'ADM',
+      ativo: true,
+      perfil: 'ADMIN_SISTEMA',
+      escopo: 'GLOBAL',
+    }));
+  });
+
+  it('permite ao admin excluir usuario, troca e notificação; nega para gestor e colaborador', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(
+        doc(contexto.firestore(), 'notificacoesTroca', 'notif-para-excluir'),
+        notificacaoTroca({ id: 'notif-para-excluir' }),
+      );
+    });
+    const admin = autenticarComo(usuarios.admin);
+    const gestor = autenticarComo(usuarios.gestor);
+    const colaborador = autenticarComo(usuarios.colaborador);
+
+    await assertFails(deleteDoc(doc(gestor, 'trocasEscala', 'troca-1')));
+    await assertFails(deleteDoc(doc(colaborador, 'notificacoesTroca', 'notif-para-excluir')));
+    await assertFails(deleteDoc(doc(gestor, 'usuarios', usuarios.colaborador.login)));
+
+    await assertSucceeds(deleteDoc(doc(admin, 'notificacoesTroca', 'notif-para-excluir')));
+    await assertSucceeds(deleteDoc(doc(admin, 'trocasEscala', 'troca-1')));
+    await assertSucceeds(deleteDoc(doc(admin, 'usuarios', usuarios.colaborador.login)));
+  });
+
+  /**
+   * Reproduz o fluxo real de `excluirUsuario()` (lib/firebase/
+   * adminRepository.ts): list (getDocs com filtro composto equipeId+campo
+   * do candidato) seguido de delete em lote — para um candidato de uma
+   * equipe diferente da do admin (`EQ_ADMIN`), não só a mesma equipe por
+   * coincidência.
+   */
+  it('permite ao admin executar list+delete em lote (padrão de excluirUsuario) para candidato de outra equipe', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(
+        doc(db, 'notificacoesTroca', 'notif-externo'),
+        notificacaoTroca({
+          id: 'notif-externo',
+          equipeId: 'EQ_CODB_NOC',
+          destinatarioLogin: usuarios.externo.login,
+          criadoPorLogin: usuarios.externo.login,
+        }),
+      );
+    });
+    const admin = autenticarComo(usuarios.admin);
+
+    const encontradas = await assertSucceeds(getDocs(query(
+      collection(admin, 'notificacoesTroca'),
+      where('equipeId', '==', 'EQ_CODB_NOC'),
+      where('destinatarioLogin', '==', usuarios.externo.login),
+    )));
+    expect(encontradas.docs.map((d) => d.id)).toEqual(['notif-externo']);
+
+    await Promise.all(encontradas.docs.map((snapshot) => assertSucceeds(deleteDoc(snapshot.ref))));
+  });
+
+  it('equipes/setores: leitura livre para autenticado, escrita só admin, delete sempre negado', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    const gestor = autenticarComo(usuarios.gestor);
+    const equipe = { id: 'EQ_NOVA', nome: 'Nova Equipe', sigla: 'NOVA', ativa: true };
+    const setor = { id: 'SET_NOVO', nome: 'Novo Setor', sigla: 'NOVO', ativo: true };
+
+    await assertSucceeds(setDoc(doc(admin, 'equipes', equipe.id), equipe));
+    await assertSucceeds(setDoc(doc(admin, 'setores', setor.id), setor));
+    await assertFails(setDoc(doc(gestor, 'equipes', 'EQ_OUTRA'), { id: 'EQ_OUTRA', nome: 'x', sigla: 'x', ativa: true }));
+    await assertFails(setDoc(doc(gestor, 'setores', 'SET_OUTRO'), { id: 'SET_OUTRO', nome: 'x', sigla: 'x', ativo: true }));
+    await assertSucceeds(getDoc(doc(gestor, 'equipes', equipe.id)));
+    await assertFails(deleteDoc(doc(admin, 'equipes', equipe.id)));
+    await assertFails(deleteDoc(doc(admin, 'setores', setor.id)));
+  });
+
+  it('impede ANALISTA_SOC de acessar auditoriaAdmin; permite ao admin criar registro com atorRealLogin correto', async () => {
+    const colaborador = autenticarComo(usuarios.colaborador);
+    const admin = autenticarComo(usuarios.admin);
+    const registro = {
+      atorRealLogin: usuarios.admin.login,
+      atorRealNome: usuarios.admin.nome,
+      atorRealPerfil: 'ADMIN_SISTEMA',
+      atorSimuladoLogin: usuarios.gestor.login,
+      atorSimuladoNome: usuarios.gestor.nome,
+      atorSimuladoPerfil: 'GESTOR_EQUIPE',
+      equipeId: usuarios.gestor.equipeId,
+      acao: 'PUBLICAR_ESCALA',
+      em: '2026-08-07T13:00:00.000Z',
+    };
+    await assertFails(setDoc(doc(colaborador, 'auditoriaAdmin', 'evento-1'), registro));
+    await assertFails(setDoc(doc(admin, 'auditoriaAdmin', 'evento-2'), {
+      ...registro,
+      atorRealLogin: usuarios.gestor.login,
+    }));
+    await assertSucceeds(setDoc(doc(admin, 'auditoriaAdmin', 'evento-3'), registro));
+  });
+});
+
+/**
+ * Modelo organizacional flexível (`unidadesOrganizacionais`) — coleção
+ * aditiva acima de `equipes`. `usuarios.gestorUnidade` tem
+ * `unidadesPermitidas: ['GEDSI']`, então só pode criar/editar dentro desse
+ * escopo — nunca por travessia de `parentId`, só pelo array explícito (ver
+ * `minhasUnidadesPermitidas()` em firestore.rules).
+ */
+describe('unidadesOrganizacionais e equipes — escopo GESTOR_UNIDADE', () => {
+  const gedsi = {
+    unidadeId: 'GEDSI',
+    nome: 'Gerência de Data Center e Segurança da Informação',
+    sigla: 'GEDSI',
+    tipo: 'GERENCIA',
+    parentId: null,
+    caminho: ['GEDSI'],
+    ativa: true,
+    criadoPorLogin: usuarios.admin.login,
+  };
+
+  it('leitura de unidadesOrganizacionais é livre para qualquer autenticado', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'unidadesOrganizacionais', gedsi.unidadeId), gedsi);
+    });
+    const colaborador = autenticarComo(usuarios.colaborador);
+    await assertSucceeds(getDoc(doc(colaborador, 'unidadesOrganizacionais', gedsi.unidadeId)));
+  });
+
+  it('ADMIN_SISTEMA cria e edita qualquer unidade/equipe; delete de unidade sempre negado', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    await assertSucceeds(setDoc(doc(admin, 'unidadesOrganizacionais', gedsi.unidadeId), gedsi));
+    await assertSucceeds(updateDoc(doc(admin, 'unidadesOrganizacionais', gedsi.unidadeId), { nome: 'GEDSI renomeada' }));
+    await assertFails(deleteDoc(doc(admin, 'unidadesOrganizacionais', gedsi.unidadeId)));
+
+    await assertSucceeds(setDoc(doc(admin, 'equipes', 'EQ_GEDSI_TESTE'), {
+      id: 'EQ_GEDSI_TESTE',
+      nome: 'Equipe teste',
+      sigla: 'TESTE',
+      ativa: true,
+      unidadeId: gedsi.unidadeId,
+      caminhoUnidade: gedsi.caminho,
+    }));
+  });
+
+  it('GESTOR_UNIDADE cria unidade filha dentro do escopo (parentId em unidadesPermitidas)', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'unidadesOrganizacionais', gedsi.unidadeId), gedsi);
+    });
+    const gestorUnidade = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(setDoc(doc(gestorUnidade, 'unidadesOrganizacionais', 'COSI'), {
+      unidadeId: 'COSI',
+      nome: 'COSI',
+      sigla: 'COSI',
+      tipo: 'COORDENACAO',
+      parentId: 'GEDSI',
+      caminho: ['GEDSI', 'COSI'],
+      ativa: true,
+      criadoPorLogin: usuarios.gestorUnidade.login,
+    }));
+  });
+
+  it('GESTOR_UNIDADE não cria unidade fora do escopo (parentId fora de unidadesPermitidas, ou raiz)', async () => {
+    const gestorUnidade = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(setDoc(doc(gestorUnidade, 'unidadesOrganizacionais', 'FORA'), {
+      unidadeId: 'FORA',
+      nome: 'Fora do escopo',
+      sigla: 'FORA',
+      tipo: 'COORDENACAO',
+      parentId: 'OUTRA_UNIDADE',
+      caminho: ['OUTRA_UNIDADE', 'FORA'],
+      ativa: true,
+      criadoPorLogin: usuarios.gestorUnidade.login,
+    }));
+    // Raiz (parentId null) também é negada — só ADMIN_SISTEMA cria raiz.
+    await assertFails(setDoc(doc(gestorUnidade, 'unidadesOrganizacionais', 'NOVA_RAIZ'), {
+      unidadeId: 'NOVA_RAIZ',
+      nome: 'Nova raiz',
+      sigla: 'RAIZ',
+      tipo: 'DIRETORIA',
+      parentId: null,
+      caminho: ['NOVA_RAIZ'],
+      ativa: true,
+      criadoPorLogin: usuarios.gestorUnidade.login,
+    }));
+  });
+
+  it('GESTOR_UNIDADE edita unidade já em unidadesPermitidas; nega edição de outra unidade', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(doc(db, 'unidadesOrganizacionais', gedsi.unidadeId), gedsi);
+      await setDoc(doc(db, 'unidadesOrganizacionais', 'OUTRA_GERENCIA'), {
+        unidadeId: 'OUTRA_GERENCIA',
+        nome: 'Outra Gerência',
+        sigla: 'OG',
+        tipo: 'GERENCIA',
+        parentId: null,
+        caminho: ['OUTRA_GERENCIA'],
+        ativa: true,
+        criadoPorLogin: usuarios.admin.login,
+      });
+    });
+    const gestorUnidade = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(updateDoc(doc(gestorUnidade, 'unidadesOrganizacionais', gedsi.unidadeId), { nome: 'GEDSI atualizada' }));
+    await assertFails(updateDoc(doc(gestorUnidade, 'unidadesOrganizacionais', 'OUTRA_GERENCIA'), { nome: 'hackeado' }));
+  });
+
+  it('GESTOR_UNIDADE cria equipe dentro de uma unidade permitida; nega fora do escopo', async () => {
+    const gestorUnidade = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(setDoc(doc(gestorUnidade, 'equipes', 'EQ_GEDSI_SOC'), {
+      id: 'EQ_GEDSI_SOC',
+      nome: 'SOC',
+      sigla: 'SOC',
+      ativa: true,
+      unidadeId: 'GEDSI',
+      caminhoUnidade: ['GEDSI'],
+    }));
+    await assertFails(setDoc(doc(gestorUnidade, 'equipes', 'EQ_FORA'), {
+      id: 'EQ_FORA',
+      nome: 'Fora',
+      sigla: 'FORA',
+      ativa: true,
+      unidadeId: 'OUTRA_UNIDADE',
+      caminhoUnidade: ['OUTRA_UNIDADE'],
+    }));
+  });
+
+  it('GESTOR_UNIDADE edita equipe já pertencente a unidade permitida; nega outra', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(doc(db, 'equipes', 'EQ_GEDSI_EXISTENTE'), {
+        id: 'EQ_GEDSI_EXISTENTE', nome: 'Existente', sigla: 'EXI', ativa: true, unidadeId: 'GEDSI', caminhoUnidade: ['GEDSI'],
+      });
+      await setDoc(doc(db, 'equipes', 'EQ_FORA_EXISTENTE'), {
+        id: 'EQ_FORA_EXISTENTE', nome: 'Fora existente', sigla: 'FOR', ativa: true, unidadeId: 'OUTRA_UNIDADE', caminhoUnidade: ['OUTRA_UNIDADE'],
+      });
+    });
+    const gestorUnidade = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(updateDoc(doc(gestorUnidade, 'equipes', 'EQ_GEDSI_EXISTENTE'), { nome: 'Renomeada' }));
+    await assertFails(updateDoc(doc(gestorUnidade, 'equipes', 'EQ_FORA_EXISTENTE'), { nome: 'hackeado' }));
+  });
+
+  it('GESTOR_EQUIPE comum (sem GESTOR_UNIDADE) não cria unidade nem equipe — regressão', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(doc(gestor, 'unidadesOrganizacionais', 'QUALQUER'), {
+      unidadeId: 'QUALQUER',
+      nome: 'x',
+      sigla: 'x',
+      tipo: 'SETOR',
+      parentId: null,
+      caminho: ['QUALQUER'],
+      ativa: true,
+      criadoPorLogin: usuarios.gestor.login,
+    }));
+    await assertFails(setDoc(doc(gestor, 'equipes', 'EQ_GESTOR_FORA'), {
+      id: 'EQ_GESTOR_FORA', nome: 'x', sigla: 'x', ativa: true, unidadeId: 'GEDSI', caminhoUnidade: ['GEDSI'],
+    }));
+  });
+
+  it('ANALISTA_SOC não acessa administração — sem escrita em unidadesOrganizacionais/equipes', async () => {
+    const colaborador = autenticarComo(usuarios.colaborador);
+    await assertFails(setDoc(doc(colaborador, 'unidadesOrganizacionais', 'X'), {
+      unidadeId: 'X', nome: 'x', sigla: 'x', tipo: 'SETOR', parentId: null, caminho: ['X'], ativa: true, criadoPorLogin: usuarios.colaborador.login,
+    }));
+    await assertFails(setDoc(doc(colaborador, 'equipes', 'EQ_ANALISTA'), {
+      id: 'EQ_ANALISTA', nome: 'x', sigla: 'x', ativa: true,
+    }));
+  });
+
+  it('fallback por equipeId continua funcionando: GESTOR_EQUIPE sem equipesPermitidas continua operando a própria equipe', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertSucceeds(getDoc(doc(gestor, 'turnosMes', 'publicada-soc')));
+    await assertSucceeds(updateDoc(doc(gestor, 'usuarios', usuarios.colaborador.login), { cargo: 'ANALISTA_SOC_SR' }));
   });
 });

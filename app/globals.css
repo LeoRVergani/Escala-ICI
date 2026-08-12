@@ -357,9 +357,56 @@ select:focus-visible,
 .metric-grid span { font-size: 11px; }
 .metric-grid strong { display: block; font-size: 24px; margin: 9px 0 5px; letter-spacing: -0.035em; }
 .metric-grid small { font-size: 10px; }
-.content-grid { display: grid; gap: var(--space-5); }
-.content-grid + .content-grid { margin-top: var(--space-5); }
-.two-columns { grid-template-columns: 1.25fr 0.75fr; }
+/* Visão geral (Dashboard) — grade única de 12 colunas. Antes, a linha
+ * "Publicação/Próximas ações" (`.two-columns`, 1.25fr/0.75fr) e a linha
+ * "Alertas/Carga/Trocas" (`.three-columns`, repeat(3,1fr)) eram grids
+ * independentes com frações diferentes: as colunas de uma linha nunca
+ * alinhavam com as da outra, daí o efeito de blocos flutuando. Escopado em
+ * `.overview-dashboard` (tela Visão geral) para não afetar outras telas do
+ * Dashboard nem o app do colaborador, que só compartilham `.panel` /
+ * `.grid-panel` / `.metric-grid`. */
+.overview-dashboard .metric-grid {
+  /* `repeat(4, 1fr)` sozinho não trava a largura das colunas: o mínimo
+   * implícito de cada item de grid é `auto` (min-content), então um valor
+   * mais longo que o normal em qualquer card de métrica pode empurrar essa
+   * coluna além de 1/4 da largura e tirar as métricas do mesmo eixo das
+   * linhas de baixo (que já usam `minmax(0, 1fr)`). `minmax(0, 1fr)` aqui
+   * garante 4 colunas de largura igual sempre, alinhadas com `.overview-grid`. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+.overview-dashboard .metric-grid article { border-radius: 10px; }
+.overview-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--space-5); }
+.overview-grid + .overview-grid { margin-top: var(--space-5); }
+.overview-span-3 { grid-column: span 3; }
+.overview-span-4 { grid-column: span 4; }
+.overview-span-8 { grid-column: span 8; }
+/* `.panel + .panel { margin-top: ... }` (acima) foi escrita para painéis
+ * empilhados verticalmente no fluxo normal — dentro de `.overview-grid`,
+ * onde os cards são irmãos lado a lado no grid, essa mesma regra ainda
+ * casa (é só CSS de irmão adjacente, não olha o `display` do pai) e
+ * empurra cada card depois do primeiro 20px para baixo dentro da própria
+ * célula, tirando-o do topo dos vizinhos da linha. O espaçamento entre
+ * cards já vem do `gap` do grid; aqui só zeramos a margem herdada. */
+.overview-dashboard .overview-grid > .panel,
+.overview-dashboard .metric-grid > article {
+  margin: 0;
+}
+
+/* Cards de estado vazio/lista dentro da Visão geral: o `.grid-panel` vira
+ * coluna flex para que o conteúdo (lista ou estado vazio) preencha a altura
+ * que o grid já estica para bater com o card mais alto da linha, em vez de
+ * ficar preso no topo e sobrar um vão vazio embaixo. */
+.overview-dashboard .grid-panel { display: flex; flex-direction: column; }
+.overview-dashboard .grid-panel .notification-empty,
+.overview-dashboard .grid-panel .alert-summary-list,
+.overview-dashboard .grid-panel .carga-colaborador-list {
+  flex: 1;
+}
+.overview-dashboard .grid-panel .notification-empty span,
+.overview-dashboard .grid-panel .notification-empty strong {
+  max-width: 210px;
+}
 .publication-progress { margin-top: 22px; }
 .publication-progress > strong { display: block; font-size: 20px; letter-spacing: -0.015em; }
 .publication-progress > p { color: var(--muted); margin: 6px 0 0; font-size: 12px; line-height: 1.5; }
@@ -411,7 +458,7 @@ select:focus-visible,
   flex-direction: column;
   gap: var(--space-2);
   margin-top: var(--space-4);
-  max-height: 340px;
+  max-height: 300px;
   overflow-y: auto;
 }
 .carga-colaborador-item {
@@ -1384,6 +1431,9 @@ button.shift-chip:disabled { cursor: default; }
   .app-shell { grid-template-columns: 78px minmax(0, 1fr); }
   .brand-row > div:nth-child(2), .sidebar-nav button span, .system-status, .collapse-button span { display: none; }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
+  .overview-dashboard .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-span-3, .overview-span-4, .overview-span-8 { grid-column: span 2; }
   .import-panel { grid-template-columns: 1fr; }
   .file-row { grid-column: auto; }
   .import-actions { justify-content: flex-start; }
@@ -1417,7 +1467,12 @@ button.shift-chip:disabled { cursor: default; }
   .grade-header-actions > button { flex: 1 1 auto; }
   .metric-grid { grid-template-columns: 1fr 1fr; gap: var(--space-2); }
   .metric-grid article { padding: var(--space-4); }
-  .two-columns, .today-grid { grid-template-columns: 1fr; }
+  .today-grid { grid-template-columns: 1fr; }
+  .overview-dashboard .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+  .overview-grid { grid-template-columns: 1fr; gap: var(--space-4); }
+  .overview-span-3, .overview-span-4, .overview-span-8 { grid-column: span 1; }
+  .overview-dashboard .panel,
+  .overview-dashboard .metric-grid article { padding: 16px; }
   .import-summary { grid-template-columns: 1fr; }
   .import-summary > div { border-right: 0; border-bottom: 1px solid var(--border); }
   .scale-record { grid-template-columns: auto 1fr; }
@@ -1605,6 +1660,8 @@ button.shift-chip:disabled { cursor: default; }
 
 @media (max-width: 480px) {
   .metric-grid { grid-template-columns: 1fr; }
+  .overview-dashboard .panel,
+  .overview-dashboard .metric-grid article { padding: 14px; }
   .topbar-actions { gap: 6px; }
   .today-hero { min-height: 228px; padding: 20px; }
   .today-hours strong { font-size: 44px; }
@@ -3437,13 +3494,20 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
 .alias-chip button:hover { opacity: 1; }
 
 .user-form-modal { width: min(640px, 100%); }
-.user-form-grid {
+/*
+ * `.admin-form-grid` reaproveita exatamente o mesmo grid 2 colunas /
+ * responsivo do formulário de usuário — usado pelos formulários de
+ * Equipe/Unidade organizacional na Administração (ver DashboardApp.tsx).
+ */
+.user-form-grid,
+.admin-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
   margin-top: 18px;
 }
-.user-form-grid label {
+.user-form-grid label,
+.admin-form-grid label {
   display: grid;
   gap: 6px;
   font-size: 11px;
@@ -3451,7 +3515,9 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
   color: var(--text);
 }
 .user-form-grid input,
-.user-form-grid select {
+.user-form-grid select,
+.admin-form-grid input,
+.admin-form-grid select {
   height: 40px;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -3460,16 +3526,48 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
   color: var(--text);
   font: inherit;
 }
-.user-form-grid input:disabled { opacity: 0.6; background: var(--surface-muted); }
-.user-form-grid .user-form-full { grid-column: 1 / -1; }
-.user-form-grid .user-form-full > small { font-weight: 500; color: var(--muted); }
-.user-form-active {
+.user-form-grid input:disabled,
+.admin-form-grid input:disabled { opacity: 0.6; background: var(--surface-muted); }
+.user-form-grid .user-form-full,
+.admin-form-grid .admin-form-full { grid-column: 1 / -1; }
+.user-form-grid .user-form-full > small,
+.admin-form-grid .admin-form-full > small { font-weight: 500; color: var(--muted); }
+.user-form-active,
+.admin-form-active {
+  display: flex;
   flex-direction: row;
   align-items: center;
   gap: 8px;
   align-self: end;
 }
-.user-form-active input { width: 16px; height: 16px; accent-color: var(--primary); }
+.user-form-active input,
+.admin-form-active input { width: 16px; height: 16px; accent-color: var(--primary); }
+
+/*
+ * Texto de prévia embaixo dos selects de Equipe/Unidade — "Esta equipe
+ * ficará em: ..." / "Caminho final: ...". Sempre ocupa a linha cheia do
+ * grid, mesmo dentro de `.admin-form-full`.
+ */
+.admin-form-preview {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.admin-form-preview strong { color: var(--text); font-weight: 700; }
+
+.admin-form-erro {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 700;
+}
 
 .alias-editor { display: grid; gap: 10px; }
 .alias-editor-list { display: flex; flex-wrap: wrap; min-height: 24px; }
@@ -3486,9 +3584,63 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
   font: inherit;
 }
 
+/*
+ * Seção admin-only (perfil/escopo/unidadesPermitidas/equipesPermitidas) no
+ * modal de usuário — antes sem estilo próprio (fieldset/legend cru do
+ * navegador). `.checkbox-inline` também é reaproveitado pelas listas de
+ * unidades/equipes permitidas.
+ */
+.admin-only-fields {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+  padding: 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  display: grid;
+  gap: 12px;
+}
+.admin-only-fields > legend {
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.admin-only-fields fieldset {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.admin-only-fields fieldset > legend {
+  width: 100%;
+  padding: 0 0 6px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.checkbox-inline {
+  display: inline-flex !important;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500 !important;
+  color: var(--text);
+}
+.checkbox-inline input { width: 14px; height: 14px; accent-color: var(--primary); }
+
 @media (max-width: 780px) {
-  .user-form-grid { grid-template-columns: 1fr; }
-  .user-form-grid .user-form-full { grid-column: 1; }
+  .user-form-grid,
+  .admin-form-grid { grid-template-columns: 1fr; }
+  .user-form-grid .user-form-full,
+  .admin-form-grid .admin-form-full { grid-column: 1; }
 }
 
 /* ================================================================
@@ -3684,15 +3836,13 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
  * Protótipo de troca de escala (docs/spec/TROCA_ESCALA_PLANO.md).
  *
  * Fase de planejamento + protótipo visual: reaproveita tokens e padrões
- * já existentes (.panel/.grid-panel/.content-grid, .status-badge,
+ * já existentes (.panel/.grid-panel, .status-badge,
  * .modal-backdrop/.edit-modal, .shift-chip[data-code], .metric-grid,
  * .segmented-control, .data-table) — nenhuma cor nova, nenhum componente
  * de card/tabela/modal reinventado do zero. Só o que genuinamente não
  * tinha equivalente (comparação lado a lado, linha do tempo do
  * histórico, assistente em passos) ganhou classe própria abaixo.
  * ================================================================ */
-
-.content-grid.three-columns { grid-template-columns: repeat(3, 1fr); }
 
 /* --- Abas da tela Trocas (App): mesmo `.segmented-control` do Dashboard,
  * só com respiro em relação ao cabeçalho da tela. --- */
@@ -3818,5 +3968,141 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
     text-align: left;
   }
   .troca-comparacao > svg { justify-self: center; transform: rotate(90deg); }
-  .content-grid.three-columns { grid-template-columns: 1fr; }
+}
+
+/* ================================================================
+ * Correção UX/UI — Administração com Unidades Organizacionais.
+ *
+ * `.legacy-panel` dá ao `<details>` do card "Setores (legado)" a mesma
+ * aparência de `.panel` (recolhido por padrão — ver DashboardApp.tsx), e
+ * `.org-tree*` é a árvore simples de unidades organizacionais (Parte 4),
+ * puramente `<ul>`/`<li>` aninhados com indentação por borda, sem
+ * biblioteca de árvore.
+ * ================================================================ */
+
+.legacy-panel {
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-raised, var(--surface));
+}
+.legacy-panel + .panel,
+.panel + .legacy-panel { margin-top: var(--space-5); }
+.legacy-panel > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: var(--space-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.legacy-panel > summary::-webkit-details-marker { display: none; }
+.legacy-panel > summary h2 { margin: 0; font-size: 17px; letter-spacing: -0.015em; }
+.legacy-panel > summary p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.legacy-panel > summary::after {
+  content: '▾';
+  color: var(--muted);
+  transition: transform 0.15s ease;
+  flex: 0 0 auto;
+}
+.legacy-panel[open] > summary::after { transform: rotate(180deg); }
+.legacy-panel > summary:hover { background: var(--surface-muted); border-radius: 14px; }
+.legacy-panel-body { padding: 0 var(--space-5) var(--space-5); }
+.legacy-panel-warning {
+  margin: 0 0 var(--space-4);
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.org-tree { list-style: none; margin: 0; padding: 0; }
+.org-tree .org-tree { margin-top: 6px; padding-left: 18px; border-left: 1px dashed var(--border-strong); }
+.org-tree-node {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  margin: 3px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.org-tree-node-info { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.org-tree-node-info strong { font-size: 12.5px; }
+.org-tree-node-info small { color: var(--muted); font-size: 10.5px; }
+.org-tree-node-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+
+/* ================================================================
+ * Correção UX/UI — edição em modal, formulários e limpeza visual.
+ *
+ * `.admin-modal` é o mesmo padrão de `.user-form-modal` (modal um pouco
+ * mais largo, para caber `.admin-form-grid` em 2 colunas) — reaproveita
+ * `.edit-modal` para largura máxima/rolagem interna (Parte 10).
+ *
+ * `.checkbox-row`/`.checkbox-card`/`.checkbox-inline` (Parte 9) são os três
+ * padrões de checkbox+label deste app: `-row` para um único checkbox solto
+ * (ex. "Ativa"), `-card` para uma lista de opções com título+descrição
+ * (ex. modal de exclusão de usuário), `-inline` para listas compactas
+ * lado a lado (ex. unidades/equipes permitidas no cadastro de usuário).
+ * Nenhum checkbox deve ficar sem label visualmente colado ao lado.
+ * ================================================================ */
+
+.admin-modal { width: min(640px, 100%); }
+
+.checkbox-row {
+  display: flex !important;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.checkbox-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary); flex: 0 0 auto; }
+.checkbox-row span { font-size: 12px; font-weight: 600; color: var(--text); }
+
+fieldset.checkbox-card-list {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+fieldset.checkbox-card-list > legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.checkbox-card {
+  display: flex !important;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.checkbox-card:hover { border-color: var(--border-strong); background: var(--surface-muted); }
+.checkbox-card input[type="checkbox"] { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--primary); flex: 0 0 auto; }
+.checkbox-card > span { display: grid; gap: 2px; font-weight: 400; }
+.checkbox-card strong { font-size: 12.5px; }
+.checkbox-card small { color: var(--muted); font-size: 11px; }
+
+/*
+ * Formulário de "Setores (legado)", dentro do `<details>` já recolhido —
+ * fundo sutilmente diferente do resto do card, pra sinalizar visualmente
+ * que é secundário/legado mesmo quando aberto (Parte 8).
+ */
+.legacy-panel-form {
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
 }

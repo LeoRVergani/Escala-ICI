@@ -1,4 +1,14 @@
-import type { Usuario } from '../modelos';
+import type { EscopoUsuario, PerfilUsuario, Usuario } from '../modelos';
+
+const PERFIS_VALIDOS: readonly PerfilUsuario[] = [
+  'ADMIN_SISTEMA',
+  'GESTOR_EQUIPE',
+  'ANALISTA_SOC',
+  'LEITURA',
+  'GESTOR_UNIDADE',
+  'SUPERVISOR_EQUIPE',
+  'ANALISTA_SUPORTE',
+];
 import { obterFirebase } from './client';
 import { resolverPoliticaFirebase } from './environment';
 
@@ -54,6 +64,21 @@ export function lerUsuario(
     nivelHierarquico: Number(dados.nivelHierarquico ?? 6),
     turnoPadrao: String(dados.turnoPadrao ?? ''),
     ativo: dados.ativo !== false,
+    perfil: PERFIS_VALIDOS.includes(dados.perfil as PerfilUsuario)
+      ? (dados.perfil as PerfilUsuario)
+      : undefined,
+    escopo: dados.escopo === 'GLOBAL' || dados.escopo === 'EQUIPE' || dados.escopo === 'UNIDADE'
+      ? (dados.escopo as EscopoUsuario)
+      : undefined,
+    unidadeId: typeof dados.unidadeId === 'string' && dados.unidadeId.trim() !== ''
+      ? dados.unidadeId
+      : undefined,
+    unidadesPermitidas: Array.isArray(dados.unidadesPermitidas)
+      ? dados.unidadesPermitidas.filter((item): item is string => typeof item === 'string')
+      : undefined,
+    equipesPermitidas: Array.isArray(dados.equipesPermitidas)
+      ? dados.equipesPermitidas.filter((item): item is string => typeof item === 'string')
+      : undefined,
     aliasesPlanilha: Array.isArray(dados.aliasesPlanilha)
       ? dados.aliasesPlanilha.filter((alias): alias is string => typeof alias === 'string')
       : [],

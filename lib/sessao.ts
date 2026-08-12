@@ -1,4 +1,14 @@
+import type { PerfilUsuario, EscopoUsuario, Usuario } from './modelos';
+
 export type TipoProduto = 'dashboard' | 'app';
+
+/**
+ * O sistema hoje só opera sobre uma única competência ativa por vez — usada
+ * na carga inicial de dados (`autenticar()`/`carregarDadosDaEquipe` no
+ * Dashboard) e na trava de "não excluir a competência atual" (ver
+ * `podeExcluirCompetencia` em `lib/adminGuards.ts`).
+ */
+export const COMPETENCIA_ATUAL = '2026-08';
 
 /**
  * Estados possíveis da restauração de sessão do Firebase Auth.
@@ -77,4 +87,89 @@ export function podeIniciarListeners(opcoes: {
 
 export function nivelPermiteDashboard(nivelHierarquico: number): boolean {
   return nivelHierarquico <= NIVEL_MAXIMO_GESTOR;
+}
+
+/**
+ * Fonte única da verdade de autorização. Se `usuario.perfil` já estiver
+ * definido, ele manda — mesmo que contradiga `nivelHierarquico`. Se estiver
+ * ausente, cai no comportamento de hoje: nivelHierarquico <= 5 vira
+ * equivalente a gestor, senão equivalente a colaborador comum. Espelhado
+ * 1:1 em `firestore.rules` na função `perfilDe()` — qualquer mudança aqui
+ * exige a mudança gêmea lá.
+ */
+export function perfilEfetivo(usuario: Usuario): PerfilUsuario {
+  if (usuario.perfil) {
+    return usuario.perfil;
+  }
+  return usuario.nivelHierarquico <= NIVEL_MAXIMO_GESTOR ? 'GESTOR_EQUIPE' : 'ANALISTA_SOC';
+}
+
+/** Ausência de `escopo` equivale a 'EQUIPE' — o comportamento de hoje. */
+export function escopoEfetivo(usuario: Usuario): EscopoUsuario {
+  return usuario.escopo ?? 'EQUIPE';
+}
+
+export function ehAdminSistema(usuario: Usuario): boolean {
+  return perfilEfetivo(usuario) === 'ADMIN_SISTEMA';
+}
+
+/**
+ * `unidadesPermitidas` explícito (não-vazio) manda. Na ausência, um
+ * `unidadeId` único vira lista implícita de 1 elemento (compat: usuário
+ * migrado que só tem `unidadeId`, sem lista). Sem nenhum dos dois, lista
+ * vazia — nunca lança erro. GESTOR_EQUIPE/ANALISTA_SOC de hoje tipicamente
+ * não têm unidade, e isso é esperado (o recurso simplesmente não se aplica
+ * a eles). Espelhado 1:1 em `firestore.rules`, função
+ * `minhasUnidadesPermitidas()` — qualquer mudança aqui exige a mudança
+ * gêmea lá.
+ */
+export function unidadesPermitidasEfetivas(usuario: Usuario): string[] {
+  if (usuario.unidadesPermitidas && usuario.unidadesPermitidas.length > 0) {
+    return usuario.unidadesPermitidas;
+  }
+  return usuario.unidadeId ? [usuario.unidadeId] : [];
+}
+
+/**
+ * `equipesPermitidas` explícito (não-vazio) manda. Na ausência, `equipeId`
+ * (sempre presente em `Usuario`) vira lista implícita de 1 elemento — é o
+ * que mantém TODO GESTOR_EQUIPE/ANALISTA_SOC existente funcionando sem
+ * qualquer migração de dado. Espelhado 1:1 em `firestore.rules`, função
+ * `minhasEquipesPermitidas()`.
+ */
+export function equipesPermitidasEfetivas(usuario: Usuario): string[] {
+  if (usuario.equipesPermitidas && usuario.equipesPermitidas.length > 0) {
+    return usuario.equipesPermitidas;
+  }
+  return [usuario.equipeId];
+}
+
+/**
+ * ADMIN_SISTEMA sempre pode gerenciar (criar/editar) qualquer unidade.
+ * Fora disso, só GESTOR_UNIDADE, e só quando `unidadeId` está em
+ * `unidadesPermitidasEfetivas()` — nunca por travessia de `parentId`.
+ */
+export function podeGerenciarUnidade(usuario: Usuario, unidadeId: string): boolean {
+  if (ehAdminSistema(usuario)) {
+    return true;
+  }
+  return (
+    perfilEfetivo(usuario) === 'GESTOR_UNIDADE'
+    && unidadesPermitidasEfetivas(usuario).includes(unidadeId)
+  );
+}
+
+/**
+ * ADMIN_SISTEMA sempre pode gerenciar (operar sobre) qualquer equipe. Fora
+ * disso, qualquer perfil com `equipeId` em `equipesPermitidasEfetivas()` —
+ * é o que mantém o fallback por `equipeId` funcionando para GESTOR_EQUIPE/
+ * ANALISTA_SOC de hoje. Não autoriza CRIAR uma equipe nova (isso depende de
+ * `podeGerenciarUnidade()` sobre a unidade-pai pretendida) — só operar
+ * sobre uma equipe já existente.
+ */
+export function podeGerenciarEquipe(usuario: Usuario, equipeId: string): boolean {
+  if (ehAdminSistema(usuario)) {
+    return true;
+  }
+  return equipesPermitidasEfetivas(usuario).includes(equipeId);
 }
