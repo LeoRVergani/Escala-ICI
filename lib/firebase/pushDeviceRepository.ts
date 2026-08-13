@@ -132,6 +132,48 @@ export async function verificarDispositivoAtivo(deviceId: string): Promise<boole
   return snapshot.exists() && snapshot.data().ativo === true;
 }
 
+export type StatusDispositivoPush = 'ATIVO' | 'PRECISA_REPARO' | 'INATIVO';
+
+export interface ResultadoStatusDispositivo {
+  status: StatusDispositivoPush;
+  /** Campo já existente no contrato — nunca introduz dado novo, só o repassa para a UI decidir um rótulo relativo. */
+  ultimaConfirmacaoEm: string | null;
+}
+
+/**
+ * Verificação mais rica que `verificarDispositivoAtivo`: um documento com
+ * `ativo: true` mas sem FID válido (ou com `plataforma`/`environment` fora
+ * do contrato desta fase) não é uma instalação funcional — é só um registro
+ * "zumbi" que nunca mais vai receber push (cenário observado no checkpoint
+ * de push real: card mostrando `Ativo` no celular com uma instalação que
+ * nunca recebeu nada). `PRECISA_REPARO` sinaliza esse caso para a UI
+ * oferecer o reparo, sem desativar nada automaticamente.
+ */
+export async function obterStatusDispositivo(
+  deviceId: string,
+  loginEsperado?: string,
+): Promise<ResultadoStatusDispositivo> {
+  const { db } = exigirFirebase();
+  const snapshot = await getDoc(doc(db, COLECAO, deviceId));
+  if (!snapshot.exists()) {
+    return { status: 'INATIVO', ultimaConfirmacaoEm: null };
+  }
+  const dados = snapshot.data();
+  const ultimaConfirmacaoEm = typeof dados.ultimaConfirmacaoEm === 'string' ? dados.ultimaConfirmacaoEm : null;
+  if (loginEsperado !== undefined && dados.login !== loginEsperado) {
+    return { status: 'INATIVO', ultimaConfirmacaoEm };
+  }
+  if (dados.ativo !== true) {
+    return { status: 'INATIVO', ultimaConfirmacaoEm };
+  }
+  const fidValido = typeof dados.fid === 'string' && dados.fid.trim() !== '';
+  const contratoValido = dados.plataforma === 'WEB' && dados.environment === 'STAGING';
+  return {
+    status: fidValido && contratoValido ? 'ATIVO' : 'PRECISA_REPARO',
+    ultimaConfirmacaoEm,
+  };
+}
+
 function documentoInexistente(falha: unknown): boolean {
   return typeof falha === 'object' && falha !== null && 'code' in falha
     && (falha as { code?: unknown }).code === 'not-found';

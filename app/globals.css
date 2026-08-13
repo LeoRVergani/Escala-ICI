@@ -2023,6 +2023,8 @@ button.shift-chip:disabled { cursor: default; }
 .profile-notifications-cabecalho h3 { margin: 0; font-size: 14px; color: var(--text); }
 .profile-notifications-status { margin: 0; color: var(--muted); font-size: 12px; }
 .profile-notifications-erro { margin: 0; color: var(--danger); font-size: 12px; }
+.profile-notifications-dispositivo { margin: 0; color: var(--muted); font-size: 11px; }
+.profile-notifications-dispositivo code { font-family: inherit; }
 .profile-notifications-orientacao { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .profile-notifications-acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .profile-notifications-acoes .secondary-button { min-width: 0; }

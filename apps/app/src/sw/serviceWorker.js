@@ -125,8 +125,8 @@ self.addEventListener('fetch', (event) => {
  * Firebase Messaging — exatamente a ordem que a documentação oficial do
  * FCM Web exige ("make sure to handle notificationclick before you import
  * FCM functions or libraries", https://firebase.google.com/docs/cloud-messaging/js/receive).
- * O handler interno do próprio SDK (registrado só quando `getMessaging()`
- * é chamado, mais abaixo) chama `event.stopImmediatePropagation()` para
+ * O handler interno do próprio SDK (registrado só quando a instância de Messaging
+ * é obtida, mais abaixo) chama `event.stopImmediatePropagation()` para
  * qualquer notificação que ele mesmo exibiu — se o nosso handler não
  * estivesse registrado primeiro, o dele rodaria e bloquearia o nosso.
  * Como aqui SEMPRE exibimos a notificação manualmente (nunca a via
@@ -148,22 +148,46 @@ self.addEventListener('notificationclick', (event) => {
  * Constrói a URL só a partir do `trocaId` conhecido — nunca aceita link
  * arbitrário vindo do payload. `APP_ENTRY` já resolve `/` ou `/app`
  * conforme o escopo deste worker, preservando os dois.
+ *
+ * Corrigido na auditoria PUSH-PWA-2B.1: a versão anterior tinha `focus()`
+ * fora de qualquer `try`/`catch` — se `navigate()` falhasse (capturado) e
+ * `focus()` também lançasse (não capturado), a promessa inteira rejeitava
+ * sem jamais abrir uma janela nova, e o clique parecia não fazer nada
+ * (achado real do checkpoint de push real). Agora cada etapa tem sua
+ * própria rede de segurança e, se nenhuma delas puder agir sobre a janela
+ * existente, cai para `openWindow` — nunca termina em silêncio total.
  */
 async function abrirTrocaNaJanela(trocaId) {
   const destino = `${APP_ENTRY}?trocaId=${encodeURIComponent(trocaId)}`;
   const url = new URL(destino, self.location.origin);
   const clientes = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-  for (const cliente of clientes) {
-    if (new URL(cliente.url).origin === url.origin) {
+  const clienteMesmaOrigem = clientes.find((cliente) => new URL(cliente.url).origin === url.origin);
+
+  if (clienteMesmaOrigem) {
+    const precisaNavegar = new URL(clienteMesmaOrigem.url).href !== url.href;
+    let navegou = false;
+    if (precisaNavegar && typeof clienteMesmaOrigem.navigate === 'function') {
       try {
-        await cliente.navigate(url.href);
+        await clienteMesmaOrigem.navigate(url.href);
+        navegou = true;
       } catch {
-        // Nem todo navegador suporta WindowClient.navigate(); ainda tentamos focar.
+        // Nem todo navegador suporta WindowClient.navigate() em todo estado —
+        // ainda tentamos focar a janela existente mesmo se a navegação falhar.
       }
-      await cliente.focus();
+    }
+    try {
+      await clienteMesmaOrigem.focus();
       return;
+    } catch {
+      // Foco pode falhar por restrição do navegador. Se a navegação já tinha
+      // funcionado, a janela está na URL certa mesmo sem foco explícito —
+      // só cai para abrir uma nova janela se nada funcionou.
+      if (navegou) {
+        return;
+      }
     }
   }
+
   await self.clients.openWindow(url.href);
 }
 
@@ -177,8 +201,8 @@ async function abrirTrocaNaJanela(trocaId) {
  * (o evento que dispara quando a PushSubscription subjacente é renovada
  * pelo navegador, inclusive com o PWA fechado) só é tratado pelo listener
  * que o próprio SDK registra dentro de `SwMessagingFactory`, e essa
- * fábrica só roda na primeira chamada a `getMessaging()` no worker. A
- * implementação nativa anterior nunca chamava `getMessaging()` aqui, então
+ * fábrica só roda na primeira obtenção de Messaging no worker. A
+ * implementação nativa anterior nunca inicializava Messaging aqui, então
  * nunca reportava a renovação da subscription para o Firebase — a
  * documentação oficial confirma que `onRegistered()` deve disparar de novo
  * "quando um evento pushsubscriptionchange é emitido", o que só é possível

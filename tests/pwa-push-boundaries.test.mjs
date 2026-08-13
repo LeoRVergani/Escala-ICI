@@ -170,6 +170,55 @@ test('o push-worker envia só data (nunca notification no nível superior) — e
   assert.match(pushSender, /corpo:/);
 });
 
+test('o clique de notificação nunca deixa de agir em silêncio: navigate e focus têm tratamento de falha próprio, com fallback para openWindow', async () => {
+  const worker = await ler('apps/app/src/sw/serviceWorker.js');
+  // Achado real (checkpoint de push real): a versão anterior só protegia
+  // `navigate()` com try/catch — se `focus()` também lançasse, a promessa
+  // inteira rejeitava sem nunca abrir/focar nada, e o clique parecia não
+  // fazer nada. Agora cada etapa tem seu próprio try/catch.
+  const chamadasTry = worker.match(/\btry\s*\{/g) ?? [];
+  assert.ok(chamadasTry.length >= 2, 'navigate() e focus() devem ter blocos try próprios, não compartilhados');
+  assert.match(worker, /\.navigate\(url\.href\)/);
+  assert.match(worker, /\.focus\(\)/);
+  assert.match(worker, /clients\.openWindow\(url\.href\)/);
+});
+
+test('showNotification continua único mesmo após a correção do clique — nenhuma regressão de duplicidade', async () => {
+  const worker = await ler('apps/app/src/sw/serviceWorker.js');
+  const chamadas = worker.match(/\.showNotification\(/g) ?? [];
+  assert.equal(chamadas.length, 1);
+});
+
+test('apenas um service worker de messaging continua registrado (getMessaging chamado uma única vez)', async () => {
+  const worker = await ler('apps/app/src/sw/serviceWorker.js');
+  const chamadasGetMessaging = worker.match(/\bgetMessaging\(/g) ?? [];
+  assert.equal(chamadasGetMessaging.length, 1, 'só pode existir uma inicialização de Firebase Messaging no service worker');
+});
+
+test('a instalação móvel com FID obsoleto não é tratada como Ativo — verificação enriquecida existe e é usada pelo App', async () => {
+  const repositorio = await ler('lib/firebase/pushDeviceRepository.ts');
+  const employeeApp = await ler('apps/app/src/EmployeeApp.tsx');
+  assert.match(repositorio, /export async function obterStatusDispositivo/);
+  assert.match(repositorio, /PRECISA_REPARO/);
+  assert.match(employeeApp, /obterStatusDispositivo/);
+  assert.match(employeeApp, /PRECISA_REPARO/);
+});
+
+test('o reparo da instalação atual nunca cria um novo deviceId — reusa o mesmo via obterOuCriarDeviceId/deviceIdPushRef', async () => {
+  const employeeApp = await ler('apps/app/src/EmployeeApp.tsx');
+  const funcao = employeeApp.match(/async function repararNotificacoesPush\(\)[\s\S]*?\n  \}/)?.[0] ?? '';
+  assert.ok(funcao.length > 0, 'repararNotificacoesPush deve existir');
+  assert.match(funcao, /deviceIdPushRef\.current \?\? obterOuCriarDeviceId/);
+});
+
+test('repararPush existe em pushMessaging.ts e chama unregister antes de renovar (API oficial do FCM)', async () => {
+  const pushMessaging = await ler('lib/firebase/pushMessaging.ts');
+  assert.match(pushMessaging, /export async function repararPush/);
+  const funcao = pushMessaging.match(/export async function repararPush[\s\S]*?\n\}/)?.[0] ?? '';
+  assert.match(funcao, /deps\.unregister\(/);
+  assert.match(funcao, /return ativarPush\(deps\)/);
+});
+
 test('nenhum valor de VAPID key aparece hardcoded em código versionado', async () => {
   const [client, pushMessaging, envExample] = await Promise.all([
     ler('lib/firebase/client.ts'),

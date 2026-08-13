@@ -37,6 +37,7 @@ import {
   LogOut,
   Mail,
   Moon,
+  RefreshCw,
   Search,
   ShieldCheck,
   Sunrise,
@@ -60,12 +61,17 @@ import { mensagemErroFirebase } from '@/lib/firebase/errors';
 import { ambienteFirebaseAtual } from '@/lib/firebase/shared';
 import { pushConfigurado } from '@/lib/firebase/client';
 import {
+  decidirEstadoCardPush,
+  identificadorDispositivoAbreviado,
+  rotuloConfirmacaoPush,
+} from '@/lib/firebase/pushCardEstado';
+import {
   desativarDispositivo,
   deviceIdExistenteLocal,
   obterOuCriarDeviceId,
+  obterStatusDispositivo,
   registrarOuRenovarDispositivo,
   removerDeviceIdLocal,
-  verificarDispositivoAtivo,
 } from '@/lib/firebase/pushDeviceRepository';
 import {
   ativarPush,
@@ -74,6 +80,7 @@ import {
   avaliarSuporte,
   desativarPush,
   limparPushAoSair as limparPushAoSairAdapter,
+  repararPush,
   retomarPushSeAderido,
 } from '@/lib/firebase/pushMessaging';
 import { formatarDataHoraSafe, formatarDiaTrocaSafe } from '@/lib/dataSegura';
@@ -121,6 +128,7 @@ type EstadoNotificacoesPush =
   | 'DISPONIVEL'
   | 'ATIVANDO'
   | 'ATIVO'
+  | 'PRECISA_REPARO'
   | 'ERRO';
 
 const NAVEGACAO: ItemNavegacao[] = [
@@ -678,28 +686,46 @@ function TrocaNotificationBell({
 const TEXTO_ESTADO_NOTIFICACOES: Record<EstadoNotificacoesPush, string> = {
   DEMO: 'Notificações disponíveis somente com conta autenticada.',
   NAO_CONFIGURADO: 'Não configuradas neste ambiente.',
-  INDISPONIVEL: 'Indisponíveis neste navegador.',
-  BLOQUEADO: 'Bloqueadas no navegador.',
+  INDISPONIVEL: 'Não suportadas neste navegador.',
+  BLOQUEADO: 'Bloqueadas pelo navegador.',
   DISPONIVEL: 'Disponíveis para ativar.',
-  ATIVANDO: 'Ativando…',
-  ATIVO: 'Ativas neste dispositivo.',
+  ATIVANDO: 'Configurando…',
+  ATIVO: 'Ativo neste dispositivo.',
+  PRECISA_REPARO: 'Este dispositivo precisa de reparo.',
   ERRO: 'Não foi possível concluir a ativação.',
 };
 
 interface CardNotificacoesPushProps {
   estado: EstadoNotificacoesPush;
   erro: string;
+  identificadorDispositivo: string | null;
+  confirmacao: string | null;
   onAtivar: () => void;
   onDesativar: () => void;
+  onReparar: () => void;
 }
 
 /**
- * Card "Notificações" do Perfil (Fase PUSH-PWA-1). Nunca pede permissão
- * sozinho — só reage a clique explícito. `aria-live` no status para leitor
- * de tela acompanhar a transição sem precisar focar o card de novo.
+ * Card "Notificações" do Perfil (Fase PUSH-PWA-1, reparo adicionado na
+ * PUSH-PWA-2B.1). Nunca pede permissão sozinho — só reage a clique
+ * explícito. `aria-live` no status para leitor de tela acompanhar a
+ * transição sem precisar focar o card de novo. `ATIVO` aqui significa
+ * "documento local com FID válido no contrato desta fase" — não apenas
+ * "permissão concedida" nem "existe algum documento ativo para o login"
+ * (auditoria PUSH-PWA-2B.1: um registro com FID obsoleto continuava
+ * mostrando `Ativo` mesmo sem nunca mais receber push).
  */
-function CardNotificacoesPush({ estado, erro, onAtivar, onDesativar }: CardNotificacoesPushProps) {
+function CardNotificacoesPush({
+  estado,
+  erro,
+  identificadorDispositivo,
+  confirmacao,
+  onAtivar,
+  onDesativar,
+  onReparar,
+}: CardNotificacoesPushProps) {
   const desabilitado = estado === 'ATIVANDO';
+  const mostrarDispositivo = (estado === 'ATIVO' || estado === 'PRECISA_REPARO') && identificadorDispositivo !== null;
   return (
     <article className="panel profile-notifications">
       <div className="profile-notifications-cabecalho">
@@ -709,12 +735,23 @@ function CardNotificacoesPush({ estado, erro, onAtivar, onDesativar }: CardNotif
       <p className="profile-notifications-status" aria-live="polite">
         {TEXTO_ESTADO_NOTIFICACOES[estado]}
       </p>
+      {mostrarDispositivo && (
+        <p className="profile-notifications-dispositivo">
+          Este dispositivo · PWA Web · <code>…{identificadorDispositivo}</code>
+          {confirmacao ? ` · ${confirmacao}` : ''}
+        </p>
+      )}
       {estado === 'ERRO' && erro && (
         <p className="profile-notifications-erro" role="alert">{erro}</p>
       )}
       {estado === 'BLOQUEADO' && (
         <p className="profile-notifications-orientacao">
           Abra as configurações do navegador para este site e permita notificações, depois tente novamente.
+        </p>
+      )}
+      {estado === 'PRECISA_REPARO' && (
+        <p className="profile-notifications-orientacao">
+          O registro deste dispositivo está incompleto. Toque em &quot;Reconfigurar neste dispositivo&quot; para corrigir.
         </p>
       )}
       <div className="profile-notifications-acoes">
@@ -730,7 +767,17 @@ function CardNotificacoesPush({ estado, erro, onAtivar, onDesativar }: CardNotif
         )}
         {estado === 'ATIVANDO' && (
           <button className="secondary-button" type="button" disabled>
-            <LoaderCircle size={16} className="spin" /> Ativando…
+            <LoaderCircle size={16} className="spin" /> Configurando…
+          </button>
+        )}
+        {(estado === 'ATIVO' || estado === 'PRECISA_REPARO') && (
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={onReparar}
+            disabled={desabilitado}
+          >
+            <RefreshCw size={16} /> Reconfigurar neste dispositivo
           </button>
         )}
         {estado === 'ATIVO' && (
@@ -1137,6 +1184,8 @@ export function EmployeeApp() {
   const [erroTroca, setErroTroca] = useState('');
   const [estadoNotificacoesPush, setEstadoNotificacoesPush] = useState<EstadoNotificacoesPush>('NAO_CONFIGURADO');
   const [erroNotificacoesPush, setErroNotificacoesPush] = useState('');
+  const [ultimaConfirmacaoPush, setUltimaConfirmacaoPush] = useState<string | null>(null);
+  const [deviceIdPushAtual, setDeviceIdPushAtual] = useState<string | null>(null);
   // Lido uma única vez na primeira renderização (inicializador tardio, não
   // um efeito) e some da URL logo depois — nunca reprocessado num F5.
   const [deepLinkTrocaId, setDeepLinkTrocaId] = useState<string | null>(() => {
@@ -1153,6 +1202,7 @@ export function EmployeeApp() {
   const eventosConhecidos = useRef<Set<string>>(new Set());
   const primeiraCargaEventos = useRef(true);
   const deviceIdPushRef = useRef<string | null>(null);
+  const messagingPushInicializadoRef = useRef(false);
   const eventIdsPushConhecidos = useRef<Set<string>>(new Set());
   const sessao = useRestauracaoSessao({
     tipo: 'app',
@@ -1350,7 +1400,10 @@ export function EmployeeApp() {
   async function autenticar(autenticado: Usuario, demonstracao: boolean) {
     setEstadoNotificacoesPush(demonstracao ? 'DEMO' : 'NAO_CONFIGURADO');
     setErroNotificacoesPush('');
+    setUltimaConfirmacaoPush(null);
     deviceIdPushRef.current = null;
+    setDeviceIdPushAtual(null);
+    messagingPushInicializadoRef.current = false;
     if (demonstracao) {
       setIdsLidos(new Set());
     } else {
@@ -1456,6 +1509,7 @@ export function EmployeeApp() {
     setAvisoAtualizacao('');
     setEstadoNotificacoesPush('NAO_CONFIGURADO');
     setErroNotificacoesPush('');
+    setUltimaConfirmacaoPush(null);
     setTela('hoje');
   }
 
@@ -1519,9 +1573,13 @@ export function EmployeeApp() {
     if (Notification.permission === 'granted' && usuario !== null) {
       const deviceId = deviceIdExistenteLocal(usuario.login);
       if (deviceId !== null) {
-        const ativo = await verificarDispositivoAtivo(deviceId).catch(() => false);
+        const status = await obterStatusDispositivo(deviceId, usuario.login).catch(
+          (): { status: 'INATIVO'; ultimaConfirmacaoEm: null } => ({ status: 'INATIVO', ultimaConfirmacaoEm: null }),
+        );
         deviceIdPushRef.current = deviceId;
-        setEstadoNotificacoesPush(ativo ? 'ATIVO' : 'DISPONIVEL');
+        setDeviceIdPushAtual(deviceId);
+        setUltimaConfirmacaoPush(status.ultimaConfirmacaoEm);
+        setEstadoNotificacoesPush(decidirEstadoCardPush(status.status, messagingPushInicializadoRef.current));
         return;
       }
     }
@@ -1538,8 +1596,11 @@ export function EmployeeApp() {
     if (resultado.estado === 'ATIVO' && resultado.fid) {
       const deviceId = obterOuCriarDeviceId(usuario.login);
       deviceIdPushRef.current = deviceId;
+      setDeviceIdPushAtual(deviceId);
       try {
         await registrarOuRenovarDispositivo({ deviceId, login: usuario.login, fid: resultado.fid });
+        messagingPushInicializadoRef.current = true;
+        setUltimaConfirmacaoPush(new Date().toISOString());
         setEstadoNotificacoesPush('ATIVO');
       } catch {
         setErroNotificacoesPush('Permissão concedida, mas não foi possível salvar o dispositivo. Tente novamente.');
@@ -1563,6 +1624,58 @@ export function EmployeeApp() {
     setEstadoNotificacoesPush('ERRO');
   }
 
+  /**
+   * Reparo manual (Fase PUSH-PWA-2B.1): renova só a instalação atual —
+   * mesmo `deviceId`, nunca cria outro — sem tocar em documentos de outras
+   * instalações do mesmo login. Só muda para `ATIVO` depois de confirmar
+   * (leitura de volta via `obterStatusDispositivo`) que o novo FID foi
+   * persistido; se a confirmação falhar, volta para `PRECISA_REPARO` em vez
+   * de mentir que deu certo.
+   */
+  async function repararNotificacoesPush() {
+    if (usuario === null) {
+      return;
+    }
+    setErroNotificacoesPush('');
+    setEstadoNotificacoesPush('ATIVANDO');
+    const deviceId = deviceIdPushRef.current ?? obterOuCriarDeviceId(usuario.login);
+    deviceIdPushRef.current = deviceId;
+    setDeviceIdPushAtual(deviceId);
+    const resultado = await repararPush();
+    if (resultado.estado === 'ATIVO' && resultado.fid) {
+      try {
+        await registrarOuRenovarDispositivo({ deviceId, login: usuario.login, fid: resultado.fid });
+        const status = await obterStatusDispositivo(deviceId, usuario.login);
+        setUltimaConfirmacaoPush(status.ultimaConfirmacaoEm);
+        if (status.status === 'ATIVO') {
+          messagingPushInicializadoRef.current = true;
+          setEstadoNotificacoesPush('ATIVO');
+        } else {
+          setErroNotificacoesPush('Não foi possível confirmar o reparo. Tente novamente.');
+          setEstadoNotificacoesPush('PRECISA_REPARO');
+        }
+      } catch {
+        setErroNotificacoesPush('Permissão concedida, mas não foi possível salvar o dispositivo. Tente novamente.');
+        setEstadoNotificacoesPush('ERRO');
+      }
+      return;
+    }
+    if (resultado.estado === 'PERMISSAO_NEGADA') {
+      setEstadoNotificacoesPush('BLOQUEADO');
+      return;
+    }
+    if (resultado.estado === 'NAO_SUPORTADO') {
+      setEstadoNotificacoesPush('INDISPONIVEL');
+      return;
+    }
+    if (resultado.estado === 'NAO_CONFIGURADO') {
+      setEstadoNotificacoesPush('NAO_CONFIGURADO');
+      return;
+    }
+    setErroNotificacoesPush(resultado.erro ?? 'Não foi possível reconfigurar este dispositivo.');
+    setEstadoNotificacoesPush('ERRO');
+  }
+
   async function desativarNotificacoesPush() {
     if (usuario === null) {
       return;
@@ -1578,6 +1691,9 @@ export function EmployeeApp() {
     }
     removerDeviceIdLocal(usuario.login);
     deviceIdPushRef.current = null;
+    setDeviceIdPushAtual(null);
+    messagingPushInicializadoRef.current = false;
+    setUltimaConfirmacaoPush(null);
     setEstadoNotificacoesPush('DISPONIVEL');
   }
 
@@ -1597,6 +1713,8 @@ export function EmployeeApp() {
     await limparPushAoSairAdapter({ deviceIdExistente: deviceId, desativarDispositivo });
     removerDeviceIdLocal(login);
     deviceIdPushRef.current = null;
+    setDeviceIdPushAtual(null);
+    messagingPushInicializadoRef.current = false;
   }
 
   /**
@@ -1629,12 +1747,19 @@ export function EmployeeApp() {
     setEstadoNotificacoesPush('ATIVANDO');
     const resultado = await retomarPushSeAderido({
       deviceIdExistente: deviceId,
-      verificarDispositivoAtivo,
+      // Verificação enriquecida (auditoria PUSH-PWA-2B.1): um documento
+      // `ativo: true` com FID obsoleto não deve retomar em silêncio como se
+      // estivesse funcionando — cai para `NAO_ADERIU` e o usuário vê
+      // `PRECISA_REPARO` ao abrir o Perfil (`avaliarEstadoNotificacoesPush`).
+      verificarDispositivoAtivo: async (id) => (await obterStatusDispositivo(id, login)).status === 'ATIVO',
     });
     if (resultado.estado === 'ATIVO' && resultado.fid) {
       deviceIdPushRef.current = deviceId;
+      setDeviceIdPushAtual(deviceId);
       try {
         await registrarOuRenovarDispositivo({ deviceId, login, fid: resultado.fid });
+        messagingPushInicializadoRef.current = true;
+        setUltimaConfirmacaoPush(new Date().toISOString());
         setEstadoNotificacoesPush('ATIVO');
       } catch {
         setErroNotificacoesPush('Não foi possível confirmar o dispositivo automaticamente. Abra o Perfil para tentar novamente.');
@@ -2210,8 +2335,11 @@ export function EmployeeApp() {
             <CardNotificacoesPush
               estado={estadoNotificacoesPush}
               erro={erroNotificacoesPush}
+              identificadorDispositivo={identificadorDispositivoAbreviado(deviceIdPushAtual)}
+              confirmacao={rotuloConfirmacaoPush(ultimaConfirmacaoPush)}
               onAtivar={() => void ativarNotificacoesPush()}
               onDesativar={() => void desativarNotificacoesPush()}
+              onReparar={() => void repararNotificacoesPush()}
             />
             <button className="secondary-button profile-logout" type="button" onClick={() => void encerrarSessao()}>
               <LogOut size={17} /> Sair deste dispositivo

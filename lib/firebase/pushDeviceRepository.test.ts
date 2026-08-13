@@ -33,6 +33,7 @@ import {
   desativarDispositivo,
   deviceIdExistenteLocal,
   obterOuCriarDeviceId,
+  obterStatusDispositivo,
   registrarOuRenovarDispositivo,
   removerDeviceIdLocal,
   verificarDispositivoAtivo,
@@ -154,5 +155,68 @@ describe('verificarDispositivoAtivo', () => {
 
   it('devolve false para dispositivo inexistente', async () => {
     expect(await verificarDispositivoAtivo('nunca-existiu')).toBe(false);
+  });
+});
+
+describe('obterStatusDispositivo', () => {
+  it('documento inexistente é INATIVO, sem ultimaConfirmacaoEm', async () => {
+    expect(await obterStatusDispositivo('nunca-existiu')).toEqual({
+      status: 'INATIVO',
+      ultimaConfirmacaoEm: null,
+    });
+  });
+
+  it('documento válido (ativo, FID presente, plataforma/environment corretos) é ATIVO', async () => {
+    await registrarOuRenovarDispositivo({ deviceId: 'dev-a', login: 'lvergani', fid: 'fid-a' });
+    const resultado = await obterStatusDispositivo('dev-a');
+    expect(resultado.status).toBe('ATIVO');
+    expect(resultado.ultimaConfirmacaoEm).not.toBeNull();
+  });
+
+  it('documento válido de outro login nunca representa a instalação autenticada atual', async () => {
+    await registrarOuRenovarDispositivo({ deviceId: 'dev-a', login: 'outro', fid: 'fid-a' });
+    expect((await obterStatusDispositivo('dev-a', 'lvergani')).status).toBe('INATIVO');
+  });
+
+  it('documento desativado (ativo: false) é INATIVO, mesmo com FID presente', async () => {
+    await registrarOuRenovarDispositivo({ deviceId: 'dev-a', login: 'lvergani', fid: 'fid-a' });
+    await desativarDispositivo('dev-a');
+    expect((await obterStatusDispositivo('dev-a')).status).toBe('INATIVO');
+  });
+
+  it('documento ativo com fid vazio é PRECISA_REPARO — nunca ATIVO (achado real: instalação "zumbi")', async () => {
+    await registrarOuRenovarDispositivo({ deviceId: 'dev-a', login: 'lvergani', fid: '' });
+    expect((await obterStatusDispositivo('dev-a')).status).toBe('PRECISA_REPARO');
+  });
+
+  it('documento ativo com plataforma fora do contrato desta fase é PRECISA_REPARO', async () => {
+    await registrarOuRenovarDispositivo({ deviceId: 'dev-a', login: 'lvergani', fid: 'fid-a' });
+    estado.documentos.set('dev-a', { ...estado.documentos.get('dev-a'), plataforma: 'ANDROID' });
+    expect((await obterStatusDispositivo('dev-a')).status).toBe('PRECISA_REPARO');
+  });
+
+  it('documento ativo com environment fora do contrato desta fase é PRECISA_REPARO', async () => {
+    await registrarOuRenovarDispositivo({ deviceId: 'dev-a', login: 'lvergani', fid: 'fid-a' });
+    estado.documentos.set('dev-a', { ...estado.documentos.get('dev-a'), environment: 'PRODUCAO' });
+    expect((await obterStatusDispositivo('dev-a')).status).toBe('PRECISA_REPARO');
+  });
+
+  it('reparo (renovação do mesmo deviceId) leva PRECISA_REPARO de volta a ATIVO', async () => {
+    await registrarOuRenovarDispositivo({ deviceId: 'dev-a', login: 'lvergani', fid: '' });
+    expect((await obterStatusDispositivo('dev-a')).status).toBe('PRECISA_REPARO');
+
+    await registrarOuRenovarDispositivo({ deviceId: 'dev-a', login: 'lvergani', fid: 'fid-renovado' });
+    expect((await obterStatusDispositivo('dev-a')).status).toBe('ATIVO');
+  });
+
+  it('outros documentos nunca são afetados ao consultar/reparar um deviceId específico', async () => {
+    await registrarOuRenovarDispositivo({ deviceId: 'dev-a', login: 'lvergani', fid: '' });
+    await registrarOuRenovarDispositivo({ deviceId: 'dev-b', login: 'lvergani', fid: 'fid-b' });
+
+    await obterStatusDispositivo('dev-a');
+    await registrarOuRenovarDispositivo({ deviceId: 'dev-a', login: 'lvergani', fid: 'fid-a-renovado' });
+
+    expect((await obterStatusDispositivo('dev-b')).status).toBe('ATIVO');
+    expect(estado.documentos.get('dev-b')?.fid).toBe('fid-b');
   });
 });

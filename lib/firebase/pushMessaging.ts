@@ -275,6 +275,34 @@ export function assinarRenovacaoFid(
   return deps.onRegistered(messaging, aoRenovar);
 }
 
+/**
+ * Reparo de uma instalação com registro "zumbi" (documento `ativo: true`
+ * mas FID inválido/obsoleto — ver `obterStatusDispositivo`). Força o
+ * `unregister()` oficial do FCM antes de renovar, para não depender de o
+ * navegador emitir `pushsubscriptionchange` sozinho; a renovação em si
+ * reusa `ativarPush()` (mesma ordem onRegistered→register, mesmo
+ * `deviceId`, nunca pede permissão de novo pois já está `granted`). Melhor
+ * esforço no `unregister()`: se não houver nada para desfazer, a renovação
+ * a seguir ainda funciona normalmente.
+ */
+export async function repararPush(deps: PushMessagingDeps = dependenciasPadrao): Promise<ResultadoAtivacao> {
+  const firebase = obterFirebase();
+  if (firebase === null) {
+    return { estado: 'NAO_CONFIGURADO' };
+  }
+  const suportado = await deps.isSupported().catch(() => false);
+  if (suportado) {
+    try {
+      const messaging = deps.getMessaging(firebase.app);
+      await deps.unregister(messaging);
+    } catch {
+      // Nada para desfazer, ou falha ao desfazer — a renovação abaixo ainda
+      // pode funcionar mesmo assim.
+    }
+  }
+  return ativarPush(deps);
+}
+
 export async function desativarPush(deps: PushMessagingDeps = dependenciasPadrao): Promise<void> {
   const firebase = obterFirebase();
   if (firebase === null) {

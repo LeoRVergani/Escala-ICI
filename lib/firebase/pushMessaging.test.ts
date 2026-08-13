@@ -25,6 +25,7 @@ import {
   desativarPush,
   dependenciasPadrao,
   limparPushAoSair,
+  repararPush,
   retomarPushSeAderido,
   type PushMessagingDeps,
 } from './pushMessaging';
@@ -170,6 +171,83 @@ describe('ativarPush', () => {
     expect(JSON.stringify(resultado)).toContain('fid-secreto-nao-deve-aparecer-em-log');
     // O único lugar em que o FID aparece é o campo `fid` devolvido para quem
     // chamou persistir — nunca dentro de `erro` (mensagem de log/UI).
+  });
+});
+
+describe('repararPush (Fase PUSH-PWA-2B.1 — instalação "zumbi" com FID obsoleto)', () => {
+  it('chama unregister antes de renovar, e devolve ATIVO com o novo fid', async () => {
+    const ordem: string[] = [];
+    const deps = criarDeps({
+      permissaoAtual: () => 'granted',
+      unregister: vi.fn(async () => {
+        ordem.push('unregister');
+      }),
+      onRegistered: (_messaging, callback) => {
+        ordem.push('onRegistered');
+        queueMicrotask(() => callback('fid-reparado'));
+        return () => {};
+      },
+      register: vi.fn(async () => {
+        ordem.push('register');
+      }),
+    });
+
+    const resultado = await repararPush(deps);
+
+    expect(resultado).toEqual({ estado: 'ATIVO', fid: 'fid-reparado' });
+    expect(deps.unregister).toHaveBeenCalledTimes(1);
+    expect(ordem).toEqual(['unregister', 'onRegistered', 'register']);
+    expect(deps.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it('nunca pede permissão de novo — a permissão já concedida é preservada', async () => {
+    const deps = criarDeps({
+      permissaoAtual: () => 'granted',
+      onRegistered: (_messaging, callback) => {
+        queueMicrotask(() => callback('fid-reparado'));
+        return () => {};
+      },
+    });
+
+    await repararPush(deps);
+
+    expect(deps.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it('se unregister falhar (nada para desfazer), a renovação ainda continua', async () => {
+    const deps = criarDeps({
+      permissaoAtual: () => 'granted',
+      unregister: vi.fn(async () => {
+        throw new Error('nada para desfazer');
+      }),
+      onRegistered: (_messaging, callback) => {
+        queueMicrotask(() => callback('fid-reparado'));
+        return () => {};
+      },
+    });
+
+    const resultado = await repararPush(deps);
+
+    expect(resultado).toEqual({ estado: 'ATIVO', fid: 'fid-reparado' });
+  });
+
+  it('devolve NAO_CONFIGURADO sem chamar unregister/register quando obterFirebase() é null', async () => {
+    clienteMock.obterFirebase.mockReturnValue(null);
+    const deps = criarDeps();
+
+    const resultado = await repararPush(deps);
+
+    expect(resultado).toEqual({ estado: 'NAO_CONFIGURADO' });
+    expect(deps.unregister).not.toHaveBeenCalled();
+    expect(deps.register).not.toHaveBeenCalled();
+  });
+
+  it('permissão negada durante o reparo devolve PERMISSAO_NEGADA (nunca finge sucesso)', async () => {
+    const deps = criarDeps({ permissaoAtual: () => 'denied' });
+
+    const resultado = await repararPush(deps);
+
+    expect(resultado).toEqual({ estado: 'PERMISSAO_NEGADA' });
   });
 });
 
