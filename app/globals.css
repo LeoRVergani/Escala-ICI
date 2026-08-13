@@ -2019,10 +2019,12 @@ button.shift-chip:disabled { cursor: default; }
 .profile-logout { grid-column: 1 / -1; justify-self: end; }
 
 .profile-notifications { grid-column: 1 / -1; padding: 18px 22px; display: flex; flex-direction: column; gap: 8px; }
+.profile-notifications-destaque { outline: 1px solid rgba(32, 197, 255, 0.45); box-shadow: 0 0 0 4px rgba(32, 197, 255, 0.08); }
 .profile-notifications-cabecalho { display: flex; align-items: center; gap: 9px; color: var(--primary-bright); }
 .profile-notifications-cabecalho h3 { margin: 0; font-size: 14px; color: var(--text); }
 .profile-notifications-status { margin: 0; color: var(--muted); font-size: 12px; }
 .profile-notifications-erro { margin: 0; color: var(--danger); font-size: 12px; }
+.profile-notifications-sucesso { margin: 0; color: var(--success); font-size: 12px; }
 .profile-notifications-dispositivo { margin: 0; color: var(--muted); font-size: 11px; }
 .profile-notifications-dispositivo code { font-family: inherit; }
 .profile-notifications-orientacao { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }

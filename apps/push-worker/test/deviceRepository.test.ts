@@ -1,6 +1,12 @@
 import type { Firestore } from 'firebase-admin/firestore';
-import { describe, expect, it } from 'vitest';
-import { deactivateDevice, listActiveDevices } from '../src/deviceRepository.js';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  abreviarDeviceId,
+  auditDevicesByLogin,
+  deactivateDevice,
+  listActiveDevices,
+} from '../src/deviceRepository.js';
+import { lerLoginAuditoriaDoArgv } from '../src/deviceAuditCli.js';
 import { FirestoreFake } from './_fakes/firestoreFake.js';
 
 function criarDb(): { fake: FirestoreFake; db: Firestore } {
@@ -67,5 +73,74 @@ describe('deviceRepository', () => {
     const dispositivos = await listActiveDevices(db, 'lvergani');
 
     expect(dispositivos).toHaveLength(0);
+  });
+});
+
+describe('auditDevicesByLogin / devices:audit', () => {
+  it('CLI exige --login', () => {
+    expect(() => lerLoginAuditoriaDoArgv([])).toThrow(/devices:audit/);
+    expect(() => lerLoginAuditoriaDoArgv(['--login='])).toThrow(/devices:audit/);
+    expect(lerLoginAuditoriaDoArgv(['--login=lvergani'])).toBe('lvergani');
+  });
+
+  it('abreviação do deviceId é estável e não expõe o identificador completo', () => {
+    expect(abreviarDeviceId('web-1234567890abcdef')).toBe('abcdef');
+  });
+
+  it('ordena por confirmação mais recente e imprime apenas campos sanitizados', async () => {
+    const { fake, db } = criarDb();
+    fake.seed('dispositivosPush', 'web-antigo-111111', {
+      login: 'lvergani',
+      ativo: true,
+      environment: 'STAGING',
+      plataforma: 'WEB',
+      fid: 'fid-nao-imprimir-antigo',
+      token: 'token-nao-imprimir-antigo',
+      criadoEm: '2026-08-10T10:00:00.000Z',
+      atualizadoEm: '2026-08-11T10:00:00.000Z',
+      ultimaConfirmacaoEm: '2026-08-11T10:00:00.000Z',
+    });
+    fake.seed('dispositivosPush', 'web-novo-222222', {
+      login: 'lvergani',
+      ativo: true,
+      environment: 'STAGING',
+      plataforma: 'WEB',
+      fid: 'fid-nao-imprimir-novo',
+      token: 'token-nao-imprimir-novo',
+      criadoEm: '2026-08-10T10:00:00.000Z',
+      atualizadoEm: '2026-08-12T10:00:00.000Z',
+      ultimaConfirmacaoEm: '2026-08-12T10:00:00.000Z',
+    });
+
+    const resultado = await auditDevicesByLogin(db, 'lvergani');
+    const serializado = JSON.stringify(resultado);
+
+    expect(resultado.total).toBe(2);
+    expect(resultado.dispositivos.map((d) => d.deviceId)).toEqual(['222222', '111111']);
+    expect(resultado.dispositivos[0]?.posicaoRelativa).toBe('mais recente');
+    expect(resultado.dispositivos[0]?.fidPresente).toBe(true);
+    expect(serializado).not.toContain('fid-nao-imprimir');
+    expect(serializado).not.toContain('token-nao-imprimir');
+    expect(serializado).not.toContain('lvergani@');
+  });
+
+  it('auditoria é somente leitura — não executa update/set', async () => {
+    const { fake, db } = criarDb();
+    fake.seed('dispositivosPush', 'web-333333', {
+      login: 'lvergani',
+      ativo: true,
+      environment: 'STAGING',
+      plataforma: 'WEB',
+      fid: 'fid-presente',
+      atualizadoEm: '2026-08-12T10:00:00.000Z',
+    });
+    const ref = db.collection('dispositivosPush').doc('web-333333');
+    const update = vi.spyOn(ref, 'update');
+    const set = vi.spyOn(ref, 'set');
+
+    await auditDevicesByLogin(db, 'lvergani');
+
+    expect(update).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
   });
 });

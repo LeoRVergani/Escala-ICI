@@ -121,6 +121,28 @@ docker compose --env-file .env.staging.push-worker \
 
 Retorna só `devicesFound`/`successCount`/`failureCount` — nunca um FID.
 
+## Como auditar dispositivos sem enviar FCM
+
+Desde a Fase PUSH-PWA-2B.2A, o pacote do worker oferece uma CLI somente
+leitura para listar os documentos de `dispositivosPush` de um login sem
+exibir FID, token, e-mail, UID ou credencial:
+
+```bash
+npm run devices:audit --workspace @escala-ici/push-worker -- --login=<login>
+```
+
+No container/ambiente do worker, ela usa a mesma configuração operacional do
+serviço. Em execução local, defina apenas as variáveis operacionais já fixas
+no Compose (`FIREBASE_PROJECT_ID=escala-ici-staging`,
+`PUSH_ENVIRONMENT=staging`, `GOOGLE_APPLICATION_CREDENTIALS=<caminho>` e
+`PUSH_ACTIVATED_AT`), sem imprimir o conteúdo do `.env` nem da credencial.
+
+A saída é estável e sanitizada: `deviceId` abreviado, `ativo`, `plataforma`,
+`environment`, presença de FID como booleano, timestamps e posição relativa.
+Essa CLI não envia FCM, não grava no Firestore e não desativa dispositivos.
+Use-a antes de qualquer saneamento para comparar os IDs abreviados exibidos
+no card do PWA em cada instalação.
+
 ## Como desativar push (kill switch)
 
 ```bash

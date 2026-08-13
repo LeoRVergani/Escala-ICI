@@ -78,10 +78,13 @@ import {
   assinarMensagensEmPrimeiroPlano,
   assinarRenovacaoFid,
   avaliarSuporte,
+  consultarServiceWorkerPush,
   desativarPush,
   limparPushAoSair as limparPushAoSairAdapter,
   repararPush,
   retomarPushSeAderido,
+  testarNotificacaoLocalPush,
+  type StatusServiceWorkerPush,
 } from '@/lib/firebase/pushMessaging';
 import { formatarDataHoraSafe, formatarDiaTrocaSafe } from '@/lib/dataSegura';
 import {
@@ -700,9 +703,13 @@ interface CardNotificacoesPushProps {
   erro: string;
   identificadorDispositivo: string | null;
   confirmacao: string | null;
+  serviceWorker: StatusServiceWorkerPush | null;
+  testeLocalMensagem: string;
+  diagnosticoCliqueMensagem: string;
   onAtivar: () => void;
   onDesativar: () => void;
   onReparar: () => void;
+  onTestarLocal: () => void;
 }
 
 /**
@@ -720,14 +727,18 @@ function CardNotificacoesPush({
   erro,
   identificadorDispositivo,
   confirmacao,
+  serviceWorker,
+  testeLocalMensagem,
+  diagnosticoCliqueMensagem,
   onAtivar,
   onDesativar,
   onReparar,
+  onTestarLocal,
 }: CardNotificacoesPushProps) {
   const desabilitado = estado === 'ATIVANDO';
   const mostrarDispositivo = (estado === 'ATIVO' || estado === 'PRECISA_REPARO') && identificadorDispositivo !== null;
   return (
-    <article className="panel profile-notifications">
+    <article className={`panel profile-notifications${diagnosticoCliqueMensagem ? ' profile-notifications-destaque' : ''}`}>
       <div className="profile-notifications-cabecalho">
         {estado === 'ATIVO' ? <BellRing size={18} /> : <Bell size={18} />}
         <h3>Notificações</h3>
@@ -740,6 +751,18 @@ function CardNotificacoesPush({
           Este dispositivo · PWA Web · <code>…{identificadorDispositivo}</code>
           {confirmacao ? ` · ${confirmacao}` : ''}
         </p>
+      )}
+      {serviceWorker && (
+        <p className="profile-notifications-dispositivo">
+          Service worker · {serviceWorker.controlador ? 'Controlando esta página' : 'Sem controlador'}
+          {serviceWorker.versao ? ` · ${serviceWorker.versao}` : ''}
+        </p>
+      )}
+      {diagnosticoCliqueMensagem && (
+        <p className="profile-notifications-sucesso" role="status">{diagnosticoCliqueMensagem}</p>
+      )}
+      {testeLocalMensagem && (
+        <p className="profile-notifications-sucesso" role="status">{testeLocalMensagem}</p>
       )}
       {estado === 'ERRO' && erro && (
         <p className="profile-notifications-erro" role="alert">{erro}</p>
@@ -778,6 +801,11 @@ function CardNotificacoesPush({
             disabled={desabilitado}
           >
             <RefreshCw size={16} /> Reconfigurar neste dispositivo
+          </button>
+        )}
+        {estado === 'ATIVO' && (
+          <button className="secondary-button" type="button" onClick={onTestarLocal}>
+            <BellRing size={16} /> Testar neste dispositivo
           </button>
         )}
         {estado === 'ATIVO' && (
@@ -1186,6 +1214,9 @@ export function EmployeeApp() {
   const [erroNotificacoesPush, setErroNotificacoesPush] = useState('');
   const [ultimaConfirmacaoPush, setUltimaConfirmacaoPush] = useState<string | null>(null);
   const [deviceIdPushAtual, setDeviceIdPushAtual] = useState<string | null>(null);
+  const [serviceWorkerPush, setServiceWorkerPush] = useState<StatusServiceWorkerPush | null>(null);
+  const [mensagemTesteLocalPush, setMensagemTesteLocalPush] = useState('');
+  const [mensagemCliqueDiagnosticoPush, setMensagemCliqueDiagnosticoPush] = useState('');
   // Lido uma única vez na primeira renderização (inicializador tardio, não
   // um efeito) e some da URL logo depois — nunca reprocessado num F5.
   const [deepLinkTrocaId, setDeepLinkTrocaId] = useState<string | null>(() => {
@@ -1198,6 +1229,17 @@ export function EmployeeApp() {
     const query = parametros.toString();
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
     return trocaId;
+  });
+  const [pushDiagnosticoNaUrl, setPushDiagnosticoNaUrl] = useState<boolean>(() => {
+    const parametros = new URLSearchParams(window.location.search);
+    const pushDiagnostico = parametros.get('pushDiagnostico') === '1';
+    if (!pushDiagnostico) {
+      return false;
+    }
+    parametros.delete('pushDiagnostico');
+    const query = parametros.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+    return true;
   });
   const eventosConhecidos = useRef<Set<string>>(new Set());
   const primeiraCargaEventos = useRef(true);
@@ -1347,6 +1389,27 @@ export function EmployeeApp() {
     }
     return () => window.cancelAnimationFrame(quadro);
   }, [deepLinkTrocaId, usuario, dadosCarregados, notificacoesTroca]);
+
+  // Diagnóstico local acionado pelo service worker (`?pushDiagnostico=1`):
+  // abre o Perfil, confirma visualmente o clique e não toca em Trocas nem
+  // marca notificações como lidas.
+  useEffect(() => {
+    if (!pushDiagnosticoNaUrl || usuario === null || !dadosCarregados) {
+      return undefined;
+    }
+    const quadro = window.requestAnimationFrame(() => {
+      setTela('perfil');
+      setMensagemCliqueDiagnosticoPush('Clique da notificação local confirmado neste dispositivo.');
+      setPushDiagnosticoNaUrl(false);
+    });
+    const temporizador = window.setTimeout(() => {
+      setMensagemCliqueDiagnosticoPush('');
+    }, 8_000);
+    return () => {
+      window.cancelAnimationFrame(quadro);
+      window.clearTimeout(temporizador);
+    };
+  }, [pushDiagnosticoNaUrl, usuario, dadosCarregados]);
 
   // Derivado (não um segundo `useState`) para o modal aberto ficar sempre
   // sincronizado com o snapshot em tempo real — por exemplo, se o colega
@@ -1549,6 +1612,7 @@ export function EmployeeApp() {
    * nunca no carregamento do App.
    */
   async function avaliarEstadoNotificacoesPush() {
+    setServiceWorkerPush(await consultarServiceWorkerPush());
     if (modoDemonstracao) {
       setEstadoNotificacoesPush('DEMO');
       return;
@@ -1584,6 +1648,24 @@ export function EmployeeApp() {
       }
     }
     setEstadoNotificacoesPush('DISPONIVEL');
+  }
+
+  async function testarNotificacaoLocalNesteDispositivo() {
+    setMensagemTesteLocalPush('');
+    setErroNotificacoesPush('');
+    const resultado = await testarNotificacaoLocalPush();
+    if (resultado.aceito) {
+      setMensagemTesteLocalPush('Teste local solicitado ao service worker deste dispositivo.');
+      setServiceWorkerPush((atual) => ({
+        controlador: true,
+        versao: resultado.versao ?? atual?.versao ?? null,
+        origem: atual?.origem ?? window.location.origin,
+        consultadoEm: resultado.consultadoEm,
+      }));
+      return;
+    }
+    setErroNotificacoesPush(resultado.erro ?? 'Não foi possível executar o teste local neste dispositivo.');
+    setMensagemTesteLocalPush('');
   }
 
   async function ativarNotificacoesPush() {
@@ -2337,9 +2419,13 @@ export function EmployeeApp() {
               erro={erroNotificacoesPush}
               identificadorDispositivo={identificadorDispositivoAbreviado(deviceIdPushAtual)}
               confirmacao={rotuloConfirmacaoPush(ultimaConfirmacaoPush)}
+              serviceWorker={serviceWorkerPush}
+              testeLocalMensagem={mensagemTesteLocalPush}
+              diagnosticoCliqueMensagem={mensagemCliqueDiagnosticoPush}
               onAtivar={() => void ativarNotificacoesPush()}
               onDesativar={() => void desativarNotificacoesPush()}
               onReparar={() => void repararNotificacoesPush()}
+              onTestarLocal={() => void testarNotificacaoLocalNesteDispositivo()}
             />
             <button className="secondary-button profile-logout" type="button" onClick={() => void encerrarSessao()}>
               <LogOut size={17} /> Sair deste dispositivo

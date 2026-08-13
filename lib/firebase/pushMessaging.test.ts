@@ -22,12 +22,17 @@ import {
   assinarMensagensEmPrimeiroPlano,
   assinarRenovacaoFid,
   avaliarSuporte,
+  consultarServiceWorkerPush,
   desativarPush,
   dependenciasPadrao,
   limparPushAoSair,
+  PUSH_LOCAL_TEST_REQUEST,
+  PUSH_SW_STATUS_REQUEST,
   repararPush,
   retomarPushSeAderido,
+  testarNotificacaoLocalPush,
   type PushMessagingDeps,
+  type PushServiceWorkerDiagnosticsDeps,
 } from './pushMessaging';
 
 function criarDeps(overrides: Partial<PushMessagingDeps> = {}): PushMessagingDeps {
@@ -43,6 +48,41 @@ function criarDeps(overrides: Partial<PushMessagingDeps> = {}): PushMessagingDep
     notificationDisponivel: vi.fn(() => true),
     serviceWorkerReady: vi.fn(async () => ({ __registration: true }) as never),
     ...overrides,
+  };
+}
+
+function criarDepsDiagnostico(
+  resposta: unknown,
+  overrides: Partial<PushServiceWorkerDiagnosticsDeps> = {},
+): { deps: PushServiceWorkerDiagnosticsDeps; postMessage: ReturnType<typeof vi.fn>; mensagens: unknown[] } {
+  const mensagens: unknown[] = [];
+  const port1 = {
+    onmessage: null as ((event: MessageEvent) => void) | null,
+    postMessage: vi.fn(),
+    close: vi.fn(),
+  };
+  const port2 = {
+    onmessage: null as ((event: MessageEvent) => void) | null,
+    postMessage: vi.fn(),
+    close: vi.fn(),
+  };
+  const postMessage = vi.fn((mensagem: unknown) => {
+    mensagens.push(mensagem);
+    queueMicrotask(() => {
+      port1.onmessage?.({ data: resposta } as MessageEvent);
+    });
+  });
+  return {
+    deps: {
+      controller: () => ({ postMessage } as never),
+      criarCanal: () => ({ port1, port2 }),
+      setTimeout: vi.fn(() => 1),
+      clearTimeout: vi.fn(),
+      agora: () => '2026-08-13T10:00:00.000Z',
+      ...overrides,
+    },
+    postMessage,
+    mensagens,
   };
 }
 
@@ -294,6 +334,95 @@ describe('dependenciasPadrao', () => {
   it('nunca importa getToken/deleteToken do SDK', () => {
     expect(Object.keys(dependenciasPadrao)).not.toContain('getToken');
     expect(Object.keys(dependenciasPadrao)).not.toContain('deleteToken');
+  });
+});
+
+describe('diagnóstico local via service worker (PUSH-PWA-2B.2A)', () => {
+  it('consulta a versão pública do service worker por MessageChannel', async () => {
+    const { deps, mensagens } = criarDepsDiagnostico({
+      ok: true,
+      version: 'push-pwa-2b2a',
+      origin: 'https://staging.escala-ici-staging.pages.dev',
+      checkedAt: '2026-08-13T10:00:01.000Z',
+    });
+
+    const resultado = await consultarServiceWorkerPush(deps);
+
+    expect(mensagens).toEqual([{ type: PUSH_SW_STATUS_REQUEST }]);
+    expect(resultado).toEqual({
+      controlador: true,
+      versao: 'push-pwa-2b2a',
+      origem: 'https://staging.escala-ici-staging.pages.dev',
+      consultadoEm: '2026-08-13T10:00:01.000Z',
+    });
+  });
+
+  it('devolve erro recuperável quando não há service worker controlando a página', async () => {
+    const { deps } = criarDepsDiagnostico({ ok: true }, { controller: () => null });
+
+    const resultado = await consultarServiceWorkerPush(deps);
+
+    expect(resultado.controlador).toBe(false);
+    expect(resultado.versao).toBeNull();
+    expect(resultado.erro).toMatch(/Nenhum service worker/);
+  });
+
+  it('expira com erro quando o worker não responde', async () => {
+    const port1 = {
+      onmessage: null as ((event: MessageEvent) => void) | null,
+      postMessage: vi.fn(),
+      close: vi.fn(),
+    };
+    vi.useFakeTimers();
+    try {
+      const deps: PushServiceWorkerDiagnosticsDeps = {
+        controller: () => ({ postMessage: vi.fn() } as never),
+        criarCanal: () => ({ port1, port2: { onmessage: null, postMessage: vi.fn(), close: vi.fn() } }),
+        setTimeout: (callback: () => void, timeoutMs: number) => setTimeout(callback, timeoutMs),
+        clearTimeout: (id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>),
+        agora: () => '2026-08-13T10:00:00.000Z',
+      };
+
+      const promessa = consultarServiceWorkerPush(deps);
+      await vi.advanceTimersByTimeAsync(4_000);
+
+      const resultado = await promessa;
+      expect(resultado.erro).toMatch(/Tempo esgotado/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('teste local envia mensagem ao service worker, sem chamar Firebase/FCM nem criar FID', async () => {
+    const { deps, mensagens } = criarDepsDiagnostico({
+      ok: true,
+      version: 'push-pwa-2b2a',
+      checkedAt: '2026-08-13T10:00:02.000Z',
+    });
+
+    const resultado = await testarNotificacaoLocalPush(deps);
+
+    expect(mensagens).toEqual([{ type: PUSH_LOCAL_TEST_REQUEST }]);
+    expect(resultado).toEqual({
+      aceito: true,
+      versao: 'push-pwa-2b2a',
+      consultadoEm: '2026-08-13T10:00:02.000Z',
+    });
+    expect(clienteMock.obterFirebase).not.toHaveBeenCalled();
+    expect(clienteMock.obterVapidKeyPublica).not.toHaveBeenCalled();
+  });
+
+  it('erro do teste local nunca expõe FID em mensagem de UI/log', async () => {
+    const { deps } = criarDepsDiagnostico({
+      ok: false,
+      error: 'Falha sanitizada ao exibir notificação local.',
+    });
+
+    const resultado = await testarNotificacaoLocalPush(deps);
+
+    expect(resultado.aceito).toBe(false);
+    expect(resultado.erro).toBe('Falha sanitizada ao exibir notificação local.');
+    expect(JSON.stringify(resultado)).not.toMatch(/fid-/i);
   });
 });
 

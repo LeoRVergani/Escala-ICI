@@ -108,6 +108,9 @@ test('showNotification só é chamado uma vez no service worker — impossível 
   const fonte = await ler('apps/app/src/sw/serviceWorker.js');
   const chamadas = fonte.match(/\.showNotification\(/g) ?? [];
   assert.equal(chamadas.length, 1, 'deve existir exatamente um chamador de showNotification');
+  assert.match(fonte, /function exibirNotificacaoEscala/);
+  assert.match(fonte, /onBackgroundMessage[\s\S]*exibirNotificacaoEscala/);
+  assert.match(fonte, /ESCALA_ICI_LOCAL_NOTIFICATION_TEST[\s\S]*exibirNotificacaoEscala/);
 });
 
 test('o service worker não empacota código-fonte do Firebase copiado manualmente (é bundle do pacote npm, via build próprio)', async () => {
@@ -168,6 +171,86 @@ test('o push-worker envia só data (nunca notification no nível superior) — e
   assert.doesNotMatch(pushSender, /\bnotification:\s*\{/, 'buildMessage não deve montar um campo notification de nível superior');
   assert.match(pushSender, /titulo:/);
   assert.match(pushSender, /corpo:/);
+});
+
+test('service worker expõe identificador público da fase e protocolo seguro de diagnóstico local', async () => {
+  const [worker, pushMessaging, employeeApp] = await Promise.all([
+    ler('apps/app/src/sw/serviceWorker.js'),
+    ler('lib/firebase/pushMessaging.ts'),
+    ler('apps/app/src/EmployeeApp.tsx'),
+  ]);
+  assert.match(worker, /PUSH_DIAGNOSTIC_VERSION = 'push-pwa-2b2a'/);
+  assert.match(worker, /ESCALA_ICI_SW_STATUS/);
+  assert.match(pushMessaging, /PUSH_SW_STATUS_REQUEST/);
+  assert.match(employeeApp, /consultarServiceWorkerPush/);
+  assert.doesNotMatch(worker, /VITE_FIREBASE_VAPID_KEY/);
+});
+
+test('teste local de notificação não chama Firebase\/FCM nem cria ou renova FID', async () => {
+  const [pushMessaging, employeeApp] = await Promise.all([
+    ler('lib/firebase/pushMessaging.ts'),
+    ler('apps/app/src/EmployeeApp.tsx'),
+  ]);
+  const funcao = pushMessaging.match(/export async function testarNotificacaoLocalPush[\s\S]*?\n\}/)?.[0] ?? '';
+  assert.match(funcao, /PUSH_LOCAL_TEST_REQUEST/);
+  assert.doesNotMatch(funcao, /obterFirebase|getMessaging|register|unregister|onRegistered|fid/i);
+  const handler = employeeApp.match(/async function testarNotificacaoLocalNesteDispositivo\(\)[\s\S]*?\n  \}/)?.[0] ?? '';
+  assert.match(handler, /testarNotificacaoLocalPush/);
+  assert.doesNotMatch(handler, /ativarPush|repararPush|registrarOuRenovarDispositivo|obterOuCriarDeviceId/);
+});
+
+test('notificação local usa título e corpo exatos do diagnóstico', async () => {
+  const worker = await ler('apps/app/src/sw/serviceWorker.js');
+  assert.match(worker, /titulo:\s*'Teste local — Escala ICI'/);
+  assert.match(worker, /corpo:\s*'Este dispositivo consegue exibir notificações\.'/);
+  assert.match(worker, /tipo:\s*'DIAGNOSTICO_LOCAL'/);
+});
+
+test('clique do diagnóstico abre Perfil e remove pushDiagnostico da URL sem interferir em trocaId', async () => {
+  const [worker, employeeApp] = await Promise.all([
+    ler('apps/app/src/sw/serviceWorker.js'),
+    ler('apps/app/src/EmployeeApp.tsx'),
+  ]);
+  assert.match(worker, /DIAGNOSTICO_LOCAL[\s\S]*pushDiagnostico=1/);
+  assert.match(employeeApp, /parametros\.delete\('pushDiagnostico'\)/);
+  assert.match(employeeApp, /setTela\('perfil'\)/);
+  assert.match(employeeApp, /Clique da notificação local confirmado neste dispositivo\./);
+  assert.match(employeeApp, /setTela\('trocas'\)/);
+  assert.match(employeeApp, /marcarNotificacaoTrocaComoLida/);
+});
+
+test('click_action, link, fcmOptions e URL externa continuam ignorados no clique', async () => {
+  const worker = await ler('apps/app/src/sw/serviceWorker.js');
+  const handler = worker.match(/function resolverUrlInternaNotificacao[\s\S]*?\n\}/)?.[0] ?? '';
+  assert.ok(handler.length > 0, 'resolverUrlInternaNotificacao deve existir');
+  assert.doesNotMatch(handler, /dados\.(click_action|link|fcmOptions|url|pathname)/i);
+  assert.doesNotMatch(handler, /\[(?:'|")(click_action|link|fcmOptions|url|pathname)(?:'|")\]/i);
+  assert.match(handler, /self\.location\.origin/);
+  assert.match(handler, /encodeURIComponent\(trocaId\)/);
+});
+
+test('notificationclick preserva trocaId e usa fallback navigate → focus → openWindow', async () => {
+  const worker = await ler('apps/app/src/sw/serviceWorker.js');
+  assert.match(worker, /trocaId/);
+  assert.match(worker, /\.navigate\(url\.href\)/);
+  assert.match(worker, /\.focus\(\)/);
+  assert.match(worker, /clients\.openWindow\(url\.href\)/);
+});
+
+test('canal de atualização de escala permanece distinto do FCM e do teste local', async () => {
+  const employeeApp = await ler('apps/app/src/EmployeeApp.tsx');
+  assert.match(employeeApp, /new Notification\('Escala ICI atualizada'/);
+  assert.doesNotMatch(employeeApp, /Teste local — Escala ICI[\s\S]*new Notification/);
+});
+
+test('texto "rodando em segundo plano" não existe no código rastreado do PWA/worker', async () => {
+  const fontes = await Promise.all([
+    ler('apps/app/src/EmployeeApp.tsx'),
+    ler('apps/app/src/sw/serviceWorker.js'),
+    ler('lib/firebase/pushMessaging.ts'),
+    ler('apps/push-worker/src/pushSender.ts'),
+  ]);
+  assert.doesNotMatch(fontes.join('\n').toLowerCase(), /rodando em segundo plano/);
 });
 
 test('o clique de notificação nunca deixa de agir em silêncio: navigate e focus têm tratamento de falha próprio, com fallback para openWindow', async () => {

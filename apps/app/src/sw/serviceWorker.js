@@ -1,4 +1,5 @@
 const VERSION = 'fase-3k-c-v1';
+const PUSH_DIAGNOSTIC_VERSION = 'push-pwa-2b2a';
 const CACHE_SHELL = `escala-ici-shell-${VERSION}`;
 const CACHE_RUNTIME = `escala-ici-runtime-${VERSION}`;
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, '');
@@ -41,8 +42,54 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') {
     void self.skipWaiting();
+    return;
+  }
+  if (event.data?.type === 'ESCALA_ICI_SW_STATUS') {
+    responderMensagem(event, {
+      type: 'ESCALA_ICI_SW_STATUS_RESULT',
+      ok: true,
+      version: PUSH_DIAGNOSTIC_VERSION,
+      origin: self.location.origin,
+      controlled: true,
+      checkedAt: new Date().toISOString(),
+    });
+    return;
+  }
+  if (event.data?.type === 'ESCALA_ICI_LOCAL_NOTIFICATION_TEST') {
+    event.waitUntil(
+      exibirNotificacaoEscala({
+        titulo: 'Teste local — Escala ICI',
+        corpo: 'Este dispositivo consegue exibir notificações.',
+        dados: {
+          tipo: 'DIAGNOSTICO_LOCAL',
+          diagnostico: 'push-local',
+          origem: 'PWA_WEB',
+          versao: PUSH_DIAGNOSTIC_VERSION,
+        },
+      })
+        .then(() => responderMensagem(event, {
+          type: 'ESCALA_ICI_LOCAL_NOTIFICATION_TEST_RESULT',
+          ok: true,
+          version: PUSH_DIAGNOSTIC_VERSION,
+          checkedAt: new Date().toISOString(),
+        }))
+        .catch(() => responderMensagem(event, {
+          type: 'ESCALA_ICI_LOCAL_NOTIFICATION_TEST_RESULT',
+          ok: false,
+          version: PUSH_DIAGNOSTIC_VERSION,
+          checkedAt: new Date().toISOString(),
+          error: 'Falha ao exibir a notificação local.',
+        })),
+    );
   }
 });
+
+function responderMensagem(event, resposta) {
+  const porta = event.ports && event.ports[0];
+  if (porta) {
+    porta.postMessage(resposta);
+  }
+}
 
 async function navegacaoApp(request) {
   try {
@@ -136,12 +183,12 @@ self.addEventListener('fetch', (event) => {
  */
 self.addEventListener('notificationclick', (event) => {
   const dados = event.notification && event.notification.data;
-  const trocaId = dados && typeof dados.trocaId === 'string' ? dados.trocaId : null;
   event.notification.close();
-  if (!trocaId) {
+  const urlDestino = resolverUrlInternaNotificacao(dados);
+  if (urlDestino === null) {
     return;
   }
-  event.waitUntil(abrirTrocaNaJanela(trocaId));
+  event.waitUntil(abrirUrlInternaNaJanela(urlDestino));
 });
 
 /**
@@ -157,9 +204,18 @@ self.addEventListener('notificationclick', (event) => {
  * própria rede de segurança e, se nenhuma delas puder agir sobre a janela
  * existente, cai para `openWindow` — nunca termina em silêncio total.
  */
-async function abrirTrocaNaJanela(trocaId) {
-  const destino = `${APP_ENTRY}?trocaId=${encodeURIComponent(trocaId)}`;
-  const url = new URL(destino, self.location.origin);
+function resolverUrlInternaNotificacao(dados) {
+  if (dados && dados.tipo === 'DIAGNOSTICO_LOCAL') {
+    return new URL(`${APP_ENTRY}?pushDiagnostico=1`, self.location.origin);
+  }
+  const trocaId = dados && typeof dados.trocaId === 'string' ? dados.trocaId.trim() : '';
+  if (!trocaId) {
+    return null;
+  }
+  return new URL(`${APP_ENTRY}?trocaId=${encodeURIComponent(trocaId)}`, self.location.origin);
+}
+
+async function abrirUrlInternaNaJanela(url) {
   const clientes = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   const clienteMesmaOrigem = clientes.find((cliente) => new URL(cliente.url).origin === url.origin);
 
@@ -189,6 +245,14 @@ async function abrirTrocaNaJanela(trocaId) {
   }
 
   await self.clients.openWindow(url.href);
+}
+
+function exibirNotificacaoEscala({ titulo, corpo, dados }) {
+  return self.registration.showNotification(titulo || 'Escala ICI', {
+    body: corpo || '',
+    icon: '/icons/icon-192.png',
+    data: dados,
+  });
 }
 
 /**
@@ -249,10 +313,10 @@ if (firebaseConfig.apiKey && firebaseConfig.messagingSenderId) {
       if (!dados) {
         return;
       }
-      void self.registration.showNotification(dados.titulo || 'Escala ICI', {
-        body: dados.corpo || '',
-        icon: '/icons/icon-192.png',
-        data: dados,
+      void exibirNotificacaoEscala({
+        titulo: dados.titulo,
+        corpo: dados.corpo,
+        dados,
       });
     });
   } catch {

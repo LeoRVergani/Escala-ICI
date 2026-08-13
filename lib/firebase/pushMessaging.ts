@@ -43,6 +43,53 @@ export interface ResultadoAtivacao {
   erro?: string;
 }
 
+export const PUSH_SW_STATUS_REQUEST = 'ESCALA_ICI_SW_STATUS';
+export const PUSH_SW_STATUS_RESPONSE = 'ESCALA_ICI_SW_STATUS_RESULT';
+export const PUSH_LOCAL_TEST_REQUEST = 'ESCALA_ICI_LOCAL_NOTIFICATION_TEST';
+export const PUSH_LOCAL_TEST_RESPONSE = 'ESCALA_ICI_LOCAL_NOTIFICATION_TEST_RESULT';
+
+export interface StatusServiceWorkerPush {
+  controlador: boolean;
+  versao: string | null;
+  origem: string | null;
+  consultadoEm: string;
+  erro?: string;
+}
+
+export interface ResultadoTesteLocalPush {
+  aceito: boolean;
+  versao: string | null;
+  consultadoEm: string;
+  erro?: string;
+}
+
+type PortaMensagemPush = Pick<MessagePort, 'onmessage' | 'postMessage' | 'close'>;
+
+interface CanalMensagemPush {
+  port1: PortaMensagemPush;
+  port2: PortaMensagemPush;
+}
+
+export interface PushServiceWorkerDiagnosticsDeps {
+  controller: () => Pick<ServiceWorker, 'postMessage'> | null;
+  criarCanal: () => CanalMensagemPush;
+  setTimeout: (callback: () => void, timeoutMs: number) => unknown;
+  clearTimeout: (id: unknown) => void;
+  agora: () => string;
+}
+
+function depsDiagnosticoPadrao(): PushServiceWorkerDiagnosticsDeps {
+  return {
+    controller: () => (typeof navigator === 'undefined' || !('serviceWorker' in navigator)
+      ? null
+      : navigator.serviceWorker.controller),
+    criarCanal: () => new MessageChannel(),
+    setTimeout: (callback, timeoutMs) => window.setTimeout(callback, timeoutMs),
+    clearTimeout: (id) => window.clearTimeout(id as number),
+    agora: () => new Date().toISOString(),
+  };
+}
+
 /**
  * Tudo que este módulo precisa do navegador/SDK, isolado para injeção em
  * teste. As implementações padrão (abaixo) são as reais; um teste passa um
@@ -301,6 +348,128 @@ export async function repararPush(deps: PushMessagingDeps = dependenciasPadrao):
     }
   }
   return ativarPush(deps);
+}
+
+const TEMPO_LIMITE_DIAGNOSTICO_SW_MS = 4_000;
+
+async function enviarMensagemAoServiceWorker<T>(
+  tipo: string,
+  deps: PushServiceWorkerDiagnosticsDeps,
+  timeoutMs = TEMPO_LIMITE_DIAGNOSTICO_SW_MS,
+): Promise<T> {
+  const controller = deps.controller();
+  if (controller === null) {
+    throw new Error('Nenhum service worker está controlando esta página.');
+  }
+
+  const canal = deps.criarCanal();
+  return new Promise<T>((resolve, reject) => {
+    let liquidado = false;
+    const encerrar = (fn: () => void) => {
+      if (liquidado) {
+        return;
+      }
+      liquidado = true;
+      deps.clearTimeout(temporizador);
+      canal.port1.close();
+      fn();
+    };
+    const temporizador = deps.setTimeout(() => {
+      encerrar(() => reject(new Error('Tempo esgotado aguardando resposta do service worker.')));
+    }, timeoutMs);
+
+    canal.port1.onmessage = (event: MessageEvent) => {
+      encerrar(() => resolve(event.data as T));
+    };
+
+    try {
+      controller.postMessage({ type: tipo }, [canal.port2 as MessagePort]);
+    } catch (falha) {
+      encerrar(() => reject(falha instanceof Error ? falha : new Error(String(falha))));
+    }
+  });
+}
+
+export async function consultarServiceWorkerPush(
+  deps: PushServiceWorkerDiagnosticsDeps = depsDiagnosticoPadrao(),
+): Promise<StatusServiceWorkerPush> {
+  const consultadoEm = deps.agora();
+  if (deps.controller() === null) {
+    return {
+      controlador: false,
+      versao: null,
+      origem: null,
+      consultadoEm,
+      erro: 'Nenhum service worker está controlando esta página.',
+    };
+  }
+
+  try {
+    const resposta = await enviarMensagemAoServiceWorker<{
+      ok?: boolean;
+      version?: unknown;
+      origin?: unknown;
+      checkedAt?: unknown;
+      error?: unknown;
+    }>(PUSH_SW_STATUS_REQUEST, deps);
+    if (resposta.ok !== true) {
+      return {
+        controlador: true,
+        versao: null,
+        origem: null,
+        consultadoEm,
+        erro: typeof resposta.error === 'string' ? resposta.error : 'Service worker não confirmou o diagnóstico.',
+      };
+    }
+    return {
+      controlador: true,
+      versao: typeof resposta.version === 'string' ? resposta.version : null,
+      origem: typeof resposta.origin === 'string' ? resposta.origin : null,
+      consultadoEm: typeof resposta.checkedAt === 'string' ? resposta.checkedAt : consultadoEm,
+    };
+  } catch (falha) {
+    return {
+      controlador: true,
+      versao: null,
+      origem: null,
+      consultadoEm,
+      erro: mensagemErro(falha),
+    };
+  }
+}
+
+export async function testarNotificacaoLocalPush(
+  deps: PushServiceWorkerDiagnosticsDeps = depsDiagnosticoPadrao(),
+): Promise<ResultadoTesteLocalPush> {
+  const consultadoEm = deps.agora();
+  try {
+    const resposta = await enviarMensagemAoServiceWorker<{
+      ok?: boolean;
+      version?: unknown;
+      checkedAt?: unknown;
+      error?: unknown;
+    }>(PUSH_LOCAL_TEST_REQUEST, deps);
+    if (resposta.ok !== true) {
+      return {
+        aceito: false,
+        versao: typeof resposta.version === 'string' ? resposta.version : null,
+        consultadoEm,
+        erro: typeof resposta.error === 'string' ? resposta.error : 'Service worker não aceitou o teste local.',
+      };
+    }
+    return {
+      aceito: true,
+      versao: typeof resposta.version === 'string' ? resposta.version : null,
+      consultadoEm: typeof resposta.checkedAt === 'string' ? resposta.checkedAt : consultadoEm,
+    };
+  } catch (falha) {
+    return {
+      aceito: false,
+      versao: null,
+      consultadoEm,
+      erro: mensagemErro(falha),
+    };
+  }
 }
 
 export async function desativarPush(deps: PushMessagingDeps = dependenciasPadrao): Promise<void> {
