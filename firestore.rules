@@ -322,11 +322,16 @@ service cloud.firestore {
           'canceladoEm', 'canceladoPorLogin',
         ]);
 
-      // Sem delete físico no MVP (preserva histórico administrativo) — só
-      // ADMIN_SISTEMA, mesmo precedente de `trocasEscala`/`notificacoesTroca`
-      // (limpeza seletiva quando um usuário é excluído — ainda não integrado
-      // a `excluirUsuario()`, ver riscos/pendências da Fase 3).
-      allow delete: if souAdminSistema();
+      // Sem delete físico para ninguém, nem ADMIN_SISTEMA (revisão da Fase 4):
+      // atribuído é registro administrativo, cancelamento (ATIVO -> CANCELADO,
+      // acima) já preserva histórico, e a UI nunca precisa apagar. Diferente
+      // de `trocasEscala`/`notificacoesTroca` (que permitem delete admin para
+      // limpeza seletiva ao excluir um usuário) — aqui, propositalmente, nem
+      // essa exceção existe: reter o histórico administrativo importa mais
+      // que a limpeza. A pendência de retenção/limpeza ao excluir um usuário
+      // continua documentada em docs/spec/LEMBRETES.md, sem dar a
+      // gestor/admin acesso aos lembretes pessoais para resolvê-la.
+      allow delete: if false;
     }
 
     match /equipes/{equipeId} {

@@ -1833,13 +1833,13 @@ describe('lembretesAtribuidos — escopo do gestor e ataques (lembretesAtribuido
     })));
   });
 
-  it('nega ADMIN_SISTEMA delete físico direto sem ser o cenário de limpeza documentado — mas permite (precedente de trocasEscala/notificacoesTroca)', async () => {
+  it('nega delete físico para todo mundo, inclusive ADMIN_SISTEMA — atribuído só sai de circulação por cancelamento (Fase 4, revisão de hardening)', async () => {
     await ambiente.withSecurityRulesDisabled(async (contexto) => {
       await setDoc(doc(contexto.firestore(), 'lembretesAtribuidos', 'lembrete-1'), lembreteAtribuido({ lembreteId: 'lembrete-1' }));
     });
     const admin = autenticarComo(usuarios.admin);
     const gestor = autenticarComo(usuarios.gestor);
     await assertFails(deleteDoc(doc(gestor, 'lembretesAtribuidos', 'lembrete-1')));
-    await assertSucceeds(deleteDoc(doc(admin, 'lembretesAtribuidos', 'lembrete-1')));
+    await assertFails(deleteDoc(doc(admin, 'lembretesAtribuidos', 'lembrete-1')));
   });
 });

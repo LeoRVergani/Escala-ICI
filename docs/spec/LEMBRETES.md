@@ -163,15 +163,20 @@ pessoal, e o gestor nunca sabe que ele existiu.
 | read/list (próprio filtro) | ✅ | ❌ | ✅ | ❌ | ❌* |
 | create | ❌ | ❌ | ✅ | ❌ | ❌* |
 | update | ❌ | ❌ | ✅ | ❌ | ❌* |
-| delete físico | ❌ | ❌ | ❌ | ❌ | ✅ |
+| delete físico | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 `*` ADMIN_SISTEMA não tem um bypass geral de escopo nesta coleção (só
 `souGestor()`, que inclui `souAdminSistema()`, herda o mesmo
 `podeOperarNaEquipe()` — na prática ADMIN_SISTEMA sempre passa por ser
-admin, não por uma regra dedicada). Delete físico é só para
-ADMIN_SISTEMA, mesmo precedente de `trocasEscala`/`notificacoesTroca`
-(limpeza seletiva ao excluir um usuário) — **ainda não integrado** a
-`excluirUsuario()` (`lib/firebase/adminRepository.ts`); ver Riscos.
+admin, não por uma regra dedicada). **Delete físico é negado para todos,
+inclusive ADMIN_SISTEMA** (revisão de hardening, Fase 4) — diferente do
+precedente de `trocasEscala`/`notificacoesTroca` (que permitem delete admin
+para limpeza seletiva ao excluir um usuário), aqui deliberadamente nem essa
+exceção existe: atribuído é registro administrativo, o cancelamento
+(`ATIVO -> CANCELADO`) já preserva histórico, e a UI nunca precisa apagar.
+A pendência de retenção/limpeza ao excluir um usuário continua em aberto
+(ver Riscos) — resolvê-la não pode passar por dar a gestor/admin acesso aos
+lembretes pessoais.
 
 **Validação do destinatário real** (`firestore.rules`, função
 `usuarioPorLogin()`): a Rule de `create` nunca confia isoladamente em
@@ -293,9 +298,12 @@ ao usuário um alerta automático que ainda não dispara.
 
 - `excluirUsuario()` (`lib/firebase/adminRepository.ts`) ainda não limpa
   `lembretesAtribuidos` nem a subcoleção `lembretes` de um usuário
-  excluído — as Rules já permitem o delete administrativo necessário
-  (`souAdminSistema()`), mas a integração no fluxo de exclusão não foi
-  feita nesta fase (fora do escopo pedido).
+  excluído. Diferente de `trocasEscala`/`notificacoesTroca`, a Fase 4
+  removeu deliberadamente o delete administrativo de `lembretesAtribuidos`
+  (ver acima) — uma futura limpeza/retenção para usuário excluído precisará
+  de um mecanismo próprio (ex.: Cloud Function com Admin SDK, que ignora
+  Rules), nunca reabrir `delete` para o client SDK nem dar a gestor/admin
+  acesso à subcoleção pessoal.
 - Nenhuma UI consome este repository ainda — Fase 4 (App) e Fase 5
   (Dashboard).
 - Nenhum mecanismo de alerta/Push para lembretes existe — só o dado está
