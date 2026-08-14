@@ -1,9 +1,221 @@
-# Plano técnico — Troca de escala entre colaboradores
+# Especificação e estado atual — Troca de escala entre colaboradores
 
-Fase atual: **planejamento + protótipo visual navegável, sem escrita real no
-Firebase**. Nada neste documento foi implementado como escrita; o que existe
-hoje em código são módulos puros (funções sem SDK do Firestore) e o protótipo
-de tela descrito na seção 8.
+## Nota de estado atual
+
+Este documento nasceu como um plano técnico de design (seção "Anexo histórico"
+abaixo, preservada sem alteração de conteúdo). O modelo então proposto — 8
+status, com uma etapa `APROVADA_AGUARDANDO_PUBLICACAO` distinta da publicação
+— **não é o modelo implementado**. A funcionalidade evoluiu para um MVP real,
+com escrita de verdade no Firestore, e o modelo final ficou mais simples: o
+gestor aprova e publica no mesmo passo, resultando em **7 status**, não 8.
+
+A partir daqui, este documento passa a ser a especificação do estado real
+implementado. A seção "Anexo histórico" ao final permanece como registro da
+decisão de design original — não deve ser lida como descrição do comportamento
+atual.
+
+**Fonte canônica**: `lib/trocasEscala.ts` (modelo de domínio — tipos, estados,
+transições, validação, snapshot). Não confundir com:
+- `lib/trocaEscala.ts` (singular) — contrato histórico de 5 estados da Fase
+  3K-D1/D2, **não usado por nenhuma tela** hoje. Mantido só por seus próprios
+  testes (`lib/trocaEscala.test.ts`), sem relação com o fluxo real.
+- `lib/trocaEscalaMock.ts` — protótipo visual em memória (8 status, incluindo
+  `APROVADA_AGUARDANDO_PUBLICACAO`) da fase de design deste mesmo documento.
+  Isolado, só de apresentação, não lê nem escreve Firestore.
+
+Persistência real: `lib/firebase/trocasRepository.ts`. Regras reais:
+`firestore.rules` (blocos `trocasEscala` e `notificacoesTroca`). App
+(`apps/app/src/EmployeeApp.tsx`) e Dashboard
+(`apps/dashboard/src/DashboardApp.tsx`) têm fluxo real e completo sobre esses
+módulos — nenhuma tela usa mock ou dado em memória para Trocas.
+
+### Modelo real de estados (7)
+
+```
+PENDENTE_USUARIO
+RECUSADA_USUARIO
+CANCELADA_SOLICITANTE
+PENDENTE_GESTOR
+RECUSADA_GESTOR
+APROVADA_PUBLICADA
+EXPIRADA
+```
+
+Definidos em `lib/trocasEscala.ts` (`StatusTroca`). Diferença central em
+relação ao plano original: **não existe `APROVADA_AGUARDANDO_PUBLICACAO`** —
+aprovação e aplicação/publicação da troca ocorrem no mesmo evento
+(`gestorAprovarEPublicarTroca`, que grava `aprovadoEm` e `publicadoEm` com o
+mesmo timestamp). `EXPIRADA` existe no tipo e nas tabelas de rótulo/severidade,
+mas hoje **não há nenhuma transição real que leve a esse estado** — não existe
+expiração automática implementada (nem cron, nem checagem client-side); é uma
+Fase 6 ainda não construída.
+
+Transições reais (`TRANSICOES_TROCA_REAL`, `lib/trocasEscala.ts`):
+
+```
+PENDENTE_USUARIO → RECUSADA_USUARIO | PENDENTE_GESTOR | CANCELADA_SOLICITANTE
+PENDENTE_GESTOR  → RECUSADA_GESTOR | APROVADA_PUBLICADA
+```
+
+Todos os demais estados são terminais.
+
+### Atores e fluxo
+
+1. **Colaborador A (solicitante)** solicita a troca de um dia com o
+   colaborador B, pelo App. `criarSolicitacaoTroca`
+   (`lib/firebase/trocasRepository.ts`) valida via
+   `validarNovaSolicitacaoTroca` (mesmo dia, os dois usuários ativos, os dois
+   turnos definidos e diferentes entre si) e grava `PENDENTE_USUARIO`,
+   registrando `snapshotValidacao` (código do turno original de cada um) e
+   criando a notificação `TROCA_SOLICITADA` no mesmo `writeBatch`.
+2. **Colaborador B (destinatário)** aceita ou recusa pelo App
+   (`responderSolicitacaoTroca`). Aceitar → `PENDENTE_GESTOR`; recusar →
+   `RECUSADA_USUARIO`. Gera notificação (`TROCA_ACEITA_AGUARDANDO_GESTOR` ou
+   `TROCA_RECUSADA_USUARIO`).
+3. **Gestor** decide pelo Dashboard: `gestorRecusarTroca` (→
+   `RECUSADA_GESTOR`) ou `gestorAprovarEPublicarTroca` (→
+   `APROVADA_PUBLICADA`, dentro de uma `runTransaction` — o único ponto do
+   projeto que usa transação Firestore para Trocas). A aprovação **não** passa
+   pelo pipeline geral de `publicarEscalas`/revisão — grava diretamente nos
+   dois documentos `turnosMes` afetados, dentro da mesma transação. Decisão de
+   MVP: sem revisão/rollback dedicado para trocas, só o `historico` do próprio
+   documento da troca.
+4. **Solicitante** pode cancelar a própria solicitação
+   (`cancelarSolicitacaoTroca`) enquanto ainda estiver `PENDENTE_USUARIO` → `CANCELADA_SOLICITANTE`.
+
+### Elegibilidade e restrições
+
+- Restrita ao **mesmo dia** — o modelo real usa um único campo `data` (não há
+  `dataSolicitante`/`dataDestinatario` distintos como no plano original); a
+  troca sempre inverte os dois turnos do mesmo dia entre as duas pessoas
+  (`aplicarTrocaNosDias`).
+- Restrita à **mesma equipe e mesma competência** — garantida pelas Firestore
+  Rules (`equipeId == minhaEquipe()` no `create`) e pela revalidação de
+  `equipeId`/`competencia` dos dois `turnosMes` dentro da transação de
+  aprovação. `validarNovaSolicitacaoTroca` em si não recebe `equipeId` como
+  parâmetro — a garantia de equipe vem das Rules e da lista de colegas exibida
+  pelo App, não de uma checagem explícita na função de validação.
+- Os dois usuários precisam estar `ativo`.
+- Os dois turnos do dia precisam existir e ser diferentes entre si.
+
+### Revalidação de snapshot
+
+`SnapshotValidacaoTroca` grava o código do turno original de cada colaborador
+no momento da criação. Na aprovação, dentro da `runTransaction`,
+`trocaDesatualizada()` compara o código atual do turno contra o snapshot; se a
+escala mudou desde a solicitação, a aprovação é rejeitada com erro explícito
+("A escala mudou desde que a troca foi solicitada..."). A mesma transação
+revalida `equipeId`/`competencia` dos `turnosMes` e o campo `ativo` dos dois
+usuários.
+
+### Aplicação transacional
+
+Só `gestorAprovarEPublicarTroca` usa `runTransaction` (as demais operações
+usam `writeBatch`, atômico mas sem releitura consistente). A transação relê
+`trocasEscala` + os dois `turnosMes` + os dois `usuarios` no momento da
+aprovação antes de gravar, para proteger contra concorrência (escala mudou,
+usuário desativado, etc., entre a solicitação e a decisão do gestor).
+
+### Histórico
+
+Campo `historico: EventoHistoricoTroca[]` embutido no documento da troca —
+cada evento tem `tipo`, `porLogin`, `porNome`, `porPerfil`
+(`SOLICITANTE`/`DESTINATARIO`/`GESTOR`/`SISTEMA`), `em`, `descricao`. As
+Firestore Rules exigem que o array só cresça (`historico.size()` maior que o
+anterior a cada `update`), nunca é reescrito por trás.
+
+### Notificações (`notificacoesTroca`)
+
+Documento por notificação: `destinatarioLogin`, `equipeId`, `tipo`
+(`TROCA_SOLICITADA`, `TROCA_RECUSADA_USUARIO`,
+`TROCA_ACEITA_AGUARDANDO_GESTOR`, `TROCA_RECUSADA_GESTOR`,
+`TROCA_APROVADA_PUBLICADA`, `TROCA_CANCELADA`), `titulo`, `mensagem`,
+`trocaId`, `criadoPorLogin`, `criadoEm`, `lidaEm` (server-side, não mais
+`localStorage` como no plano original), `acao` (hoje só `'ABRIR_TROCA'`).
+Autonotificação é evitada deliberadamente (`criadoPorLogin === destinatarioLogin`
+não gera notificação). O push-worker (`apps/push-worker`) apenas observa esta
+coleção e retransmite como push as notificações elegíveis — nunca decide regra
+de domínio, só transporta (ver `docs/operacao/PUSH-FCM-OPERACAO.md`).
+
+### Consultas e índices
+
+`lib/firebase/trocasRepository.ts` expõe observadores em tempo real:
+`observarTrocasDoUsuario` (uma query por papel — solicitante e destinatário —
+mescladas em memória, evitando `or()`), `observarTrocasDoGestor` (toda a
+competência da equipe, filtro de aba no cliente),
+`observarNotificacoesTroca` (por `destinatarioLogin`, campo único, sem índice
+composto). Índices compostos declarados para `trocasEscala`: `equipeId +
+competencia + status`, `equipeId + competencia + solicitanteLogin`, `equipeId
++ competencia + destinatarioLogin`.
+
+### Regras reais (resumo)
+
+`trocasEscala`: `get` exige ser gestor da equipe, solicitante ou destinatário;
+`list` exige só pertencer à equipe (efeito colateral aceito e documentado no
+próprio `firestore.rules` — qualquer colega da equipe pode listar todas as
+trocas da equipe, não só as próprias, mesmo nível de exposição de
+`turnosMes`); `create` só o próprio solicitante, status inicial obrigatório
+`PENDENTE_USUARIO`; `update` só nas transições exatas da tabela acima, por
+quem tem o papel certo, com histórico sempre crescente; `delete` só
+`ADMIN_SISTEMA` (usado ao excluir conta de usuário). `notificacoesTroca`:
+leitura só do próprio destinatário (ou admin); `update` só pode alterar
+`lidaEm`.
+
+### Comportamento no App e no Dashboard
+
+**App**: aba "Trocas" na navegação, sino de notificações de troca
+(`TrocaNotificationBell`), ação contextual "Solicitar troca deste dia" no
+detalhe do dia, assistente de nova solicitação, modal de resposta do
+destinatário, modal de detalhe com histórico (cancelamento só disponível ao
+solicitante enquanto `PENDENTE_USUARIO`), deep-link `?trocaId=...` integrado
+ao clique de notificação push.
+
+**Dashboard**: item lateral "Trocas" com contadores por status e filtros
+(pendentes/aprovadas/recusadas/histórico), card "Trocas pendentes" na Visão
+geral, modal de detalhe do gestor com comparação lado a lado dos dois turnos e
+simulação dos alertas de 6x1/descanso mínimo (`lib/alertasEscala.ts`) sobre o
+resultado hipotético da troca antes de aprovar. Ações do gestor sobre trocas
+em modo simulação são auditadas (`auditoriaAdmin`).
+
+### Riscos e limitações do MVP
+
+- `EXPIRADA` não tem mecanismo de expiração automática implementado.
+- Checagem de duplicidade de solicitação ativa para o mesmo dia é
+  best-effort, comentada como tal no próprio repositório — as Firestore Rules
+  não conseguem, sozinhas, impedir uma segunda solicitação concorrente.
+- `validarNovaSolicitacaoTroca` não valida explicitamente "mesma equipe" entre
+  solicitante e destinatário — depende das Rules e da lista de colegas exibida
+  pela UI.
+- `list` de `trocasEscala` expõe todas as trocas da equipe a qualquer membro
+  dela, não só as próprias — decisão aceita, mesma classe de exposição já
+  existente em `turnosMes`.
+- Não existe notificação de gestor sobre troca pendente de aprovação como
+  push (o domínio nunca cria `notificacoesTroca` com destinatário gestor) —
+  pendência de domínio, não de transporte.
+- Aprovação de troca não gera revisão/rollback dedicado como
+  `publicarEscalas` gera para publicações normais.
+
+### Evolução futura (não implementada)
+
+- Expiração automática de solicitações antigas (`EXPIRADA`).
+- Notificação de gestor sobre fila de trocas pendentes.
+- Revisão/rollback dedicado para trocas aplicadas.
+
+---
+
+## Anexo histórico — plano original de design (preservado sem alteração)
+
+As seções abaixo são o documento original, escrito na fase de planejamento
+(2026-08-05), quando a funcionalidade era só um protótipo visual em memória.
+Preservado para registro da decisão de design e do raciocínio que levou ao
+modelo real (que divergiu, sobretudo na fusão de aprovação+publicação e na
+redução de 8 para 7 status). Não descreve o comportamento atual — ver seção
+acima.
+
+Fase na época: **planejamento + protótipo visual navegável, sem escrita real
+no Firebase**. Nada neste anexo foi implementado como escrita; o que existia
+em código eram módulos puros (funções sem SDK do Firestore) e o protótipo de
+tela descrito na seção 8 abaixo.
 
 ## 1. Achado principal — isto não parte do zero
 

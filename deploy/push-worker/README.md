@@ -5,7 +5,15 @@ Serviço separado do Dashboard: assina `notificacoesTroca` no Firestore de
 expõe porta pública, não recebe tráfego do celular — só saída HTTPS para
 Google/Firebase. Uma falha aqui nunca derruba o Dashboard.
 
-Documentação operacional completa: `docs/operacao/PUSH-FCM-OPERACAO.md`.
+Documentação operacional completa: `docs/operacao/PUSH-FCM-OPERACAO.md`
+(auditoria de dispositivos, dry-run de saneamento, teste real controlado,
+kill switch, limites do FCM). Histórico de fases e estado atual:
+`apps/push-worker/README.md`, `PROJECT_STATUS.md` (raiz do repo).
+
+Contrato: `WEB`/`ANDROID` (só `WEB` tem cliente implementado), identificador
+sempre FID (nunca token cru), usuário não-root no container, secret montado
+por grupo suplementar (`group_add`), `PUSH_ENABLED=false` como estado
+permanente — só elevado a `true` em container efêmero para teste controlado.
 
 ## Pré-requisitos (ação manual, fora deste repositório)
 

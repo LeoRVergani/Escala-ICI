@@ -258,3 +258,15 @@ corrigidas por estar fora de escopo):**
 - Branch `feature/push-fcm-staging`, criada a partir de `main` limpo
   (`36587b3`).
 - Nenhum commit, push ou merge realizado nesta sessão.
+
+## Nota de estado posterior
+
+As pendências `PUSH_PWA_PENDENTE` e a migração de `token` para FID, ambas
+registradas neste checkpoint, foram resolvidas por fases posteriores:
+`CHECKPOINT-FASE-PUSH-1B-FID.md` (migração para FID) e
+`CHECKPOINT-FASE-PUSH-PWA-1.md`/`CHECKPOINT-FASE-PUSH-PWA-2B.md` (registro
+real do PWA e teste FCM real). O estado atual consolidado está em
+`PROJECT_STATUS.md` (raiz do repo). As afirmações deste checkpoint eram
+verdadeiras no momento em que foi escrito (2026-08-10) e continuam válidas
+como registro histórico — não descrevem mais o estado atual do projeto.
+Android continua pendente, como registrado aqui.

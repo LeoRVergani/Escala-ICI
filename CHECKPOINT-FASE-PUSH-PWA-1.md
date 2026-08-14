@@ -482,3 +482,12 @@ seguido de teste real com todos os usuários opt-in.
   `main`, head `feature/push-fcm-staging`).
 - Nenhum commit, push ou merge realizado nesta sessão (nem na PUSH-PWA-1
   original, nem na auditoria PUSH-PWA-1.1).
+
+## Nota de estado posterior
+
+O procedimento de "ativação coordenada" e o deploy citados como pendentes
+aqui ocorreram nas fases seguintes: deploy real do PWA e diagnóstico local
+em `CHECKPOINT-FASE-PUSH-PWA-2B.2A.md`, saneamento e teste FCM real (com
+dois dispositivos reais confirmados) em `CHECKPOINT-FASE-PUSH-PWA-2B.md`.
+Estado atual consolidado: `PROJECT_STATUS.md` (raiz do repo). Android
+continua fora desta base de código, como registrado aqui.

@@ -260,3 +260,12 @@ service worker de FCM no PWA (`apps/app`), consumindo o contrato
   draft, aberto, não mesclado).
 - Nenhum commit, push ou merge realizado nesta sessão — alterações ficam
   no working tree para revisão e aprovação.
+
+## Nota de estado posterior
+
+"PWA ainda pendente" e "nenhum FID real existe nesta fase", verdadeiras
+quando este checkpoint foi escrito, foram resolvidas por
+`CHECKPOINT-FASE-PUSH-PWA-1.md` (registro real de FID no PWA) e
+`CHECKPOINT-FASE-PUSH-PWA-2B.md` (saneamento e teste FCM real com
+dispositivos reais). O estado atual consolidado está em `PROJECT_STATUS.md`
+(raiz do repo). Android continua pendente, como registrado aqui.

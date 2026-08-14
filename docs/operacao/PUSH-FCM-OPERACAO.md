@@ -175,6 +175,128 @@ no ambiente do App (Cloudflare Pages em staging), fora deste repositório.
 Sem esses dois valores, o App continua funcionando normalmente; só o card
 fica em "Não configuradas neste ambiente".
 
+## Como testar no card do PWA (teste local, sem FCM)
+
+O botão "Testar neste dispositivo" no card "Notificações" do Perfil
+(`apps/app/src/EmployeeApp.tsx`) **nunca chama o FCM nem o push-worker** —
+envia uma mensagem interna (`postMessage`/`MessageChannel`) direto ao service
+worker do próprio navegador, que exibe uma notificação local
+("Teste local — Escala ICI"). Serve para validar permissão do navegador/SO e
+o comportamento de clique do service worker (`push-pwa-2b2a`), sem depender
+de rede, FCM ou do worker estar de pé. Não substitui um teste FCM real — só
+confirma a metade "exibição e clique local" do caminho.
+
+## Como reconfigurar um dispositivo (reparo de FID)
+
+Um registro pode ficar "zumbi" — `ativo: true` no Firestore, mas com FID
+inválido ou não mais reconhecido pelo navegador (ex.: dados do site
+limpos). O botão "Reconfigurar neste dispositivo" no mesmo card força
+`unregister()` seguido de um novo registro completo, substituindo o FID
+salvo. Use isso antes de qualquer saneamento manual quando o card mostrar
+"Ativo" mas o dispositivo nunca receber push de teste.
+
+## Saneamento reversível de dispositivos antigos
+
+Regra permanente: **nunca apagar documentos de `dispositivosPush`**. Um
+dispositivo antigo/duplicado é desativado (`ativo: false`), nunca excluído —
+mantém o histórico e permite reverter manualmente se necessário.
+
+Procedimento obrigatório, nesta ordem:
+
+1. Rodar `devices:audit` (seção acima) e comparar os IDs abreviados exibidos
+   contra o card de cada dispositivo físico que deve continuar ativo.
+2. Preparar um **dry-run**: listar explicitamente, por sufixo abreviado, qual
+   dispositivo será preservado e qual será desativado. Não escrever nada
+   nesta etapa.
+3. Confirmar explicitamente com quem pediu a operação antes de qualquer
+   escrita — nunca desativar em lote sem essa confirmação.
+4. Desativar cada dispositivo pelo documento resolvido de forma única pelo
+   sufixo (nunca por prefixo ambíguo ou correspondência parcial que possa
+   acertar mais de um documento). Alterar somente `ativo: false` e
+   `atualizadoEm`; preservar todos os demais campos.
+5. Rodar `devices:audit` de novo (somente leitura) para confirmar o resultado
+   antes de considerar o saneamento concluído.
+
+Nunca prosseguir para um teste FCM real sem antes confirmar, pela auditoria,
+que a contagem de dispositivos ativos é exatamente a esperada.
+
+## Como testar um envio FCM real (container efêmero)
+
+Use um container efêmero com `--rm`, nunca o serviço permanente, e restrinja
+sempre a um único `--login=`:
+
+```bash
+PUSH_ENABLED=true docker compose --env-file .env.staging.push-worker \
+  -f deploy/push-worker/compose.yaml -f deploy/push-worker/compose.staging.yaml \
+  --profile push run --rm push-worker node dist/cli/pushTest.js --login=<login>
+```
+
+O `PUSH_ENABLED=true` vale **só para esse container efêmero** — o serviço
+permanente, que já está de pé com `PUSH_ENABLED=false`, não é afetado e
+continua com o kill switch desligado depois do teste. Resultado esperado:
+`devicesFound`/`successCount`/`failureCount` batendo com a contagem de
+dispositivos ativos confirmada na auditoria anterior. Não repetir o envio se
+algum dispositivo não exibir a notificação — registrar como falha específica
+daquele aparelho e investigar separadamente (não é seguro reenviar sem
+entender a causa).
+
+Depois do teste, confirmar que nenhum container efêmero ficou remanescente
+(`docker ps -a` não deve listar nada além do serviço permanente) e que o
+serviço permanente segue com `PUSH_ENABLED=false`.
+
+## Deep link do clique na notificação
+
+O `notificationclick` do service worker (`apps/app/src/sw/serviceWorker.js`)
+é registrado **antes** de importar/inicializar o SDK do Firebase Messaging —
+ordem exigida pela documentação oficial do FCM Web e verificada por
+`scripts/validate-pwa.mjs`. Só dois destinos são aceitos a partir do payload:
+diagnóstico local (`?pushDiagnostico=1`) ou abrir uma troca específica
+(`?trocaId=<id>`) — nunca uma URL arbitrária vinda do payload. O handler
+tenta focar/navegar uma janela já aberta da mesma origem antes de abrir uma
+nova (`clients.openWindow()` como último recurso).
+
+**Achado conhecido**: em teste real via FCM (fase PUSH-PWA-2B.2C,
+2026-08-14), o clique na notificação real não abriu nem focou o PWA em
+nenhum dos dois dispositivos testados (computador e celular), embora o
+mesmo comportamento funcione no teste local. Suspeita não confirmada:
+divergência entre o payload usado no teste local (`postMessage` direto) e o
+payload real do FCM recebido por `onBackgroundMessage`. Pendência registrada
+em `PROJECT_STATUS.md`, não corrigida ainda.
+
+## Diagnóstico de duplicidade
+
+O payload do FCM enviado pelo worker é **somente `data`** (nunca
+`notification` nativo) — decisão deliberada para que só o
+`onBackgroundMessage` do service worker decida quando chamar
+`showNotification()`, evitando que o próprio SDK do navegador exiba uma
+notificação automática além da que o código controla. Em foreground, o App
+tem deduplicação por `eventId` (nunca exibe a mesma notificação duas vezes,
+nunca navega sozinho — o Firestore continua sendo a fonte da verdade). Se
+mais de uma notificação aparecer para o mesmo evento, isso é uma regressão a
+investigar nessas duas camadas (payload do worker e dedup client-side), não
+comportamento esperado.
+
+## Limites do FCM a considerar
+
+- Multicast por FID é enviado em lotes; o SDK do Admin limita cada chamada de
+  multicast a até 500 destinatários — irrelevante hoje (poucos dispositivos
+  ativos por login), mas relevante se o número de dispositivos crescer muito.
+- Um FID pode se tornar permanentemente inválido a qualquer momento (app
+  desinstalado, dados do navegador limpos, certificado expirado) — o worker
+  já trata isso desativando o dispositivo automaticamente, sem alertar quem
+  opera.
+- Push nunca é fonte da verdade: se uma mensagem não chegar por qualquer
+  limite ou falha do FCM, o Firestore ainda mostra o estado correto quando o
+  app abrir.
+
+## Ausência de portas públicas
+
+O push-worker não expõe nenhuma porta (nenhuma diretiva `ports:` no
+Compose, nenhum `EXPOSE` no Dockerfile) — só faz saída HTTPS para os
+serviços do Google/Firebase. Uma falha ou reinício deste serviço nunca
+derruba Dashboard, App ou Firestore, e nada externo consegue alcançá-lo
+diretamente pela rede.
+
 ## Como recuperar de um restart
 
 Não é preciso fazer nada manualmente. `docker compose restart push-worker`
@@ -206,3 +328,17 @@ minutos), sem intervenção manual.
 - Notificação de gestor sobre troca pendente de aprovação não existe hoje no
   domínio (`notificacoesTroca` nunca tem `destinatarioLogin` de gestor) — o
   worker não inventa isso; é uma pendência de domínio, não de transporte.
+- Clique em notificação real via FCM não abre/foca o PWA (ver seção "Deep
+  link do clique na notificação" acima) — achado da fase PUSH-PWA-2B.2C,
+  não corrigido.
+
+## Estado operacional mais recente
+
+Fase PUSH-PWA-2B.2C (2026-08-14): saneamento reversível de 5 registros
+antigos concluído (nenhum documento apagado), exatamente 2 dispositivos
+ativos confirmados (WEB/STAGING/FID presente). Um único teste FCM real via
+container efêmero: `devicesFound: 2`, `successCount: 2`, `failureCount: 0`,
+uma notificação recebida em cada dispositivo, sem duplicidade. Worker
+permanente retornou e permaneceu com `PUSH_ENABLED=false`. Aprovação da fase
+classificada como parcial, por causa do achado de clique acima. Ver
+`CHECKPOINT-FASE-PUSH-PWA-2B.md` para o consolidado completo.

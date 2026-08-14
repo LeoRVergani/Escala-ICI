@@ -162,3 +162,13 @@ de teste do navegador/SO ou de origem externa ao código rastreado.
 
 `PUSH-PWA-2B.2B — deploy, diagnóstico local em computador/celular e
 saneamento controlado`.
+
+## Nota de estado posterior
+
+O roteiro posterior de identificação listado acima (passos 1-11) foi
+executado nas fases seguintes, registradas em `CHECKPOINT-FASE-PUSH-PWA-2B.md`:
+deploy do PWA corrigido, diagnóstico local confirmado em computador e
+celular, saneamento reversível dos registros antigos (sem apagar
+documentos) e um teste FCM real controlado (2 dispositivos, 2/2 sucesso, com
+ressalva no comportamento do clique). Estado atual consolidado:
+`PROJECT_STATUS.md` (raiz do repo).

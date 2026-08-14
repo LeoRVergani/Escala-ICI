@@ -8,10 +8,18 @@ Monorepo React/TypeScript com três formas de execução:
   sempre em modo somente leitura;
 - `packages/contrato`: parser SheetJS, tipos, normalização, totais e IDs
   compartilhados;
+- `apps/push-worker`: serviço Node.js separado (Docker, perfil `push`), nunca
+  importado por Dashboard/App, que retransmite notificações de Troca como
+  push via Firebase Cloud Messaging — ver `apps/push-worker/README.md` e
+  `docs/operacao/PUSH-FCM-OPERACAO.md`;
 - host de compatibilidade nas rotas `/dashboard` e `/app`, preservado para que
   a versão publicada continue recuperável durante a separação;
 - Firebase Auth e Cloud Firestore compatíveis com o plano Spark;
 - modo demonstração funcional sem credenciais.
+
+Visão geral completa do estado atual do projeto (componentes, ambientes,
+funcionalidades concluídas, pendências): [`PROJECT_STATUS.md`](PROJECT_STATUS.md).
+Índice de toda a documentação: [`docs/README.md`](docs/README.md).
 
 ## Experiência do colaborador
 
@@ -344,6 +352,68 @@ Consulte `deploy/dashboard/README.md` e
 Emulator continuam exclusivos do laboratório; a implantação definitiva usa
 Firebase remoto por HTTPS.
 
+## Administração e hierarquia
+
+O Dashboard tem uma tela "Administração" com hierarquia flexível de perfis:
+
+- `ADMIN_SISTEMA` — acesso a todas as equipes e unidades;
+- `GESTOR_UNIDADE` — gestor com escopo sobre unidades organizacionais e
+  equipes explicitamente permitidas;
+- `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` — gestor restrito à própria equipe.
+
+Unidades organizacionais formam uma árvore (`parentId`) resolvida no
+cliente; a autorização real nas Firestore Rules usa listas explícitas de
+permissão, não travessia de árvore. Existe um modo de simulação
+(impersonation) restrito a `ADMIN_SISTEMA`, com auditoria das ações feitas
+durante a simulação. O primeiro `ADMIN_SISTEMA` de um ambiente staging é
+promovido manualmente pelo Console do Firebase — ver
+`docs/operacao/BOOTSTRAP_ADMIN_STAGING.md`.
+
+Detalhes completos, com evidência de código e Rules:
+[`docs/spec/ADMINISTRACAO_E_HIERARQUIA.md`](docs/spec/ADMINISTRACAO_E_HIERARQUIA.md).
+
+## Trocas de escala
+
+Fluxo real (não é mais protótipo): o colaborador A solicita a troca de um
+dia com o colaborador B; B aceita ou recusa pelo App; se aceitar, o gestor
+decide pelo Dashboard — aprovar já publica a troca no mesmo passo (não há
+etapa separada de "aguardando publicação"). Notificações em tempo real
+avisam cada parte pelo sino do App/Dashboard e, quando o dispositivo tem
+push ativo, também por FCM.
+
+Especificação e estado atual, com o modelo real de 7 status:
+[`docs/spec/TROCA_ESCALA_PLANO.md`](docs/spec/TROCA_ESCALA_PLANO.md).
+
+## Push/PWA
+
+O App é um PWA instalável que oferece notificações push opcionais — nunca
+ativadas automaticamente. No card "Notificações" do Perfil, o colaborador
+ativa explicitamente (opt-in), o dispositivo é registrado por FID (Firebase
+Installation ID, nunca por token de push cru), e o card mostra o estado
+atual (ativo, indisponível, bloqueado, etc.), com opções de "Testar neste
+dispositivo" (notificação local, sem FCM) e "Reconfigurar" (repara um FID
+inválido).
+
+O transporte de push é um serviço separado (`apps/push-worker`), com kill
+switch (`PUSH_ENABLED=false` por padrão) e sem porta pública. Clicar numa
+notificação usa deep link para abrir a troca correspondente no PWA — o
+service worker publicado nesta fase é `push-pwa-2b2a`.
+
+**Diferença importante**: o teste local (botão no card) nunca passa pelo FCM
+— só valida permissão e clique no navegador. Um teste real via FCM exige o
+push-worker de pé e é feito de forma controlada, em container efêmero. Ver
+runbook completo: [`docs/operacao/PUSH-FCM-OPERACAO.md`](docs/operacao/PUSH-FCM-OPERACAO.md).
+
+## Staging atual
+
+- Projeto Firebase: `escala-ici-staging`.
+- Projeto Cloudflare Pages: `escala-ici-staging`, alias público
+  `https://staging.escala-ici-staging.pages.dev` (App/PWA).
+- Dashboard roda em container Docker separado na VM, sem exposição pública
+  direta.
+- Nenhum destes ambientes é produção — produção continua separada e não é
+  presumida em nenhum documento deste repositório.
+
 ## Configurar o Firebase
 
 1. No console Firebase, crie um projeto no plano Spark.
@@ -359,7 +429,9 @@ Firebase remoto por HTTPS.
 npx firebase-tools deploy --only firestore:rules,firestore:indexes
 ```
 
-Não são usados Cloud Functions, Admin SDK ou Cloud Storage.
+Dashboard e App não usam Cloud Functions, Admin SDK ou Cloud Storage — só
+Auth e Firestore via SDK cliente. O único consumidor de `firebase-admin` no
+monorepo é o serviço separado `apps/push-worker` (ver seção Push/PWA acima).
 
 ## Variáveis
 
