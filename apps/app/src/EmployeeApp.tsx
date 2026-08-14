@@ -1390,6 +1390,35 @@ export function EmployeeApp() {
     return () => window.cancelAnimationFrame(quadro);
   }, [deepLinkTrocaId, usuario, dadosCarregados, notificacoesTroca]);
 
+  // Fallback SW → janela (Fase PUSH-PWA-2B.2D): quando o clique na
+  // notificação não conseguiu navegar sozinho (`WindowClient.navigate()`
+  // indisponível ou lançando erro), o service worker envia esta mensagem
+  // para a janela já aberta em vez de depender só de reload — ver
+  // `apps/app/src/sw/pushClickRouting.js`. Reaproveita exatamente os
+  // mesmos estados (`deepLinkTrocaId`/`pushDiagnosticoNaUrl`) e os mesmos
+  // efeitos do deep link por URL logo abaixo — nunca uma segunda regra de
+  // abertura de Trocas. Aceita só `trocaId`/`diagnostico`, nunca URL.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) {
+      return undefined;
+    }
+    const aoReceberMensagem = (event: MessageEvent) => {
+      const dados = event.data as { type?: unknown; trocaId?: unknown; diagnostico?: unknown } | null;
+      if (!dados || dados.type !== 'ESCALA_ICI_NOTIFICATION_CLICK') {
+        return;
+      }
+      if (dados.diagnostico === true) {
+        setPushDiagnosticoNaUrl(true);
+        return;
+      }
+      if (typeof dados.trocaId === 'string' && dados.trocaId.trim() !== '') {
+        setDeepLinkTrocaId(dados.trocaId.trim());
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', aoReceberMensagem);
+    return () => navigator.serviceWorker.removeEventListener('message', aoReceberMensagem);
+  }, []);
+
   // Diagnóstico local acionado pelo service worker (`?pushDiagnostico=1`):
   // abre o Perfil, confirma visualmente o clique e não toca em Trocas nem
   // marca notificações como lidas.

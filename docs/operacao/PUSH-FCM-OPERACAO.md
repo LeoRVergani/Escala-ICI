@@ -182,7 +182,7 @@ O botão "Testar neste dispositivo" no card "Notificações" do Perfil
 envia uma mensagem interna (`postMessage`/`MessageChannel`) direto ao service
 worker do próprio navegador, que exibe uma notificação local
 ("Teste local — Escala ICI"). Serve para validar permissão do navegador/SO e
-o comportamento de clique do service worker (`push-pwa-2b2a`), sem depender
+o comportamento de clique do service worker (`push-pwa-2b2d`), sem depender
 de rede, FCM ou do worker estar de pé. Não substitui um teste FCM real — só
 confirma a metade "exibição e clique local" do caminho.
 

@@ -1,5 +1,12 @@
+import {
+  construirEnvelopeDiagnosticoLocal,
+  envelopeEscalaIciReconhecido,
+  processarAberturaClique,
+  processarMensagemEmSegundoPlano,
+} from './pushClickRouting.js';
+
 const VERSION = 'fase-3k-c-v1';
-const PUSH_DIAGNOSTIC_VERSION = 'push-pwa-2b2a';
+const PUSH_DIAGNOSTIC_VERSION = 'push-pwa-2b2d';
 const CACHE_SHELL = `escala-ici-shell-${VERSION}`;
 const CACHE_RUNTIME = `escala-ici-runtime-${VERSION}`;
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, '');
@@ -60,12 +67,7 @@ self.addEventListener('message', (event) => {
       exibirNotificacaoEscala({
         titulo: 'Teste local — Escala ICI',
         corpo: 'Este dispositivo consegue exibir notificações.',
-        dados: {
-          tipo: 'DIAGNOSTICO_LOCAL',
-          diagnostico: 'push-local',
-          origem: 'PWA_WEB',
-          versao: PUSH_DIAGNOSTIC_VERSION,
-        },
+        dados: construirEnvelopeDiagnosticoLocal(),
       })
         .then(() => responderMensagem(event, {
           type: 'ESCALA_ICI_LOCAL_NOTIFICATION_TEST_RESULT',
@@ -165,87 +167,38 @@ self.addEventListener('fetch', (event) => {
 });
 
 /**
- * Push FCM em segundo plano (Fase PUSH-PWA-1, corrigido na auditoria
- * PUSH-PWA-1.1 — ver CHECKPOINT-FASE-PUSH-PWA-1.md, seção "Auditoria").
+ * Push FCM em segundo plano (Fase PUSH-PWA-1, corrigido nas auditorias
+ * PUSH-PWA-1.1 e PUSH-PWA-2B.2D — ver `CHECKPOINT-FASE-PUSH-PWA-2B.2D.md`
+ * para a causa raiz real do clique que não abria o PWA em push real).
  *
  * `notificationclick` é registrado ANTES de importar/inicializar o SDK do
  * Firebase Messaging — exatamente a ordem que a documentação oficial do
  * FCM Web exige ("make sure to handle notificationclick before you import
  * FCM functions or libraries", https://firebase.google.com/docs/cloud-messaging/js/receive).
- * O handler interno do próprio SDK (registrado só quando a instância de Messaging
- * é obtida, mais abaixo) chama `event.stopImmediatePropagation()` para
- * qualquer notificação que ele mesmo exibiu — se o nosso handler não
- * estivesse registrado primeiro, o dele rodaria e bloquearia o nosso.
- * Como aqui SEMPRE exibimos a notificação manualmente (nunca a via
- * automática do SDK — ver abaixo), `event.notification.data` é
- * exatamente o objeto `data` que passamos para `showNotification()`, sem
- * nenhum wrapper interno do SDK para desembrulhar.
+ * O handler interno do próprio SDK (registrado só quando a instância de
+ * Messaging é obtida, mais abaixo) só age sobre notificações com o
+ * wrapper interno `FCM_MSG`, que nunca aparece aqui — mas a checagem de
+ * `envelopeEscalaIciReconhecido` abaixo, seguida de
+ * `stopImmediatePropagation()` de forma síncrona (antes de qualquer
+ * `await`), garante explicitamente que só o clique em notificações do
+ * próprio Escala ICI é assumido, sem depender apenas da ordem de registro.
  */
 self.addEventListener('notificationclick', (event) => {
   const dados = event.notification && event.notification.data;
-  event.notification.close();
-  const urlDestino = resolverUrlInternaNotificacao(dados);
-  if (urlDestino === null) {
+  if (!envelopeEscalaIciReconhecido(dados)) {
     return;
   }
-  event.waitUntil(abrirUrlInternaNaJanela(urlDestino));
+  event.stopImmediatePropagation();
+  event.notification.close();
+  event.waitUntil(
+    processarAberturaClique(dados, {
+      origin: self.location.origin,
+      appEntry: APP_ENTRY,
+      listarClientes: () => self.clients.matchAll({ type: 'window', includeUncontrolled: true }),
+      abrirNovaJanela: (destino) => self.clients.openWindow(destino),
+    }),
+  );
 });
-
-/**
- * Constrói a URL só a partir do `trocaId` conhecido — nunca aceita link
- * arbitrário vindo do payload. `APP_ENTRY` já resolve `/` ou `/app`
- * conforme o escopo deste worker, preservando os dois.
- *
- * Corrigido na auditoria PUSH-PWA-2B.1: a versão anterior tinha `focus()`
- * fora de qualquer `try`/`catch` — se `navigate()` falhasse (capturado) e
- * `focus()` também lançasse (não capturado), a promessa inteira rejeitava
- * sem jamais abrir uma janela nova, e o clique parecia não fazer nada
- * (achado real do checkpoint de push real). Agora cada etapa tem sua
- * própria rede de segurança e, se nenhuma delas puder agir sobre a janela
- * existente, cai para `openWindow` — nunca termina em silêncio total.
- */
-function resolverUrlInternaNotificacao(dados) {
-  if (dados && dados.tipo === 'DIAGNOSTICO_LOCAL') {
-    return new URL(`${APP_ENTRY}?pushDiagnostico=1`, self.location.origin);
-  }
-  const trocaId = dados && typeof dados.trocaId === 'string' ? dados.trocaId.trim() : '';
-  if (!trocaId) {
-    return null;
-  }
-  return new URL(`${APP_ENTRY}?trocaId=${encodeURIComponent(trocaId)}`, self.location.origin);
-}
-
-async function abrirUrlInternaNaJanela(url) {
-  const clientes = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-  const clienteMesmaOrigem = clientes.find((cliente) => new URL(cliente.url).origin === url.origin);
-
-  if (clienteMesmaOrigem) {
-    const precisaNavegar = new URL(clienteMesmaOrigem.url).href !== url.href;
-    let navegou = false;
-    if (precisaNavegar && typeof clienteMesmaOrigem.navigate === 'function') {
-      try {
-        await clienteMesmaOrigem.navigate(url.href);
-        navegou = true;
-      } catch {
-        // Nem todo navegador suporta WindowClient.navigate() em todo estado —
-        // ainda tentamos focar a janela existente mesmo se a navegação falhar.
-      }
-    }
-    try {
-      await clienteMesmaOrigem.focus();
-      return;
-    } catch {
-      // Foco pode falhar por restrição do navegador. Se a navegação já tinha
-      // funcionado, a janela está na URL certa mesmo sem foco explícito —
-      // só cai para abrir uma nova janela se nada funcionou.
-      if (navegou) {
-        return;
-      }
-    }
-  }
-
-  await self.clients.openWindow(url.href);
-}
 
 function exibirNotificacaoEscala({ titulo, corpo, dados }) {
   return self.registration.showNotification(titulo || 'Escala ICI', {
@@ -308,17 +261,9 @@ if (firebaseConfig.apiKey && firebaseConfig.messagingSenderId) {
   try {
     const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
     const messaging = getMessaging(app);
-    onBackgroundMessage(messaging, (payload) => {
-      const dados = payload && payload.data;
-      if (!dados) {
-        return;
-      }
-      void exibirNotificacaoEscala({
-        titulo: dados.titulo,
-        corpo: dados.corpo,
-        dados,
-      });
-    });
+    onBackgroundMessage(messaging, (payload) => processarMensagemEmSegundoPlano(payload, {
+      exibirNotificacao: exibirNotificacaoEscala,
+    }));
   } catch {
     // Ambiente sem suporte/config completa — worker continua funcional
     // para cache/offline mesmo sem push.

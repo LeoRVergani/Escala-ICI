@@ -60,12 +60,16 @@ test('register() do FCM recebe o ServiceWorkerRegistration explicitamente — nu
 });
 
 test('o clique de notificação só abre rota interna baseada em trocaId — nunca uma URL vinda do payload', async () => {
-  const worker = await ler('apps/app/src/sw/serviceWorker.js');
+  const [worker, roteamento] = await Promise.all([
+    ler('apps/app/src/sw/serviceWorker.js'),
+    ler('apps/app/src/sw/pushClickRouting.js'),
+  ]);
   assert.match(worker, /self\.addEventListener\('notificationclick'/);
-  assert.match(worker, /encodeURIComponent\(trocaId\)/);
-  assert.doesNotMatch(worker, /payload\.fcmOptions/);
-  assert.doesNotMatch(worker, /notification\.click_action/);
+  assert.match(roteamento, /encodeURIComponent\(dados\.trocaId\)/);
+  assert.doesNotMatch(roteamento, /dados\.fcmOptions/);
+  assert.doesNotMatch(roteamento, /dados\.click_action/);
   assert.doesNotMatch(worker, /clients\.openWindow\(\s*(payload|dados|event)/);
+  assert.doesNotMatch(roteamento, /abrirNovaJanela\(\s*(payload|dados|event)/);
 });
 
 test('o service worker preserva cache/offline/SKIP_WAITING — a integração de push foi anexada ao final, sem tocar a lógica existente', async () => {
@@ -179,7 +183,7 @@ test('service worker expõe identificador público da fase e protocolo seguro de
     ler('lib/firebase/pushMessaging.ts'),
     ler('apps/app/src/EmployeeApp.tsx'),
   ]);
-  assert.match(worker, /PUSH_DIAGNOSTIC_VERSION = 'push-pwa-2b2a'/);
+  assert.match(worker, /PUSH_DIAGNOSTIC_VERSION = 'push-pwa-2b2d'/);
   assert.match(worker, /ESCALA_ICI_SW_STATUS/);
   assert.match(pushMessaging, /PUSH_SW_STATUS_REQUEST/);
   assert.match(employeeApp, /consultarServiceWorkerPush/);
@@ -200,18 +204,21 @@ test('teste local de notificação não chama Firebase\/FCM nem cria ou renova F
 });
 
 test('notificação local usa título e corpo exatos do diagnóstico', async () => {
-  const worker = await ler('apps/app/src/sw/serviceWorker.js');
+  const [worker, roteamento] = await Promise.all([
+    ler('apps/app/src/sw/serviceWorker.js'),
+    ler('apps/app/src/sw/pushClickRouting.js'),
+  ]);
   assert.match(worker, /titulo:\s*'Teste local — Escala ICI'/);
   assert.match(worker, /corpo:\s*'Este dispositivo consegue exibir notificações\.'/);
-  assert.match(worker, /tipo:\s*'DIAGNOSTICO_LOCAL'/);
+  assert.match(roteamento, /tipo:\s*'DIAGNOSTICO_LOCAL'/);
 });
 
 test('clique do diagnóstico abre Perfil e remove pushDiagnostico da URL sem interferir em trocaId', async () => {
-  const [worker, employeeApp] = await Promise.all([
-    ler('apps/app/src/sw/serviceWorker.js'),
+  const [roteamento, employeeApp] = await Promise.all([
+    ler('apps/app/src/sw/pushClickRouting.js'),
     ler('apps/app/src/EmployeeApp.tsx'),
   ]);
-  assert.match(worker, /DIAGNOSTICO_LOCAL[\s\S]*pushDiagnostico=1/);
+  assert.match(roteamento, /DIAGNOSTICO_LOCAL[\s\S]*pushDiagnostico=1/);
   assert.match(employeeApp, /parametros\.delete\('pushDiagnostico'\)/);
   assert.match(employeeApp, /setTela\('perfil'\)/);
   assert.match(employeeApp, /Clique da notificação local confirmado neste dispositivo\./);
@@ -219,22 +226,27 @@ test('clique do diagnóstico abre Perfil e remove pushDiagnostico da URL sem int
   assert.match(employeeApp, /marcarNotificacaoTrocaComoLida/);
 });
 
-test('click_action, link, fcmOptions e URL externa continuam ignorados no clique', async () => {
-  const worker = await ler('apps/app/src/sw/serviceWorker.js');
-  const handler = worker.match(/function resolverUrlInternaNotificacao[\s\S]*?\n\}/)?.[0] ?? '';
-  assert.ok(handler.length > 0, 'resolverUrlInternaNotificacao deve existir');
+test('click_action, link, fcmOptions e URL externa continuam ignorados no clique (módulo pushClickRouting)', async () => {
+  const roteamento = await ler('apps/app/src/sw/pushClickRouting.js');
+  const handler = roteamento.match(/export function resolverUrlInternaDoEnvelope[\s\S]*?\n\}/)?.[0] ?? '';
+  assert.ok(handler.length > 0, 'resolverUrlInternaDoEnvelope deve existir');
   assert.doesNotMatch(handler, /dados\.(click_action|link|fcmOptions|url|pathname)/i);
   assert.doesNotMatch(handler, /\[(?:'|")(click_action|link|fcmOptions|url|pathname)(?:'|")\]/i);
-  assert.match(handler, /self\.location\.origin/);
-  assert.match(handler, /encodeURIComponent\(trocaId\)/);
+  assert.match(handler, /origin/);
+  assert.match(handler, /encodeURIComponent\(dados\.trocaId\)/);
 });
 
-test('notificationclick preserva trocaId e usa fallback navigate → focus → openWindow', async () => {
-  const worker = await ler('apps/app/src/sw/serviceWorker.js');
-  assert.match(worker, /trocaId/);
-  assert.match(worker, /\.navigate\(url\.href\)/);
-  assert.match(worker, /\.focus\(\)/);
-  assert.match(worker, /clients\.openWindow\(url\.href\)/);
+test('notificationclick preserva trocaId e usa fallback navigate → mensagem SW→janela → focus → openWindow (módulo pushClickRouting)', async () => {
+  const [worker, roteamento] = await Promise.all([
+    ler('apps/app/src/sw/serviceWorker.js'),
+    ler('apps/app/src/sw/pushClickRouting.js'),
+  ]);
+  assert.match(worker, /processarAberturaClique/);
+  assert.match(roteamento, /trocaId/);
+  assert.match(roteamento, /cliente\.navigate\(url\)/);
+  assert.match(roteamento, /cliente\.postMessage\(mensagem\)/);
+  assert.match(roteamento, /cliente\.focus\(\)/);
+  assert.match(roteamento, /abrirNovaJanela\(url\)/);
 });
 
 test('canal de atualização de escala permanece distinto do FCM e do teste local', async () => {
@@ -253,17 +265,18 @@ test('texto "rodando em segundo plano" não existe no código rastreado do PWA/w
   assert.doesNotMatch(fontes.join('\n').toLowerCase(), /rodando em segundo plano/);
 });
 
-test('o clique de notificação nunca deixa de agir em silêncio: navigate e focus têm tratamento de falha próprio, com fallback para openWindow', async () => {
-  const worker = await ler('apps/app/src/sw/serviceWorker.js');
-  // Achado real (checkpoint de push real): a versão anterior só protegia
+test('o clique de notificação nunca deixa de agir em silêncio: navigate, mensagem e focus têm tratamento de falha próprio, com fallback para openWindow', async () => {
+  const roteamento = await ler('apps/app/src/sw/pushClickRouting.js');
+  // Achado real (checkpoints de push real): uma versão anterior só protegia
   // `navigate()` com try/catch — se `focus()` também lançasse, a promessa
   // inteira rejeitava sem nunca abrir/focar nada, e o clique parecia não
-  // fazer nada. Agora cada etapa tem seu próprio try/catch.
-  const chamadasTry = worker.match(/\btry\s*\{/g) ?? [];
-  assert.ok(chamadasTry.length >= 2, 'navigate() e focus() devem ter blocos try próprios, não compartilhados');
-  assert.match(worker, /\.navigate\(url\.href\)/);
-  assert.match(worker, /\.focus\(\)/);
-  assert.match(worker, /clients\.openWindow\(url\.href\)/);
+  // fazer nada. Agora cada etapa (navigate/postMessage/focus) tem seu
+  // próprio try/catch, e só cai para openWindow se nenhuma delas funcionou.
+  const chamadasTry = roteamento.match(/\btry\s*\{/g) ?? [];
+  assert.ok(chamadasTry.length >= 3, 'navigate(), postMessage() e focus() devem ter blocos try próprios, não compartilhados');
+  assert.match(roteamento, /cliente\.navigate\(url\)/);
+  assert.match(roteamento, /cliente\.focus\(\)/);
+  assert.match(roteamento, /abrirNovaJanela\(url\)/);
 });
 
 test('showNotification continua único mesmo após a correção do clique — nenhuma regressão de duplicidade', async () => {

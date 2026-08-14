@@ -118,14 +118,26 @@ manualmente).
   notificação cada, sem duplicidade. **Achado residual**: o clique na
   notificação não abriu nem focou o PWA em nenhum dos dois dispositivos —
   ver limitações abaixo. Aprovação da fase classificada como **parcial**.
+- **Correção do clique** (fase PUSH-PWA-2B.2D, 2026-08-14): causa raiz mais
+  provável identificada e corrigida — `onBackgroundMessage()` não aguardava
+  a Promise de `showNotification()`, destacando a exibição da notificação
+  da vida útil do evento `push` e arriscando perda do `data` persistido.
+  Corrigido com um envelope interno versionado, `notificationclick`
+  reconhecendo explicitamente notificações próprias, e um protocolo de
+  fallback SW→janela (`ESCALA_ICI_NOTIFICATION_CLICK`) quando
+  `WindowClient.navigate()` está ausente ou falha. Validado por 24 testes
+  comportamentais novos e pela suíte completa (`test:boundaries` 76/76,
+  `test:unit` 399/399, typecheck/lint/build OK) — ver
+  `CHECKPOINT-FASE-PUSH-PWA-2B.2D.md`. **Ainda sem commit, deploy ou reteste
+  real** — aprovação depende de um novo teste FCM real nos dois
+  dispositivos.
 
 ## Limitações
 
-- Clique em notificação push real não abre/foca o PWA (computador e
-  celular) — diverge do comportamento validado no diagnóstico local
-  (notificação simulada). Possível divergência entre o payload de teste
-  local e o payload real do FCM no handler `notificationclick`. Não
-  investigado nem corrigido ainda.
+- Clique em notificação push real não abria/focava o PWA (computador e
+  celular) — código corrigido na fase PUSH-PWA-2B.2D (ver acima), mas a
+  correção **ainda não foi validada por um teste real** — só um reteste nos
+  dois dispositivos confirma que o problema foi de fato resolvido.
 - Push para Android nativo continua pendente — nenhum código cliente Android
   existe neste repositório.
 - `EXPIRADA` (estado de Troca) não tem mecanismo de expiração automática
@@ -136,8 +148,10 @@ manualmente).
 
 ## Pendências reais
 
-- Investigar e corrigir o `notificationclick` do service worker para
-  notificações reais via FCM.
+- Confirmar por reteste real (2 dispositivos) que a correção do
+  `notificationclick` (fase PUSH-PWA-2B.2D, código já corrigido e validado
+  automaticamente) resolve de fato o clique que não abria o PWA — requer
+  commit e deploy de staging antes do reteste.
 - Runbook de push (`docs/operacao/PUSH-FCM-OPERACAO.md`) ainda não documenta
   como procedimento operacional formal: teste local, reconfiguração de
   dispositivo, saneamento reversível com dry-run, diagnóstico de
@@ -152,9 +166,9 @@ manualmente).
 
 ## Próximo marco
 
-Investigar a divergência de comportamento do clique em notificação push real
-(handler `notificationclick` vs. payload FCM real) antes de qualquer nova
-fase de ativação contínua do push.
+Commit da correção do clique (PUSH-PWA-2B.2D), deploy de staging controlado
+e um único reteste FCM real nos dois dispositivos existentes, antes de
+qualquer nova fase de ativação contínua do push.
 
 ## Fora do escopo (explicitamente)
 
