@@ -109,6 +109,19 @@ service cloud.firestore {
         && (souAdminSistema() || (souGestorUnidade() && unidadeId in minhasUnidadesPermitidas()));
     }
 
+    /**
+     * Busca o documento real de outro usuário por login — usado só para
+     * validar o destinatário verdadeiro de um Lembrete Atribuído. Nunca
+     * confiar em `destinatarioEquipeId` do payload do cliente sem checar
+     * contra o `equipeId` real deste documento (ver `lembretesAtribuidos`
+     * abaixo) — fecha o ataque de enviar o login de alguém de uma equipe
+     * junto com o `destinatarioEquipeId` de outra equipe (a que o gestor
+     * efetivamente administra) para tentar burlar o escopo.
+     */
+    function usuarioPorLogin(login) {
+      return get(/databases/$(database)/documents/usuarios/$(login)).data;
+    }
+
     match /config/{doc} {
       allow read: if true;
       allow write: if false;
@@ -181,6 +194,138 @@ service cloud.firestore {
           )
         );
 
+      allow delete: if souAdminSistema();
+    }
+
+    /**
+     * Lembretes pessoais — subcoleção de `usuarios/{login}`, NÃO um campo
+     * dentro do documento `usuarios/{login}` em si: esta rule é totalmente
+     * independente da rule acima (afrouxar uma não afrouxa a outra).
+     * Privacidade é estrutural — a condição de acesso é só `loginDoAuth()
+     * == login` (o segmento do PATH, não um campo de `resource.data`), então
+     * um `list` sem filtro nenhum já é seguro por natureza: a consulta só
+     * pode enumerar a subcoleção de UM login por vez, nunca "todas as
+     * subcoleções de lembretes de todos os usuários" via client SDK comum.
+     * Nem `souGestor()` nem `souAdminSistema()` têm qualquer exceção aqui —
+     * administrar usuários não implica acesso a conteúdo pessoal.
+     */
+    match /usuarios/{login}/lembretes/{lembreteId} {
+      allow read: if autenticado() && loginDoAuth() == login;
+
+      allow create: if autenticado()
+        && loginDoAuth() == login
+        && request.resource.data.tipo == 'PESSOAL'
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.titulo is string
+        && request.resource.data.titulo.size() > 0
+        && request.resource.data.data is string
+        && request.resource.data.keys().hasOnly([
+          'lembreteId', 'tipo', 'schemaVersion', 'titulo', 'descricao',
+          'data', 'horario', 'serieId', 'alertasAntecedenciaMin',
+          'criadoEm', 'atualizadoEm',
+        ]);
+
+      // `tipo`/`schemaVersion` imutáveis: um lembrete pessoal nunca vira
+      // outra coisa por update.
+      allow update: if autenticado()
+        && loginDoAuth() == login
+        && request.resource.data.tipo == resource.data.tipo
+        && request.resource.data.schemaVersion == resource.data.schemaVersion
+        && request.resource.data.titulo is string
+        && request.resource.data.titulo.size() > 0
+        && request.resource.data.data is string
+        && request.resource.data.keys().hasOnly([
+          'lembreteId', 'tipo', 'schemaVersion', 'titulo', 'descricao',
+          'data', 'horario', 'serieId', 'alertasAntecedenciaMin',
+          'criadoEm', 'atualizadoEm',
+        ]);
+
+      // Exclusão definitiva permitida — é conteúdo do próprio colaborador,
+      // sem histórico administrativo (diferente de `lembretesAtribuidos`).
+      allow delete: if autenticado() && loginDoAuth() == login;
+    }
+
+    /**
+     * Lembretes atribuídos pelo gestor a um colaborador do seu escopo.
+     * Coleção top-level (diferente dos pessoais) porque o gestor
+     * legitimamente precisa ler/gerenciar um item que não é dele. A
+     * validação do destinatário NUNCA confia isoladamente em
+     * `destinatarioEquipeId` do payload — sempre confere contra o
+     * `equipeId` real de `usuarios/{destinatarioLogin}` via
+     * `usuarioPorLogin()` antes de checar `podeOperarNaEquipe()`.
+     */
+    match /lembretesAtribuidos/{lembreteId} {
+      // Cobre tanto o colaborador lendo o próprio quanto o gestor em escopo
+      // lendo/listando os do seu time (Dashboard, Fase 5) — a mesma consulta
+      // (`where('destinatarioLogin', '==', X)`) serve os dois casos, cada um
+      // autorizado por um ramo diferente do OR.
+      allow read: if autenticado()
+        && (
+          resource.data.destinatarioLogin == loginDoAuth()
+          || (souGestor() && podeOperarNaEquipe(resource.data.destinatarioEquipeId))
+        );
+
+      allow create: if souGestor()
+        && request.resource.data.tipo == 'ATRIBUIDO'
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.status == 'ATIVO'
+        && request.resource.data.titulo is string
+        && request.resource.data.titulo.size() > 0
+        && request.resource.data.data is string
+        && request.resource.data.criadoPorLogin == loginDoAuth()
+        && request.resource.data.criadoPorNome == eu().nome
+        && request.resource.data.destinatarioEquipeId
+          == usuarioPorLogin(request.resource.data.destinatarioLogin).equipeId
+        && podeOperarNaEquipe(request.resource.data.destinatarioEquipeId)
+        && request.resource.data.get('canceladoEm', null) == null
+        && request.resource.data.get('canceladoPorLogin', null) == null
+        && request.resource.data.keys().hasOnly([
+          'lembreteId', 'tipo', 'schemaVersion', 'destinatarioLogin',
+          'destinatarioEquipeId', 'titulo', 'descricao', 'data', 'horario',
+          'serieId', 'alertasAntecedenciaMin', 'criadoPorLogin',
+          'criadoPorNome', 'status', 'criadoEm', 'atualizadoEm',
+          'canceladoEm', 'canceladoPorLogin',
+        ]);
+
+      // Destinatário/equipe/autoria/criadoEm imutáveis — só conteúdo e
+      // status podem mudar. Status só anda ATIVO -> CANCELADO (nunca volta);
+      // qualquer gestor com escopo sobre a equipe pode gerenciar (não só
+      // quem criou), mesmo modelo de time usado em `trocasEscala`/
+      // `rascunhosTurnosMes`. O destinatário nunca tem `souGestor()`
+      // verdadeiro só por ser dono do lembrete, então esta regra já nega
+      // update para ele — não precisa de checagem extra.
+      allow update: if souGestor()
+        && podeOperarNaEquipe(resource.data.destinatarioEquipeId)
+        && request.resource.data.tipo == resource.data.tipo
+        && request.resource.data.schemaVersion == resource.data.schemaVersion
+        && request.resource.data.destinatarioLogin == resource.data.destinatarioLogin
+        && request.resource.data.destinatarioEquipeId == resource.data.destinatarioEquipeId
+        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
+        && request.resource.data.criadoPorNome == resource.data.criadoPorNome
+        && request.resource.data.criadoEm == resource.data.criadoEm
+        && request.resource.data.titulo is string
+        && request.resource.data.titulo.size() > 0
+        && request.resource.data.data is string
+        && (
+          request.resource.data.status == resource.data.status
+          || (resource.data.status == 'ATIVO' && request.resource.data.status == 'CANCELADO')
+        )
+        && (
+          request.resource.data.get('canceladoPorLogin', null) == null
+          || request.resource.data.canceladoPorLogin == loginDoAuth()
+        )
+        && request.resource.data.keys().hasOnly([
+          'lembreteId', 'tipo', 'schemaVersion', 'destinatarioLogin',
+          'destinatarioEquipeId', 'titulo', 'descricao', 'data', 'horario',
+          'serieId', 'alertasAntecedenciaMin', 'criadoPorLogin',
+          'criadoPorNome', 'status', 'criadoEm', 'atualizadoEm',
+          'canceladoEm', 'canceladoPorLogin',
+        ]);
+
+      // Sem delete físico no MVP (preserva histórico administrativo) — só
+      // ADMIN_SISTEMA, mesmo precedente de `trocasEscala`/`notificacoesTroca`
+      // (limpeza seletiva quando um usuário é excluído — ainda não integrado
+      // a `excluirUsuario()`, ver riscos/pendências da Fase 3).
       allow delete: if souAdminSistema();
     }
 

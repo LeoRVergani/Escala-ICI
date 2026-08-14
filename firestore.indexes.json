@@ -52,6 +52,14 @@
         { "fieldPath": "competencia", "order": "ASCENDING" },
         { "fieldPath": "destinatarioLogin", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "lembretesAtribuidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "destinatarioLogin", "order": "ASCENDING" },
+        { "fieldPath": "data", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
