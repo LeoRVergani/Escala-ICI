@@ -973,11 +973,30 @@ button.shift-chip:disabled { cursor: default; }
   background: linear-gradient(145deg, var(--primary), var(--primary-bright));
   box-shadow: 0 9px 22px color-mix(in srgb, var(--primary) 24%, transparent);
 }
+.week-days > button.selected:not(.today) {
+  border-color: var(--primary-bright);
+  background: var(--primary-soft);
+  box-shadow: inset 0 0 0 2px var(--primary-bright);
+}
 .week-days > button > small { color: var(--muted); font-size: 9px; font-weight: 750; text-transform: uppercase; }
 .week-days > button.today > small { color: rgba(255, 255, 255, 0.78); }
 .week-days > button > strong { font-size: 18px; }
 .week-days > button .shift-chip { min-width: 32px; min-height: 20px; }
 .week-days > button.today .shift-chip { border-color: rgba(255, 255, 255, 0.2); }
+.today-back-to-today {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary-bright);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.today-back-to-today:hover { text-decoration: underline; }
 .today-hero {
   min-height: 250px;
   border-radius: 12px;
