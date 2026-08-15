@@ -1,9 +1,13 @@
 # Estado atual do projeto — Escala ICI
 
-Atualizado em: 2026-08-14
-Commit auditado: `441e25bf2e8f2bdc92ac6ad8871118d1a3e8e9f9`
-Branch: `feature/push-fcm-staging` (8 commits à frente de `main`, 0 atrás)
-PR relacionado: #1 (aberto, em **draft**)
+Atualizado em: 2026-08-15
+Commit auditado: `d57df56be38ab4290fec3b447414fc7699b118de` (tip de
+`feature/lembretes-consulta-dia-hoje`, sendo mesclado a `main` nesta mesma
+fase — ver seção "Ciclo Lembretes / consulta diária" abaixo)
+Branch: `feature/lembretes-consulta-dia-hoje` → `main` (Fase 8, release de
+encerramento em andamento)
+PR relacionado: #1 (aberto, em **draft** — descrição ainda retrata só a
+primeira versão do push-worker, anterior ao ciclo de Lembretes)
 
 Este documento é a fonte central de verdade sobre o estado real do projeto.
 Documentos específicos (specs, runbooks, checkpoints) continuam existindo
@@ -60,11 +64,54 @@ push (FCM) independente. Autenticação e persistência via Firebase
 
 ## Branch e PR em andamento
 
-`feature/push-fcm-staging`, 8 commits à frente de `main`, 0 atrás, upstream
-sincronizado. PR #1 aberto em draft — descrição ainda retrata só a primeira
-versão do push-worker (ver proposta de descrição atualizada no relatório da
-fase DOCS-1, a ser usada quando o usuário decidir atualizar o PR
-manualmente).
+`feature/push-fcm-staging` já foi integrada a `main` (histórico linear,
+sem merge commit dedicado) em fase anterior a este documento. O ciclo atual
+— `feature/lembretes-consulta-dia-hoje`, 12 commits à frente de `main` — está
+sendo mesclado a `main` nesta Fase 8 (release de encerramento). PR #1
+continua aberto em draft, com descrição desatualizada (só a primeira versão
+do push-worker); não foi atualizado automaticamente.
+
+## Ciclo Lembretes / consulta diária — ESTÁVEL EM STAGING
+
+Ciclo encerrado nesta Fase 8, cobrindo tela Hoje (consulta de equipe por
+dia sem sair da tela), Lembretes pessoais e Lembretes atribuídos pelo
+gestor. Fonte funcional completa: `docs/spec/LEMBRETES.md`. Regra de
+CSS/cascade obrigatória para qualquer alteração visual futura no módulo:
+`docs/spec/UI_CASCADE_E_HERANCA.md`.
+
+- **Tela Hoje**: tocar em outro dia da semana consulta a equipe daquele dia
+  sem navegar para fora da tela Hoje; hoje real permanece identificado
+  visualmente; botão "Voltar para hoje" funciona; Agenda continua
+  independente. Validado manualmente pelo usuário.
+- **Lembretes pessoais** (`usuarios/{login}/lembretes`, privados por
+  estrutura de path — gestor/admin nunca leem): CRUD completo, calendário
+  próprio, "Próximos Lembretes", persistência real confirmada em staging
+  (sobrevive a F5). Validado manualmente.
+- **Lembretes atribuídos** (`lembretesAtribuidos`, top-level): gestor cria
+  (única ou série), edita conteúdo, cancela (`ATIVO -> CANCELADO`, nunca
+  delete físico, nunca reativa) direto na tela Usuários do Dashboard; o
+  colaborador vê no App, com indicação de origem administrativa, e não pode
+  editar/excluir. Validado manualmente (Dashboard e PWA).
+- **Realtime**: validado manualmente em staging real — o gestor atribuiu um
+  lembrete no Dashboard e ele apareceu na PWA do colaborador na mesma hora,
+  sem F5 (fluxo Dashboard → Firestore → listener → PWA).
+- **Responsividade**: App e Dashboard validados manualmente pelo usuário,
+  sem defeitos encontrados.
+- **Privacidade**: Dashboard nunca importa leitura/escrita de lembretes
+  pessoais — garantido por teste de fronteira automatizado
+  (`tests/app-boundaries.test.mjs`).
+- **Correção Fase 5.1**: a query administrativa do Dashboard precisou
+  passar a filtrar também por `destinatarioEquipeId` — Firestore não trata
+  Security Rules como filtro pós-consulta; um `list` só é aprovado se cada
+  `where()` do cliente já prova a condição da Rule para qualquer resultado
+  possível. A Rule em si não mudou. Índice composto novo
+  (`destinatarioLogin+destinatarioEquipeId+data`) confirmado presente em
+  `escala-ici-staging`.
+- **Push de Lembretes**: **não implementado neste ciclo** (decisão
+  deliberada). `alertasAntecedenciaMin` continua só como dado preparado.
+  Evolução futura: reutilizar `apps/push-worker` e a infraestrutura FCM/FID
+  existente — nunca um segundo backend/worker.
+- **Produção**: inalterada por este ciclo.
 
 ## Funcionalidades concluídas
 
@@ -94,6 +141,11 @@ manualmente).
   teste local e teste real controlado.
 - Diagnóstico local de notificação e clique, validado em dois dispositivos
   reais (computador e celular).
+- Tela Hoje com consulta de equipe independente por dia da semana, sem sair
+  da tela (não navega para Agenda).
+- Lembretes pessoais e atribuídos pelo gestor, com realtime, privacidade
+  estrutural e responsividade validados manualmente em staging — ver seção
+  "Ciclo Lembretes / consulta diária" acima e `docs/spec/LEMBRETES.md`.
 
 ## Situação atual do push (FCM)
 
@@ -176,3 +228,6 @@ qualquer nova fase de ativação contínua do push.
 - Produção (qualquer ambiente além dos listados acima).
 - Ativação contínua de push (`PUSH_ENABLED=true` permanente) sem autorização
   explícita e nova fase dedicada.
+- Push/alerta automático para Lembretes (`alertasAntecedenciaMin` continua
+  só dado preparado) — evolução futura, reutilizando `apps/push-worker`.
+- React Native / app nativo.

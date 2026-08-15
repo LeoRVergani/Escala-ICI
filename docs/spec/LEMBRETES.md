@@ -5,22 +5,27 @@ Firestore Rules atuais (branch `feature/lembretes-consulta-dia-hoje`). Cada
 afirmação aponta para a evidência que a sustenta — este documento não supõe
 comportamento que não esteja implementado.
 
-**Estado atual (pós-Fase 5.1):** domínio puro, repositories, Firestore Rules
-(com hardening da Fase 4.1: sem delete físico de atribuído) e UI do App do
-colaborador (`apps/app/src/lembretes/`, `components/lembretes/`) existem e
-têm cobertura de teste real (unitária + Emulator). O Dashboard (Fase 5)
-permite ao gestor atribuir/editar/cancelar lembretes de um colaborador do
-seu escopo, direto na tela Usuários (`DashboardApp.tsx`) — reaproveita o
-mesmo domínio/repository e nunca importa leitura/escrita de lembretes
-pessoais (ver teste de fronteira em `tests/app-boundaries.test.mjs`). A Fase
-5.1 corrigiu um `permission-denied` real em staging: a consulta
+**Estado atual (pós-Fase 8 — ciclo encerrado, estável em staging):** domínio
+puro, repositories, Firestore Rules (com hardening da Fase 4.1: sem delete
+físico de atribuído) e UI do App do colaborador (`apps/app/src/lembretes/`,
+`components/lembretes/`) existem, têm cobertura de teste real (unitária +
+Emulator) e foram validados manualmente pelo usuário em staging real. O
+Dashboard (Fase 5) permite ao gestor atribuir/editar/cancelar lembretes de
+um colaborador do seu escopo, direto na tela Usuários (`DashboardApp.tsx`)
+— reaproveita o mesmo domínio/repository e nunca importa leitura/escrita de
+lembretes pessoais (ver teste de fronteira em `tests/app-boundaries.test.mjs`).
+A Fase 5.1 corrigiu um `permission-denied` real em staging: a consulta
 administrativa precisava filtrar também por `destinatarioEquipeId` para a
 Firestore Rule aprovar o `list` (ver seção "Correção Fase 5.1" abaixo) — a
-Rule em si não mudou, e o índice composto novo ainda precisa ser implantado
-em staging antes do teste end-to-end funcionar sem erro de índice ausente.
-Validação realtime formal (sem F5) do fluxo gestor → colaborador fica para
-a Fase 6. **Não há Push** agendado — os campos de alerta são só dado (ver
-seção "Alertas futuros").
+Rule em si não mudou. O índice composto novo já foi confirmado presente no
+projeto `escala-ici-staging` (Firebase CLI remoto). **Realtime validado
+manualmente em staging real**: o gestor atribuiu um lembrete no Dashboard e
+ele apareceu na PWA do colaborador na mesma hora, sem F5 — fluxo Dashboard →
+Firestore → listener → PWA comprovadamente funcionando (Fase 6).
+Responsividade de App e Dashboard validada manualmente pelo usuário (Fase
+7), sem defeitos encontrados. **Não há Push** de Lembretes implementado
+neste ciclo — os campos de alerta são só dado, preparados para uma evolução
+futura (ver seção "Alertas futuros").
 Qualquer alteração visual nos componentes de Lembretes deve primeiro ler
 [`UI_CASCADE_E_HERANCA.md`](UI_CASCADE_E_HERANCA.md) — os três casos reais
 de bug de cascade documentados ali (botão "Hoje", chip de "Próximos
@@ -279,18 +284,14 @@ o campo já era exigido pela Rule, só a consulta não o fornecia.
 `podeOperarNaEquipe()` do lado do servidor para cada documento retornado —
 o filtro só existe para tornar a query aprovável como `list`.
 
-**Índice novo** (`firestore.indexes.json`, não implantado): composto de 3
-campos `destinatarioLogin + destinatarioEquipeId + data`, necessário em
-produção/staging para a nova consulta do gestor (o Emulator não recusa por
-falta de índice, então os 122 testes de Rules passam independente disso —
-mas staging real vai exigir o índice depois do deploy).
-
-**Pendência de deploy:** o índice novo precisa ser publicado em staging
-(`firebase deploy --only firestore:indexes`, mesmo runbook de
-`docs/spec/LEMBRETES.md`/`scripts/firebase-staging.mjs`) antes do teste real
-end-to-end funcionar sem erro de índice ausente — **não executado nesta
-fase**, só preparado localmente, conforme instrução de não fazer deploy sem
-autorização explícita.
+**Índice novo** (`firestore.indexes.json`): composto de 3 campos
+`destinatarioLogin + destinatarioEquipeId + data`, necessário para a nova
+consulta do gestor (o Emulator não recusa por falta de índice, então os 122
+testes de Rules passam independente disso — só produção/staging real
+exigem o índice). **Confirmado presente no projeto `escala-ici-staging`**
+(Fase 8, `npx firebase-tools firestore:indexes --project
+escala-ici-staging`) — o teste real do gestor listando lembretes atribuídos
+em staging funcionou sem `permission-denied` nem `failed-precondition`.
 
 ## Queries e índices
 
@@ -335,13 +336,17 @@ intervalo na Fase 4).
 
 ## Realtime
 
-`observarLembretesPessoais()`/`observarLembretesAtribuidosDoUsuario()`
-(`lib/firebase/lembretesRepository.ts`) existem e têm cobertura de teste,
-mas **não estão conectados a `EmployeeApp.tsx` ainda** — isso é Fase 4.
-Quando conectados, devem seguir a mesma regra já aplicada ao resto do App:
-listeners só depois de sessão + usuário + carga inicial resolvidos
-(`podeIniciarListeners()`, `lib/sessao.ts`), para não recriar a race
-condition de um `get()` antigo sobrescrevendo um snapshot mais recente.
+`observarLembretesPessoais()`/`observarLembretesAtribuidosDoUsuario()`/
+`observarLembretesAtribuidosDoGestor()` (`lib/firebase/lembretesRepository.ts`)
+estão conectados desde a Fase 4 (`apps/app/src/lembretes/useLembretes.ts`,
+App) e a Fase 5.1 (`DashboardApp.tsx`, Dashboard), seguindo a mesma regra já
+aplicada ao resto do App: listeners só depois de sessão + usuário + carga
+inicial resolvidos (`podeIniciarListeners()`, `lib/sessao.ts`), para não
+recriar a race condition de um `get()` antigo sobrescrevendo um snapshot
+mais recente. **Validado manualmente em staging real (Fase 6):** o gestor
+atribuiu um lembrete pelo Dashboard e ele apareceu na PWA do colaborador na
+mesma hora, sem F5 — o listener do App recebeu o snapshot novo pela
+subscrição já existente, sem nenhum código de "reload manual".
 
 ## Séries
 
@@ -406,38 +411,33 @@ ao usuário um alerta automático que ainda não dispara.
   Rules), nunca reabrir `delete` para o client SDK nem dar a gestor/admin
   acesso à subcoleção pessoal.
 - ~~Nenhuma UI consome este repository ainda~~ — Fase 4 conectou a UI do App
-  (`apps/app/src/lembretes/`, `components/lembretes/`). Fase 5 (Dashboard)
-  continua pendente.
+  (`apps/app/src/lembretes/`, `components/lembretes/`); Fase 5 conectou o
+  Dashboard (`DashboardApp.tsx`). Ambos validados manualmente em staging.
 - Nenhum mecanismo de alerta/Push para lembretes existe — só o dado está
-  preparado.
+  preparado (`alertasAntecedenciaMin`). Evolução futura planejada: reutilizar
+  `apps/push-worker` e a infraestrutura FCM/FID existente (ver "Alertas
+  futuros" acima) — nunca um segundo backend/worker/scheduler no frontend.
 
-## Bloqueio de ambiente conhecido (Fase 4.1) — Rules ainda não publicadas
+## Histórico — bloqueio de ambiente (Fase 4.1) — resolvido
 
-Teste real (Firebase real, não Emulator) reproduziu `permission-denied`
-("Missing or insufficient permissions.") ao criar um Lembrete pessoal.
-**Causa confirmada:** esta branch nunca rodou um deploy de Rules — nenhum
-commit desta feature chamou `firebase deploy` nem
-`npm run firebase:staging:deploy`. O projeto Firebase real contra o qual o
-teste rodou ainda serve as Rules de antes da Fase 3, que não têm nenhum
-bloco `match` para `usuarios/{login}/lembretes/{lembreteId}` nem para
+**Não reflete o estado atual** (ver "Estado atual" no topo) — preservado
+como registro de diagnóstico real. Teste real (Firebase real, não Emulator)
+reproduziu `permission-denied` ("Missing or insufficient permissions.") ao
+criar um Lembrete pessoal. **Causa confirmada na época:** a branch ainda não
+tinha rodado nenhum deploy de Rules. O projeto Firebase real contra o qual o
+teste rodou servia as Rules de antes da Fase 3, sem nenhum bloco `match`
+para `usuarios/{login}/lembretes/{lembreteId}` nem para
 `lembretesAtribuidos/{lembreteId}` — path sem regra correspondente é negado
 por padrão pelo Firestore, exatamente o erro observado (tanto no `create`
-quanto no listener realtime, os dois caem no mesmo `permission-denied`).
-As 117 Firestore Rules deste projeto só passam no **Emulator local**
-(`npm run test:firestore-rules`), que sempre carrega `firestore.rules` do
-disco — nunca foram publicadas em nenhum ambiente remoto.
+quanto no listener realtime, os dois caíam no mesmo `permission-denied`).
+As 117 Firestore Rules deste projeto só passavam no **Emulator local**
+(`npm run test:firestore-rules`) até então.
 
-**Comando para publicar (requer autorização explícita, não execute sem
-confirmar antes — ver `scripts/firebase-staging.mjs`):**
-
-```bash
-npm run firebase:staging:deploy -- --confirm=DEPLOY_STAGING
-```
-
-Requer `.env.staging.dashboard` configurado e a CLI do `firebase-tools`
-autenticada. Até que isso seja feito com autorização, o CRUD real de
-Lembretes (fora do Emulator/Demo) permanecerá bloqueado por
-`permission-denied` — comportamento esperado, não um bug de código.
+**Resolução:** Rules e índices foram publicados em `escala-ici-staging`
+(deploy de Rules antes desta correção; índice composto de
+`destinatarioLogin+destinatarioEquipeId+data` confirmado na Fase 8). CRUD
+real de Lembretes pessoais e atribuídos, além do realtime Dashboard → PWA,
+foram validados manualmente em staging (ver "Estado atual").
 
 Correção separada (Fase 4.1, `lib/firebase/errors.ts`): a mensagem de erro
 mostrada ao usuário mencionava "permissão de gestor" mesmo numa ação de
