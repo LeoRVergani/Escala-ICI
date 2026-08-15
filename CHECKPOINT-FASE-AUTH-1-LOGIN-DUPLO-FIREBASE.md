@@ -421,3 +421,133 @@ por workspace já refletida corretamente no lockfile).
   bug da AUTH-1/AUTH-1A, mas fica registrado como divergência pré-existente
   a ser investigada em uma fase própria de Publicação/Escala, não de
   Autenticação.
+
+---
+
+## AUTH-1B — padronização Firebase 12.17.1 no monorepo
+
+Microfase intermediária, executada a pedido do usuário durante uma pausa
+controlada da AUTH-2 (validação real de staging, ainda em andamento no
+momento da pausa — nenhuma configuração externa da AUTH-2 foi alterada por
+esta microfase: nenhum Firebase Console, nenhum Entra, nenhum rebuild de
+Dashboard staging, nenhum deploy, produção intocada; o checkpoint próprio
+da AUTH-2 será criado quando essa fase for retomada e concluída).
+
+### Motivo do pin `firebase@12.1.0` no Dashboard (encontrado, não suposto)
+
+Antes de alterar qualquer coisa, foi feita busca por justificativa
+documentada (`git log`/specs/checkpoints). Encontrada em
+`CHECKPOINT-FASE-PUSH-PWA-1.md` (seção "Atualização do Firebase Web SDK"):
+durante a Fase PUSH-PWA-1, `firebase` foi elevado de `12.1.0` para
+`12.17.1` **exato** na raiz e em `apps/app` porque a API de FID
+(`register`/`onRegistered`/`unregister`/`onUnregistered` de
+`@firebase/messaging`) só existe a partir de `@firebase/messaging@0.13.1`
+(trazido pelo `firebase@12.17.1`). `apps/dashboard/package.json` foi
+**intencionalmente deixado em `12.1.0`** naquele momento — não por
+incompatibilidade, mas porque o Dashboard não importa Firebase Messaging e
+o bump não era necessário para o escopo daquela fase (minimização de diff).
+`npm install` resolveu isso à época com uma cópia aninhada em
+`apps/dashboard/node_modules/firebase`, sem conflito.
+
+**Conclusão**: não é uma justificativa arquitetural que bloqueie a
+padronização — é uma decisão de escopo mínimo de uma fase anterior, hoje
+sem motivo para continuar. Prosseguiu-se com a padronização, validada por
+regressão completa abaixo.
+
+### Firebase antes (por workspace)
+
+| Workspace | `package.json` | Resolvido em `node_modules` |
+|---|---|---|
+| raiz | `12.17.1` | `12.17.1` (hoisted) |
+| `apps/app` | `12.17.1` | `12.17.1` (deduped) |
+| `apps/dashboard` | `12.1.0` | `12.1.0` (nested, `apps/dashboard/node_modules/firebase`) |
+
+### Mudança
+
+- `apps/dashboard/package.json`: `"firebase": "12.1.0"` → `"firebase": "12.17.1"` (única linha alterada).
+- `package-lock.json`: regenerado via `npm install --package-lock-only`
+  (nunca editado manualmente) — remove a entrada aninhada
+  `apps/dashboard/node_modules/firebase` (não é mais necessária, já que os
+  três workspaces agora pedem exatamente a mesma versão) e atualiza a
+  árvore de dependências transitivas do Dashboard para as versões
+  correspondentes a `firebase@12.17.1`. Diff: `2 arquivos alterados, 2
+  inserções(+), 576 deleções(-)` — a maior parte da redução é a remoção da
+  árvore aninhada duplicada.
+- `npm ci` executado em seguida para instalar exatamente o que o lockfile
+  atualizado descreve.
+- **Nenhum código TypeScript foi alterado** — a regressão completa (abaixo)
+  não revelou nenhuma incompatibilidade real entre `12.1.0` e `12.17.1`
+  para o que o Dashboard usa (Auth + Firestore; não usa Messaging).
+
+### Firebase depois
+
+```
+$ npm ls firebase
+escala-ici-web@0.1.0 /root/projetos/Escala-ICI-main
+├─┬ @escala-ici/app-web@0.1.0 -> ./apps/app
+│ └── firebase@12.17.1 deduped
+├─┬ @escala-ici/dashboard@0.1.0 -> ./apps/dashboard
+│ └── firebase@12.17.1 deduped
+├─┬ @firebase/rules-unit-testing@5.0.1
+│ └── firebase@12.17.1 deduped
+└── firebase@12.17.1
+```
+
+Uma única versão resolvida em todo o monorepo, sem cópia aninhada.
+`firebase-admin@14.2.0` (push-worker) permanece inalterado e exclusivo do
+worker.
+
+### Regressão completa (resultado real)
+
+| Comando | Resultado |
+|---|---|
+| `npm run typecheck` | ✅ sem erros |
+| `npm run typecheck:apps` | ✅ sem erros (dashboard + app-web) |
+| `npm run typecheck:worker` | ✅ sem erros |
+| `npm run test:unit` | ✅ 508/508 (41/41 arquivos) |
+| `npm run test:boundaries` | ✅ 102/102 |
+| `npm run test:push-worker` | ✅ 48/48 (7/7 arquivos) |
+| `npm run test:firebase-preflight` | ✅ 14/14 |
+| `npm run test:firestore-rules` | ✅ 122/122 |
+| `npm run test:firebase-integration` | ⚠️ **123/126** — exatamente igual ao baseline conhecido, nenhuma quarta falha |
+| `npm run lint` | ✅ 0 erros, 5 warnings (mesmos de antes, `no-unused-vars` em mocks) |
+| `npm run build:app` | ✅ |
+| `npm run build:dashboard` | ✅ (1630 módulos; bundle `1,442.08 kB` — cresceu frente aos `1,236.84 kB` anteriores, esperado: agora embute `@firebase/*` na versão `12.17.1` cheia em vez de deduplicar contra uma cópia menor `12.1.0`) |
+| `npm run build:apps` | ✅ |
+| `npm run build:app:pages` | ✅ + "Cloudflare Pages validado" |
+| `npm run validate:pwa` | ✅ |
+| `npm run validate:artifact` | ✅ |
+| `git diff --check` | ✅ limpo |
+
+`npm run validate:deployments` não foi executado (fora do escopo,
+deliberadamente, conforme instrução da microfase).
+
+### AUTH-1 revalidada sobre o Firebase padronizado
+
+- `entrarComEmail`/`entrarComMicrosoft` continuam compilando
+  (`typecheck`/`typecheck:apps` verdes) e passando
+  (`lib/firebase/authRepository.test.ts`, incluso no `test:unit`, 11
+  testes verdes).
+- `OAuthProvider('microsoft.com')`, `setCustomParameters`,
+  `signInWithPopup`, `signOut` continuam com a mesma assinatura — nenhuma
+  mudança de API entre `12.1.0`/`12.17.1` afeta essas chamadas (ambas as
+  versões já expunham essa API; a única diferença relevante encontrada
+  entre as duas versões, documentada na Fase PUSH-PWA-1, é em
+  `@firebase/messaging`, que o Dashboard não usa).
+- Persistence (`prepararPersistencia`), `usuarios/{login}`, `LoginPanel`,
+  Demo, Firestore Rules: nenhum tocado nesta microfase.
+
+### Segurança
+
+- Diff revisado (`git diff`) — nenhum Client Secret, token, credential,
+  `.env` real ou segredo Microsoft/Firebase introduzido. Único conteúdo:
+  um número de versão em `package.json` e a árvore de resolução do
+  `package-lock.json`.
+
+### Git
+
+- Arquivos alterados: `apps/dashboard/package.json`,
+  `package-lock.json`.
+- Commit local criado separadamente da AUTH-1/AUTH-1A/AUTH-2 (ver mensagem
+  `chore(firebase): padroniza SDK na versão 12.17.1`).
+- Nenhum `git push`, nenhum `amend` dos commits anteriores.
