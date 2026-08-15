@@ -319,6 +319,44 @@ Demo, Firestore Rules — nenhum tocado nesta retomada.
   nenhum valor literal sensível.
 - `.env.staging.dashboard`/`.env.staging.app` permanecem fora do Git.
 
+---
+
+## Validação manual real — Dashboard Microsoft (reportada pelo usuário)
+
+Teste feito pelo usuário em navegador real, em `https://escala.ici.tec.br`,
+clicando "Entrar com Microsoft" com uma conta corporativa sem permissão de
+gestor:
+
+| Evento | Resultado |
+|---|---|
+| `MICROSOFT_PROVIDER_OPENED` / login Microsoft | ✅ autenticou corretamente |
+| `FIREBASE_AUTH_SUCCESS` | ✅ |
+| `USUARIO_FIRESTORE_FOUND`/`USUARIO_RESOLVED` | ✅ Firebase resolveu o usuário |
+| `DASHBOARD_AUTHORIZATION_CHECKED` (teste negativo) | ✅ acesso negado corretamente — perfil sem `nivelPermiteDashboard()`, mensagem exibida: "Seu perfil não possui permissão de gestor para acessar o dashboard." (`MENSAGEM_SEM_PERMISSAO_DASHBOARD`, `lib/sessao.ts`) |
+| Visual — borda lateral do `.login-card` | ✅ contínua |
+| Visual — `.login-auth-divider` | ✅ sem overflow |
+
+Isso confirma exatamente o comportamento exigido pela AUTH-1/AUTH-2:
+autenticação Microsoft bem-sucedida **não implica** autorização — o
+provedor não ganha privilégio especial, a autorização continua vindo de
+`usuarios/{login}` + `nivelPermiteDashboard()`, e a sessão foi
+corretamente tratada como não autorizada em vez de um bypass.
+
+**Pendente**: teste positivo — conta Microsoft corporativa com perfil de
+gestor, confirmando `DASHBOARD_RENDERED` de verdade.
+
+## Deploy do PWA staging — bloqueado por autenticação Cloudflare
+
+Ao tentar `npm run pages:deploy:staging -- --confirm=DEPLOY_STAGING`,
+`wrangler whoami` acusou `You are not authenticated` e não há
+`CLOUDFLARE_API_TOKEN` configurado neste ambiente (nem em variáveis de
+ambiente, nem em arquivos do projeto/sistema). Perguntei ao usuário como
+prosseguir; ele optou por rodar `wrangler login` (fluxo OAuth via
+navegador) por conta própria nesta VM. Deploy fica pendente dessa
+confirmação — build local (`dist/apps/app`) já está pronto e validado
+(`validate:pwa`/`validate:artifact` verdes, tenant confirmado presente no
+bundle), falta apenas a etapa de autenticação/publicação.
+
 ## Pendências — o que só pode ser feito por você (Firebase Console / Entra / navegador)
 
 Tudo que era automatizável sem navegador e sem acesso administrativo aos
