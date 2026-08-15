@@ -7,6 +7,7 @@ export default defineConfig({
       'packages/contrato/test/**/*.test.ts',
       'lib/**/*.test.ts',
       'apps/push-worker/test/**/*.test.ts',
+      'apps/app/src/**/*.test.ts',
     ],
   },
   resolve: {

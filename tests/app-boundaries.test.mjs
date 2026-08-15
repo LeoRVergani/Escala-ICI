@@ -43,6 +43,40 @@ test('a tela de Usuários do Dashboard não expõe UID técnico ao gestor', asyn
   }
 });
 
+test('o Dashboard nunca importa leitura/escrita de lembretes pessoais (privacidade absoluta)', async () => {
+  const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
+  // Remove comentários de bloco antes de checar: o arquivo documenta de
+  // propósito, em prosa, quais funções pessoais NUNCA são importadas — a
+  // checagem real é sobre código, não sobre essa nota explicativa.
+  const semComentarios = dashboard.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  for (const proibido of [
+    'criarLembretePessoal',
+    'criarSerieLembretesPessoais',
+    'atualizarLembretePessoal',
+    'excluirLembretePessoal',
+    'listarLembretesPessoais',
+    'observarLembretesPessoais',
+  ]) {
+    assert.doesNotMatch(semComentarios, new RegExp(proibido), proibido);
+  }
+
+  assert.match(semComentarios, /lembretesAtribuidos/);
+});
+
+test('o Dashboard consulta lembretes atribuídos pela API do gestor (com destinatarioEquipeId), nunca pela API do colaborador (Fase 5.1)', async () => {
+  const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
+  const semComentarios = dashboard.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  // A API "DoUsuario" serve só o colaborador consultando os próprios
+  // atribuídos — a Firestore Rule exige `destinatarioEquipeId` na query do
+  // gestor (ver lib/firebase/lembretesRepository.ts), então o Dashboard só
+  // pode usar a variante "DoGestor".
+  assert.doesNotMatch(semComentarios, /observarLembretesAtribuidosDoUsuario/);
+  assert.doesNotMatch(semComentarios, /listarLembretesAtribuidosDoUsuario/);
+  assert.match(semComentarios, /observarLembretesAtribuidosDoGestor/);
+});
+
 test('os dois produtos possuem entradas Vite independentes', async () => {
   const arquivos = await Promise.all([
     ler('apps/dashboard/index.html'),

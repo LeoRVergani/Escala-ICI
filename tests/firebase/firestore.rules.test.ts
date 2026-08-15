@@ -1524,3 +1524,410 @@ describe('unidadesOrganizacionais e equipes — escopo GESTOR_UNIDADE', () => {
     await assertSucceeds(updateDoc(doc(gestor, 'usuarios', usuarios.colaborador.login), { cargo: 'ANALISTA_SOC_SR' }));
   });
 });
+
+/**
+ * Fase 3 (Lembretes) — pessoal. `colaborador` e `colega` são da mesma
+ * equipe (`EQ_COSI_SOC`); a privacidade tem que se sustentar mesmo entre
+ * colegas de time, não só entre equipes diferentes.
+ */
+function lembretePessoal(ajustes: Record<string, unknown> = {}) {
+  return {
+    lembreteId: 'lembrete-pessoal-1',
+    tipo: 'PESSOAL',
+    schemaVersion: 1,
+    titulo: 'Estudar CySA+',
+    descricao: null,
+    data: '2026-08-19',
+    horario: { diaInteiro: false, horaInicio: '21:00', horaFim: null, viraDia: false },
+    serieId: null,
+    alertasAntecedenciaMin: [],
+    criadoEm: '2026-08-07T13:00:00.000Z',
+    atualizadoEm: '2026-08-07T13:00:00.000Z',
+    ...ajustes,
+  };
+}
+
+describe('lembretes pessoais — privacidade estrutural (usuarios/{login}/lembretes)', () => {
+  it('usuário cria, lê, lista, atualiza e exclui o próprio lembrete', async () => {
+    const db = autenticarComo(usuarios.colaborador);
+    const ref = doc(db, 'usuarios', usuarios.colaborador.login, 'lembretes', 'lembrete-1');
+
+    await assertSucceeds(setDoc(ref, lembretePessoal({ lembreteId: 'lembrete-1' })));
+    await assertSucceeds(getDoc(ref));
+    await assertSucceeds(getDocs(collection(db, 'usuarios', usuarios.colaborador.login, 'lembretes')));
+    await assertSucceeds(updateDoc(ref, { titulo: 'Estudar CySA+ (revisão)', atualizadoEm: '2026-08-08T00:00:00.000Z' }));
+    await assertSucceeds(deleteDoc(ref));
+  });
+
+  it('nega usuário A ler, listar, criar, atualizar ou excluir pessoal de B', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(
+        doc(contexto.firestore(), 'usuarios', usuarios.colaborador.login, 'lembretes', 'lembrete-1'),
+        lembretePessoal({ lembreteId: 'lembrete-1' }),
+      );
+    });
+    const outro = autenticarComo(usuarios.colega);
+    const refDeB = doc(outro, 'usuarios', usuarios.colaborador.login, 'lembretes', 'lembrete-1');
+
+    await assertFails(getDoc(refDeB));
+    await assertFails(getDocs(collection(outro, 'usuarios', usuarios.colaborador.login, 'lembretes')));
+    await assertFails(setDoc(
+      doc(outro, 'usuarios', usuarios.colaborador.login, 'lembretes', 'lembrete-forjado'),
+      lembretePessoal({ lembreteId: 'lembrete-forjado' }),
+    ));
+    await assertFails(updateDoc(refDeB, { titulo: 'Alterado por outro usuário' }));
+    await assertFails(deleteDoc(refDeB));
+  });
+
+  it('nega gestor ler, listar, criar, editar ou excluir pessoal do funcionário', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(
+        doc(contexto.firestore(), 'usuarios', usuarios.colaborador.login, 'lembretes', 'lembrete-1'),
+        lembretePessoal({ lembreteId: 'lembrete-1' }),
+      );
+    });
+    const gestor = autenticarComo(usuarios.gestor);
+    const ref = doc(gestor, 'usuarios', usuarios.colaborador.login, 'lembretes', 'lembrete-1');
+
+    await assertFails(getDoc(ref));
+    await assertFails(getDocs(collection(gestor, 'usuarios', usuarios.colaborador.login, 'lembretes')));
+    await assertFails(setDoc(
+      doc(gestor, 'usuarios', usuarios.colaborador.login, 'lembretes', 'lembrete-forjado-gestor'),
+      lembretePessoal({ lembreteId: 'lembrete-forjado-gestor' }),
+    ));
+    await assertFails(updateDoc(ref, { titulo: 'Alterado pelo gestor' }));
+    await assertFails(deleteDoc(ref));
+  });
+
+  it('nega ADMIN_SISTEMA ler, listar ou editar pessoal do funcionário — administrar usuários não dá acesso a conteúdo pessoal', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(
+        doc(contexto.firestore(), 'usuarios', usuarios.colaborador.login, 'lembretes', 'lembrete-1'),
+        lembretePessoal({ lembreteId: 'lembrete-1' }),
+      );
+    });
+    const admin = autenticarComo(usuarios.admin);
+    const ref = doc(admin, 'usuarios', usuarios.colaborador.login, 'lembretes', 'lembrete-1');
+
+    await assertFails(getDoc(ref));
+    await assertFails(getDocs(collection(admin, 'usuarios', usuarios.colaborador.login, 'lembretes')));
+    await assertFails(updateDoc(ref, { titulo: 'Alterado pelo admin' }));
+  });
+
+  it('nega criação fora do formato esperado (tipo diferente, schemaVersion diferente, campo extra)', async () => {
+    const db = autenticarComo(usuarios.colaborador);
+    const colecao = (id: string) => doc(db, 'usuarios', usuarios.colaborador.login, 'lembretes', id);
+
+    await assertFails(setDoc(colecao('errado-tipo'), lembretePessoal({ lembreteId: 'errado-tipo', tipo: 'ATRIBUIDO' })));
+    await assertFails(setDoc(colecao('errado-schema'), lembretePessoal({ lembreteId: 'errado-schema', schemaVersion: 2 })));
+    await assertFails(setDoc(colecao('sem-titulo'), lembretePessoal({ lembreteId: 'sem-titulo', titulo: '' })));
+    await assertFails(setDoc(colecao('campo-extra'), {
+      ...lembretePessoal({ lembreteId: 'campo-extra' }),
+      isAdmin: true,
+    }));
+  });
+
+  it('ataque: usuário tenta transformar o próprio lembrete de PESSOAL em ATRIBUIDO, ou mudar schemaVersion, via update', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(
+        doc(contexto.firestore(), 'usuarios', usuarios.colaborador.login, 'lembretes', 'lembrete-1'),
+        lembretePessoal({ lembreteId: 'lembrete-1' }),
+      );
+    });
+    const db = autenticarComo(usuarios.colaborador);
+    const ref = doc(db, 'usuarios', usuarios.colaborador.login, 'lembretes', 'lembrete-1');
+
+    await assertFails(updateDoc(ref, { tipo: 'ATRIBUIDO' }));
+    await assertFails(updateDoc(ref, { schemaVersion: 2 }));
+    await assertFails(updateDoc(ref, { isAdmin: true }));
+  });
+});
+
+/**
+ * Fase 3 (Lembretes) — atribuído pelo gestor. `gestor` só administra
+ * `EQ_COSI_SOC` (escopo implícito via `equipeId`, sem `equipesPermitidas`
+ * explícito); `externo` é de `EQ_CODB_NOC`, fora desse escopo.
+ */
+function lembreteAtribuido(ajustes: Record<string, unknown> = {}) {
+  return {
+    lembreteId: 'lembrete-atribuido-1',
+    tipo: 'ATRIBUIDO',
+    schemaVersion: 1,
+    destinatarioLogin: usuarios.colaborador.login,
+    destinatarioEquipeId: usuarios.colaborador.equipeId,
+    titulo: 'Capacitação COBIT',
+    descricao: null,
+    data: '2026-08-17',
+    horario: { diaInteiro: false, horaInicio: '18:30', horaFim: '22:30', viraDia: false },
+    serieId: null,
+    alertasAntecedenciaMin: [],
+    criadoPorLogin: usuarios.gestor.login,
+    criadoPorNome: usuarios.gestor.nome,
+    status: 'ATIVO',
+    criadoEm: '2026-08-07T13:00:00.000Z',
+    atualizadoEm: '2026-08-07T13:00:00.000Z',
+    canceladoEm: null,
+    canceladoPorLogin: null,
+    ...ajustes,
+  };
+}
+
+describe('lembretesAtribuidos — escopo do gestor e ataques (lembretesAtribuidos)', () => {
+  it('gestor cria, lê e atualiza um atribuído para colaborador do seu escopo; destinatário só lê', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    const ref = doc(gestor, 'lembretesAtribuidos', 'lembrete-1');
+
+    await assertSucceeds(setDoc(ref, lembreteAtribuido({ lembreteId: 'lembrete-1' })));
+    await assertSucceeds(getDoc(ref));
+    await assertSucceeds(updateDoc(ref, { titulo: 'Capacitação COBIT (sala alterada)', atualizadoEm: '2026-08-08T00:00:00.000Z' }));
+
+    const destinatario = autenticarComo(usuarios.colaborador);
+    await assertSucceeds(getDoc(doc(destinatario, 'lembretesAtribuidos', 'lembrete-1')));
+  });
+
+  it('gestor cancela: ATIVO -> CANCELADO, com metadados de cancelamento', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'lembretesAtribuidos', 'lembrete-1'), lembreteAtribuido({ lembreteId: 'lembrete-1' }));
+    });
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertSucceeds(updateDoc(doc(gestor, 'lembretesAtribuidos', 'lembrete-1'), {
+      status: 'CANCELADO',
+      atualizadoEm: '2026-08-08T00:00:00.000Z',
+      canceladoEm: '2026-08-08T00:00:00.000Z',
+      canceladoPorLogin: usuarios.gestor.login,
+    }));
+  });
+
+  it('nega outro funcionário (nem destinatário nem gestor) ler o atribuído', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'lembretesAtribuidos', 'lembrete-1'), lembreteAtribuido({ lembreteId: 'lembrete-1' }));
+    });
+    const colega = autenticarComo(usuarios.colega);
+    await assertFails(getDoc(doc(colega, 'lembretesAtribuidos', 'lembrete-1')));
+  });
+
+  it('nega destinatário criar, editar ou excluir um atribuído (inclusive o próprio)', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'lembretesAtribuidos', 'lembrete-1'), lembreteAtribuido({ lembreteId: 'lembrete-1' }));
+    });
+    const destinatario = autenticarComo(usuarios.colaborador);
+
+    await assertFails(setDoc(doc(destinatario, 'lembretesAtribuidos', 'lembrete-forjado'), lembreteAtribuido({
+      lembreteId: 'lembrete-forjado',
+      criadoPorLogin: usuarios.colaborador.login,
+      criadoPorNome: usuarios.colaborador.nome,
+    })));
+    await assertFails(updateDoc(doc(destinatario, 'lembretesAtribuidos', 'lembrete-1'), { titulo: 'Alterado pelo destinatário' }));
+    await assertFails(deleteDoc(doc(destinatario, 'lembretesAtribuidos', 'lembrete-1')));
+  });
+
+  it('nega gestor fora do escopo criar, ler ou editar', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'lembretesAtribuidos', 'lembrete-externo'), lembreteAtribuido({
+        lembreteId: 'lembrete-externo',
+        destinatarioLogin: usuarios.externo.login,
+        destinatarioEquipeId: usuarios.externo.equipeId,
+        criadoPorLogin: usuarios.gestor.login,
+        criadoPorNome: usuarios.gestor.nome,
+      }));
+    });
+    const gestor = autenticarComo(usuarios.gestor);
+
+    await assertFails(setDoc(doc(gestor, 'lembretesAtribuidos', 'nova-tentativa'), lembreteAtribuido({
+      lembreteId: 'nova-tentativa',
+      destinatarioLogin: usuarios.externo.login,
+      destinatarioEquipeId: usuarios.externo.equipeId,
+    })));
+    await assertFails(getDoc(doc(gestor, 'lembretesAtribuidos', 'lembrete-externo')));
+    await assertFails(updateDoc(doc(gestor, 'lembretesAtribuidos', 'lembrete-externo'), { titulo: 'Alterado fora do escopo' }));
+  });
+
+  it('nega GESTOR_UNIDADE criar lembrete atribuído — mesma fronteira operacional de turnosMes/trocasEscala (não amplia o escopo do gestor)', async () => {
+    const gestorUnidade = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(setDoc(doc(gestorUnidade, 'lembretesAtribuidos', 'tentativa-gestor-unidade'), lembreteAtribuido({
+      lembreteId: 'tentativa-gestor-unidade',
+      criadoPorLogin: usuarios.gestorUnidade.login,
+      criadoPorNome: usuarios.gestorUnidade.nome,
+    })));
+  });
+
+  it('nega query ampla do colaborador (sem where por destinatarioLogin, ou com where para outro login) — só a própria consulta filtrada funciona', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(doc(db, 'lembretesAtribuidos', 'lembrete-1'), lembreteAtribuido({ lembreteId: 'lembrete-1' }));
+      await setDoc(doc(db, 'lembretesAtribuidos', 'lembrete-externo'), lembreteAtribuido({
+        lembreteId: 'lembrete-externo',
+        destinatarioLogin: usuarios.externo.login,
+        destinatarioEquipeId: usuarios.externo.equipeId,
+        criadoPorLogin: usuarios.gestor.login,
+        criadoPorNome: usuarios.gestor.nome,
+      }));
+    });
+    const colaborador = autenticarComo(usuarios.colaborador);
+
+    await assertFails(getDocs(collection(colaborador, 'lembretesAtribuidos')));
+    await assertFails(getDocs(query(
+      collection(colaborador, 'lembretesAtribuidos'),
+      where('destinatarioLogin', '==', usuarios.colega.login),
+    )));
+    await assertSucceeds(getDocs(query(
+      collection(colaborador, 'lembretesAtribuidos'),
+      where('destinatarioLogin', '==', usuarios.colaborador.login),
+    )));
+  });
+
+  it('ataque: equipe falsificada — destinatarioLogin de uma equipe com destinatarioEquipeId da equipe do gestor', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(doc(gestor, 'lembretesAtribuidos', 'ataque-equipe'), lembreteAtribuido({
+      lembreteId: 'ataque-equipe',
+      destinatarioLogin: usuarios.externo.login, // real equipeId: EQ_CODB_NOC
+      destinatarioEquipeId: usuarios.gestor.equipeId, // forjado: EQ_COSI_SOC, a equipe do gestor
+    })));
+  });
+
+  it('ataque: autoria falsificada — criadoPorLogin/criadoPorNome de outro gestor', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(doc(gestor, 'lembretesAtribuidos', 'ataque-autoria'), lembreteAtribuido({
+      lembreteId: 'ataque-autoria',
+      criadoPorLogin: 'outro.gestor',
+      criadoPorNome: 'Outro Gestor',
+    })));
+  });
+
+  it('ataque: mudar destinatário por update (A -> B)', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'lembretesAtribuidos', 'lembrete-1'), lembreteAtribuido({ lembreteId: 'lembrete-1' }));
+    });
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(updateDoc(doc(gestor, 'lembretesAtribuidos', 'lembrete-1'), {
+      destinatarioLogin: usuarios.colega.login,
+    }));
+  });
+
+  it('ataque: reativar cancelado (CANCELADO -> ATIVO) é negado — transição unidirecional', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'lembretesAtribuidos', 'lembrete-1'), lembreteAtribuido({
+        lembreteId: 'lembrete-1',
+        status: 'CANCELADO',
+        canceladoEm: '2026-08-08T00:00:00.000Z',
+        canceladoPorLogin: usuarios.gestor.login,
+      }));
+    });
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(updateDoc(doc(gestor, 'lembretesAtribuidos', 'lembrete-1'), { status: 'ATIVO' }));
+  });
+
+  it('nega criação fora do formato esperado (status inicial diferente de ATIVO, campo extra, canceladoEm pré-preenchido)', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(doc(gestor, 'lembretesAtribuidos', 'errado-status'), lembreteAtribuido({
+      lembreteId: 'errado-status',
+      status: 'CANCELADO',
+    })));
+    await assertFails(setDoc(doc(gestor, 'lembretesAtribuidos', 'campo-extra'), {
+      ...lembreteAtribuido({ lembreteId: 'campo-extra' }),
+      qualquerCampoInventado: 'x',
+    }));
+    await assertFails(setDoc(doc(gestor, 'lembretesAtribuidos', 'cancelado-na-criacao'), lembreteAtribuido({
+      lembreteId: 'cancelado-na-criacao',
+      canceladoEm: '2026-08-08T00:00:00.000Z',
+    })));
+  });
+
+  it('nega delete físico para todo mundo, inclusive ADMIN_SISTEMA — atribuído só sai de circulação por cancelamento (Fase 4, revisão de hardening)', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'lembretesAtribuidos', 'lembrete-1'), lembreteAtribuido({ lembreteId: 'lembrete-1' }));
+    });
+    const admin = autenticarComo(usuarios.admin);
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(deleteDoc(doc(gestor, 'lembretesAtribuidos', 'lembrete-1')));
+    await assertFails(deleteDoc(doc(admin, 'lembretesAtribuidos', 'lembrete-1')));
+  });
+});
+
+/**
+ * Fase 5.1 — reproduz a QUERY real usada pelo Dashboard (não só get/set num
+ * documento isolado). Firestore não trata Rules como filtro: para um
+ * `list`, cada `where(...)` do lado do cliente precisa bastar, sozinho, para
+ * provar a condição do lado do servidor — se a Rule depende de um campo que
+ * a query não restringe por igualdade, o Firestore recusa o `list` inteiro,
+ * mesmo que os documentos reais atendessem à condição. É exatamente o caso
+ * do ramo do gestor em `lembretesAtribuidos`: `podeOperarNaEquipe(resource
+ * .data.destinatarioEquipeId)` exige que a query filtre `destinatarioEquipeId`
+ * por igualdade — só filtrar `destinatarioLogin` (a consulta antiga,
+ * compartilhada com o colaborador) não basta.
+ */
+describe('lembretesAtribuidos — query administrativa real (Fase 5.1)', () => {
+  beforeEach(async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await Promise.all([
+        setDoc(doc(db, 'lembretesAtribuidos', 'lembrete-colaborador'), lembreteAtribuido({
+          lembreteId: 'lembrete-colaborador',
+        })),
+        setDoc(doc(db, 'lembretesAtribuidos', 'lembrete-externo'), lembreteAtribuido({
+          lembreteId: 'lembrete-externo',
+          destinatarioLogin: usuarios.externo.login,
+          destinatarioEquipeId: usuarios.externo.equipeId,
+          criadoPorLogin: usuarios.admin.login,
+          criadoPorNome: usuarios.admin.nome,
+        })),
+      ]);
+    });
+  });
+
+  it('prova a causa raiz: query administrativa ANTIGA (só destinatarioLogin, sem destinatarioEquipeId) é negada para o gestor', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(getDocs(query(
+      collection(gestor, 'lembretesAtribuidos'),
+      where('destinatarioLogin', '==', usuarios.colaborador.login),
+      where('data', '>=', '2026-01-01'),
+      where('data', '<=', '2026-12-31'),
+    )));
+  });
+
+  it('query administrativa NOVA (destinatarioLogin + destinatarioEquipeId) é permitida para o gestor do escopo correto', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    const resultado = await assertSucceeds(getDocs(query(
+      collection(gestor, 'lembretesAtribuidos'),
+      where('destinatarioLogin', '==', usuarios.colaborador.login),
+      where('destinatarioEquipeId', '==', usuarios.colaborador.equipeId),
+      where('data', '>=', '2026-01-01'),
+      where('data', '<=', '2026-12-31'),
+    )));
+    expect(resultado.docs.map((item) => item.id)).toEqual(['lembrete-colaborador']);
+  });
+
+  it('query administrativa NOVA é negada quando a equipe informada não está no escopo do gestor', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(getDocs(query(
+      collection(gestor, 'lembretesAtribuidos'),
+      where('destinatarioLogin', '==', usuarios.externo.login),
+      where('destinatarioEquipeId', '==', usuarios.externo.equipeId),
+      where('data', '>=', '2026-01-01'),
+      where('data', '<=', '2026-12-31'),
+    )));
+  });
+
+  it('ADMIN_SISTEMA consegue usar a query administrativa NOVA cross-equipe', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    const resultado = await assertSucceeds(getDocs(query(
+      collection(admin, 'lembretesAtribuidos'),
+      where('destinatarioLogin', '==', usuarios.externo.login),
+      where('destinatarioEquipeId', '==', usuarios.externo.equipeId),
+      where('data', '>=', '2026-01-01'),
+      where('data', '<=', '2026-12-31'),
+    )));
+    expect(resultado.docs.map((item) => item.id)).toEqual(['lembrete-externo']);
+  });
+
+  it('a query do colaborador para os próprios atribuídos continua funcionando sem destinatarioEquipeId', async () => {
+    const colaborador = autenticarComo(usuarios.colaborador);
+    const resultado = await assertSucceeds(getDocs(query(
+      collection(colaborador, 'lembretesAtribuidos'),
+      where('destinatarioLogin', '==', usuarios.colaborador.login),
+      where('data', '>=', '2026-01-01'),
+      where('data', '<=', '2026-12-31'),
+    )));
+    expect(resultado.docs.map((item) => item.id)).toEqual(['lembrete-colaborador']);
+  });
+});

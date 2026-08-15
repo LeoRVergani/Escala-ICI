@@ -103,9 +103,15 @@ import {
   observarTrocasDoUsuario,
   responderSolicitacaoTroca as responderSolicitacaoTrocaFirebase,
 } from '@/lib/firebase/trocasRepository';
-import { USUARIOS_DEMO } from '@/lib/demoIdentidades';
+import { GESTOR_DEMO, USUARIOS_DEMO } from '@/lib/demoIdentidades';
 import type { EventoEscala, Usuario } from '@/lib/modelos';
 import { deveExibirRestauracao, podeIniciarListeners } from '@/lib/sessao';
+import {
+  classificarDiaSemana,
+  ehDiaConsultadoHoje,
+  tituloEquipeConsultada,
+} from './hojeConsulta';
+import { LembretesView } from './lembretes/LembretesView';
 import {
   ROTULO_STATUS_TROCA,
   SEVERIDADE_STATUS_TROCA,
@@ -115,7 +121,7 @@ import {
 } from '@/lib/trocasEscala';
 
 type Tela = 'hoje' | 'minha' | 'trocas' | 'equipe' | 'perfil';
-type ModoEscala = 'calendario' | 'agenda';
+type ModoEscala = 'calendario' | 'agenda' | 'lembretes';
 type AbaTrocas = 'minhas' | 'responder' | 'gestor' | 'historico';
 
 /**
@@ -311,10 +317,11 @@ interface VisualizacaoEscalaProps {
 function ResumoSemana({
   datas,
   dataHoje,
+  dataSelecionada,
   escala,
   catalogo,
   onSelecionar,
-}: Omit<VisualizacaoEscalaProps, 'dataSelecionada'>) {
+}: Omit<VisualizacaoEscalaProps, 'dataSelecionada'> & { dataSelecionada?: string }) {
   const semana = datasDaSemana(datas, dataHoje);
 
   return (
@@ -329,17 +336,25 @@ function ResumoSemana({
       <div className="week-days" role="list" aria-label="Resumo da semana">
         {semana.map((data) => {
           const jornada = resolverJornadaDia(escala, catalogo, data);
+          const { ehHoje, ehSelecionado, classes } = classificarDiaSemana(
+            data,
+            dataHoje,
+            dataSelecionada,
+          );
+          const rotuloEstado = ehHoje ? ', hoje' : ehSelecionado ? ', selecionado' : '';
           return (
             <button
               key={data}
               type="button"
-              className={data === dataHoje ? 'today' : ''}
+              className={classes}
               onClick={() => onSelecionar(data)}
+              aria-current={ehHoje ? 'date' : undefined}
+              aria-pressed={dataSelecionada !== undefined ? ehSelecionado : undefined}
               aria-label={`${formatarData(data, {
                 weekday: 'long',
                 day: '2-digit',
                 month: 'long',
-              })}: ${jornada.descricao}`}
+              })}: ${jornada.descricao}${rotuloEstado}`}
             >
               <small>{formatarData(data, { weekday: 'short' }).replace('.', '')}</small>
               <strong>{formatarData(data, { day: '2-digit' })}</strong>
@@ -1197,6 +1212,7 @@ export function EmployeeApp() {
   const [erro, setErro] = useState('');
   const [modoEscala, setModoEscala] = useState<ModoEscala>('agenda');
   const [dataSelecionada, setDataSelecionada] = useState(dataHoje);
+  const [dataConsultaEquipe, setDataConsultaEquipe] = useState(dataHoje);
   const [eventos, setEventos] = useState<EventoEscala[]>([]);
   const [idsLidos, setIdsLidos] = useState<Set<string>>(() => new Set());
   const [centralAberta, setCentralAberta] = useState(false);
@@ -1468,10 +1484,10 @@ export function EmployeeApp() {
     referencia,
   );
 
-  const escaladosHoje = documentos
+  const escaladosNoDiaConsultado = documentos
     .map((documento) => ({
       documento,
-      jornada: resolverJornadaDia(documento, catalogo, dataHoje),
+      jornada: resolverJornadaDia(documento, catalogo, dataConsultaEquipe),
     }))
     .filter(({ jornada }) => jornada.trabalha)
     .filter(({ jornada }) => filtroTurno === 'TODOS' || jornada.codigo === filtroTurno)
@@ -2023,10 +2039,12 @@ export function EmployeeApp() {
     ? dataSelecionada
     : datas[0] ?? dataHoje;
 
-  function abrirDia(data: string) {
-    setDataSelecionada(data);
-    setTela('minha');
+  function consultarEquipeNoDia(data: string) {
+    setDataConsultaEquipe(data);
   }
+
+  const consultaEhHoje = ehDiaConsultadoHoje(dataConsultaEquipe, dataHoje);
+  const tituloEquipeEscalada = tituloEquipeConsultada(dataConsultaEquipe, dataHoje);
 
   return (
     <AppFrame
@@ -2092,17 +2110,27 @@ export function EmployeeApp() {
             <ResumoSemana
               datas={datas}
               dataHoje={dataHoje}
+              dataSelecionada={dataConsultaEquipe}
               escala={minhaEscala}
               catalogo={catalogo}
-              onSelecionar={abrirDia}
+              onSelecionar={consultarEquipeNoDia}
             />
           </div>
 
           <article className="panel today-team-panel">
             <div className="panel-title today-team-title">
               <div>
-                <h2>Equipe escalada hoje</h2>
-                <p>{escaladosHoje.length} colaborador(es) encontrado(s)</p>
+                <h2>{tituloEquipeEscalada}</h2>
+                <p>{escaladosNoDiaConsultado.length} colaborador(es) encontrado(s)</p>
+                {!consultaEhHoje && (
+                  <button
+                    type="button"
+                    className="today-back-to-today"
+                    onClick={() => setDataConsultaEquipe(dataHoje)}
+                  >
+                    <CalendarDays size={13} /> Voltar para hoje
+                  </button>
+                )}
               </div>
               <Users />
             </div>
@@ -2134,7 +2162,7 @@ export function EmployeeApp() {
             <div className="today-grid">
               {turnosExibidos.map((turno) => {
                 const tipo = catalogo[turno];
-                const pessoas = escaladosHoje.filter(
+                const pessoas = escaladosNoDiaConsultado.filter(
                   ({ jornada }) => jornada.codigo === turno,
                 );
                 return (
@@ -2246,8 +2274,17 @@ export function EmployeeApp() {
           >
             <div className="panel-title schedule-panel-title">
               <div>
-                <h2>{tituloCalendario(datas)}</h2>
-                <p>{minhaEscala?.turnoPadrao} · {minhaEscala?.login}</p>
+                {modoEscala === 'lembretes' ? (
+                  <>
+                    <h2>Lembretes</h2>
+                    <p>Compromissos pessoais e atribuídos pelo gestor</p>
+                  </>
+                ) : (
+                  <>
+                    <h2>{tituloCalendario(datas)}</h2>
+                    <p>{minhaEscala?.turnoPadrao} · {minhaEscala?.login}</p>
+                  </>
+                )}
               </div>
               <div className="segmented-control" aria-label="Modo de visualização">
                 <button
@@ -2266,37 +2303,59 @@ export function EmployeeApp() {
                 >
                   <List size={16} /> Agenda
                 </button>
+                <button
+                  type="button"
+                  className={modoEscala === 'lembretes' ? 'active' : ''}
+                  onClick={() => setModoEscala('lembretes')}
+                  aria-pressed={modoEscala === 'lembretes'}
+                >
+                  <Bell size={16} /> Lembretes
+                </button>
               </div>
             </div>
             <div className="schedule-explorer">
-              <div className="schedule-view-panel">
-                {modoEscala === 'calendario' ? (
-                  <CalendarioEscala
-                    datas={datas}
+              {modoEscala === 'lembretes' ? (
+                <LembretesView
+                  login={usuario.login}
+                  nomeGestorDemo={GESTOR_DEMO.nome}
+                  modoDemonstracao={modoDemonstracao}
+                  listenersLiberados={listenersLiberados}
+                  dataHoje={dataHoje}
+                  escala={minhaEscala}
+                  catalogo={catalogo}
+                />
+              ) : (
+                <>
+                  <div className="schedule-view-panel">
+                    {modoEscala === 'calendario' ? (
+                      <CalendarioEscala
+                        datas={datas}
+                        dataHoje={dataHoje}
+                        dataSelecionada={dataSelecionadaEfetiva}
+                        escala={minhaEscala}
+                        catalogo={catalogo}
+                        onSelecionar={setDataSelecionada}
+                      />
+                    ) : (
+                      <AgendaEscala
+                        datas={datas}
+                        dataHoje={dataHoje}
+                        dataSelecionada={dataSelecionadaEfetiva}
+                        escala={minhaEscala}
+                        catalogo={catalogo}
+                        onSelecionar={setDataSelecionada}
+                      />
+                    )}
+                  </div>
+                  <DetalheDia
+                    data={dataSelecionadaEfetiva}
                     dataHoje={dataHoje}
-                    dataSelecionada={dataSelecionadaEfetiva}
                     escala={minhaEscala}
                     catalogo={catalogo}
-                    onSelecionar={setDataSelecionada}
+                    onSolicitarTroca={(diaEscolhido) => abrirNovaSolicitacaoTroca(diaEscolhido)}
                   />
-                ) : (
-                  <AgendaEscala
-                    datas={datas}
-                    dataHoje={dataHoje}
-                    dataSelecionada={dataSelecionadaEfetiva}
-                    escala={minhaEscala}
-                    catalogo={catalogo}
-                    onSelecionar={setDataSelecionada}
-                  />
-                )}
-              </div>
-              <DetalheDia
-                data={dataSelecionadaEfetiva}
-                dataHoje={dataHoje}
-                escala={minhaEscala}
-                catalogo={catalogo}
-                onSolicitarTroca={(diaEscolhido) => abrirNovaSolicitacaoTroca(diaEscolhido)}
-              />
+                </>
+              )}
             </div>
           </article>
           <ScheduleLegend catalogo={catalogo} titulo="Legenda" />

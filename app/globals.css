@@ -973,11 +973,30 @@ button.shift-chip:disabled { cursor: default; }
   background: linear-gradient(145deg, var(--primary), var(--primary-bright));
   box-shadow: 0 9px 22px color-mix(in srgb, var(--primary) 24%, transparent);
 }
+.week-days > button.selected:not(.today) {
+  border-color: var(--primary-bright);
+  background: var(--primary-soft);
+  box-shadow: inset 0 0 0 2px var(--primary-bright);
+}
 .week-days > button > small { color: var(--muted); font-size: 9px; font-weight: 750; text-transform: uppercase; }
 .week-days > button.today > small { color: rgba(255, 255, 255, 0.78); }
 .week-days > button > strong { font-size: 18px; }
 .week-days > button .shift-chip { min-width: 32px; min-height: 20px; }
 .week-days > button.today .shift-chip { border-color: rgba(255, 255, 255, 0.2); }
+.today-back-to-today {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary-bright);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.today-back-to-today:hover { text-decoration: underline; }
 .today-hero {
   min-height: 250px;
   border-radius: 12px;
@@ -4121,3 +4140,231 @@ fieldset.checkbox-card-list > legend {
   border-radius: 8px;
   background: var(--surface-muted);
 }
+
+/*
+ * Lembretes (Fase 4 / 4.1) — só tokens/classes já existentes (.status-badge,
+ * .panel, .segmented-control, .alias-chip, .admin-form-grid, .edit-modal,
+ * .rollback-actions), sem paleta nova. `.schedule-explorer`/
+ * `.schedule-view-panel` já colapsam para 1 coluna em mobile (regra
+ * existente) — reaproveitado sem nenhuma media query própria para o layout
+ * calendário/dia. Ordem no DOM é sempre calendário → dia selecionado, igual
+ * ao par CalendarioEscala/DetalheDia já usado na Agenda — mesma leitura
+ * (escolher a data, depois ver o resultado) em desktop (2 colunas) e mobile
+ * (1 coluna empilhada), sem estado extra para reordenar.
+ *
+ * O calendário usa uma grade PRÓPRIA (`.lembretes-grid`), não
+ * `.calendar-grid`: o `.calendar-grid` da escala tem regras
+ * `.app-shell.product-app .calendar-grid > button > small { display: none; }`
+ * (index.css, Parte "Fase 3F") que escondem qualquer `<small>` dentro da
+ * célula — correto para o texto de apoio da escala, mas escondia por
+ * completo o indicador de contagem de Lembretes, que É a informação. As
+ * regras abaixo replicam o mesmo visual (borda/hover/today/selected com os
+ * mesmos tokens) sem herdar esse acoplamento.
+ */
+.status-badge.primary { color: var(--primary-bright); background: var(--primary-soft); }
+
+/*
+ * Duas linhas deliberadas: `.today-back-to-today` (link de texto solto,
+ * criado para a tela Hoje — ver hojeConsulta) ficava colado ao botão ">"
+ * quando reaproveitado aqui, e por ser condicional (só existia fora do mês
+ * atual) deslocava o cabeçalho inteiro ao aparecer/sumir. "Hoje" agora tem
+ * linha própria, é sempre renderizado (só `disabled` no mês atual) e usa
+ * `.secondary-button.compact-button` — um botão de verdade, não um link.
+ */
+.lembretes-calendario-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.lembretes-calendario-nav { display: flex; align-items: center; gap: var(--space-2); }
+.lembretes-calendario-nav strong { flex: 1; text-align: center; font-size: 13px; }
+.lembretes-calendario-hoje { display: flex; justify-content: center; }
+
+.lembretes-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+}
+.lembretes-grid > button,
+.lembretes-grid-blank {
+  min-height: 60px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.lembretes-grid > button {
+  border-top: 0;
+  border-left: 0;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--text);
+  background: var(--surface);
+  cursor: pointer;
+  transition: background 150ms ease-out, box-shadow 150ms ease-out;
+}
+.lembretes-grid > button:hover { background: var(--surface-muted); }
+/*
+ * Prioridade visual deliberada (dia today+selected coincidindo): a MESMA
+ * convenção já usada por `.calendar-grid` da escala (`CalendarioEscala`,
+ * intocado) — today vence (anel --primary-bright) sobre selected (anel
+ * --cyan) via `:not(.today)`, para os dois calendários da Agenda
+ * concordarem sobre o mesmo estado. Turno (`.shift-chip`) e o ponto de
+ * lembrete nunca disputam o FUNDO da célula — são só glifos pequenos por
+ * cima, nunca uma quarta cor de fundo.
+ */
+.lembretes-grid > button.today { background: var(--primary-soft); box-shadow: inset 0 0 0 2px var(--primary-bright); }
+.lembretes-grid > button.selected:not(.today) { box-shadow: inset 0 0 0 2px var(--cyan); }
+.lembretes-grid > button > span { font-size: 13px; font-weight: 700; }
+/* Linha de metadados sempre presente (mesmo vazia) — evita que o número do
+   dia mude de posição vertical conforme os vizinhos da mesma linha do grid
+   tenham ou não turno/lembrete (todas as células ficam com a mesma "forma"
+   de 2 linhas, sempre). */
+.lembretes-grid-meta { display: flex; align-items: center; justify-content: center; gap: 4px; min-height: 16px; }
+.lembretes-grid > button .shift-chip { min-width: 22px; min-height: 16px; font-size: 8px; padding: 1px 3px; }
+.lembretes-grid-blank {
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 6px,
+      color-mix(in srgb, var(--border) 24%, transparent) 6px,
+      color-mix(in srgb, var(--border) 24%, transparent) 7px
+    ),
+    var(--surface-muted);
+}
+/* Uma bolinha, nunca contador — o usuário só precisa saber que existe
+   lembrete naquele dia (Fase 4.2). */
+.lembrete-indicador {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary-bright);
+}
+@media (max-width: 780px) {
+  /* 44px é o touch target mínimo já usado em outros controles do App
+     (segmented control, bottom nav) — não reduzir abaixo disso; o botão
+     ainda pode crescer além disso se turno+lembrete precisarem de mais
+     espaço (min-height nunca vira max-height). */
+  .lembretes-grid > button, .lembretes-grid-blank { min-height: 44px; }
+  .lembretes-grid > button { padding: 3px 2px; gap: 2px; }
+  .lembretes-grid > button > span { font-size: 13px; }
+}
+
+.lembretes-day-panel { display: flex; flex-direction: column; gap: var(--space-4); }
+/*
+ * `.selected-day-card` (compartilhado com DetalheDia/escala) zera o padding
+ * do card via `.app-shell.product-app .selected-day-card { padding: 0 }`
+ * (Design System da Fase 3F) — `.selected-day-date` já tem padding próprio
+ * para compensar (18px/20px desktop, 15px/16px em ≤780px). Este wrapper dá
+ * a MESMA compensação, nos mesmos dois breakpoints, para tudo abaixo do
+ * cabeçalho — sem tocar em `.selected-day-card`/`.selected-day-date`
+ * (usadas por DetalheDia, fora do escopo desta correção).
+ */
+.lembretes-day-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 0 var(--space-5) var(--space-4);
+}
+@media (max-width: 780px) {
+  .lembretes-day-content { padding: 0 var(--space-4) var(--space-4); }
+}
+.lembretes-lista-dia { display: grid; gap: var(--space-2); }
+
+.lembrete-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.lembrete-card:hover { border-color: var(--border-strong); background: var(--surface-muted); }
+.lembrete-card-info { display: grid; gap: 3px; min-width: 0; }
+.lembrete-card-info strong { font-size: 13px; overflow-wrap: anywhere; }
+.lembrete-card-info small { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
+.lembrete-card > .status-badge { flex-shrink: 0; }
+/* Mesma família do card normal, só mais compacta — usada por "Próximos
+   lembretes" (nunca mais um chip/tag de outro módulo). */
+.lembrete-card-compacto { padding: var(--space-2); gap: var(--space-2); }
+.lembrete-card-compacto .lembrete-card-info strong { font-size: 12px; }
+
+/* `.secondary-button` sozinho (fundo --surface) se confunde com o próprio
+   painel (também --surface) — tonal suave, mesmos tokens de
+   `.status-badge.primary`/"today" do calendário, para ler como ação clara
+   sem virar um botão azul sólido grande. */
+.lembretes-novo-button {
+  width: 100%;
+  justify-content: center;
+  background: var(--primary-soft);
+  color: var(--primary-bright);
+  border-color: transparent;
+}
+.lembretes-novo-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary-soft) 65%, var(--surface));
+}
+
+.lembretes-proximos { border-top: 1px solid var(--border); padding-top: var(--space-3); display: grid; gap: var(--space-3); }
+.lembretes-proximos-dia { display: grid; gap: var(--space-1); }
+.lembretes-proximos-dia > small { color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
+.lembretes-proximos-itens { display: grid; gap: var(--space-2); }
+
+/* Textarea nunca fez parte de `.admin-form-grid`/`.user-form-grid` (Dashboard só usa input/select ali) — mesmos valores de `.publication-reason textarea`, o padrão já usado no App para descrição/mensagem. */
+.admin-form-grid textarea {
+  min-height: 88px;
+  resize: vertical;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+.admin-form-grid textarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--primary-bright) 25%, transparent);
+  border-color: var(--primary-bright);
+}
+
+.lembrete-serie-nota { color: var(--muted); font-size: 11px; font-weight: 700; }
+.lembrete-vira-dia-aviso { margin: 0; color: var(--muted); font-size: 11px; }
+.lembrete-datas-adicionais { display: grid; gap: var(--space-2); }
+.lembrete-datas-adicionais > span:first-child { font-size: 11px; font-weight: 700; color: var(--text); }
+
+.lembrete-atribuido-detalhe { display: grid; gap: var(--space-2); color: var(--text); font-size: 13px; }
+.lembrete-atribuido-detalhe p { margin: 0; }
+.lembrete-criado-por { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--muted); font-size: 12px; }
+.lembrete-descricao-detalhe { color: var(--muted); white-space: pre-wrap; }
+.lembrete-atribuido-rodape { display: flex; align-items: center; gap: var(--space-2); }
+
+@media (max-width: 480px) {
+  /* Escopado a Lembretes (não ao `.alias-editor-add` genérico, que o
+     Dashboard também usa) — mesma ideia de empilhar em telas estreitas em
+     vez de espremer o botão ao lado do input. */
+  .lembrete-datas-adicionais-add { flex-direction: column; align-items: stretch; }
+}
+
+/*
+ * Lembretes atribuídos (Fase 5, Dashboard) — lista por colaborador dentro
+ * de `.admin-modal`/`.edit-modal` (já rola internamente via `max-height`
+ * própria, sem precisar de mais um container de scroll aqui). Cada linha
+ * reaproveita `.lembrete-card` (mesmo componente do App) só acrescentando
+ * o status/ação de cancelar ao lado — nunca um card paralelo.
+ */
+.lembretes-atribuidos-lista { display: grid; gap: var(--space-2); }
+.lembrete-atribuido-linha { display: flex; align-items: center; gap: var(--space-2); }
+.lembrete-atribuido-linha > .lembrete-card { flex: 1; }
+.lembrete-atribuido-linha-meta { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
+/* Cancelado permanece no histórico (nunca some), só esmaecido — mesmo
+   tratamento visual que `.status-badge.neutral` já dá a outros estados
+   inativos, sem inventar uma cor nova. */
+.lembrete-atribuido-linha-cancelado > .lembrete-card { opacity: 0.6; cursor: default; }

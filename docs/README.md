@@ -24,6 +24,15 @@ resumido do projeto, comece por
   na seção principal; o "Anexo histórico" ao final preserva o plano de design
   original (modelo de 8 estados, não implementado como tal) — não usar o
   anexo como referência de comportamento atual.
+- [`spec/LEMBRETES.md`](spec/LEMBRETES.md) — domínio, schema Firestore,
+  privacidade/autorização, queries, realtime e séries de Lembretes
+  (pessoais e atribuídos pelo gestor). **Fonte atual.**
+- [`spec/UI_CASCADE_E_HERANCA.md`](spec/UI_CASCADE_E_HERANCA.md) — regra
+  permanente de engenharia (não de estado de feature): checklist obrigatório
+  para investigar cascade/herança visual antes de qualquer correção de
+  CSS/layout, no App PWA e no Dashboard. **Leitura obrigatória antes de
+  alterar CSS/layout** — inclui casos reais documentados (botão "Hoje",
+  chip de "Próximos lembretes", padding herdado de `.selected-day-card`).
 
 ## Operação (`docs/operacao/`)
 
