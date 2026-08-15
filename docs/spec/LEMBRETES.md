@@ -304,7 +304,44 @@ ao usuário um alerta automático que ainda não dispara.
   de um mecanismo próprio (ex.: Cloud Function com Admin SDK, que ignora
   Rules), nunca reabrir `delete` para o client SDK nem dar a gestor/admin
   acesso à subcoleção pessoal.
-- Nenhuma UI consome este repository ainda — Fase 4 (App) e Fase 5
-  (Dashboard).
+- ~~Nenhuma UI consome este repository ainda~~ — Fase 4 conectou a UI do App
+  (`apps/app/src/lembretes/`, `components/lembretes/`). Fase 5 (Dashboard)
+  continua pendente.
 - Nenhum mecanismo de alerta/Push para lembretes existe — só o dado está
   preparado.
+
+## Bloqueio de ambiente conhecido (Fase 4.1) — Rules ainda não publicadas
+
+Teste real (Firebase real, não Emulator) reproduziu `permission-denied`
+("Missing or insufficient permissions.") ao criar um Lembrete pessoal.
+**Causa confirmada:** esta branch nunca rodou um deploy de Rules — nenhum
+commit desta feature chamou `firebase deploy` nem
+`npm run firebase:staging:deploy`. O projeto Firebase real contra o qual o
+teste rodou ainda serve as Rules de antes da Fase 3, que não têm nenhum
+bloco `match` para `usuarios/{login}/lembretes/{lembreteId}` nem para
+`lembretesAtribuidos/{lembreteId}` — path sem regra correspondente é negado
+por padrão pelo Firestore, exatamente o erro observado (tanto no `create`
+quanto no listener realtime, os dois caem no mesmo `permission-denied`).
+As 117 Firestore Rules deste projeto só passam no **Emulator local**
+(`npm run test:firestore-rules`), que sempre carrega `firestore.rules` do
+disco — nunca foram publicadas em nenhum ambiente remoto.
+
+**Comando para publicar (requer autorização explícita, não execute sem
+confirmar antes — ver `scripts/firebase-staging.mjs`):**
+
+```bash
+npm run firebase:staging:deploy -- --confirm=DEPLOY_STAGING
+```
+
+Requer `.env.staging.dashboard` configurado e a CLI do `firebase-tools`
+autenticada. Até que isso seja feito com autorização, o CRUD real de
+Lembretes (fora do Emulator/Demo) permanecerá bloqueado por
+`permission-denied` — comportamento esperado, não um bug de código.
+
+Correção separada (Fase 4.1, `lib/firebase/errors.ts`): a mensagem de erro
+mostrada ao usuário mencionava "permissão de gestor" mesmo numa ação de
+autoatendimento (criar um lembrete pessoal). `mensagemErroFirebase()` ganhou
+um parâmetro `contexto: 'gestor' | 'autoatendimento'` (padrão `'gestor'`,
+sem mudar nenhum chamador existente); os listeners e escritas de Lembretes
+pessoais/atribuídos do App agora passam `'autoatendimento'` e nunca mais
+mencionam gestor.

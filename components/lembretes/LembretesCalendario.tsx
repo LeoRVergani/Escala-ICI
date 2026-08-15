@@ -48,7 +48,7 @@ export function LembretesCalendario({
   const espacosFinais = (7 - ((espacosIniciais + dias.length) % 7)) % 7;
 
   return (
-    <div className="calendar-view lembretes-calendario">
+    <div className="lembretes-calendario">
       <header className="lembretes-calendario-header">
         <button
           type="button"
@@ -80,9 +80,9 @@ export function LembretesCalendario({
       <div className="calendar-weekdays" aria-hidden="true">
         {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((dia) => <span key={dia}>{dia}</span>)}
       </div>
-      <div className="calendar-grid" role="grid" aria-label="Calendário de lembretes">
+      <div className="lembretes-grid" role="grid" aria-label="Calendário de lembretes">
         {Array.from({ length: espacosIniciais }, (_, indice) => (
-          <span className="calendar-blank" key={`blank-${indice}`} aria-hidden="true" />
+          <span className="lembretes-grid-blank" key={`blank-${indice}`} aria-hidden="true" />
         ))}
         {dias.map((data) => {
           const contagem = contagemPorData.get(data) ?? 0;
@@ -107,7 +107,7 @@ export function LembretesCalendario({
           );
         })}
         {Array.from({ length: espacosFinais }, (_, indice) => (
-          <span className="calendar-blank" key={`end-blank-${indice}`} aria-hidden="true" />
+          <span className="lembretes-grid-blank" key={`end-blank-${indice}`} aria-hidden="true" />
         ))}
       </div>
     </div>

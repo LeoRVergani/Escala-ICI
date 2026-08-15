@@ -33,6 +33,25 @@ describe('mensagemErroFirebase — permissão negada por ambiente', () => {
   });
 });
 
+describe('mensagemErroFirebase — contexto de autoatendimento (Fase 4.1)', () => {
+  it('nunca menciona "gestor" quando o contexto é autoatendimento, em nenhum ambiente', () => {
+    for (const ambiente of ['staging', 'producao', 'indefinido'] as const) {
+      const mensagem = mensagemErroFirebase(erroPermissao(), 'fallback', ambiente, 'autoatendimento');
+      expect(mensagem).not.toMatch(/gestor/i);
+    }
+  });
+
+  it('continua mencionando o laboratório local mesmo em contexto autoatendimento', () => {
+    const mensagem = mensagemErroFirebase(erroPermissao(), 'fallback', 'local', 'autoatendimento');
+    expect(mensagem).toMatch(/laboratório/i);
+  });
+
+  it('sem contexto informado, comportamento não muda (continua mencionando gestor)', () => {
+    const mensagem = mensagemErroFirebase(erroPermissao(), 'fallback', 'staging');
+    expect(mensagem).toMatch(/gestor/i);
+  });
+});
+
 describe('mensagemErroFirebase — outros casos já existentes', () => {
   it('reconhece PERMISSION_DENIED na mensagem, não só no código', () => {
     const mensagem = mensagemErroFirebase(new Error('PERMISSION_DENIED: nope'), 'fallback', 'staging');

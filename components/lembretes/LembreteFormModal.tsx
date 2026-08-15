@@ -249,7 +249,7 @@ export function LembreteFormModal({
                   </span>
                 ))}
               </div>
-              <div className="alias-editor-add">
+              <div className="alias-editor-add lembrete-datas-adicionais-add">
                 <input
                   type="date"
                   value={novaData}

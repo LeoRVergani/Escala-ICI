@@ -6,6 +6,19 @@
 export type AmbienteErroFirebase = 'local' | 'staging' | 'producao' | 'indefinido';
 
 /**
+ * A maioria dos `permission-denied` do projeto até aqui era mesmo sobre
+ * escopo de gestor (trocas, escala, administração) — por isso o texto
+ * padrão menciona "permissão de gestor". Mas nem toda ação é isso: ler/
+ * escrever o próprio Lembrete pessoal (`usuarios/{login}/lembretes`) é
+ * autoatendimento puro, sem nenhuma noção de gestor envolvida — mostrar
+ * "verifique se sua conta tem permissão de gestor" nesse caso é uma
+ * mensagem enganosa (Fase 4.1). `contexto` (quarto parâmetro, opcional)
+ * troca só o texto de permission-denied; todo o resto da função e todos os
+ * chamadores existentes continuam exatamente iguais (padrão 'gestor').
+ */
+export type ContextoErroFirebase = 'gestor' | 'autoatendimento';
+
+/**
  * Antes, todo `permission-denied` dizia "regras do laboratório... reinicie o
  * Firebase local" — errado e confuso quando o erro acontece em staging (ou
  * produção), onde não existe emulador nenhum para reiniciar. `ambiente`
@@ -17,6 +30,7 @@ export function mensagemErroFirebase(
   falha: unknown,
   fallback: string,
   ambiente: AmbienteErroFirebase = 'indefinido',
+  contexto: ContextoErroFirebase = 'gestor',
 ): string {
   const codigo = typeof falha === 'object' && falha !== null && 'code' in falha
     ? String(falha.code)
@@ -26,6 +40,9 @@ export function mensagemErroFirebase(
   if (codigo.includes('permission-denied') || mensagem.includes('PERMISSION_DENIED')) {
     if (ambiente === 'local') {
       return 'A operação foi recusada pelas regras do laboratório. Atualize o pacote e reinicie o Firebase local.';
+    }
+    if (contexto === 'autoatendimento') {
+      return 'Não foi possível acessar seus dados. Sua sessão pode não ter permissão para esta área neste ambiente.';
     }
     if (ambiente === 'staging') {
       return 'A operação foi recusada pelas regras do Firestore em staging. Verifique se sua conta tem permissão de gestor para esta ação e se a escrita administrativa está habilitada neste ambiente.';

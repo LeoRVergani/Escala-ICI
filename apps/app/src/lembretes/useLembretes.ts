@@ -66,6 +66,22 @@ function validarSerieOuLancar(entrada: EntradaSerieLembrete): void {
   }
 }
 
+/**
+ * Traduz qualquer erro do Firestore (ex.: `permission-denied`) para uma
+ * mensagem amigável e contextual (nunca "permissão de gestor" numa ação de
+ * autoatendimento pessoal — Fase 4.1) antes de propagar para a UI. Erros de
+ * validação de domínio (`validarOuLancar`/`validarSerieOuLancar`) acontecem
+ * ANTES desta chamada, então chegam à UI com a própria mensagem, sem passar
+ * por aqui.
+ */
+async function executarEscritaFirebase<T>(operacao: () => Promise<T>, fallback: string): Promise<T> {
+  try {
+    return await operacao();
+  } catch (falha) {
+    throw new Error(mensagemErroFirebase(falha, fallback, ambienteFirebaseAtual, 'autoatendimento'));
+  }
+}
+
 function lembretesPessoaisDemo(dataHoje: string): LembretePessoalPersistido[] {
   const agora = '2026-08-01T09:00:00.000Z';
   return [{
@@ -131,14 +147,14 @@ export function useLembretes(parametros: ParametrosUseLembretes): ResultadoUseLe
       dataInicio,
       dataFim,
       setPessoaisReais,
-      (falha) => setErro(mensagemErroFirebase(falha, 'Não foi possível acompanhar seus lembretes.', ambienteFirebaseAtual)),
+      (falha) => setErro(mensagemErroFirebase(falha, 'Não foi possível acompanhar seus lembretes.', ambienteFirebaseAtual, 'autoatendimento')),
     );
     const cancelarAtribuidos = observarLembretesAtribuidosDoUsuario(
       login,
       dataInicio,
       dataFim,
       setAtribuidosReais,
-      (falha) => setErro(mensagemErroFirebase(falha, 'Não foi possível acompanhar lembretes atribuídos.', ambienteFirebaseAtual)),
+      (falha) => setErro(mensagemErroFirebase(falha, 'Não foi possível acompanhar lembretes atribuídos.', ambienteFirebaseAtual, 'autoatendimento')),
     );
     return () => {
       cancelarPessoais();
@@ -168,7 +184,10 @@ export function useLembretes(parametros: ParametrosUseLembretes): ResultadoUseLe
     if (login === null) {
       throw new Error('Sessão não carregada.');
     }
-    await criarLembretePessoalFirebase(login, entrada);
+    await executarEscritaFirebase(
+      () => criarLembretePessoalFirebase(login, entrada),
+      'Não foi possível salvar o lembrete.',
+    );
   }
 
   async function criarSeriePessoal(entrada: EntradaSerieLembrete): Promise<void> {
@@ -198,7 +217,10 @@ export function useLembretes(parametros: ParametrosUseLembretes): ResultadoUseLe
     if (login === null) {
       throw new Error('Sessão não carregada.');
     }
-    await criarSerieLembretesPessoaisFirebase(login, entrada);
+    await executarEscritaFirebase(
+      () => criarSerieLembretesPessoaisFirebase(login, entrada),
+      'Não foi possível salvar a série de lembretes.',
+    );
   }
 
   async function editarPessoal(lembreteId: string, entrada: EntradaLembrete): Promise<void> {
@@ -217,7 +239,10 @@ export function useLembretes(parametros: ParametrosUseLembretes): ResultadoUseLe
     if (login === null) {
       throw new Error('Sessão não carregada.');
     }
-    await atualizarLembretePessoalFirebase(login, lembreteId, entrada);
+    await executarEscritaFirebase(
+      () => atualizarLembretePessoalFirebase(login, lembreteId, entrada),
+      'Não foi possível salvar as alterações do lembrete.',
+    );
   }
 
   async function excluirPessoal(lembreteId: string): Promise<void> {
@@ -228,7 +253,10 @@ export function useLembretes(parametros: ParametrosUseLembretes): ResultadoUseLe
     if (login === null) {
       throw new Error('Sessão não carregada.');
     }
-    await excluirLembretePessoalFirebase(login, lembreteId);
+    await executarEscritaFirebase(
+      () => excluirLembretePessoalFirebase(login, lembreteId),
+      'Não foi possível excluir o lembrete.',
+    );
   }
 
   return {
