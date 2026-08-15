@@ -1,15 +1,21 @@
 # CHECKPOINT — FASE AUTH-2 — Validação real Microsoft/Firebase em staging
 
-- **Branch**: `main`
-- **HEAD atual**: `ce788bd` (`fix(deploy): propaga VITE_MICROSOFT_ENTRA_TENANT_ID ao build Docker do Dashboard`)
-- Commits anteriores: AUTH-1 `06225f2`, AUTH-1A `0a847b8`, AUTH-1B `761d23a`,
-  pausa `1d2e8e4`.
-- Working tree limpo, `ahead of origin/main by 6`, nenhum push realizado.
+**STATUS: CONCLUÍDA.** Validação manual completa reportada pelo usuário
+(Dashboard + PWA, Microsoft + e-mail/senha + Demo, autorização positiva e
+negativa, persistência, visual) — ver seção "Validação manual final",
+abaixo.
 
-> Esta seção documenta a **retomada** da fase depois que o usuário
-> configurou o tenant Microsoft real em `.env.staging.dashboard` e
-> `.env.staging.app`. A seção anterior (abaixo) permanece como registro da
-> pausa original — não foi apagada.
+- **Branch**: `main`
+- Commits da fase: AUTH-1 `06225f2`, AUTH-1A `0a847b8`, AUTH-1B `761d23a`,
+  pausa AUTH-2 `1d2e8e4`, fix Docker `ce788bd`, retomada `ebc2f0e`, teste
+  negativo `8020fe4` (histórico completo, nenhum commit foi squashado ou
+  reescrito).
+- Working tree limpo. Push final documentado na seção de commit desta
+  finalização.
+
+> As seções abaixo preservam o histórico da fase na ordem em que
+> aconteceu: pausa original → retomada com tenant configurado → validação
+> manual final. Nada foi apagado ou reescrito.
 
 Esta fase é de **configuração e validação real**, não de desenvolvimento —
 a implementação Microsoft já existe e está coberta por testes automatizados
@@ -342,88 +348,82 @@ provedor não ganha privilégio especial, a autorização continua vindo de
 `usuarios/{login}` + `nivelPermiteDashboard()`, e a sessão foi
 corretamente tratada como não autorizada em vez de um bypass.
 
-**Pendente**: teste positivo — conta Microsoft corporativa com perfil de
-gestor, confirmando `DASHBOARD_RENDERED` de verdade.
+## Deploy do PWA staging — Cloudflare Pages
 
-## Deploy do PWA staging — bloqueado por autenticação Cloudflare
+Tentativa inicial via `npm run pages:deploy:staging -- --confirm=DEPLOY_STAGING`
+esbarrou em `wrangler whoami` reportando `You are not authenticated` (sem
+`CLOUDFLARE_API_TOKEN` configurado neste ambiente). Resolvido pelo
+usuário: `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` (token com
+escopo restrito, sem permissão de "User Details" — por isso
+`wrangler whoami` continua sem conseguir fazer a descoberta automática da
+conta, mesmo com o token funcional) foram configurados no ambiente pelo
+usuário. **Nenhuma permissão adicional foi solicitada só para satisfazer
+`wrangler whoami`** — o escopo mínimo necessário (Cloudflare Pages:Edit)
+já é suficiente para o deploy real, que a chamada direta à API do Pages
+confirmou funcionar. **Deploy de staging concluído com sucesso.** Nem
+token nem Account ID foram impressos em nenhum momento desta sessão.
 
-Ao tentar `npm run pages:deploy:staging -- --confirm=DEPLOY_STAGING`,
-`wrangler whoami` acusou `You are not authenticated` e não há
-`CLOUDFLARE_API_TOKEN` configurado neste ambiente (nem em variáveis de
-ambiente, nem em arquivos do projeto/sistema). Perguntei ao usuário como
-prosseguir; ele optou por rodar `wrangler login` (fluxo OAuth via
-navegador) por conta própria nesta VM. Deploy fica pendente dessa
-confirmação — build local (`dist/apps/app`) já está pronto e validado
-(`validate:pwa`/`validate:artifact` verdes, tenant confirmado presente no
-bundle), falta apenas a etapa de autenticação/publicação.
+## Validação manual final — reportada pelo usuário (navegador real)
 
-## Pendências — o que só pode ser feito por você (Firebase Console / Entra / navegador)
+### Dashboard (`https://escala.ici.tec.br`)
 
-Tudo que era automatizável sem navegador e sem acesso administrativo aos
-consoles foi executado nesta retomada. O que resta exige,
-necessariamente, acesso humano a três lugares:
+| Item | Resultado |
+|---|---|
+| Abertura HTTPS do Dashboard staging | ✅ PASS |
+| Login Microsoft | ✅ PASS |
+| Logout Microsoft | ✅ PASS |
+| Login e-mail/senha (preservado) | ✅ PASS |
+| Teste negativo de autorização (perfil sem nível de gestor) | ✅ PASS — ver detalhe acima, mensagem `MENSAGEM_SEM_PERMISSAO_DASHBOARD` exibida corretamente |
+| Teste positivo de autorização (perfil temporário elevado a gestor) | ✅ PASS — `DASHBOARD_RENDERED` confirmado |
+| Restauração do perfil de teste ao estado normal após o teste positivo | ✅ PASS (nível/perfil revertido pelo usuário) |
 
-### A. Firebase Console — projeto `escala-ici-staging`
+### PWA staging (`https://staging.escala-ici-staging.pages.dev`)
 
-1. **Authentication → Sign-in method**: confirmar
-   `Email/Password = Enabled` e `Microsoft = Enabled` (com Client ID e
-   Client Secret já preenchidos no provider — não me informe o valor).
-2. **Authentication → Settings → Authorized domains**: confirmar que
-   contém `escala.ici.tec.br` (Dashboard) e o hostname real do PWA
-   staging — `.env.staging.app` aponta `VITE_EMPLOYEE_APP_URL=
-   https://escala-ici-staging.pages.dev`; confirme se é esse o hostname
-   que efetivamente vai autenticar, ou se há outro em uso.
-3. Anote (sem me colar) a **Redirect URI** exibida ali para o provider
-   Microsoft — vai precisar dela no próximo passo.
+| Item | Resultado |
+|---|---|
+| Deploy Cloudflare Pages staging | ✅ PASS |
+| Login Microsoft na PWA | ✅ PASS |
+| Logout na PWA | ✅ PASS |
+| Resolução do usuário no Firestore (`usuarios/{login}`) | ✅ PASS |
+| Carregamento dos dados esperados (equipe/escala) | ✅ PASS |
+| Persistência/restauração de sessão | ✅ PASS |
 
-### B. Microsoft Entra Admin Center
+### Visual e segurança (ambos os produtos)
 
-1. Confirmar que a **App Registration** é a mesma já usada/validada pelo
-   EscalaSOC Android (mesmo tenant, mesmo Client ID).
-2. Confirmar que a Redirect URI cadastrada ali é **exatamente igual** à
-   exibida pelo Firebase Console (copiar de lá, nunca adivinhar
-   `https://escala.ici.tec.br` como se fosse a redirect URI do provider —
-   são coisas diferentes).
+| Item | Resultado |
+|---|---|
+| Fluxo visual do LoginPanel | ✅ PASS |
+| Borda lateral do `.login-card` contínua | ✅ PASS |
+| `.login-auth-divider` sem overflow | ✅ PASS |
+| Nenhum bypass observado entre autenticação e autorização | ✅ PASS |
 
-### C. Navegador real — Dashboard e PWA
+## Resumo do critério de aceite AUTH-2
 
-Meu ambiente não tem `claude-in-chrome` conectado nesta sessão, então
-preciso que você faça esta parte e me traga o resultado:
+- Autenticação Microsoft real em staging: **PASS**
+- Firebase Auth: **PASS**
+- Resolução `usuarios/{login}`: **PASS**
+- Dashboard — autorização negativa: **PASS**
+- Dashboard — autorização positiva (perfil temporário de gestor): **PASS**
+- Perfil de teste restaurado ao estado normal: **PASS**
+- E-mail/senha preservado: **PASS**
+- Demo preservado: **PASS** (não foi tocado em nenhum momento da AUTH-2)
+- Logout (Dashboard e PWA): **PASS**
+- Persistência/restauração de sessão: **PASS**
+- PWA staging — Microsoft: **PASS**
+- Deploy Cloudflare Pages staging: **PASS**
+- Visual desktop/mobile (conforme relato humano): **PASS**
+- Produção: **intocada**
+- Nenhum segredo versionado: **confirmado**
 
-1. **Dashboard, e-mail/senha primeiro** (baseline):
-   `https://escala.ici.tec.br` → cadeado/HTTPS ok → LoginPanel com
-   Microsoft + e-mail/senha + Demo visíveis → login e-mail/senha →
-   autorização → logout.
-2. **Dashboard, Microsoft**: clicar "Entrar com Microsoft" e me reportar,
-   por evento (nunca senha/token):
-   `MICROSOFT_PROVIDER_OPENED`, `ENTRA_LOGIN_SUCCESS`,
-   `FIREBASE_AUTH_SUCCESS`, `FIREBASE_EMAIL_PRESENT`, `LOGIN_NORMALIZED`,
-   `USUARIO_FIRESTORE_FOUND`, `USUARIO_ACTIVE`,
-   `DASHBOARD_AUTHORIZATION_CHECKED`, `DASHBOARD_RENDERED`.
-3. **PWA staging** (`https://escala-ici-staging.pages.dev` — note que
-   ainda não fiz deploy do build gerado; se quiser testar o PWA real
-   antes do deploy, me avise para eu rodar `pages:deploy:staging` com
-   confirmação explícita de alvo/ambiente): mesma sequência
-   e-mail/senha → Microsoft.
-4. **Persistência**: "manter conectado" marcado/desmarcado, F5, logout,
-   F5 de novo.
-5. **Cancelamento**: abrir Microsoft e fechar/cancelar o popup — UI
-   recuperada, sem sessão parcial, e-mail/senha e Demo continuam
-   utilizáveis.
-6. **Visual/DevTools real**: `.login-card`/`.login-auth-divider` em
-   desktop, 360/390/412px, tema claro/escuro — borda esquerda/direita
-   contínua, radius, sem overflow horizontal.
+## Pendências gerais
 
-Quando você trouxer esses resultados, atualizo este mesmo checkpoint com
-os números reais (✅/⚠️/❌ por item) e fechamos a AUTH-2.
-
-## Pendências gerais (sem mudança desde a pausa)
-
-- `MICROSOFT_REAL_STAGING = PENDENTE` (depende de A/B/C acima).
-- Deploy do PWA staging em Cloudflare Pages — build pronto e validado,
-  deploy não executado (decisão pendente, ver seção 4 acima).
 - Três falhas pré-existentes de `test:firebase-integration` — fora do
   escopo desta fase (autenticação), permanecem para uma fase própria de
-  Publicação/Escala.
+  Publicação/Escala. Reconfirmadas nesta finalização: exatamente as
+  mesmas três, `123/126`, nenhuma quarta falha.
 - Divergência de versão Firebase do Dashboard — **resolvida na AUTH-1B**
   (não é mais pendência).
+- `wrangler whoami` continua sem "User Details" no token — comportamento
+  esperado e aceito (escopo mínimo mantido de propósito); não bloqueia
+  deploys futuros via `wrangler pages deploy`, que não depende dessa
+  chamada de descoberta.
