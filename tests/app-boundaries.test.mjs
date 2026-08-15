@@ -43,6 +43,27 @@ test('a tela de Usuários do Dashboard não expõe UID técnico ao gestor', asyn
   }
 });
 
+test('o Dashboard nunca importa leitura/escrita de lembretes pessoais (privacidade absoluta)', async () => {
+  const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
+  // Remove comentários de bloco antes de checar: o arquivo documenta de
+  // propósito, em prosa, quais funções pessoais NUNCA são importadas — a
+  // checagem real é sobre código, não sobre essa nota explicativa.
+  const semComentarios = dashboard.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  for (const proibido of [
+    'criarLembretePessoal',
+    'criarSerieLembretesPessoais',
+    'atualizarLembretePessoal',
+    'excluirLembretePessoal',
+    'listarLembretesPessoais',
+    'observarLembretesPessoais',
+  ]) {
+    assert.doesNotMatch(semComentarios, new RegExp(proibido), proibido);
+  }
+
+  assert.match(semComentarios, /lembretesAtribuidos/);
+});
+
 test('os dois produtos possuem entradas Vite independentes', async () => {
   const arquivos = await Promise.all([
     ler('apps/dashboard/index.html'),
