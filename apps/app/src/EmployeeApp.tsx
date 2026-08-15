@@ -103,7 +103,7 @@ import {
   observarTrocasDoUsuario,
   responderSolicitacaoTroca as responderSolicitacaoTrocaFirebase,
 } from '@/lib/firebase/trocasRepository';
-import { USUARIOS_DEMO } from '@/lib/demoIdentidades';
+import { GESTOR_DEMO, USUARIOS_DEMO } from '@/lib/demoIdentidades';
 import type { EventoEscala, Usuario } from '@/lib/modelos';
 import { deveExibirRestauracao, podeIniciarListeners } from '@/lib/sessao';
 import {
@@ -111,6 +111,7 @@ import {
   ehDiaConsultadoHoje,
   tituloEquipeConsultada,
 } from './hojeConsulta';
+import { LembretesView } from './lembretes/LembretesView';
 import {
   ROTULO_STATUS_TROCA,
   SEVERIDADE_STATUS_TROCA,
@@ -120,7 +121,7 @@ import {
 } from '@/lib/trocasEscala';
 
 type Tela = 'hoje' | 'minha' | 'trocas' | 'equipe' | 'perfil';
-type ModoEscala = 'calendario' | 'agenda';
+type ModoEscala = 'calendario' | 'agenda' | 'lembretes';
 type AbaTrocas = 'minhas' | 'responder' | 'gestor' | 'historico';
 
 /**
@@ -2273,8 +2274,17 @@ export function EmployeeApp() {
           >
             <div className="panel-title schedule-panel-title">
               <div>
-                <h2>{tituloCalendario(datas)}</h2>
-                <p>{minhaEscala?.turnoPadrao} · {minhaEscala?.login}</p>
+                {modoEscala === 'lembretes' ? (
+                  <>
+                    <h2>Lembretes</h2>
+                    <p>Compromissos pessoais e atribuídos pelo gestor</p>
+                  </>
+                ) : (
+                  <>
+                    <h2>{tituloCalendario(datas)}</h2>
+                    <p>{minhaEscala?.turnoPadrao} · {minhaEscala?.login}</p>
+                  </>
+                )}
               </div>
               <div className="segmented-control" aria-label="Modo de visualização">
                 <button
@@ -2293,37 +2303,57 @@ export function EmployeeApp() {
                 >
                   <List size={16} /> Agenda
                 </button>
+                <button
+                  type="button"
+                  className={modoEscala === 'lembretes' ? 'active' : ''}
+                  onClick={() => setModoEscala('lembretes')}
+                  aria-pressed={modoEscala === 'lembretes'}
+                >
+                  <Bell size={16} /> Lembretes
+                </button>
               </div>
             </div>
             <div className="schedule-explorer">
-              <div className="schedule-view-panel">
-                {modoEscala === 'calendario' ? (
-                  <CalendarioEscala
-                    datas={datas}
+              {modoEscala === 'lembretes' ? (
+                <LembretesView
+                  login={usuario.login}
+                  nomeGestorDemo={GESTOR_DEMO.nome}
+                  modoDemonstracao={modoDemonstracao}
+                  listenersLiberados={listenersLiberados}
+                  dataHoje={dataHoje}
+                />
+              ) : (
+                <>
+                  <div className="schedule-view-panel">
+                    {modoEscala === 'calendario' ? (
+                      <CalendarioEscala
+                        datas={datas}
+                        dataHoje={dataHoje}
+                        dataSelecionada={dataSelecionadaEfetiva}
+                        escala={minhaEscala}
+                        catalogo={catalogo}
+                        onSelecionar={setDataSelecionada}
+                      />
+                    ) : (
+                      <AgendaEscala
+                        datas={datas}
+                        dataHoje={dataHoje}
+                        dataSelecionada={dataSelecionadaEfetiva}
+                        escala={minhaEscala}
+                        catalogo={catalogo}
+                        onSelecionar={setDataSelecionada}
+                      />
+                    )}
+                  </div>
+                  <DetalheDia
+                    data={dataSelecionadaEfetiva}
                     dataHoje={dataHoje}
-                    dataSelecionada={dataSelecionadaEfetiva}
                     escala={minhaEscala}
                     catalogo={catalogo}
-                    onSelecionar={setDataSelecionada}
+                    onSolicitarTroca={(diaEscolhido) => abrirNovaSolicitacaoTroca(diaEscolhido)}
                   />
-                ) : (
-                  <AgendaEscala
-                    datas={datas}
-                    dataHoje={dataHoje}
-                    dataSelecionada={dataSelecionadaEfetiva}
-                    escala={minhaEscala}
-                    catalogo={catalogo}
-                    onSelecionar={setDataSelecionada}
-                  />
-                )}
-              </div>
-              <DetalheDia
-                data={dataSelecionadaEfetiva}
-                dataHoje={dataHoje}
-                escala={minhaEscala}
-                catalogo={catalogo}
-                onSolicitarTroca={(diaEscolhido) => abrirNovaSolicitacaoTroca(diaEscolhido)}
-              />
+                </>
+              )}
             </div>
           </article>
           <ScheduleLegend catalogo={catalogo} titulo="Legenda" />

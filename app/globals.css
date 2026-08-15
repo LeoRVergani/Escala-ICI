@@ -4140,3 +4140,74 @@ fieldset.checkbox-card-list > legend {
   border-radius: 8px;
   background: var(--surface-muted);
 }
+
+/*
+ * Lembretes (Fase 4) — só tokens/classes já existentes (.status-badge,
+ * .panel, .segmented-control, .alias-chip, .admin-form-grid, .edit-modal),
+ * sem paleta nova. `.schedule-explorer`/`.schedule-view-panel` já colapsam
+ * para 1 coluna em mobile (ver regra existente) — reaproveitado sem
+ * nenhuma media query própria para o layout calendário/dia.
+ */
+.status-badge.primary { color: var(--primary-bright); background: var(--primary-soft); }
+
+.lembrete-indicador { color: var(--primary-bright); font-size: 9px; font-weight: 800; }
+.calendar-grid > button.today .lembrete-indicador { color: rgba(255, 255, 255, 0.85); }
+
+.lembretes-calendario-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.lembretes-calendario-header strong { flex: 1; text-align: center; font-size: 13px; }
+.lembretes-calendario-header .today-back-to-today { margin-top: 0; }
+
+.lembretes-day-panel { display: flex; flex-direction: column; gap: 14px; }
+.lembretes-lista-dia { display: grid; gap: 8px; }
+
+.lembrete-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.lembrete-card:hover { border-color: var(--border-strong); background: var(--surface-muted); }
+.lembrete-card-info { display: grid; gap: 3px; min-width: 0; }
+.lembrete-card-info strong { font-size: 13px; }
+.lembrete-card-info small { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
+
+.lembretes-novo-button { width: 100%; justify-content: center; }
+
+.lembretes-proximos { border-top: 1px solid var(--border); padding-top: 12px; display: grid; gap: 10px; }
+.lembretes-proximos-dia { display: grid; gap: 4px; }
+.lembretes-proximos-dia > small { color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
+.lembretes-proximos-dia > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.lembretes-proximo-item {
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--text);
+  cursor: pointer;
+}
+.lembretes-proximo-item:hover { border-color: var(--primary-bright); }
+
+.lembrete-modal .admin-form-grid { margin-top: 14px; }
+.lembrete-serie-nota { color: var(--muted); font-size: 11px; font-weight: 700; }
+.lembrete-vira-dia-aviso { margin: 0; color: var(--muted); font-size: 11px; }
+.lembrete-datas-adicionais { display: grid; gap: 8px; }
+.lembrete-datas-adicionais > span:first-child { font-size: 11px; font-weight: 700; color: var(--text); }
+
+.lembrete-atribuido-detalhe { display: grid; gap: 8px; color: var(--text); font-size: 13px; }
+.lembrete-atribuido-detalhe p { margin: 0; }
+.lembrete-criado-por { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.lembrete-descricao-detalhe { color: var(--muted); white-space: pre-wrap; }
+.lembrete-atribuido-rodape { display: flex; align-items: center; gap: 8px; }
