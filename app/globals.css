@@ -865,7 +865,16 @@ button.shift-chip:disabled { cursor: default; }
 .code-picker strong { font-size: 11px; }
 
 .calendar-panel { padding: 18px; }
-.calendar-weekdays, .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+/* `minmax(0, 1fr)`, não `1fr` puro: sem o `minmax(0, ...)`, cada coluna do
+ * grid tem minimo automático igual ao conteúdo intrínseco (min-content) —
+ * em telas estreitas, o texto de "SÁB" (o mais largo dos 7 rótulos depois do
+ * `text-transform: uppercase` + letter-spacing) força sua própria coluna a
+ * crescer além de 1/7 do container, empurrando a grade inteira (7 colunas)
+ * para além da largura visível — como o container roda com `overflow:
+ * visible` no mobile (não `auto`/scroll), o excesso é cortado pela borda
+ * direita da tela, sempre na última coluna. `minmax(0, 1fr)` trava as 7
+ * colunas em frações iguais de verdade, nunca maiores que o conteúdo pede. */
+.calendar-weekdays, .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .calendar-weekdays { margin-top: 18px; border: 1px solid var(--border); border-bottom: 0; border-radius: 8px 8px 0 0; background: var(--surface-muted); }
 .calendar-weekdays span { text-align: center; color: var(--muted); text-transform: uppercase; font-size: 9px; font-weight: 800; padding: 9px; }
 .calendar-grid { border-left: 1px solid var(--border); border-top: 1px solid var(--border); }
@@ -2734,6 +2743,7 @@ button.shift-chip:disabled { cursor: default; }
   .app-shell.product-app .selected-day-shift > div span { font-size: 14px; }
   .app-shell.product-app .selected-day-facts,
   .app-shell.product-app .selected-day-note { display: none; }
+  .app-shell.product-app .selected-day-troca-button { margin: 0 10px 10px; }
   .app-shell.product-app .employee-calendar-panel[data-mode="agenda"] .agenda-list {
     position: relative;
     max-height: none;
@@ -4001,8 +4011,8 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
 .troca-wizard-frase strong { color: var(--primary-bright); }
 
 .selected-day-troca-button {
-  width: 100%;
-  margin-top: 12px;
+  display: flex;
+  margin: 0 14px 14px;
   justify-content: center;
 }
 
