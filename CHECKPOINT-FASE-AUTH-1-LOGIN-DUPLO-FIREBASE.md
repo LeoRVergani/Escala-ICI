@@ -263,5 +263,161 @@ $ git status --short
 ```
 
 Commit local criado ao final da fase (mensagem:
-`feat(auth): adiciona login Microsoft mantendo email e senha`). Nenhum
-`git push` foi executado.
+`feat(auth): adiciona login Microsoft mantendo email e senha`, SHA
+`06225f2`). Nenhum `git push` foi executado.
+
+---
+
+## AUTH-1A — normalização do ambiente
+
+Microfase executada sobre o commit `06225f2` (AUTH-1 já commitada
+localmente), sem alterar código/arquitetura da AUTH-1.
+
+### Drift encontrado
+
+- **Firebase declarado**: `package.json` (raiz) e `apps/app/package.json` →
+  `firebase@12.17.1`. `apps/dashboard/package.json` → `firebase@12.1.0`
+  (pin próprio, pré-existente desde o commit `7cec87a`
+  `fix: incluir ambiente seguro do Firebase Emulator`, 2026-08-04 — anterior
+  à HEAD inicial da AUTH-1, portanto não relacionado a esta fase).
+- **Firebase no `package-lock.json`**: coerente com os dois pins acima —
+  `node_modules/firebase` (hoisted, raiz/app-web) travado em `12.17.1`, e
+  `apps/dashboard/node_modules/firebase` (nested) travado em `12.1.0`. Ou
+  seja, `package.json` e `package-lock.json` **já estavam coerentes entre
+  si** — não houve necessidade de regenerar lockfile nem de investigar mais
+  a fundo uma incoerência de fato (a spec desta microfase exigia isso só se
+  package.json/lockfile divergissem; aqui divergiam apenas entre
+  workspaces, de forma intencional e já refletida corretamente no lockfile).
+- **Firebase fisicamente instalado (antes)**: `node_modules/firebase@12.1.0`
+  na raiz (deveria ser `12.17.1`), e **sem** `apps/dashboard/node_modules/firebase`
+  nested nenhum. `firebase-admin` (usado só pelo push-worker) também
+  ausente de `node_modules`.
+- **Causa provável**: `node_modules` ficou desatualizado em relação ao
+  lockfile — a última instalação física parece ter ocorrido antes do bump
+  de `firebase` para `12.17.1` no lockfile (ou antes da adição de
+  `firebase-admin`/da fixação do pin próprio do dashboard), e nunca foi
+  refeita. Não é um problema de código nem de configuração da AUTH-1.
+
+### Correção ambiental
+
+- Comando único usado: `npm ci` (nenhum `npm install firebase@latest`,
+  nenhum `npm update`, nenhum `npm audit fix`, nenhuma outra dependência
+  tocada).
+- `sha256sum package-lock.json` **antes**:
+  `99b2727198aba0873e83f816ab5e4f63de0364b62c6e9d6612e161866359e433`.
+- `sha256sum package-lock.json` **depois**: idêntico (mesmo hash).
+- `git status --short` depois do `npm ci`: vazio (nenhuma alteração
+  versionada).
+- **Package-lock alterado: NÃO.**
+- Versão final instalada: `npm ls firebase` confirma `firebase@12.17.1` na
+  raiz/`app-web`/`@firebase/rules-unit-testing` (hoisted) e
+  `firebase@12.1.0` isolado em `apps/dashboard` (nested) — exatamente o que
+  o lockfile já previa. `firebase-admin@14.2.0` presente para o
+  push-worker.
+
+### Testes que antes falhavam (reexecutados)
+
+| Comando | Antes (AUTH-1) | Depois (AUTH-1A) |
+|---|---|---|
+| `npm run typecheck` | ❌ `TS2305` em `lib/firebase/pushMessaging.ts` (onRegistered/register/unregister ausentes) | ✅ Sem erros |
+| `npm run build:app` | ❌ Rollup `MISSING_EXPORT` (mesmas 3 funções) | ✅ Build concluído (1636 módulos, service worker incluso) |
+| `npm run test:boundaries` | ⚠️ 100/102 (2 falhas: SDK 12.17.1 esperado vs instalado, `firebase-admin` ausente) | ✅ 102/102 |
+
+**Causa ambiental confirmada** — nenhuma correção de código foi
+necessária. `pushMessaging.ts` não foi alterado.
+
+### Suíte completa (resultado real, pós-normalização)
+
+| Comando | Resultado |
+|---|---|
+| `npm run typecheck` | ✅ sem erros |
+| `npm run typecheck:apps` | ✅ sem erros (dashboard + app-web) |
+| `npm run typecheck:worker` | ✅ sem erros |
+| `npm run test:unit` | ✅ 508/508 testes, 41/41 arquivos (antes: 500/500 + 1 arquivo falho por `firebase-admin` ausente — agora incluso e verde) |
+| `npm run test:boundaries` | ✅ 102/102 |
+| `npm run test:push-worker` | ✅ 48/48 testes, 7/7 arquivos |
+| `npm run test:firebase-preflight` | ✅ 14/14 |
+| `npm run test:firestore-rules` | ✅ 122/122 (emulador Firestore local, Java 21 disponível) |
+| `npm run test:firebase-integration` | ⚠️ 123/126 (3 falhas + 1 unhandled rejection) — ver seção "Firebase integration" abaixo |
+| `npm run lint` | ✅ 0 erros, 5 warnings (mesmos `no-unused-vars` em mocks prefixados com `_`, já existentes antes da AUTH-1A) |
+| `npm run build:app` | ✅ |
+| `npm run build:apps` | ✅ (dashboard + app-web) |
+| `npm run build:app:pages` | ✅ + "Cloudflare Pages validado: App independente, SPA e PWA na raiz." |
+| `npm run validate:pwa` | ✅ "PWA validado: manifesto, ícones, atualização segura e artefatos distribuídos." |
+| `npm run validate:artifact` | ✅ "Validated Sites artifact: ESM Worker default.fetch and hosting manifest are present." |
+| `npm run validate:deployments` | Não executado — fora do escopo desta microfase (ação de deploy/infra). |
+| `git diff --check` | ✅ limpo |
+
+### Firebase integration — divergência investigada
+
+`test:firebase-integration` (`tests/firebase/firebase.integration.test.ts`)
+falha em 3 dos 126 testes (mais 1 unhandled rejection), todos sobre
+publicação de escala/rascunho (`PERMISSION_DENIED` em `create`/`update` de
+`turnosMes`/rascunho, e um `list` em `usuarios/davi.freitas`) — nada
+relacionado a autenticação/LoginPanel/authRepository.
+
+**Comparação com baseline**: os mesmos 3 testes foram executados contra o
+commit `f6a65a2` (HEAD inicial da AUTH-1, antes de qualquer alteração desta
+fase), isolado num `git worktree` separado (sem tocar a árvore de trabalho
+principal, removido logo em seguida) — resultado idêntico: **3 falhas, 123
+passam, 1 unhandled rejection**, mesmas mensagens de erro. Confirma que a
+divergência é **pré-existente e não relacionada à AUTH-1/AUTH-1A** — não foi
+tocada, pois corrigir regras de publicação de escala está fora do escopo
+desta microfase (autenticação).
+
+### AUTH-1 (revalidação após ambiente correto)
+
+- E-mail/senha: inalterado, 11 testes de `authRepository.test.ts` verdes.
+- Microsoft: `criarProviderMicrosoft()`/`entrarComMicrosoft()` conferidos
+  contra a tipagem real de `@firebase/auth@1.13.4` (instalada via
+  `firebase@12.17.1`) — `OAuthProvider`, `setCustomParameters`,
+  `signInWithPopup`, `signOut` continuam com a mesma assinatura usada na
+  implementação; nenhuma alteração de código foi necessária nesta
+  microfase.
+- Demo: inalterado.
+- `usuarios/{login}`: inalterado — nenhuma migração para `usuarios/{uid}`.
+- Autorização: inalterada — `nivelPermiteDashboard` continua fora de
+  `authRepository.ts`.
+- Persistence ("manter conectado"): inalterada — `prepararPersistencia()`
+  compartilhada entre os dois provedores.
+
+### Segurança (revalidada)
+
+- `git grep -n -i "client.secret"` / `"client_secret"` / `"microsoft.*secret"`
+  — nenhuma ocorrência de segredo real; só menções em documentação
+  (`CHECKPOINT...md`, `docs/spec/...md`) explicando que Client Secret nunca
+  entra no frontend.
+- `git grep` por `"common"`/`'common'` em `.ts`/`.tsx` — única ocorrência é
+  a checagem de rejeição em `lib/firebase/client.ts`
+  (`microsoftProviderConfigurado()`), tratando `common` como não
+  configurado, exatamente como especificado.
+- Nenhuma Firestore Rule foi tocada nesta microfase.
+
+### Package-lock
+
+`npm ci` não alterou `package-lock.json` (hash idêntico antes/depois) —
+nenhuma mudança versionada por causa desta microfase. O pin próprio de
+`apps/dashboard/package.json` (`firebase@12.1.0`, distinto do resto do
+monorepo) é pré-existente e fora do escopo de correção desta microfase
+(não é uma inconsistência package.json↔lockfile; é uma escolha de versão
+por workspace já refletida corretamente no lockfile).
+
+### Pendências para a próxima fase
+
+- **Firebase Console**: habilitar/confirmar provider `Microsoft` em
+  Authentication → Sign-in method, no projeto `escala-ici-staging`.
+- **Authorized Domains**: confirmar `escala-ici-staging.pages.dev` (ou
+  domínio customizado real) em Authentication → Settings.
+- **Tenant/env**: definir `VITE_MICROSOFT_ENTRA_TENANT_ID` no ambiente de
+  staging real (fora do Git).
+- **Microsoft real em staging**: `MICROSOFT_REAL_STAGING = PENDENTE` — não
+  validado nesta fase nem na anterior; depende dos itens acima.
+- **Visual em browser real**: validação de cascade/bordas desta fase
+  continua sendo auditoria estática (sem navegador disponível no
+  ambiente) — pendente DevTools real.
+- **HTTPS/deploy de staging**: nenhum deploy foi feito nesta microfase nem
+  na anterior.
+- **`test:firebase-integration`** (3 falhas de publicação de escala): não é
+  bug da AUTH-1/AUTH-1A, mas fica registrado como divergência pré-existente
+  a ser investigada em uma fase própria de Publicação/Escala, não de
+  Autenticação.
