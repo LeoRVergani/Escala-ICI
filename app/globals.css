@@ -1421,6 +1421,17 @@ button.shift-chip:disabled { cursor: default; }
   font-weight: 500;
 }
 .configuration-note { margin: 0; color: var(--muted); font-size: 10px; text-align: center; line-height: 1.5; }
+/*
+ * Separador "ou" entre o login Microsoft e o login por e-mail/senha —
+ * elemento próprio de `.login-card` (não reaproveita nenhuma classe de
+ * chip/toolbar de outra tela). Fica sempre dentro do content box do card:
+ * como filho direto do grid de `.login-card`, ocupa a largura da própria
+ * célula (a mesma que qualquer outro campo/botão do formulário), nunca a
+ * largura do card inteiro — não atravessa `border-left`/`border-right`.
+ */
+.login-auth-divider { display: flex; align-items: center; gap: 10px; }
+.login-auth-divider > span { flex: 1 1 auto; height: 1px; background: var(--border); }
+.login-auth-divider > small { color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
 
 .entry-page { min-height: 100vh; padding: 28px clamp(22px, 6vw, 90px); background:
   radial-gradient(circle at 82% 8%, color-mix(in srgb, var(--primary) 13%, transparent), transparent 27%),

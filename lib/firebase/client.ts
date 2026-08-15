@@ -32,6 +32,7 @@ export interface FirebaseServices {
 
 const messagingSenderId = import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string | undefined;
 const vapidKeyPublica = import.meta.env.VITE_FIREBASE_VAPID_KEY as string | undefined;
+const microsoftEntraTenantId = import.meta.env.VITE_MICROSOFT_ENTRA_TENANT_ID as string | undefined;
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string | undefined,
@@ -89,6 +90,23 @@ export function obterVapidKeyPublica(): string | undefined {
 
 export function obterMessagingSenderId(): string | undefined {
   return messagingSenderId;
+}
+
+/**
+ * `common` deliberadamente NÃO conta como configurado: o login Microsoft
+ * deve ficar restrito ao tenant corporativo do Entra ID, nunca aceitar
+ * qualquer conta Microsoft de qualquer organização. Sem tenant válido, o
+ * botão Microsoft fica indisponível e o login por e-mail/senha continua
+ * funcionando normalmente (fail gracefully, nunca fail closed no resto do
+ * login).
+ */
+export function microsoftProviderConfigurado(): boolean {
+  const tenant = microsoftEntraTenantId?.trim();
+  return typeof tenant === 'string' && tenant !== '' && tenant.toLowerCase() !== 'common';
+}
+
+export function obterMicrosoftEntraTenantId(): string | undefined {
+  return microsoftEntraTenantId;
 }
 
 let services: FirebaseServices | null | undefined;

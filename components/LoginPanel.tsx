@@ -1,12 +1,13 @@
 'use client';
 
-import { Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from 'lucide-react';
+import { Building2, Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 
 import { GESTOR_DEMO, USUARIOS_DEMO } from '@/lib/demoIdentidades';
-import { firebaseConfigurado } from '@/lib/firebase/client';
+import { firebaseConfigurado, microsoftProviderConfigurado } from '@/lib/firebase/client';
 import {
   entrarComEmail,
+  entrarComMicrosoft,
   mensagemErroAutenticacao,
   sair,
 } from '@/lib/firebase/authRepository';
@@ -42,7 +43,7 @@ export function LoginPanel({
   const [senha, setSenha] = useState('');
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [erroEnvio, setErroEnvio] = useState('');
-  const [carregando, setCarregando] = useState(false);
+  const [metodoCarregando, setMetodoCarregando] = useState<'MICROSOFT' | 'EMAIL' | null>(null);
   const sessao = useRestauracaoSessao({
     tipo,
     delegada: sessaoDelegada,
@@ -51,15 +52,19 @@ export function LoginPanel({
   const verificandoSessao = deveExibirRestauracao(sessao.estado);
   const manterConectado = sessao.manterConectado;
   const erro = erroEnvio || sessao.erro;
+  const microsoftDisponivel = firebaseConfigurado && microsoftProviderConfigurado();
+  const acaoEmAndamento = metodoCarregando !== null || verificandoSessao;
 
-  async function enviar(evento: FormEvent<HTMLFormElement>) {
-    evento.preventDefault();
+  async function autenticarComProvedor(
+    metodo: 'MICROSOFT' | 'EMAIL',
+    executar: () => Promise<Usuario>,
+  ) {
     setErroEnvio('');
     sessao.definirErro('');
-    setCarregando(true);
+    setMetodoCarregando(metodo);
     try {
       sessao.gravarPreferencia(manterConectado);
-      const usuario = await entrarComEmail(email, senha, manterConectado);
+      const usuario = await executar();
       if (tipo === 'dashboard' && !nivelPermiteDashboard(usuario.nivelHierarquico)) {
         await sair();
         throw new Error(MENSAGEM_SEM_PERMISSAO_DASHBOARD);
@@ -68,8 +73,17 @@ export function LoginPanel({
     } catch (falha) {
       setErroEnvio(mensagemErroAutenticacao(falha));
     } finally {
-      setCarregando(false);
+      setMetodoCarregando(null);
     }
+  }
+
+  async function enviar(evento: FormEvent<HTMLFormElement>) {
+    evento.preventDefault();
+    await autenticarComProvedor('EMAIL', () => entrarComEmail(email, senha, manterConectado));
+  }
+
+  async function entrarComProvedorMicrosoft() {
+    await autenticarComProvedor('MICROSOFT', () => entrarComMicrosoft(manterConectado));
   }
 
   const titulo = tipo === 'dashboard' ? 'Dashboard de escalas' : 'Minha escala';
@@ -92,7 +106,7 @@ export function LoginPanel({
         </div>
         <div className="login-feature">
           <LockKeyhole size={20} />
-          <span>Autenticação por e-mail e permissões protegidas no Firestore</span>
+          <span>Autenticação corporativa protegida pelo Firebase</span>
         </div>
       </section>
 
@@ -102,6 +116,27 @@ export function LoginPanel({
             <p className="eyebrow">{tipo === 'dashboard' ? 'Área de gestão' : 'Área do colaborador'}</p>
             <h2>{titulo}</h2>
             <p>Entre com sua conta corporativa para continuar.</p>
+          </div>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={entrarComProvedorMicrosoft}
+            disabled={!microsoftDisponivel || acaoEmAndamento}
+          >
+            {metodoCarregando === 'MICROSOFT'
+              ? <LoaderCircle className="spin" size={17} aria-hidden="true" />
+              : <Building2 size={17} aria-hidden="true" />}
+            Entrar com Microsoft
+          </button>
+          {firebaseConfigurado && !microsoftProviderConfigurado() && (
+            <p className="configuration-note">
+              Login Microsoft ainda não configurado neste ambiente.
+            </p>
+          )}
+          <div className="login-auth-divider" role="separator" aria-hidden="true">
+            <span />
+            <small>ou</small>
+            <span />
           </div>
           <label>
             E-mail
@@ -113,7 +148,7 @@ export function LoginPanel({
                 onChange={(evento) => setEmail(evento.target.value)}
                 placeholder="seu@email.com"
                 required
-                disabled={!firebaseConfigurado || verificandoSessao}
+                disabled={!firebaseConfigurado || acaoEmAndamento}
               />
             </span>
           </label>
@@ -127,14 +162,14 @@ export function LoginPanel({
                 onChange={(evento) => setSenha(evento.target.value)}
                 placeholder="Digite sua senha"
                 required
-                disabled={!firebaseConfigurado || verificandoSessao}
+                disabled={!firebaseConfigurado || acaoEmAndamento}
               />
               <button
                 className="login-toggle-senha"
                 type="button"
                 onClick={() => setMostrarSenha((atual) => !atual)}
                 aria-label={mostrarSenha ? 'Ocultar senha' : 'Mostrar senha'}
-                disabled={!firebaseConfigurado || verificandoSessao}
+                disabled={!firebaseConfigurado || acaoEmAndamento}
               >
                 {mostrarSenha ? <EyeOff size={17} /> : <Eye size={17} />}
               </button>
@@ -145,7 +180,7 @@ export function LoginPanel({
               type="checkbox"
               checked={manterConectado}
               onChange={(evento) => sessao.definirManterConectado(evento.target.checked)}
-              disabled={!firebaseConfigurado || verificandoSessao}
+              disabled={!firebaseConfigurado || acaoEmAndamento}
             />
             <span>
               Manter conectado e permitir consulta offline neste dispositivo
@@ -156,9 +191,9 @@ export function LoginPanel({
           <button
             className="primary-button"
             type="submit"
-            disabled={!firebaseConfigurado || carregando || verificandoSessao}
+            disabled={!firebaseConfigurado || acaoEmAndamento}
           >
-            {(carregando || verificandoSessao)
+            {(metodoCarregando === 'EMAIL' || verificandoSessao)
               && <LoaderCircle className="spin" size={17} />}
             {verificandoSessao ? 'Verificando sessão…' : 'Entrar'}
           </button>
@@ -171,6 +206,7 @@ export function LoginPanel({
           <button
             className="secondary-button"
             type="button"
+            disabled={acaoEmAndamento}
             onClick={() => onEntrar(
               tipo === 'dashboard' ? GESTOR_DEMO : USUARIOS_DEMO[1]!,
               true,
