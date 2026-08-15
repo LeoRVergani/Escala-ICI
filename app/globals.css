@@ -4256,6 +4256,24 @@ fieldset.checkbox-card-list > legend {
 }
 
 .lembretes-day-panel { display: flex; flex-direction: column; gap: var(--space-4); }
+/*
+ * `.selected-day-card` (compartilhado com DetalheDia/escala) zera o padding
+ * do card via `.app-shell.product-app .selected-day-card { padding: 0 }`
+ * (Design System da Fase 3F) — `.selected-day-date` já tem padding próprio
+ * para compensar (18px/20px desktop, 15px/16px em ≤780px). Este wrapper dá
+ * a MESMA compensação, nos mesmos dois breakpoints, para tudo abaixo do
+ * cabeçalho — sem tocar em `.selected-day-card`/`.selected-day-date`
+ * (usadas por DetalheDia, fora do escopo desta correção).
+ */
+.lembretes-day-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 0 var(--space-5) var(--space-4);
+}
+@media (max-width: 780px) {
+  .lembretes-day-content { padding: 0 var(--space-4) var(--space-4); }
+}
 .lembretes-lista-dia { display: grid; gap: var(--space-2); }
 
 .lembrete-card {
