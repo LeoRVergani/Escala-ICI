@@ -2627,7 +2627,7 @@ export function DashboardApp() {
       nome: '',
       email: '',
       login: '',
-      cargo: 'ANALISTA_SOC',
+      cargo: '',
       nivelHierarquico: 6,
       turnoPadrao: 'M',
       ativo: true,

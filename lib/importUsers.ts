@@ -19,6 +19,14 @@ export function mapaLogins(usuarios: readonly Usuario[]): Record<string, string>
  * Cria o documento Firestore de um colaborador em `usuarios/{login}`. O
  * login é a chave funcional e o ID do documento desde a criação — nunca
  * precisa de vínculo posterior com nenhuma conta do Firebase Authentication.
+ *
+ * `cargo` nasce vazio de propósito: é texto livre puramente descritivo
+ * (exibido em "Perfil" no App, nunca usado por `firestore.rules` nem por
+ * `perfilEfetivo()`/autorização) — fixar um valor aqui faria qualquer
+ * equipe herdar o cargo de outra por coincidência (era `'ANALISTA_SOC'`
+ * incondicional, inclusive para colaboradores de NOC/Suporte cadastrados
+ * via `cadastrarFaltantes()`). O gestor preenche o cargo real ao editar o
+ * cadastro — `validarEdicaoUsuario()` passa a exigir isso antes de salvar.
  */
 export function novoUsuario(
   indice: number,
@@ -31,7 +39,7 @@ export function novoUsuario(
     login,
     nome: login === `novo.login${indice}` ? 'Novo colaborador' : login,
     email: `${login}@empresa.com`,
-    cargo: 'ANALISTA_SOC',
+    cargo: '',
     equipeId: gestor.equipeId,
     gestorUid: gestor.uid ?? null,
     nivelHierarquico: 6,
@@ -68,6 +76,9 @@ export function validarEdicaoUsuario(
   }
   if (editado.login.trim() === '') {
     erros.push('Informe o login usado na planilha.');
+  }
+  if (editado.cargo.trim() === '') {
+    erros.push('Informe o cargo do colaborador.');
   }
   if (usuariosDaEquipe.some((outro) =>
     outro.login === editado.login
