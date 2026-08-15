@@ -2321,6 +2321,8 @@ export function EmployeeApp() {
                   modoDemonstracao={modoDemonstracao}
                   listenersLiberados={listenersLiberados}
                   dataHoje={dataHoje}
+                  escala={minhaEscala}
+                  catalogo={catalogo}
                 />
               ) : (
                 <>

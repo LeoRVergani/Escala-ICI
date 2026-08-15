@@ -54,16 +54,14 @@ export function LembretesDia({
               <small>
                 {capitalizarPrimeiraLetra(formatarData(grupo.data, { weekday: 'short', day: '2-digit', month: 'short' }).replace('.', ''))}
               </small>
-              <div>
+              <div className="lembretes-proximos-itens">
                 {grupo.itens.map((item) => (
-                  <button
+                  <LembreteCard
                     key={item.lembreteId}
-                    type="button"
-                    className="lembretes-proximo-item"
-                    onClick={() => onSelecionarItem(item)}
-                  >
-                    {item.titulo}
-                  </button>
+                    item={item}
+                    compacto
+                    onSelecionar={() => onSelecionarItem(item)}
+                  />
                 ))}
               </div>
             </div>

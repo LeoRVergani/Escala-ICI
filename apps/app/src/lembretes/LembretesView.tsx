@@ -8,7 +8,7 @@
  * `mesVisivel`/`dataSelecionada` aqui NUNCA são os mesmos states da Agenda
  * (`dataSelecionada`) nem da tela Hoje (`dataConsultaEquipe`).
  */
-import { adicionarDias } from '@escala-ici/contrato';
+import { CATALOGO_SOC, adicionarDias, type TurnosMes } from '@escala-ici/contrato';
 import { useMemo, useState } from 'react';
 
 import type { EntradaLembrete, EntradaSerieLembrete } from '@/lib/lembretes';
@@ -40,12 +40,17 @@ export function LembretesView({
   modoDemonstracao,
   listenersLiberados,
   dataHoje,
+  escala,
+  catalogo,
 }: {
   login: string | null;
   nomeGestorDemo: string;
   modoDemonstracao: boolean;
   listenersLiberados: boolean;
   dataHoje: string;
+  /** Contexto de escala do próprio usuário — mesmo `minhaEscala`/`catalogo` já carregados por `EmployeeApp.tsx`, sem nova leitura. */
+  escala: TurnosMes | null;
+  catalogo: typeof CATALOGO_SOC;
 }) {
   const [mesVisivel, setMesVisivel] = useState(() => mesDeData(dataHoje));
   const [dataSelecionadaLembretes, setDataSelecionadaLembretes] = useState(dataHoje);
@@ -103,6 +108,8 @@ export function LembretesView({
           dataHoje={dataHoje}
           dataSelecionada={dataSelecionadaLembretes}
           contagemPorData={contagemPorData}
+          escala={escala}
+          catalogo={catalogo}
           onSelecionarDia={setDataSelecionadaLembretes}
           onMudarMes={setMesVisivel}
         />
