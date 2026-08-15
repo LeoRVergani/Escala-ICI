@@ -3,6 +3,7 @@ import {
   contarLembretesPorData,
   entradaLembreteDoFormulario,
   entradaSerieLembreteDoFormulario,
+  janelaAmplaLembretesAtribuidos,
   lembretesDoDia,
   mesAdjacente,
   mesDeData,
@@ -118,6 +119,18 @@ describe('navegação por mês', () => {
     expect(mesAdjacente('2026-08', -1)).toBe('2026-07');
     expect(mesAdjacente('2026-12', 1)).toBe('2027-01');
     expect(mesAdjacente('2026-01', -1)).toBe('2025-12');
+  });
+
+  it('janelaAmplaLembretesAtribuidos cobre meses antes/depois da referência (default 3/12)', () => {
+    const { dataInicio, dataFim } = janelaAmplaLembretesAtribuidos('2026-08-17');
+    expect(dataInicio).toBe('2026-05-01');
+    expect(dataFim).toBe('2027-08-31');
+  });
+
+  it('janelaAmplaLembretesAtribuidos aceita janela customizada', () => {
+    const { dataInicio, dataFim } = janelaAmplaLembretesAtribuidos('2026-08-17', 1, 1);
+    expect(dataInicio).toBe('2026-07-01');
+    expect(dataFim).toBe('2026-09-30');
   });
 
   it('tituloMesLembretes formata em pt-BR', () => {

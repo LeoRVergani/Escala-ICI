@@ -111,6 +111,24 @@ export function mesAdjacente(mes: string, deltaMeses: number): string {
   return `${data.getUTCFullYear()}-${String(data.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+/**
+ * Janela ampla (meses antes/depois de uma data de referência) para consultar
+ * lembretes atribuídos de um colaborador — usada pelo Dashboard (Fase 5),
+ * que não navega mês a mês como a aba Lembretes do App. Não amarra a
+ * competência operacional 26→25.
+ */
+export function janelaAmplaLembretesAtribuidos(
+  dataReferencia: string,
+  mesesAntes = 3,
+  mesesDepois = 12,
+): { dataInicio: string; dataFim: string } {
+  const mesReferencia = mesDeData(dataReferencia);
+  return {
+    dataInicio: primeiroDiaDoMes(mesAdjacente(mesReferencia, -mesesAntes)),
+    dataFim: ultimoDiaDoMes(mesAdjacente(mesReferencia, mesesDepois)),
+  };
+}
+
 export function tituloMesLembretes(mes: string): string {
   return formatarCompetencia(mes);
 }

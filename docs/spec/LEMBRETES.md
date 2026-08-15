@@ -5,12 +5,17 @@ Firestore Rules atuais (branch `feature/lembretes-consulta-dia-hoje`). Cada
 afirmação aponta para a evidência que a sustenta — este documento não supõe
 comportamento que não esteja implementado.
 
-**Estado atual (pós-Fase 4.2.1):** domínio puro, repositories, Firestore
-Rules (com hardening da Fase 4.1: sem delete físico de atribuído) e UI do
-App do colaborador (`apps/app/src/lembretes/`, `components/lembretes/`)
-existem e têm cobertura de teste real (unitária + Emulator). **Dashboard
-ainda não implementa atribuição de lembrete** — Fase 5. **Não há Push**
-agendado — os campos de alerta são só dado (ver seção "Alertas futuros").
+**Estado atual (pós-Fase 5):** domínio puro, repositories, Firestore Rules
+(com hardening da Fase 4.1: sem delete físico de atribuído) e UI do App do
+colaborador (`apps/app/src/lembretes/`, `components/lembretes/`) existem e
+têm cobertura de teste real (unitária + Emulator). O Dashboard (Fase 5)
+agora permite ao gestor atribuir/editar/cancelar lembretes de um
+colaborador do seu escopo, direto na tela Usuários (`DashboardApp.tsx`) —
+reaproveita o mesmo domínio/repository e nunca importa leitura/escrita de
+lembretes pessoais (ver teste de fronteira em `tests/app-boundaries.test.mjs`).
+Validação realtime formal (sem F5) do fluxo gestor → colaborador fica para
+a Fase 6. **Não há Push** agendado — os campos de alerta são só dado (ver
+seção "Alertas futuros").
 Qualquer alteração visual nos componentes de Lembretes deve primeiro ler
 [`UI_CASCADE_E_HERANCA.md`](UI_CASCADE_E_HERANCA.md) — os três casos reais
 de bug de cascade documentados ali (botão "Hoje", chip de "Próximos

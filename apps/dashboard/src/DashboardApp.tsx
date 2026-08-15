@@ -3,6 +3,7 @@
 import {
   CATALOGO_SOC,
   calcularTotais,
+  dataIsoLocal,
   formatarMinutos,
   parsePlanilhaEscala,
   type Dia,
@@ -103,6 +104,21 @@ import {
   type OpcoesExclusaoUsuario,
 } from '@/lib/firebase/adminRepository';
 import { registrarAuditoriaAdmin } from '@/lib/firebase/auditoriaRepository';
+/**
+ * Só operações administrativas de `lembretesAtribuidos` — o Dashboard NUNCA
+ * importa `criarLembretePessoal`/`listarLembretesPessoais`/
+ * `observarLembretesPessoais`/`atualizarLembretePessoal`/
+ * `excluirLembretePessoal` (privacidade: ver `tests/boundaries` e
+ * docs/spec/LEMBRETES.md).
+ */
+import {
+  atualizarLembreteAtribuido,
+  cancelarLembreteAtribuido,
+  criarLembreteAtribuido,
+  criarSerieLembretesAtribuidos,
+  observarLembretesAtribuidosDoUsuario,
+  type LembreteAtribuidoPersistido,
+} from '@/lib/firebase/lembretesRepository';
 import { exclusaoZeraGestores, podeExcluirCompetencia, podeExcluirUsuario } from '@/lib/adminGuards';
 import {
   COMPETENCIA_ATUAL,
@@ -145,6 +161,24 @@ import {
   removerMembroGrade,
 } from '@/lib/gradeMembros';
 import { mapaLogins, normalizarAliasesPlanilha, novoUsuario, validarEdicaoUsuario } from '@/lib/importUsers';
+import {
+  LIMITE_DESCRICAO_LEMBRETE,
+  LIMITE_TITULO_LEMBRETE,
+  criarOcorrenciasSerie,
+  normalizarHorarioLembrete,
+  normalizarLembrete,
+  ordenarLembretes,
+  type EntradaLembrete,
+  type EntradaSerieLembrete,
+} from '@/lib/lembretes';
+import {
+  entradaLembreteDoFormulario,
+  entradaSerieLembreteDoFormulario,
+  janelaAmplaLembretesAtribuidos,
+  validarFormularioLembrete,
+  type FormularioLembrete,
+} from '@/lib/lembretesUi';
+import { LembreteCard } from '@/components/lembretes/LembreteCard';
 import type {
   Equipe,
   EventoEscala,
@@ -1247,6 +1281,344 @@ function ModalDetalheTrocaGestor({
   );
 }
 
+function formularioLembreteInicial(dataHoje: string, lembreteEmEdicao?: LembreteAtribuidoPersistido): FormularioLembrete {
+  if (lembreteEmEdicao === undefined) {
+    return { titulo: '', descricao: '', datas: [dataHoje], diaInteiro: false, horaInicio: '', horaFim: '' };
+  }
+  return {
+    titulo: lembreteEmEdicao.titulo,
+    descricao: lembreteEmEdicao.descricao ?? '',
+    datas: [lembreteEmEdicao.data],
+    diaInteiro: lembreteEmEdicao.horario.diaInteiro,
+    horaInicio: lembreteEmEdicao.horario.horaInicio ?? '',
+    horaFim: lembreteEmEdicao.horario.horaFim ?? '',
+  };
+}
+
+/**
+ * Formulário de criação/edição de um lembrete atribuído. Colaborador é
+ * sempre fixo (pré-selecionado pela linha de origem, nunca um <select> que
+ * permitiria trocar silenciosamente para alguém fora do escopo). Autoria
+ * (`criadoPorLogin`/`criadoPorNome`) nunca é campo de formulário — vem do
+ * `usuarioReal` autenticado, no `onSalvarUnico`/`onSalvarSerie` do chamador.
+ */
+function ModalAtribuirLembrete({
+  colaborador,
+  modo,
+  lembreteEmEdicao,
+  dataHoje,
+  onFechar,
+  onSalvarUnico,
+  onSalvarSerie,
+}: {
+  colaborador: Usuario;
+  modo: 'criar' | 'editar';
+  lembreteEmEdicao?: LembreteAtribuidoPersistido;
+  dataHoje: string;
+  onFechar: () => void;
+  onSalvarUnico: (entrada: EntradaLembrete) => Promise<void>;
+  onSalvarSerie: (entrada: EntradaSerieLembrete) => Promise<void>;
+}) {
+  const [form, setForm] = useState<FormularioLembrete>(() => formularioLembreteInicial(dataHoje, lembreteEmEdicao));
+  const [novaData, setNovaData] = useState('');
+  const [erros, setErros] = useState<string[]>([]);
+  const [salvando, setSalvando] = useState(false);
+  useTeclaEsc(onFechar);
+
+  const viraDia = !form.diaInteiro && normalizarHorarioLembrete({
+    diaInteiro: false,
+    horaInicio: form.horaInicio || null,
+    horaFim: form.horaFim || null,
+  }).viraDia;
+
+  function adicionarData() {
+    if (novaData.trim() === '' || form.datas.includes(novaData)) {
+      return;
+    }
+    setForm((atual) => ({ ...atual, datas: [...atual.datas, novaData] }));
+    setNovaData('');
+  }
+
+  function removerData(data: string) {
+    setForm((atual) => ({ ...atual, datas: atual.datas.filter((item) => item !== data) }));
+  }
+
+  async function aoClicarSalvar() {
+    const errosValidacao = validarFormularioLembrete(form);
+    if (errosValidacao.length > 0) {
+      setErros(errosValidacao);
+      return;
+    }
+    setErros([]);
+    setSalvando(true);
+    try {
+      if (form.datas.length <= 1) {
+        await onSalvarUnico(entradaLembreteDoFormulario(form));
+      } else {
+        await onSalvarSerie(entradaSerieLembreteDoFormulario(form));
+      }
+      onFechar();
+    } catch (falha) {
+      setErros([falha instanceof Error ? falha.message : 'Não foi possível salvar o lembrete.']);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal admin-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="atribuir-lembrete-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">{modo === 'criar' ? 'Novo lembrete atribuído' : 'Editar lembrete atribuído'}</p>
+            <h2 id="atribuir-lembrete-title">{colaborador.nome}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar"><X size={18} /></button>
+        </div>
+
+        <p className="admin-form-preview admin-form-full">
+          Colaborador: <strong>{colaborador.nome}</strong> ({colaborador.login})
+        </p>
+
+        <div className="admin-form-grid">
+          <label className="admin-form-full" htmlFor="atribuir-lembrete-titulo">
+            Título
+            <input
+              id="atribuir-lembrete-titulo"
+              autoFocus
+              maxLength={LIMITE_TITULO_LEMBRETE}
+              placeholder="Ex.: Treinamento técnico"
+              value={form.titulo}
+              onChange={(evento) => setForm((atual) => ({ ...atual, titulo: evento.target.value }))}
+            />
+          </label>
+
+          <label htmlFor="atribuir-lembrete-data">
+            Data
+            <input
+              id="atribuir-lembrete-data"
+              type="date"
+              value={form.datas[0] ?? ''}
+              onChange={(evento) => setForm((atual) => ({ ...atual, datas: [evento.target.value, ...atual.datas.slice(1)] }))}
+            />
+          </label>
+
+          <label className="checkbox-row" htmlFor="atribuir-lembrete-dia-inteiro">
+            <input
+              id="atribuir-lembrete-dia-inteiro"
+              type="checkbox"
+              checked={form.diaInteiro}
+              onChange={(evento) => setForm((atual) => ({ ...atual, diaInteiro: evento.target.checked }))}
+            />
+            <span>Dia inteiro</span>
+          </label>
+
+          {!form.diaInteiro && (
+            <>
+              <label htmlFor="atribuir-lembrete-hora-inicio">
+                Hora inicial
+                <input
+                  id="atribuir-lembrete-hora-inicio"
+                  type="time"
+                  value={form.horaInicio}
+                  onChange={(evento) => setForm((atual) => ({ ...atual, horaInicio: evento.target.value }))}
+                />
+              </label>
+              <label htmlFor="atribuir-lembrete-hora-fim">
+                Hora final (opcional)
+                <input
+                  id="atribuir-lembrete-hora-fim"
+                  type="time"
+                  value={form.horaFim}
+                  onChange={(evento) => setForm((atual) => ({ ...atual, horaFim: evento.target.value }))}
+                />
+              </label>
+            </>
+          )}
+
+          {viraDia && <p className="admin-form-full lembrete-vira-dia-aviso">Termina no dia seguinte</p>}
+
+          <label className="admin-form-full" htmlFor="atribuir-lembrete-descricao">
+            Descrição (opcional)
+            <textarea
+              id="atribuir-lembrete-descricao"
+              maxLength={LIMITE_DESCRICAO_LEMBRETE}
+              placeholder="Detalhes do compromisso"
+              value={form.descricao}
+              onChange={(evento) => setForm((atual) => ({ ...atual, descricao: evento.target.value }))}
+            />
+          </label>
+
+          {modo === 'criar' && (
+            <div className="admin-form-full lembrete-datas-adicionais">
+              <span>Datas adicionais</span>
+              <div className="alias-editor-list">
+                {form.datas.slice(1).length === 0 && (
+                  <small className="empty-inline">Nenhuma data adicional.</small>
+                )}
+                {form.datas.slice(1).map((data) => (
+                  <span className="alias-chip" key={data}>
+                    {data}
+                    <button type="button" onClick={() => removerData(data)} aria-label={`Remover data ${data}`}>
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <div className="alias-editor-add lembrete-datas-adicionais-add">
+                <input
+                  type="date"
+                  value={novaData}
+                  onChange={(evento) => setNovaData(evento.target.value)}
+                  aria-label="Nova data"
+                />
+                <button type="button" className="secondary-button" onClick={adicionarData}>
+                  <Plus size={14} /> Adicionar outra data
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {erros.length > 0 && (
+          <div className="alert error" role="alert">
+            {erros.map((erro) => <p key={erro}>{erro}</p>)}
+          </div>
+        )}
+
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onFechar} disabled={salvando}>Cancelar</button>
+          <button className="primary-button" type="button" onClick={() => void aoClicarSalvar()} disabled={salvando}>
+            <Save size={16} /> {salvando ? 'Salvando…' : 'Salvar'}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Lista de lembretes atribuídos de UM colaborador — nunca mostra nem
+ * consulta lembretes pessoais (ver docs/spec/LEMBRETES.md, privacidade).
+ * Cancelamento aqui só abre a confirmação (`onPedirCancelamento`); a
+ * confirmação em si é o bloco `lembreteParaCancelar` no render principal,
+ * mesmo padrão de "descartar rascunho" já usado neste arquivo.
+ */
+function ModalLembretesAtribuidos({
+  colaborador,
+  itens,
+  carregando,
+  erro,
+  filtro,
+  onMudarFiltro,
+  onNovoLembrete,
+  onEditar,
+  onPedirCancelamento,
+  onFechar,
+}: {
+  colaborador: Usuario;
+  itens: LembreteAtribuidoPersistido[];
+  carregando: boolean;
+  erro: string;
+  filtro: 'ATIVOS' | 'TODOS';
+  onMudarFiltro: (filtro: 'ATIVOS' | 'TODOS') => void;
+  onNovoLembrete: () => void;
+  onEditar: (lembrete: LembreteAtribuidoPersistido) => void;
+  onPedirCancelamento: (lembrete: LembreteAtribuidoPersistido) => void;
+  onFechar: () => void;
+}) {
+  useTeclaEsc(onFechar);
+  const visiveis = filtro === 'ATIVOS' ? itens.filter((item) => item.status === 'ATIVO') : itens;
+  const ordenados = ordenarLembretes(visiveis);
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal admin-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="lembretes-atribuidos-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Lembretes atribuídos</p>
+            <h2 id="lembretes-atribuidos-title">{colaborador.nome}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar"><X size={18} /></button>
+        </div>
+
+        <div className="segmented-control" aria-label="Filtro de lembretes atribuídos">
+          <button
+            type="button"
+            className={filtro === 'ATIVOS' ? 'active' : ''}
+            onClick={() => onMudarFiltro('ATIVOS')}
+            aria-pressed={filtro === 'ATIVOS'}
+          >
+            Ativos
+          </button>
+          <button
+            type="button"
+            className={filtro === 'TODOS' ? 'active' : ''}
+            onClick={() => onMudarFiltro('TODOS')}
+            aria-pressed={filtro === 'TODOS'}
+          >
+            Todos
+          </button>
+        </div>
+
+        {erro && <div className="alert error" role="alert">{erro}</div>}
+
+        <div className="lembretes-atribuidos-lista">
+          {carregando ? (
+            <div className="notification-empty"><LoaderCircle className="spin" size={20} /><span>Carregando…</span></div>
+          ) : ordenados.length === 0 ? (
+            <div className="notification-empty">
+              <Bell size={22} />
+              <span>Nenhum lembrete atribuído {filtro === 'ATIVOS' ? 'ativo' : ''} para este colaborador.</span>
+            </div>
+          ) : ordenados.map((item) => (
+            <div
+              key={item.lembreteId}
+              className={item.status === 'ATIVO' ? 'lembrete-atribuido-linha' : 'lembrete-atribuido-linha lembrete-atribuido-linha-cancelado'}
+            >
+              <LembreteCard item={item} onSelecionar={() => item.status === 'ATIVO' && onEditar(item)} />
+              <div className="lembrete-atribuido-linha-meta">
+                <span className={`status-badge ${item.status === 'ATIVO' ? 'success' : 'neutral'}`}>
+                  {item.status === 'ATIVO' ? 'Ativo' : 'Cancelado'}
+                </span>
+                {item.status === 'ATIVO' && (
+                  <button
+                    type="button"
+                    className="icon-button"
+                    title="Cancelar lembrete"
+                    onClick={() => onPedirCancelamento(item)}
+                  >
+                    <Ban size={15} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onFechar}>Fechar</button>
+          <button className="primary-button" type="button" onClick={onNovoLembrete}>
+            <Plus size={16} /> Atribuir lembrete
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function DashboardApp() {
   /**
    * `usuarioReal` é sempre quem está de fato autenticado no Firebase Auth —
@@ -1296,6 +1668,17 @@ export function DashboardApp() {
   const [motivoRecusaTroca, setMotivoRecusaTroca] = useState('');
   const [processandoTroca, setProcessandoTroca] = useState(false);
   const [erroTroca, setErroTroca] = useState('');
+  // --- Lembretes atribuídos (Fase 5) — só lembretesAtribuidos, nunca pessoais ---
+  const [colaboradorLembretes, setColaboradorLembretes] = useState<Usuario | null>(null);
+  const [lembretesAtribuidosColaborador, setLembretesAtribuidosColaborador] = useState<LembreteAtribuidoPersistido[]>([]);
+  const [carregandoLembretesAtribuidos, setCarregandoLembretesAtribuidos] = useState(false);
+  const [erroLembretesAtribuidos, setErroLembretesAtribuidos] = useState('');
+  const [filtroLembretesAtribuidos, setFiltroLembretesAtribuidos] = useState<'ATIVOS' | 'TODOS'>('ATIVOS');
+  const [modalAtribuirLembrete, setModalAtribuirLembrete] = useState<
+    { modo: 'criar' } | { modo: 'editar'; lembrete: LembreteAtribuidoPersistido } | null
+  >(null);
+  const [lembreteParaCancelar, setLembreteParaCancelar] = useState<LembreteAtribuidoPersistido | null>(null);
+  const [processandoCancelamentoLembrete, setProcessandoCancelamentoLembrete] = useState(false);
   // --- Administração (ADMIN_SISTEMA) ---
   const [todosUsuariosAdmin, setTodosUsuariosAdmin] = useState<Usuario[]>([]);
   const [equipesAdmin, setEquipesAdmin] = useState<Equipe[]>([]);
@@ -1578,6 +1961,199 @@ export function DashboardApp() {
       });
     } catch (falhaAuditoria) {
       console.error('[auditoriaAdmin] falha ao registrar', falhaAuditoria);
+    }
+  }
+
+  function lembretesAtribuidosDemoPara(colaborador: Usuario): LembreteAtribuidoPersistido[] {
+    const agora = new Date().toISOString();
+    return [{
+      lembreteId: `demo-atribuido-${colaborador.login}`,
+      tipo: 'ATRIBUIDO',
+      schemaVersion: 1,
+      destinatarioLogin: colaborador.login,
+      destinatarioEquipeId: colaborador.equipeId,
+      titulo: 'Treinamento técnico',
+      descricao: 'Capacitação interna de atualização de processos.',
+      data: dataIsoLocal(new Date()),
+      horario: { diaInteiro: false, horaInicio: '09:00', horaFim: '11:00', viraDia: false },
+      serieId: null,
+      alertasAntecedenciaMin: [],
+      criadoPorLogin: usuarioReal?.login ?? 'demo.gestor',
+      criadoPorNome: usuarioReal?.nome ?? 'Gestor Demo',
+      status: 'ATIVO',
+      criadoEm: agora,
+      atualizadoEm: agora,
+      canceladoEm: null,
+      canceladoPorLogin: null,
+    }];
+  }
+
+  function abrirLembretesAtribuidos(colaborador: Usuario) {
+    setColaboradorLembretes(colaborador);
+    setErroLembretesAtribuidos('');
+    setFiltroLembretesAtribuidos('ATIVOS');
+    if (modoDemo) {
+      setLembretesAtribuidosColaborador(lembretesAtribuidosDemoPara(colaborador));
+      setCarregandoLembretesAtribuidos(false);
+    } else {
+      setCarregandoLembretesAtribuidos(true);
+    }
+  }
+
+  function fecharLembretesAtribuidos() {
+    setColaboradorLembretes(null);
+    setLembretesAtribuidosColaborador([]);
+    setErroLembretesAtribuidos('');
+    setModalAtribuirLembrete(null);
+    setLembreteParaCancelar(null);
+  }
+
+  /**
+   * Realtime (reaproveita o listener da Fase 3, sem query nova) enquanto o
+   * painel de um colaborador está aberto — em Demo, o dado já foi semeado
+   * em `abrirLembretesAtribuidos` (evento, não efeito), então o listener
+   * do Firestore é pulado por completo, mesmo padrão do efeito de
+   * "Trocas em tempo real" acima.
+   */
+  useEffect(() => {
+    if (colaboradorLembretes === null || modoDemo) {
+      return undefined;
+    }
+    const { dataInicio, dataFim } = janelaAmplaLembretesAtribuidos(dataIsoLocal(new Date()));
+    const cancelar = observarLembretesAtribuidosDoUsuario(
+      colaboradorLembretes.login,
+      dataInicio,
+      dataFim,
+      (lista) => {
+        setLembretesAtribuidosColaborador(lista);
+        setCarregandoLembretesAtribuidos(false);
+      },
+      (falha) => {
+        setErroLembretesAtribuidos(mensagemErroFirebase(falha, 'Não foi possível carregar os lembretes atribuídos.', ambienteFirebaseAtual));
+        setCarregandoLembretesAtribuidos(false);
+      },
+    );
+    return cancelar;
+  }, [colaboradorLembretes, modoDemo]);
+
+  async function salvarLembreteAtribuidoUnico(entrada: EntradaLembrete): Promise<void> {
+    if (colaboradorLembretes === null || usuarioReal === null) {
+      throw new Error('Selecione um colaborador antes de salvar.');
+    }
+    if (modoDemo) {
+      const agora = new Date().toISOString();
+      const conteudo = normalizarLembrete(entrada);
+      if (modalAtribuirLembrete?.modo === 'editar') {
+        const alvoId = modalAtribuirLembrete.lembrete.lembreteId;
+        setLembretesAtribuidosColaborador((atual) => atual.map((item) => item.lembreteId === alvoId ? {
+          ...item,
+          titulo: conteudo.titulo,
+          descricao: conteudo.descricao,
+          data: conteudo.data,
+          horario: conteudo.horario,
+          atualizadoEm: agora,
+        } : item));
+      } else {
+        setLembretesAtribuidosColaborador((atual) => [...atual, {
+          lembreteId: `demo-atribuido-${Date.now()}`,
+          tipo: 'ATRIBUIDO',
+          schemaVersion: 1,
+          destinatarioLogin: colaboradorLembretes.login,
+          destinatarioEquipeId: colaboradorLembretes.equipeId,
+          titulo: conteudo.titulo,
+          descricao: conteudo.descricao,
+          data: conteudo.data,
+          horario: conteudo.horario,
+          serieId: null,
+          alertasAntecedenciaMin: [],
+          criadoPorLogin: usuarioReal.login,
+          criadoPorNome: usuarioReal.nome,
+          status: 'ATIVO',
+          criadoEm: agora,
+          atualizadoEm: agora,
+          canceladoEm: null,
+          canceladoPorLogin: null,
+        }]);
+      }
+      return;
+    }
+    if (modalAtribuirLembrete?.modo === 'editar') {
+      await atualizarLembreteAtribuido(modalAtribuirLembrete.lembrete.lembreteId, entrada);
+    } else {
+      await criarLembreteAtribuido(
+        { login: colaboradorLembretes.login, equipeId: colaboradorLembretes.equipeId },
+        { login: usuarioReal.login, nome: usuarioReal.nome },
+        entrada,
+      );
+    }
+    await registrarAuditoriaSeSimulando('ATRIBUIR_LEMBRETE');
+  }
+
+  async function salvarLembreteAtribuidoSerie(entrada: EntradaSerieLembrete): Promise<void> {
+    if (colaboradorLembretes === null || usuarioReal === null) {
+      throw new Error('Selecione um colaborador antes de salvar.');
+    }
+    if (modoDemo) {
+      const agora = new Date().toISOString();
+      const serieId = `demo-serie-${Date.now()}`;
+      const ocorrencias = criarOcorrenciasSerie(entrada, serieId);
+      setLembretesAtribuidosColaborador((atual) => [
+        ...atual,
+        ...ocorrencias.map((ocorrencia, indice) => ({
+          lembreteId: `demo-atribuido-${Date.now()}-${indice}`,
+          tipo: 'ATRIBUIDO' as const,
+          schemaVersion: 1 as const,
+          destinatarioLogin: colaboradorLembretes.login,
+          destinatarioEquipeId: colaboradorLembretes.equipeId,
+          titulo: ocorrencia.titulo,
+          descricao: ocorrencia.descricao,
+          data: ocorrencia.data,
+          horario: ocorrencia.horario,
+          serieId: ocorrencia.serieId,
+          alertasAntecedenciaMin: ocorrencia.alertasAntecedenciaMin,
+          criadoPorLogin: usuarioReal.login,
+          criadoPorNome: usuarioReal.nome,
+          status: 'ATIVO' as const,
+          criadoEm: agora,
+          atualizadoEm: agora,
+          canceladoEm: null,
+          canceladoPorLogin: null,
+        })),
+      ]);
+      return;
+    }
+    await criarSerieLembretesAtribuidos(
+      { login: colaboradorLembretes.login, equipeId: colaboradorLembretes.equipeId },
+      { login: usuarioReal.login, nome: usuarioReal.nome },
+      entrada,
+    );
+    await registrarAuditoriaSeSimulando('ATRIBUIR_SERIE_LEMBRETES');
+  }
+
+  async function confirmarCancelamentoLembreteAtribuido() {
+    if (lembreteParaCancelar === null || usuarioReal === null) {
+      return;
+    }
+    setProcessandoCancelamentoLembrete(true);
+    try {
+      if (modoDemo) {
+        const agora = new Date().toISOString();
+        setLembretesAtribuidosColaborador((atual) => atual.map((item) => item.lembreteId === lembreteParaCancelar.lembreteId ? {
+          ...item,
+          status: 'CANCELADO',
+          atualizadoEm: agora,
+          canceladoEm: agora,
+          canceladoPorLogin: usuarioReal.login,
+        } : item));
+      } else {
+        await cancelarLembreteAtribuido(lembreteParaCancelar.lembreteId, { login: usuarioReal.login });
+        await registrarAuditoriaSeSimulando('CANCELAR_LEMBRETE');
+      }
+      setLembreteParaCancelar(null);
+    } catch (falha) {
+      setErroLembretesAtribuidos(mensagemErroFirebase(falha, 'Não foi possível cancelar o lembrete.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoCancelamentoLembrete(false);
     }
   }
 
@@ -3358,6 +3934,14 @@ export function DashboardApp() {
                             >
                               <Power size={15} />
                             </button>
+                            <button
+                              className="icon-button"
+                              type="button"
+                              title="Lembretes atribuídos"
+                              onClick={() => abrirLembretesAtribuidos(item)}
+                            >
+                              <Bell size={15} />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -4243,6 +4827,71 @@ export function DashboardApp() {
               <button className="secondary-button" type="button" onClick={fecharFormularioUsuario}>Cancelar</button>
               <button className="primary-button" type="button" onClick={() => void salvarFormularioUsuario()}>
                 <Save size={16} /> {formularioUsuario.loginOriginal === null ? 'Cadastrar' : 'Salvar alterações'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {colaboradorLembretes && modalAtribuirLembrete === null && (
+        <ModalLembretesAtribuidos
+          colaborador={colaboradorLembretes}
+          itens={lembretesAtribuidosColaborador}
+          carregando={carregandoLembretesAtribuidos}
+          erro={erroLembretesAtribuidos}
+          filtro={filtroLembretesAtribuidos}
+          onMudarFiltro={setFiltroLembretesAtribuidos}
+          onNovoLembrete={() => setModalAtribuirLembrete({ modo: 'criar' })}
+          onEditar={(lembrete) => setModalAtribuirLembrete({ modo: 'editar', lembrete })}
+          onPedirCancelamento={setLembreteParaCancelar}
+          onFechar={fecharLembretesAtribuidos}
+        />
+      )}
+
+      {colaboradorLembretes && modalAtribuirLembrete !== null && (
+        <ModalAtribuirLembrete
+          colaborador={colaboradorLembretes}
+          modo={modalAtribuirLembrete.modo}
+          lembreteEmEdicao={modalAtribuirLembrete.modo === 'editar' ? modalAtribuirLembrete.lembrete : undefined}
+          dataHoje={dataIsoLocal(new Date())}
+          onFechar={() => setModalAtribuirLembrete(null)}
+          onSalvarUnico={salvarLembreteAtribuidoUnico}
+          onSalvarSerie={salvarLembreteAtribuidoSerie}
+        />
+      )}
+
+      {lembreteParaCancelar && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setLembreteParaCancelar(null)}>
+          <section
+            className="edit-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancelar-lembrete-title"
+            onMouseDown={(evento) => evento.stopPropagation()}
+          >
+            <div className="panel-title">
+              <div>
+                <p className="eyebrow">Cancelar lembrete</p>
+                <h2 id="cancelar-lembrete-title">{lembreteParaCancelar.titulo}</h2>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setLembreteParaCancelar(null)} aria-label="Fechar"><X size={18} /></button>
+            </div>
+            <p>
+              O lembrete será marcado como cancelado e sai da lista de ativos do
+              colaborador. Ele continua visível aqui no histórico — cancelar não
+              exclui o registro.
+            </p>
+            <div className="rollback-actions">
+              <button className="secondary-button" type="button" onClick={() => setLembreteParaCancelar(null)} disabled={processandoCancelamentoLembrete}>
+                Voltar
+              </button>
+              <button
+                className="primary-button danger-button"
+                type="button"
+                disabled={processandoCancelamentoLembrete}
+                onClick={() => void confirmarCancelamentoLembreteAtribuido()}
+              >
+                <Ban size={16} /> {processandoCancelamentoLembrete ? 'Cancelando…' : 'Cancelar lembrete'}
               </button>
             </div>
           </section>
