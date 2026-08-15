@@ -5,14 +5,19 @@ Firestore Rules atuais (branch `feature/lembretes-consulta-dia-hoje`). Cada
 afirmação aponta para a evidência que a sustenta — este documento não supõe
 comportamento que não esteja implementado.
 
-**Estado atual (pós-Fase 5):** domínio puro, repositories, Firestore Rules
+**Estado atual (pós-Fase 5.1):** domínio puro, repositories, Firestore Rules
 (com hardening da Fase 4.1: sem delete físico de atribuído) e UI do App do
 colaborador (`apps/app/src/lembretes/`, `components/lembretes/`) existem e
 têm cobertura de teste real (unitária + Emulator). O Dashboard (Fase 5)
-agora permite ao gestor atribuir/editar/cancelar lembretes de um
-colaborador do seu escopo, direto na tela Usuários (`DashboardApp.tsx`) —
-reaproveita o mesmo domínio/repository e nunca importa leitura/escrita de
-lembretes pessoais (ver teste de fronteira em `tests/app-boundaries.test.mjs`).
+permite ao gestor atribuir/editar/cancelar lembretes de um colaborador do
+seu escopo, direto na tela Usuários (`DashboardApp.tsx`) — reaproveita o
+mesmo domínio/repository e nunca importa leitura/escrita de lembretes
+pessoais (ver teste de fronteira em `tests/app-boundaries.test.mjs`). A Fase
+5.1 corrigiu um `permission-denied` real em staging: a consulta
+administrativa precisava filtrar também por `destinatarioEquipeId` para a
+Firestore Rule aprovar o `list` (ver seção "Correção Fase 5.1" abaixo) — a
+Rule em si não mudou, e o índice composto novo ainda precisa ser implantado
+em staging antes do teste end-to-end funcionar sem erro de índice ausente.
 Validação realtime formal (sem F5) do fluxo gestor → colaborador fica para
 a Fase 6. **Não há Push** agendado — os campos de alerta são só dado (ver
 seção "Alertas futuros").
@@ -214,6 +219,79 @@ operacional nova que ele não tem em nenhuma outra coleção — deliberadamente
 não implementado (ver o pedido explícito de não ampliar escopo
 silenciosamente).
 
+## Correção Fase 5.1 — autorização/query administrativa
+
+**Sintoma:** ao abrir "Lembretes atribuídos" no Dashboard contra o Firebase
+de staging real (não Emulator), o Firestore retornava `permission-denied`
+mesmo para um gestor com escopo genuíno sobre o colaborador selecionado. O
+bloqueio de escrita administrativa (`.env.staging.dashboard`,
+`escritaAdministrativaHabilitada`) já havia sido descartado separadamente
+como causa antes desta investigação.
+
+**Causa raiz confirmada** (não hipótese — reproduzida com o Firestore Rules
+Emulator, `tests/firebase/firestore.rules.test.ts`, describe "lembretesAtribuidos
+— query administrativa real (Fase 5.1)"): o Firestore não trata Security
+Rules como um filtro aplicado depois de buscar os documentos. Para um
+`list` (query), cada `where(...)` do lado do cliente precisa, sozinho,
+provar a condição da Rule para **qualquer** documento que a query possa
+retornar — o Firestore nunca avalia "documento por documento" como faz para
+um `get()`. A Rule de leitura de `lembretesAtribuidos` é:
+
+```
+allow read: if autenticado() && (
+  resource.data.destinatarioLogin == loginDoAuth()
+  || (souGestor() && podeOperarNaEquipe(resource.data.destinatarioEquipeId))
+);
+```
+
+A consulta antiga (compartilhada entre colaborador e Dashboard) só filtrava
+`destinatarioLogin`. Para o colaborador lendo os próprios, isso basta: o
+valor do filtro já é comparável a `loginDoAuth()` sem precisar de dado de
+documento. Para o gestor, porém, o segundo ramo do OR depende de
+`resource.data.destinatarioEquipeId` — um campo que a consulta nunca
+restringia. Sem uma equalidade sobre esse campo, o Firestore não consegue
+provar o ramo do gestor para nenhum documento possível e recusa o `list`
+inteiro — mesmo que os documentos reais tivessem exatamente a equipe que o
+gestor administra. O comentário anterior no código ("a mesma consulta serve
+os dois casos") descrevia uma suposição plausível, mas errada para `list`
+(seria correta se cada leitura fosse um `get()` por ID).
+
+**Identidade (`loginDoAuth` vs `usuarioReal.login`):** auditados
+`firestore.rules` (`loginDoAuth() = request.auth.token.email.lower()
+.split('@')[0]`) e `lib/firebase/authRepository.ts`
+(`loginDoEmail(email) = email.split('@')[0].toLowerCase().trim()`, usado
+para resolver `usuarios/{login}` a partir do e-mail autenticado). As duas
+fórmulas são equivalentes — **nenhuma divergência encontrada**, nenhuma
+alteração em `loginDoAuth()` foi necessária ou feita.
+
+**Correção aplicada** (`lib/firebase/lembretesRepository.ts`): duas funções
+novas, só para o Dashboard/gestor — `listarLembretesAtribuidosDoGestor()` e
+`observarLembretesAtribuidosDoGestor()` — que acrescentam
+`where('destinatarioEquipeId', '==', destinatarioEquipeId)` à consulta.
+`listarLembretesAtribuidosDoUsuario()`/`observarLembretesAtribuidosDoUsuario()`
+continuam intocadas e exclusivas do colaborador (App, `useLembretes.ts`). O
+Dashboard (`DashboardApp.tsx`) passa a chamar a variante do gestor, com
+`colaboradorLembretes.equipeId` (o `equipeId` real do `Usuario` já
+carregado, nunca um valor digitável). A Firestore Rule em si **não mudou** —
+o campo já era exigido pela Rule, só a consulta não o fornecia.
+`destinatarioEquipeId` na query não é um mecanismo de segurança por si
+(o cliente poderia mandar qualquer valor); a Rule continua validando
+`podeOperarNaEquipe()` do lado do servidor para cada documento retornado —
+o filtro só existe para tornar a query aprovável como `list`.
+
+**Índice novo** (`firestore.indexes.json`, não implantado): composto de 3
+campos `destinatarioLogin + destinatarioEquipeId + data`, necessário em
+produção/staging para a nova consulta do gestor (o Emulator não recusa por
+falta de índice, então os 122 testes de Rules passam independente disso —
+mas staging real vai exigir o índice depois do deploy).
+
+**Pendência de deploy:** o índice novo precisa ser publicado em staging
+(`firebase deploy --only firestore:indexes`, mesmo runbook de
+`docs/spec/LEMBRETES.md`/`scripts/firebase-staging.mjs`) antes do teste real
+end-to-end funcionar sem erro de índice ausente — **não executado nesta
+fase**, só preparado localmente, conforme instrução de não fazer deploy sem
+autorização explícita.
+
 ## Queries e índices
 
 Lembretes **não ficam presos à competência operacional 26→25** — nenhuma
@@ -224,18 +302,30 @@ intervalo na Fase 4).
 - **Pessoal**: `where('data', '>=', inicio).where('data', '<=', fim)`,
   filtro de **um único campo** — coberto pelo índice automático de campo
   único do Firestore, **nenhum índice composto necessário**.
-- **Atribuído**: `where('destinatarioLogin', '==', X).where('data', '>=',
-  inicio).where('data', '<=', fim)` — equalidade num campo + intervalo em
-  outro campo **exige** índice composto (`firestore.indexes.json`):
+- **Atribuído, colaborador** (`listarLembretesAtribuidosDoUsuario`/
+  `observarLembretesAtribuidosDoUsuario`): `where('destinatarioLogin', '==',
+  próprioLogin).where('data', '>=', inicio).where('data', '<=', fim)` —
+  equalidade num campo + intervalo em outro campo **exige** índice composto:
   ```json
   { "collectionGroup": "lembretesAtribuidos", "fields": [
     { "fieldPath": "destinatarioLogin", "order": "ASCENDING" },
     { "fieldPath": "data", "order": "ASCENDING" }
   ]}
   ```
-  A mesma consulta serve o colaborador (próprio login) e o Dashboard/gestor
-  (login do colaborador selecionado, Fase 5) — quem autoriza cada caso é a
-  Firestore Rule, não uma função de repository diferente.
+- **Atribuído, gestor/Dashboard** (`listarLembretesAtribuidosDoGestor`/
+  `observarLembretesAtribuidosDoGestor`, Fase 5.1): mesma coisa, **mais**
+  `where('destinatarioEquipeId', '==', equipeIdReal)` — exige um segundo
+  índice composto de 3 campos:
+  ```json
+  { "collectionGroup": "lembretesAtribuidos", "fields": [
+    { "fieldPath": "destinatarioLogin", "order": "ASCENDING" },
+    { "fieldPath": "destinatarioEquipeId", "order": "ASCENDING" },
+    { "fieldPath": "data", "order": "ASCENDING" }
+  ]}
+  ```
+  Duas funções de repository diferentes, uma para cada caso — ver "Correção
+  Fase 5.1" abaixo para o porquê de terem deixado de compartilhar a mesma
+  consulta.
 - **Status filtrado em memória**: a consulta atribuída não inclui
   `where('status', ...)` — cancelados são filtrados no cliente
   (`lembretesAtribuidosAtivos()`, `lib/lembretes.ts`, ou um filtro

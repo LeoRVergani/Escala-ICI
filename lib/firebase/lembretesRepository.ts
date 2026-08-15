@@ -401,12 +401,24 @@ export async function cancelarLembreteAtribuido(
 }
 
 /**
- * Mesma consulta serve o colaborador (próprio login) e o Dashboard/gestor
- * (login do colaborador selecionado, Fase 5) — quem autoriza cada caso é a
- * Firestore Rule, não uma função diferente. Sem `where('status', ...)`: por
- * volume esperado baixo, cancelados são filtrados em memória (ver
- * `lembretesAtribuidosAtivos()`, `lib/lembretes.ts`), o que evita um índice
- * composto maior (`destinatarioLogin+status+data`).
+ * Só para o COLABORADOR consultando os próprios atribuídos — nunca para o
+ * Dashboard/gestor (ver `listarLembretesAtribuidosDoGestor`/
+ * `observarLembretesAtribuidosDoGestor` abaixo).
+ *
+ * Correção Fase 5.1: até então esta função também era reaproveitada pelo
+ * Dashboard, com a suposição (documentada, mas errada) de que a mesma query
+ * "serve os dois casos, cada um autorizado por um ramo diferente do OR" da
+ * Firestore Rule. Isso vale para um `get()` de documento único, mas não para
+ * um `list`: Firestore só aprova uma query de `list` se CADA `where(...)` do
+ * cliente já é suficiente, sozinho, para provar a condição da Rule para
+ * qualquer documento que a query possa retornar — nunca avalia campo por
+ * campo depois de buscar o documento. O ramo do gestor
+ * (`souGestor() && podeOperarNaEquipe(resource.data.destinatarioEquipeId)`)
+ * depende de `destinatarioEquipeId`, e esta consulta nunca filtrou por esse
+ * campo — por isso o Dashboard recebia `permission-denied`, mesmo quando o
+ * gestor genuinamente tinha escopo sobre o colaborador. Confirmado com teste
+ * de Rules reproduzindo a query real (`tests/firebase/firestore.rules.test.ts`,
+ * describe "query administrativa real (Fase 5.1)"). Ver docs/spec/LEMBRETES.md.
  */
 export async function listarLembretesAtribuidosDoUsuario(
   destinatarioLogin: string,
@@ -435,6 +447,59 @@ export function observarLembretesAtribuidosDoUsuario(
   return onSnapshot(query(
     collection(db, COLECAO_ATRIBUIDOS),
     where('destinatarioLogin', '==', destinatarioLogin),
+    where('data', '>=', dataInicio),
+    where('data', '<=', dataFim),
+    orderBy('data'),
+  ), (snapshot) => {
+    aoAtualizar(snapshot.docs.map((documento) => lerLembreteAtribuido(documento.id, documento.data())));
+  }, (falha) => aoFalhar(
+    falha instanceof Error ? falha : new Error('Falha ao acompanhar lembretes atribuídos.'),
+  ));
+}
+
+/**
+ * Só para o Dashboard/gestor (Fase 5.1) — nunca para o colaborador
+ * consultando os próprios (`listarLembretesAtribuidosDoUsuario` acima).
+ * `destinatarioEquipeId` entra na query por igualdade porque a Rule de
+ * `list` (`firestore.rules`, ramo `souGestor() && podeOperarNaEquipe(...)`)
+ * exige que esse campo esteja provavelmente restrito pela consulta — não é
+ * uma questão de confiar no valor do cliente para segurança (a Rule
+ * continua validando `podeOperarNaEquipe()` do lado do servidor a cada
+ * documento retornado); é só o que torna a query aprovável como `list`.
+ * Requer o índice composto `destinatarioLogin + destinatarioEquipeId +
+ * data` (`firestore.indexes.json`).
+ */
+export async function listarLembretesAtribuidosDoGestor(
+  destinatarioLogin: string,
+  destinatarioEquipeId: string,
+  dataInicio: string,
+  dataFim: string,
+): Promise<LembreteAtribuidoPersistido[]> {
+  const { db } = exigirFirebase();
+  const resultado = await getDocs(query(
+    collection(db, COLECAO_ATRIBUIDOS),
+    where('destinatarioLogin', '==', destinatarioLogin),
+    where('destinatarioEquipeId', '==', destinatarioEquipeId),
+    where('data', '>=', dataInicio),
+    where('data', '<=', dataFim),
+    orderBy('data'),
+  ));
+  return resultado.docs.map((snapshot) => lerLembreteAtribuido(snapshot.id, snapshot.data()));
+}
+
+export function observarLembretesAtribuidosDoGestor(
+  destinatarioLogin: string,
+  destinatarioEquipeId: string,
+  dataInicio: string,
+  dataFim: string,
+  aoAtualizar: (lembretes: LembreteAtribuidoPersistido[]) => void,
+  aoFalhar: (erro: Error) => void,
+): Unsubscribe {
+  const { db } = exigirFirebase();
+  return onSnapshot(query(
+    collection(db, COLECAO_ATRIBUIDOS),
+    where('destinatarioLogin', '==', destinatarioLogin),
+    where('destinatarioEquipeId', '==', destinatarioEquipeId),
     where('data', '>=', dataInicio),
     where('data', '<=', dataFim),
     orderBy('data'),

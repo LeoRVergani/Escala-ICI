@@ -121,6 +121,8 @@ const {
   cancelarLembreteAtribuido,
   listarLembretesAtribuidosDoUsuario,
   observarLembretesAtribuidosDoUsuario,
+  listarLembretesAtribuidosDoGestor,
+  observarLembretesAtribuidosDoGestor,
 } = await import('./lembretesRepository');
 
 const LOGIN = 'caio.monteiro';
@@ -317,5 +319,32 @@ describe('lembretes atribuídos — paths, CRUD e cancelamento', () => {
     });
     const lembretes = await listarLembretesAtribuidosDoUsuario(LOGIN, '2026-08-01', '2026-08-31');
     expect(lembretes[0]?.status).toBe('ATIVO');
+  });
+});
+
+/**
+ * Fase 5.1 — API dedicada ao Dashboard/gestor, com `destinatarioEquipeId`
+ * na query (exigido pela Firestore Rule para um `list`; ver o comentário em
+ * `listarLembretesAtribuidosDoUsuario`, `lembretesRepository.ts`). Este mock
+ * em memória não reproduz a autorização real do Firestore (isso é
+ * `tests/firebase/firestore.rules.test.ts`) — só confirma que a função monta
+ * a query com o filtro de equipe e nunca retorna o de outra equipe.
+ */
+describe('lembretes atribuídos — API do gestor (Fase 5.1)', () => {
+  it('lista e observa só quem bate destinatarioLogin + destinatarioEquipeId', async () => {
+    await criarLembreteAtribuido(DESTINATARIO, GESTOR, entradaValida({ data: '2026-08-17' }));
+    await criarLembreteAtribuido(
+      { login: LOGIN, equipeId: 'EQ_OUTRA_EQUIPE' },
+      GESTOR,
+      entradaValida({ data: '2026-08-18' }),
+    );
+
+    const lembretes = await listarLembretesAtribuidosDoGestor(LOGIN, 'EQ_COSI_SOC', '2026-08-01', '2026-08-31');
+    expect(lembretes).toHaveLength(1);
+    expect(lembretes[0]?.data).toBe('2026-08-17');
+
+    let recebido: unknown[] = [];
+    observarLembretesAtribuidosDoGestor(LOGIN, 'EQ_COSI_SOC', '2026-08-01', '2026-08-31', (lembretes) => { recebido = lembretes; }, () => {});
+    expect(recebido).toHaveLength(1);
   });
 });

@@ -116,7 +116,7 @@ import {
   cancelarLembreteAtribuido,
   criarLembreteAtribuido,
   criarSerieLembretesAtribuidos,
-  observarLembretesAtribuidosDoUsuario,
+  observarLembretesAtribuidosDoGestor,
   type LembreteAtribuidoPersistido,
 } from '@/lib/firebase/lembretesRepository';
 import { exclusaoZeraGestores, podeExcluirCompetencia, podeExcluirUsuario } from '@/lib/adminGuards';
@@ -1575,6 +1575,7 @@ function ModalLembretesAtribuidos({
 
         {erro && <div className="alert error" role="alert">{erro}</div>}
 
+        {!erro && (
         <div className="lembretes-atribuidos-lista">
           {carregando ? (
             <div className="notification-empty"><LoaderCircle className="spin" size={20} /><span>Carregando…</span></div>
@@ -1607,6 +1608,7 @@ function ModalLembretesAtribuidos({
             </div>
           ))}
         </div>
+        )}
 
         <div className="rollback-actions">
           <button className="secondary-button" type="button" onClick={onFechar}>Fechar</button>
@@ -2009,19 +2011,26 @@ export function DashboardApp() {
   }
 
   /**
-   * Realtime (reaproveita o listener da Fase 3, sem query nova) enquanto o
-   * painel de um colaborador está aberto — em Demo, o dado já foi semeado
-   * em `abrirLembretesAtribuidos` (evento, não efeito), então o listener
-   * do Firestore é pulado por completo, mesmo padrão do efeito de
-   * "Trocas em tempo real" acima.
+   * Realtime enquanto o painel de um colaborador está aberto — em Demo, o
+   * dado já foi semeado em `abrirLembretesAtribuidos` (evento, não efeito),
+   * então o listener do Firestore é pulado por completo, mesmo padrão do
+   * efeito de "Trocas em tempo real" acima.
+   *
+   * Usa `observarLembretesAtribuidosDoGestor` (Fase 5.1), NUNCA
+   * `observarLembretesAtribuidosDoUsuario` (essa é só para o colaborador
+   * consultando os próprios) — a query do gestor precisa filtrar também por
+   * `destinatarioEquipeId`, senão a Firestore Rule recusa o `list` inteiro
+   * (ver o comentário em `lembretesRepository.ts` e
+   * `docs/spec/LEMBRETES.md`, "Correção Fase 5.1").
    */
   useEffect(() => {
     if (colaboradorLembretes === null || modoDemo) {
       return undefined;
     }
     const { dataInicio, dataFim } = janelaAmplaLembretesAtribuidos(dataIsoLocal(new Date()));
-    const cancelar = observarLembretesAtribuidosDoUsuario(
+    const cancelar = observarLembretesAtribuidosDoGestor(
       colaboradorLembretes.login,
+      colaboradorLembretes.equipeId,
       dataInicio,
       dataFim,
       (lista) => {

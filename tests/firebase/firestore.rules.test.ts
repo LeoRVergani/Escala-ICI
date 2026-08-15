@@ -1843,3 +1843,91 @@ describe('lembretesAtribuidos — escopo do gestor e ataques (lembretesAtribuido
     await assertFails(deleteDoc(doc(admin, 'lembretesAtribuidos', 'lembrete-1')));
   });
 });
+
+/**
+ * Fase 5.1 — reproduz a QUERY real usada pelo Dashboard (não só get/set num
+ * documento isolado). Firestore não trata Rules como filtro: para um
+ * `list`, cada `where(...)` do lado do cliente precisa bastar, sozinho, para
+ * provar a condição do lado do servidor — se a Rule depende de um campo que
+ * a query não restringe por igualdade, o Firestore recusa o `list` inteiro,
+ * mesmo que os documentos reais atendessem à condição. É exatamente o caso
+ * do ramo do gestor em `lembretesAtribuidos`: `podeOperarNaEquipe(resource
+ * .data.destinatarioEquipeId)` exige que a query filtre `destinatarioEquipeId`
+ * por igualdade — só filtrar `destinatarioLogin` (a consulta antiga,
+ * compartilhada com o colaborador) não basta.
+ */
+describe('lembretesAtribuidos — query administrativa real (Fase 5.1)', () => {
+  beforeEach(async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await Promise.all([
+        setDoc(doc(db, 'lembretesAtribuidos', 'lembrete-colaborador'), lembreteAtribuido({
+          lembreteId: 'lembrete-colaborador',
+        })),
+        setDoc(doc(db, 'lembretesAtribuidos', 'lembrete-externo'), lembreteAtribuido({
+          lembreteId: 'lembrete-externo',
+          destinatarioLogin: usuarios.externo.login,
+          destinatarioEquipeId: usuarios.externo.equipeId,
+          criadoPorLogin: usuarios.admin.login,
+          criadoPorNome: usuarios.admin.nome,
+        })),
+      ]);
+    });
+  });
+
+  it('prova a causa raiz: query administrativa ANTIGA (só destinatarioLogin, sem destinatarioEquipeId) é negada para o gestor', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(getDocs(query(
+      collection(gestor, 'lembretesAtribuidos'),
+      where('destinatarioLogin', '==', usuarios.colaborador.login),
+      where('data', '>=', '2026-01-01'),
+      where('data', '<=', '2026-12-31'),
+    )));
+  });
+
+  it('query administrativa NOVA (destinatarioLogin + destinatarioEquipeId) é permitida para o gestor do escopo correto', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    const resultado = await assertSucceeds(getDocs(query(
+      collection(gestor, 'lembretesAtribuidos'),
+      where('destinatarioLogin', '==', usuarios.colaborador.login),
+      where('destinatarioEquipeId', '==', usuarios.colaborador.equipeId),
+      where('data', '>=', '2026-01-01'),
+      where('data', '<=', '2026-12-31'),
+    )));
+    expect(resultado.docs.map((item) => item.id)).toEqual(['lembrete-colaborador']);
+  });
+
+  it('query administrativa NOVA é negada quando a equipe informada não está no escopo do gestor', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(getDocs(query(
+      collection(gestor, 'lembretesAtribuidos'),
+      where('destinatarioLogin', '==', usuarios.externo.login),
+      where('destinatarioEquipeId', '==', usuarios.externo.equipeId),
+      where('data', '>=', '2026-01-01'),
+      where('data', '<=', '2026-12-31'),
+    )));
+  });
+
+  it('ADMIN_SISTEMA consegue usar a query administrativa NOVA cross-equipe', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    const resultado = await assertSucceeds(getDocs(query(
+      collection(admin, 'lembretesAtribuidos'),
+      where('destinatarioLogin', '==', usuarios.externo.login),
+      where('destinatarioEquipeId', '==', usuarios.externo.equipeId),
+      where('data', '>=', '2026-01-01'),
+      where('data', '<=', '2026-12-31'),
+    )));
+    expect(resultado.docs.map((item) => item.id)).toEqual(['lembrete-externo']);
+  });
+
+  it('a query do colaborador para os próprios atribuídos continua funcionando sem destinatarioEquipeId', async () => {
+    const colaborador = autenticarComo(usuarios.colaborador);
+    const resultado = await assertSucceeds(getDocs(query(
+      collection(colaborador, 'lembretesAtribuidos'),
+      where('destinatarioLogin', '==', usuarios.colaborador.login),
+      where('data', '>=', '2026-01-01'),
+      where('data', '<=', '2026-12-31'),
+    )));
+    expect(resultado.docs.map((item) => item.id)).toEqual(['lembrete-colaborador']);
+  });
+});
