@@ -1,9 +1,15 @@
 # CHECKPOINT — FASE AUTH-2 — Validação real Microsoft/Firebase em staging
 
 - **Branch**: `main`
-- **HEAD nesta pausa**: `761d23a` (`chore(firebase): padroniza SDK na versão 12.17.1` — AUTH-1B)
-- Commits anteriores: AUTH-1 `06225f2`, AUTH-1A `0a847b8`.
-- Working tree limpo, `ahead of origin/main by 3`, nenhum push realizado.
+- **HEAD atual**: `ce788bd` (`fix(deploy): propaga VITE_MICROSOFT_ENTRA_TENANT_ID ao build Docker do Dashboard`)
+- Commits anteriores: AUTH-1 `06225f2`, AUTH-1A `0a847b8`, AUTH-1B `761d23a`,
+  pausa `1d2e8e4`.
+- Working tree limpo, `ahead of origin/main by 6`, nenhum push realizado.
+
+> Esta seção documenta a **retomada** da fase depois que o usuário
+> configurou o tenant Microsoft real em `.env.staging.dashboard` e
+> `.env.staging.app`. A seção anterior (abaixo) permanece como registro da
+> pausa original — não foi apagada.
 
 Esta fase é de **configuração e validação real**, não de desenvolvimento —
 a implementação Microsoft já existe e está coberta por testes automatizados
@@ -200,15 +206,184 @@ nunca "OK" sem evidência) e a fase prossegue a partir daí.
 
 Não tocada. Nenhum deploy foi executado (nem staging, nem produção).
 
-## Pendências (no momento desta pausa)
+---
 
-- Tenant Microsoft real — preenchimento pelo usuário em
-  `.env.staging.dashboard`/`.env.staging.app`.
-- Confirmação visual/Firebase Console/Entra — validação manual pelo
-  usuário.
-- Rebuild do Dashboard staging e build do PWA staging — após o tenant
-  estar configurado.
-- `MICROSOFT_REAL_STAGING = PENDENTE`.
+## Retomada — configuração aplicada e validação automatizada (commit `ce788bd`)
+
+### 1. Confirmação da configuração (sem imprimir o Tenant ID)
+
+| Verificação | Resultado |
+|---|---|
+| `.env.staging.dashboard` contém `VITE_MICROSOFT_ENTRA_TENANT_ID` | ✅ presente, 36 caracteres, formato GUID válido |
+| `.env.staging.app` contém `VITE_MICROSOFT_ENTRA_TENANT_ID` | ✅ presente, 36 caracteres, formato GUID válido |
+| Mesmo valor nos dois arquivos | ✅ confirmado (comparação sem exibir o valor) |
+| Valor é `common` | ❌ não — rejeitado corretamente pela verificação |
+| `VITE_FIREBASE_PROJECT_ID` em ambos | ✅ `escala-ici-staging` nos dois — nenhuma referência a produção |
+| Permissão dos arquivos | ✅ `600` nos dois |
+| `git check-ignore` | ✅ ambos cobertos pela regra `.env*` do `.gitignore` |
+| `git status --short` | ✅ vazio antes de qualquer alteração |
+
+### 2. Gap encontrado e corrigido: plumbing do Docker build
+
+`deploy/dashboard/compose.yaml` e `deploy/dashboard/Dockerfile` **não**
+propagavam `VITE_MICROSOFT_ENTRA_TENANT_ID` como build arg — todas as
+outras variáveis `VITE_FIREBASE_*` já tinham essa fiação (`ARG`/`ENV` no
+Dockerfile, `args:` no compose), mas essa variável, adicionada só na
+AUTH-1 (depois desses arquivos existirem), nunca recebeu o mesmo
+tratamento. Sem essa correção, o valor configurado em
+`.env.staging.dashboard` nunca chegaria ao bundle do Dashboard (o
+App/PWA staging não tem esse problema — usa Vite diretamente, sem
+indireção de build args Docker). Corrigido espelhando exatamente o padrão
+já usado pelas demais variáveis (commit `ce788bd`, 3 linhas, nenhum valor
+real no diff).
+
+### 3. Rebuild Dashboard staging
+
+```
+$ npm run docker:dashboard:staging:build
+✓ Image escala-ici-dashboard:3k-c1-staging Built
+
+$ npm run docker:dashboard:staging:up
+✓ Container dashboard-dashboard-1 Recreated / Started
+
+$ docker ps --filter name=dashboard-dashboard-1
+dashboard-dashboard-1   Up 7 seconds (healthy)
+
+$ curl -i http://127.0.0.1:4173/health
+HTTP/1.1 200 OK
+
+$ curl -Iv --resolve escala.ici.tec.br:443:127.0.0.1 https://escala.ici.tec.br/health
+subjectAltName: host "escala.ici.tec.br" matched cert's "*.ici.tec.br"
+SSL certificate verify ok.
+HTTP/1.1 200 OK
+```
+
+**Confirmação de que o tenant chegou ao bundle** (checagem booleana via
+`grep -q` dentro da imagem Docker, valor real nunca impresso):
+
+```
+$ docker run --rm --entrypoint sh escala-ici-dashboard:3k-c1-staging \
+    -c "grep -rq -- '<tenant>' /usr/share/nginx/html/assets/ && echo FOUND"
+FOUND
+```
+
+### 4. Build PWA staging
+
+```
+$ npm run build:app:staging
+✓ vite build (1636 módulos) + service worker
+✓ Cloudflare Pages validado: App independente, SPA e PWA na raiz.
+
+$ npm run validate:pwa
+✓ PWA validado: manifesto, ícones, atualização segura e artefatos distribuídos.
+
+$ npm run validate:artifact
+✓ Validated Sites artifact: ESM Worker default.fetch and hosting manifest are present.
+```
+
+Confirmação booleana de que o tenant chegou ao bundle do PWA (mesmo
+método, `grep -q` sobre `dist/apps/app/assets/*.js`, valor nunca
+impresso): **PRESENTE**.
+
+**Nenhum deploy foi executado** — `npm run pages:deploy:staging` não foi
+chamado. O build acima gera apenas `dist/apps/app`, local ao container/VM;
+publicar em Cloudflare Pages é uma decisão de deploy que não estava entre
+os passos autorizados nesta retomada e exigiria confirmação explícita
+separada (alvo, projeto Cloudflare, ambiente) antes de ser executada.
+
+### 5. Suíte automatizada completa (resultado real, commit `ce788bd`)
+
+| Comando | Resultado |
+|---|---|
+| `npm run typecheck` | ✅ |
+| `npm run typecheck:apps` | ✅ |
+| `npm run typecheck:worker` | ✅ |
+| `npm run test:unit` | ✅ 508/508 (41/41 arquivos) |
+| `npm run test:boundaries` | ✅ 102/102 |
+| `npm run test:push-worker` | ✅ 48/48 |
+| `npm run test:firebase-preflight` | ✅ 14/14 |
+| `npm run test:firestore-rules` | ✅ 122/122 |
+| `npm run test:firebase-integration` | ⚠️ **123/126 — exatamente as mesmas 3 falhas pré-existentes, nenhuma quarta** |
+| `npm run lint` | ✅ 0 erros, 5 warnings (mesmos de sempre) |
+| `git diff --check` | ✅ limpo |
+
+Nenhuma regressão. `usuarios/{login}`, `LoginPanel`, `authRepository`,
+Demo, Firestore Rules — nenhum tocado nesta retomada.
+
+### 6. Segurança (revalidada)
+
+- Nenhum Client Secret, token, credential ou valor de tenant foi impresso
+  em nenhum comando desta sessão — toda verificação do tenant usou
+  comparação/`grep -q` booleana.
+- `git diff` do commit `ce788bd` contém apenas referências `${VAR}` — sem
+  nenhum valor literal sensível.
+- `.env.staging.dashboard`/`.env.staging.app` permanecem fora do Git.
+
+## Pendências — o que só pode ser feito por você (Firebase Console / Entra / navegador)
+
+Tudo que era automatizável sem navegador e sem acesso administrativo aos
+consoles foi executado nesta retomada. O que resta exige,
+necessariamente, acesso humano a três lugares:
+
+### A. Firebase Console — projeto `escala-ici-staging`
+
+1. **Authentication → Sign-in method**: confirmar
+   `Email/Password = Enabled` e `Microsoft = Enabled` (com Client ID e
+   Client Secret já preenchidos no provider — não me informe o valor).
+2. **Authentication → Settings → Authorized domains**: confirmar que
+   contém `escala.ici.tec.br` (Dashboard) e o hostname real do PWA
+   staging — `.env.staging.app` aponta `VITE_EMPLOYEE_APP_URL=
+   https://escala-ici-staging.pages.dev`; confirme se é esse o hostname
+   que efetivamente vai autenticar, ou se há outro em uso.
+3. Anote (sem me colar) a **Redirect URI** exibida ali para o provider
+   Microsoft — vai precisar dela no próximo passo.
+
+### B. Microsoft Entra Admin Center
+
+1. Confirmar que a **App Registration** é a mesma já usada/validada pelo
+   EscalaSOC Android (mesmo tenant, mesmo Client ID).
+2. Confirmar que a Redirect URI cadastrada ali é **exatamente igual** à
+   exibida pelo Firebase Console (copiar de lá, nunca adivinhar
+   `https://escala.ici.tec.br` como se fosse a redirect URI do provider —
+   são coisas diferentes).
+
+### C. Navegador real — Dashboard e PWA
+
+Meu ambiente não tem `claude-in-chrome` conectado nesta sessão, então
+preciso que você faça esta parte e me traga o resultado:
+
+1. **Dashboard, e-mail/senha primeiro** (baseline):
+   `https://escala.ici.tec.br` → cadeado/HTTPS ok → LoginPanel com
+   Microsoft + e-mail/senha + Demo visíveis → login e-mail/senha →
+   autorização → logout.
+2. **Dashboard, Microsoft**: clicar "Entrar com Microsoft" e me reportar,
+   por evento (nunca senha/token):
+   `MICROSOFT_PROVIDER_OPENED`, `ENTRA_LOGIN_SUCCESS`,
+   `FIREBASE_AUTH_SUCCESS`, `FIREBASE_EMAIL_PRESENT`, `LOGIN_NORMALIZED`,
+   `USUARIO_FIRESTORE_FOUND`, `USUARIO_ACTIVE`,
+   `DASHBOARD_AUTHORIZATION_CHECKED`, `DASHBOARD_RENDERED`.
+3. **PWA staging** (`https://escala-ici-staging.pages.dev` — note que
+   ainda não fiz deploy do build gerado; se quiser testar o PWA real
+   antes do deploy, me avise para eu rodar `pages:deploy:staging` com
+   confirmação explícita de alvo/ambiente): mesma sequência
+   e-mail/senha → Microsoft.
+4. **Persistência**: "manter conectado" marcado/desmarcado, F5, logout,
+   F5 de novo.
+5. **Cancelamento**: abrir Microsoft e fechar/cancelar o popup — UI
+   recuperada, sem sessão parcial, e-mail/senha e Demo continuam
+   utilizáveis.
+6. **Visual/DevTools real**: `.login-card`/`.login-auth-divider` em
+   desktop, 360/390/412px, tema claro/escuro — borda esquerda/direita
+   contínua, radius, sem overflow horizontal.
+
+Quando você trouxer esses resultados, atualizo este mesmo checkpoint com
+os números reais (✅/⚠️/❌ por item) e fechamos a AUTH-2.
+
+## Pendências gerais (sem mudança desde a pausa)
+
+- `MICROSOFT_REAL_STAGING = PENDENTE` (depende de A/B/C acima).
+- Deploy do PWA staging em Cloudflare Pages — build pronto e validado,
+  deploy não executado (decisão pendente, ver seção 4 acima).
 - Três falhas pré-existentes de `test:firebase-integration` — fora do
   escopo desta fase (autenticação), permanecem para uma fase própria de
   Publicação/Escala.
