@@ -188,17 +188,43 @@ escopo (correção de escala/publicação, não de Lembretes).
   `docs/spec/LEMBRETES.md`, "Riscos / pendências conhecidas").
 - 3 falhas pré-existentes em `test:firebase-integration`, não relacionadas
   a Lembretes (ver acima) — fora do escopo deste ciclo.
+- **`git push` (feature branch e `main`) não pôde ser executado por mim** —
+  este ambiente não tem credenciais configuradas para escrita no GitHub
+  (`git push` falha com "could not read Username for 'https://github.com'";
+  leitura via `git fetch`/`git ls-remote` funciona normalmente, só
+  autenticação de escrita está ausente). O merge foi feito localmente em
+  `main` (commit `3aab9a6`) e todas as validações pós-merge passaram, mas
+  `origin/main` e `origin/feature/lembretes-consulta-dia-hoje` continuam
+  desatualizados até o usuário rodar `git push origin main` e `git push -u
+  origin feature/lembretes-consulta-dia-hoje` (ou equivalente) de uma
+  máquina com credenciais válidas.
 
-## Dados da release (preenchidos ao final desta fase)
+## Dados da release
 
-- Feature SHA final: `d57df56` (antes do commit de documentação desta fase)
-- Commit de documentação Fase 8: *(ver seção "Release" abaixo, preenchida
-  após o commit)*
-- Merge SHA em `main`: *(preenchido após o merge)*
-- `origin/main` SHA pós-push: *(preenchido após o push)*
+- Feature SHA final: `01efe2d` (`docs(lembretes): encerra ciclo e registra
+  validação staging`, sobre `d57df56`)
+- Merge SHA em `main` (local): `3aab9a6` — `merge: conclui ciclo de
+  Lembretes e consulta diária`
+- `origin/main` SHA: **ainda `7a9b55c`** — push bloqueado (ver pendência
+  acima); `main` local está 14 commits à frente do remoto
 - Deploy Rules: NÃO (já publicadas; sem alteração pendente)
-- Deploy Indexes: NÃO (já confirmados presentes)
-- Deploy PWA staging: *(preenchido após execução)*
-- Deploy Dashboard staging: *(preenchido após execução)*
-- Smoke tests: *(preenchidos após execução)*
-- Data/hora de encerramento: *(preenchida ao final)*
+- Deploy Indexes: NÃO (já confirmados presentes em `escala-ici-staging`)
+- Deploy PWA staging: **SIM** — `npm run pages:deploy:staging --
+  --confirm=DEPLOY_STAGING`; Cloudflare Pages deployment `48265176`, alias
+  `https://staging.escala-ici-staging.pages.dev`; smoke de leitura
+  confirmou `index.html`/`manifest.webmanifest`/`service-worker.js` com
+  HTTP 200
+- Deploy Dashboard staging: **SIM** — `docker:dashboard:staging:build` +
+  `docker:dashboard:staging:up`; imagem `escala-ici-dashboard:3k-c1-staging`
+  reconstruída, container `dashboard-dashboard-1` recriado e saudável
+  (`healthy`, `127.0.0.1:4173`), logs sem erro na subida. Um servidor Vite
+  local (`--mode staging.dashboard`) ocupava a porta 4173 e foi encerrado
+  mediante confirmação explícita do usuário antes do deploy.
+- Smoke tests: leitura confirmada (App staging e Dashboard staging
+  respondem HTTP 200/`healthy`); fluxo funcional completo (login, CRUD,
+  realtime) já havia sido validado manualmente pelo usuário nesta mesma
+  release, antes desta fase — não repetido para não criar/cancelar dado
+  real sem necessidade.
+- Produção: inalterada.
+- Data/hora de encerramento: 2026-08-15 (madrugada, horário UTC do
+  ambiente de execução).

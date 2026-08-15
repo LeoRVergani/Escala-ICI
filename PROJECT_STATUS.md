@@ -1,11 +1,11 @@
 # Estado atual do projeto — Escala ICI
 
 Atualizado em: 2026-08-15
-Commit auditado: `d57df56be38ab4290fec3b447414fc7699b118de` (tip de
-`feature/lembretes-consulta-dia-hoje`, sendo mesclado a `main` nesta mesma
-fase — ver seção "Ciclo Lembretes / consulta diária" abaixo)
-Branch: `feature/lembretes-consulta-dia-hoje` → `main` (Fase 8, release de
-encerramento em andamento)
+Commit auditado: `3aab9a676f8b0434ae966566e538d12f5bade78c` (`main` local,
+merge do ciclo Lembretes/consulta diária)
+Branch: `main` (local, **14 commits à frente de `origin/main`** — `git
+push` não pôde ser executado neste ambiente por falta de credenciais de
+escrita no GitHub; ver "Ciclo Lembretes / consulta diária" abaixo)
 PR relacionado: #1 (aberto, em **draft** — descrição ainda retrata só a
 primeira versão do push-worker, anterior ao ciclo de Lembretes)
 
@@ -111,6 +111,17 @@ CSS/cascade obrigatória para qualquer alteração visual futura no módulo:
   deliberada). `alertasAntecedenciaMin` continua só como dado preparado.
   Evolução futura: reutilizar `apps/push-worker` e a infraestrutura FCM/FID
   existente — nunca um segundo backend/worker.
+- **Deploy Fase 8**: PWA republicado em `escala-ici-staging` (Cloudflare
+  Pages, deployment `48265176`); Dashboard reconstruído e reiniciado via
+  Docker (`escala-ici-dashboard:3k-c1-staging`, container saudável em
+  `127.0.0.1:4173`). Firestore Rules/Indexes não precisaram de novo deploy
+  (já publicados e confirmados).
+- **Git**: merge para `main` feito localmente (commit `3aab9a6`), mas
+  `git push` (feature branch e `main`) **não pôde ser executado neste
+  ambiente** — sem credenciais de escrita para o GitHub. `main` local está
+  14 commits à frente de `origin/main`; o usuário precisa fazer `git push`
+  de uma máquina com credenciais válidas para sincronizar o GitHub com o
+  que já está publicado em staging.
 - **Produção**: inalterada por este ciclo.
 
 ## Funcionalidades concluídas
