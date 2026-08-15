@@ -5,11 +5,17 @@ Firestore Rules atuais (branch `feature/lembretes-consulta-dia-hoje`). Cada
 afirmação aponta para a evidência que a sustenta — este documento não supõe
 comportamento que não esteja implementado.
 
-**Estado desta fase (Fase 3 — persistência e Rules):** domínio puro,
-repositories e Firestore Rules existem e têm cobertura de teste real
-(unitária + Emulator). **Não há UI** — nada em `EmployeeApp.tsx`/
-`DashboardApp.tsx` chama este repository ainda (Fase 4/5). **Não há Push**
+**Estado atual (pós-Fase 4.2.1):** domínio puro, repositories, Firestore
+Rules (com hardening da Fase 4.1: sem delete físico de atribuído) e UI do
+App do colaborador (`apps/app/src/lembretes/`, `components/lembretes/`)
+existem e têm cobertura de teste real (unitária + Emulator). **Dashboard
+ainda não implementa atribuição de lembrete** — Fase 5. **Não há Push**
 agendado — os campos de alerta são só dado (ver seção "Alertas futuros").
+Qualquer alteração visual nos componentes de Lembretes deve primeiro ler
+[`UI_CASCADE_E_HERANCA.md`](UI_CASCADE_E_HERANCA.md) — os três casos reais
+de bug de cascade documentados ali (botão "Hoje", chip de "Próximos
+lembretes", padding herdado de `.selected-day-card`) aconteceram todos
+neste módulo.
 
 ## Objetivo
 
