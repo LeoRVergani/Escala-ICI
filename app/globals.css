@@ -4389,3 +4389,78 @@ fieldset.checkbox-card-list > legend {
    tratamento visual que `.status-badge.neutral` já dá a outros estados
    inativos, sem inventar uma cor nova. */
 .lembrete-atribuido-linha-cancelado > .lembrete-card { opacity: 0.6; cursor: default; }
+
+/*
+ * Preview de Plantão (Fase PLANTÃO-2, Dashboard). Reaproveita o Design
+ * System do preview 6x1 (`.panel`, `.import-summary`, `.status-badge`,
+ * `.data-table`/`.table-scroll`, `.segmented-control`,
+ * `.conciliation-table`/`.conciliation-actions`) — as classes abaixo só
+ * cobrem o que diverge daquele contexto, nunca reescrevem o que já existe.
+ */
+
+/* `.import-summary` tem `grid-template-columns: repeat(3, 1fr)` — o resumo
+ * de Plantão tem 4 indicadores, não 3. Em vez de reescrever `.import-summary`
+ * (usada também pelo preview 6x1) ou duplicar seu border/padding/tipografia,
+ * o card de Plantão leva as DUAS classes (`import-summary plantao-resumo-grid`)
+ * e só a coluna muda aqui — border, `> div`, `span`, `strong` continuam
+ * vindo de `.import-summary`. Mesmos dois breakpoints dela, para não haver
+ * dessincronia entre as duas larguras de coluna. */
+.plantao-resumo-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1180px) {
+  .plantao-resumo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 780px) {
+  .plantao-resumo-grid { grid-template-columns: 1fr; }
+}
+
+.plantao-validado-nota {
+  margin: 14px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+/* Linha de busca por participante dentro da tabela de Vínculos — mesma
+ * paleta/proporções de `.toolbar label` (`.search-control`), mas própria:
+ * `.search-control` só recebe borda/fundo/padding quando é descendente de
+ * `.toolbar` (ver `.toolbar label` em app/globals.css), e aqui o contexto
+ * é uma célula de tabela, não a toolbar de topo de página. */
+.plantao-busca-linha {
+  min-height: 34px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+}
+.plantao-busca-linha input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  min-width: 0;
+  width: 100%;
+  font-size: 12px;
+}
+.plantao-vinculo-celula { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.plantao-busca-resultados {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 280px;
+}
+.plantao-busca-resultados button { width: 100%; justify-content: flex-start; text-align: left; }
+.plantao-conflito-aviso { color: var(--danger); max-width: 260px; }
+
+@media (max-width: 480px) {
+  .plantao-busca-resultados { max-width: 100%; }
+}

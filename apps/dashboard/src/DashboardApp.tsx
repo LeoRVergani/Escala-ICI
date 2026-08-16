@@ -8,7 +8,9 @@ import {
   parsePlanilhaEscala,
   type Dia,
   type ErroImportacao,
+  type ErroImportacaoPlantao,
   type ResultadoParse,
+  type ResultadoParsePlantao,
   type TipoTurno,
   type TurnosMes,
 } from '@escala-ici/contrato';
@@ -58,6 +60,21 @@ import {
   publicacaoBloqueadaPorConciliacao,
   resolverManualmente,
 } from '@/lib/conciliacaoUsuarios';
+import {
+  aplicarVinculosNasAtribuicoes,
+  buscarUsuariosPlantao,
+  confirmarVinculoPlantao,
+  consolidarParticipantesPlantao,
+  contarPendenciasVinculoPlantao,
+  desfazerVinculoPlantao,
+  iniciarVinculosPlantao,
+  previaPlantaoValidavel,
+  type AtribuicaoPlantaoComVinculo,
+  type ParticipanteConsolidadoPlantao,
+  type StatusVinculoPlantao,
+  type VinculoPlantao,
+} from '@/lib/conciliacaoPlantoes';
+import { processarArquivoImportado } from '@/lib/importadorPlanilha';
 import {
   EQUIPE_DEMO,
   USUARIOS_DEMO,
@@ -519,6 +536,35 @@ const STATUS_CONCILIACAO_LABEL: Record<LinhaConciliacao['status'], string> = {
   CONFLITO_ALIAS: 'Conflito de aliases',
   IGNORADA: 'Ignorada',
 };
+
+const STATUS_VINCULO_PLANTAO_LABEL: Record<StatusVinculoPlantao, string> = {
+  PENDENTE: 'Pendente',
+  VINCULADO: 'Vinculado',
+  USUARIO_NAO_ENCONTRADO: 'Usuário não encontrado',
+  CONFLITO: 'Conflito de login',
+};
+
+const STATUS_VINCULO_PLANTAO_BADGE: Record<StatusVinculoPlantao, string> = {
+  PENDENTE: 'warning',
+  VINCULADO: 'success',
+  USUARIO_NAO_ENCONTRADO: 'warning',
+  CONFLITO: 'danger',
+};
+
+/**
+ * 12h e 24h são os padrões normais do Plantão COSI analisado (após
+ * expediente / fim de semana). Qualquer outra duração (ex.: as bordas
+ * reais de 43h/5h da fixture) é só sinalizada como "atípica" para conferir
+ * — nunca tratada como incorreta (ver docs/spec/PLANTOES.md).
+ */
+function duracaoPlantaoAtipica(duracaoMinutos: number): boolean {
+  return duracaoMinutos !== 12 * 60 && duracaoMinutos !== 24 * 60;
+}
+
+function formatarMomentoPlantao(momento: { data: string; hora: string }): string {
+  const [ano, mes, dia] = momento.data.split('-');
+  return `${dia}/${mes}/${ano} · ${momento.hora}`;
+}
 
 const NAVEGACAO: ItemNavegacao[] = [
   { id: 'visao', rotulo: 'Visão geral', icone: 'home' },
@@ -1621,6 +1667,336 @@ function ModalLembretesAtribuidos({
   );
 }
 
+type AbaPreviaPlantao = 'resumo' | 'plantoes' | 'contabilidade' | 'vinculos';
+
+interface PreviewPlantaoProps {
+  resultado: ResultadoParsePlantao;
+  nomeArquivo: string;
+  participantes: ParticipanteConsolidadoPlantao[];
+  atribuicoes: AtribuicaoPlantaoComVinculo[];
+  vinculos: VinculoPlantao[];
+  usuarios: Usuario[];
+  aba: AbaPreviaPlantao;
+  onMudarAba: (aba: AbaPreviaPlantao) => void;
+  buscaPorParticipante: Record<string, string>;
+  onMudarBusca: (participanteNomeOriginal: string, termo: string) => void;
+  onConfirmarVinculo: (participanteNomeOriginal: string, usuario: Usuario) => void;
+  onDesfazerVinculo: (participanteNomeOriginal: string) => void;
+  divergenciaContabilidade: boolean;
+  pendencias: number;
+  podeValidar: boolean;
+  validada: boolean;
+  onValidar: () => void;
+  onIrParaUsuarios: () => void;
+}
+
+/**
+ * Preview de Plantão (Fase PLANTÃO-2). Nunca persiste — "Validar prévia"
+ * só confirma que a leitura e os vínculos estão completos em memória (ver
+ * `docs/spec/PLANTOES.md`). Reaproveita o Design System já usado pelo
+ * preview 6x1 (`.panel`, `.status-badge`, `.data-table`/`.table-scroll`,
+ * `.segmented-control`, `.conciliation-table`/`.conciliation-actions`) —
+ * nenhum componente visual novo, só uma composição nova dessas classes.
+ */
+function PreviewPlantao({
+  resultado,
+  nomeArquivo,
+  participantes,
+  atribuicoes,
+  vinculos,
+  usuarios,
+  aba,
+  onMudarAba,
+  buscaPorParticipante,
+  onMudarBusca,
+  onConfirmarVinculo,
+  onDesfazerVinculo,
+  divergenciaContabilidade,
+  pendencias,
+  podeValidar,
+  validada,
+  onValidar,
+  onIrParaUsuarios,
+}: PreviewPlantaoProps) {
+  const vinculoPorParticipante = new Map(vinculos.map((vinculo) => [vinculo.participanteNomeOriginal, vinculo]));
+
+  return (
+    <>
+      <article className="panel plantao-resumo-panel">
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Planilha de Plantão detectada</p>
+            <h2>{nomeArquivo}</h2>
+            <p>Aba de origem: {resultado.abaOrigem}</p>
+          </div>
+          <span className={`status-badge ${resultado.ok ? 'success' : 'danger'}`}>
+            {resultado.ok ? 'Sem erros estruturais' : `${resultado.erros.length} erro(s)`}
+          </span>
+        </div>
+        <div className="import-summary plantao-resumo-grid">
+          <div><span>Intervalos lidos</span><strong>{resultado.atribuicoes.length}</strong></div>
+          <div><span>Duração bruta dos intervalos</span><strong>{formatarMinutos(resultado.totalBrutoCalculado.minutos)}</strong></div>
+          <div><span>Plantões informados no relatório</span><strong>{resultado.totaisInformados?.totalPlantoesInformado ?? '—'}</strong></div>
+          <div><span>Horas informadas no relatório</span><strong>{resultado.totaisInformados !== null ? formatarMinutos(resultado.totaisInformados.totalMinutosInformado) : '—'}</strong></div>
+        </div>
+        <div className="import-actions">
+          <span className={`status-badge ${pendencias === 0 ? 'success' : 'warning'}`}>
+            {pendencias === 0 ? 'Todos os participantes vinculados' : `${pendencias} vínculo(s) pendente(s)`}
+          </span>
+          <button
+            className="primary-button"
+            type="button"
+            disabled={!podeValidar}
+            onClick={onValidar}
+          >
+            <CheckCircle2 size={17} /> Validar prévia
+          </button>
+        </div>
+        {validada && (
+          <p className="plantao-validado-nota">
+            <ShieldCheck size={15} /> Prévia validada. Nenhum dado de Plantão foi publicado nesta fase.
+          </p>
+        )}
+      </article>
+
+      {divergenciaContabilidade && resultado.totaisInformados && (
+        <article className="panel warning-panel">
+          <div className="panel-title">
+            <div>
+              <h2>Divergência de conferência</h2>
+              <p>
+                A soma literal dos intervalos resulta em {formatarMinutos(resultado.totalBrutoCalculado.minutos)}.
+                {' '}A planilha informa {formatarMinutos(resultado.totaisInformados.totalMinutosInformado)} na contabilidade mensal.
+              </p>
+            </div>
+            <AlertTriangle className="warning-icon" />
+          </div>
+          <p>Nenhum valor foi corrigido automaticamente — conferência necessária antes de qualquer decisão operacional.</p>
+        </article>
+      )}
+
+      <article className="panel">
+        <div className="segmented-control" aria-label="Seções da prévia de Plantão">
+          <button type="button" className={aba === 'resumo' ? 'active' : ''} aria-pressed={aba === 'resumo'} onClick={() => onMudarAba('resumo')}>Resumo</button>
+          <button type="button" className={aba === 'plantoes' ? 'active' : ''} aria-pressed={aba === 'plantoes'} onClick={() => onMudarAba('plantoes')}>Plantões</button>
+          <button type="button" className={aba === 'contabilidade' ? 'active' : ''} aria-pressed={aba === 'contabilidade'} onClick={() => onMudarAba('contabilidade')}>Contabilidade</button>
+          <button type="button" className={aba === 'vinculos' ? 'active' : ''} aria-pressed={aba === 'vinculos'} onClick={() => onMudarAba('vinculos')}>
+            Vínculos{pendencias > 0 ? ` (${pendencias})` : ''}
+          </button>
+        </div>
+
+        {aba === 'resumo' && (
+          <div className="plantao-resumo-conteudo">
+            {resultado.erros.length > 0 && (
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead><tr><th>Local</th><th>Plantonista</th><th>Valor</th><th>Motivo</th></tr></thead>
+                  <tbody>
+                    {resultado.erros.map((erro: ErroImportacaoPlantao, indice) => (
+                      <tr key={`${erro.linha}-${erro.coluna}-${indice}`}>
+                        <td>{erro.coluna}{erro.linha}</td>
+                        <td>{erro.plantonistaNomeOriginal ?? '—'}</td>
+                        <td><code>{erro.valorEncontrado}</code></td>
+                        <td>{erro.motivo}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {resultado.avisos.length > 0 && (
+              <ul className="warning-list">
+                {resultado.avisos.map((aviso) => <li key={aviso}>{aviso}</li>)}
+              </ul>
+            )}
+            {resultado.erros.length === 0 && resultado.avisos.length === 0 && (
+              <p>Nenhum erro ou aviso estrutural na leitura desta planilha.</p>
+            )}
+          </div>
+        )}
+
+        {aba === 'plantoes' && (
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr><th>Plantonista</th><th>Início</th><th>Fim</th><th>Duração</th><th>Vínculo</th></tr>
+              </thead>
+              <tbody>
+                {atribuicoes.map((atribuicao, indice) => (
+                  <tr key={`${atribuicao.plantonistaNomeOriginal}-${indice}`}>
+                    <td>{atribuicao.plantonistaNomeOriginal}</td>
+                    <td>{formatarMomentoPlantao(atribuicao.inicio)}</td>
+                    <td>{formatarMomentoPlantao(atribuicao.fim)}</td>
+                    <td>
+                      {formatarMinutos(atribuicao.duracaoMinutos)}
+                      {duracaoPlantaoAtipica(atribuicao.duracaoMinutos) && (
+                        <span className="status-badge neutral">duração atípica</span>
+                      )}
+                    </td>
+                    <td>
+                      <span className={`status-badge ${STATUS_VINCULO_PLANTAO_BADGE[atribuicao.statusVinculo]}`}>
+                        {STATUS_VINCULO_PLANTAO_LABEL[atribuicao.statusVinculo]}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {aba === 'contabilidade' && (
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead><tr><th>Plantonista</th><th>Plantões informados</th><th>Horas informadas</th></tr></thead>
+              <tbody>
+                {resultado.contabilidadeInformada.map((linha) => (
+                  <tr key={linha.plantonistaNomeOriginal}>
+                    <td>{linha.plantonistaNomeOriginal}</td>
+                    <td>{linha.quantidadeInformada}</td>
+                    <td>{formatarMinutos(linha.minutosInformados)}</td>
+                  </tr>
+                ))}
+                {resultado.contabilidadeInformada.length === 0 && (
+                  <tr><td colSpan={3}>Esta planilha não tem a seção de contabilidade informada.</td></tr>
+                )}
+              </tbody>
+              {resultado.totaisInformados && (
+                <tfoot>
+                  <tr>
+                    <td><strong>Total</strong></td>
+                    <td><strong>{resultado.totaisInformados.totalPlantoesInformado}</strong></td>
+                    <td><strong>{formatarMinutos(resultado.totaisInformados.totalMinutosInformado)}</strong></td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        )}
+
+        {aba === 'vinculos' && (
+          <div className="table-scroll">
+            <table className="data-table conciliation-table">
+              <thead>
+                <tr><th>Participante</th><th>Encontrado na planilha</th><th>Vincular a</th><th>Status</th><th>Ação</th></tr>
+              </thead>
+              <tbody>
+                {participantes.map((participante) => {
+                  const vinculo = vinculoPorParticipante.get(participante.nomeOriginal);
+                  if (vinculo === undefined) {
+                    return null;
+                  }
+                  const termo = buscaPorParticipante[participante.nomeOriginal] ?? '';
+                  const resultadosBusca = termo.trim() === '' ? [] : buscarUsuariosPlantao(usuarios, termo).slice(0, 6);
+                  return (
+                    <tr key={participante.nomeOriginal} data-status={vinculo.status}>
+                      <td>{participante.nomeOriginal}</td>
+                      <td>
+                        <div className="plantao-vinculo-celula">
+                          {participante.quantidadeAtribuicoes > 0 && (
+                            <span>{participante.quantidadeAtribuicoes} atribuição(ões)</span>
+                          )}
+                          {participante.apareceNaContabilidade && (
+                            <small>
+                              Consta na contabilidade informada
+                              {participante.quantidadeInformada === 0 ? ' (0 plantões)' : ''}
+                            </small>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="plantao-vinculo-celula">
+                        {vinculo.login === null ? (
+                          <>
+                            <label className="plantao-busca-linha">
+                              <Search size={14} />
+                              <input
+                                value={termo}
+                                onChange={(evento) => onMudarBusca(participante.nomeOriginal, evento.target.value)}
+                                placeholder="Pesquisar por nome ou login…"
+                                aria-label={`Buscar usuário para vincular a ${participante.nomeOriginal}`}
+                              />
+                            </label>
+                            {resultadosBusca.length > 0 && (
+                              <ul className="plantao-busca-resultados">
+                                {resultadosBusca.map((candidato) => (
+                                  <li key={candidato.login}>
+                                    <button
+                                      type="button"
+                                      className="secondary-button compact-button"
+                                      onClick={() => onConfirmarVinculo(participante.nomeOriginal, candidato)}
+                                    >
+                                      {candidato.nome} ({candidato.login}){candidato.ativo ? '' : ' — inativo'}
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                            {vinculo.sugestao !== null && (
+                              <button
+                                type="button"
+                                className="secondary-button compact-button"
+                                title={`Sugestão: ${vinculo.sugestao.nome} (${vinculo.sugestao.login})`}
+                                onClick={() => {
+                                  const escolhido = usuarios.find((item) => item.login === vinculo.sugestao?.login);
+                                  if (escolhido !== undefined) {
+                                    onConfirmarVinculo(participante.nomeOriginal, escolhido);
+                                  }
+                                }}
+                              >
+                                <Link2 size={14} /> Sugestão: {vinculo.sugestao.nome}
+                              </button>
+                            )}
+                            {vinculo.status === 'USUARIO_NAO_ENCONTRADO' && (
+                              <button type="button" className="secondary-button compact-button" onClick={onIrParaUsuarios}>
+                                <UserPlus size={14} /> Ir para Usuários
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          <strong>
+                            {usuarios.find((item) => item.login === vinculo.login)?.nome ?? vinculo.login}
+                            {' '}({vinculo.login})
+                          </strong>
+                        )}
+                        {vinculo.status === 'CONFLITO' && (
+                          <small className="plantao-conflito-aviso">
+                            Este login já está vinculado a outro participante desta planilha.
+                          </small>
+                        )}
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`status-badge ${STATUS_VINCULO_PLANTAO_BADGE[vinculo.status]}`}>
+                          {STATUS_VINCULO_PLANTAO_LABEL[vinculo.status]}
+                        </span>
+                      </td>
+                      <td>
+                        {vinculo.login !== null && (
+                          <div className="conciliation-actions">
+                            <button
+                              className="icon-button"
+                              type="button"
+                              title="Desfazer vínculo"
+                              onClick={() => onDesfazerVinculo(participante.nomeOriginal)}
+                            >
+                              <Ban size={15} />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </article>
+    </>
+  );
+}
+
 export function DashboardApp() {
   /**
    * `usuarioReal` é sempre quem está de fato autenticado no Firebase Auth —
@@ -1656,6 +2032,14 @@ export function DashboardApp() {
   const [publicacaoExpandida, setPublicacaoExpandida] = useState<string | null>(null);
   const [detalhesPublicacao, setDetalhesPublicacao] = useState<Record<string, EventoEscala[]>>({});
   const [linhasConciliacao, setLinhasConciliacao] = useState<LinhaConciliacao[]>([]);
+  // --- Preview de Plantão (Fase PLANTÃO-2) — nunca persiste; só prévia em memória ---
+  const [tipoArquivoDetectado, setTipoArquivoDetectado] = useState<'ESCALA_6X1' | 'PLANTAO' | 'DESCONHECIDA' | null>(null);
+  const [motivoArquivoDesconhecido, setMotivoArquivoDesconhecido] = useState('');
+  const [resultadoPlantao, setResultadoPlantao] = useState<ResultadoParsePlantao | null>(null);
+  const [vinculosPlantao, setVinculosPlantao] = useState<VinculoPlantao[]>([]);
+  const [previaPlantaoValidada, setPreviaPlantaoValidada] = useState(false);
+  const [abaPreviaPlantao, setAbaPreviaPlantao] = useState<'resumo' | 'plantoes' | 'contabilidade' | 'vinculos'>('resumo');
+  const [buscaVinculoPlantao, setBuscaVinculoPlantao] = useState<Record<string, string>>({});
   const [formularioUsuario, setFormularioUsuario] = useState<FormularioUsuario | null>(null);
   const [errosFormularioUsuario, setErrosFormularioUsuario] = useState<string[]>([]);
   const [novoAliasDraft, setNovoAliasDraft] = useState('');
@@ -1713,6 +2097,24 @@ export function DashboardApp() {
   const escritaBloqueada = !modoDemo && !escritaAdministrativaHabilitada;
   const conciliacaoBloqueiaPublicacao = publicacaoBloqueadaPorConciliacao(linhasConciliacao);
   const pendenciasConciliacao = contarPendenciasConciliacao(linhasConciliacao);
+  const participantesPlantao = useMemo(
+    () => (resultadoPlantao === null ? [] : consolidarParticipantesPlantao(resultadoPlantao)),
+    [resultadoPlantao],
+  );
+  const atribuicoesPlantaoComVinculo = useMemo(() => {
+    if (resultadoPlantao === null) {
+      return [];
+    }
+    return aplicarVinculosNasAtribuicoes(resultadoPlantao.atribuicoes, vinculosPlantao)
+      .slice()
+      .sort((a, b) => `${a.inicio.data}${a.inicio.hora}`.localeCompare(`${b.inicio.data}${b.inicio.hora}`));
+  }, [resultadoPlantao, vinculosPlantao]);
+  const pendenciasVinculoPlantao = contarPendenciasVinculoPlantao(vinculosPlantao);
+  const previaPlantaoPodeValidar = previaPlantaoValidavel(vinculosPlantao);
+  const divergenciaContabilidadePlantao = resultadoPlantao?.totaisInformados != null && (
+    resultadoPlantao.totaisInformados.totalMinutosInformado !== resultadoPlantao.totalBrutoCalculado.minutos
+    || resultadoPlantao.totaisInformados.totalPlantoesInformado !== resultadoPlantao.totalBrutoCalculado.quantidade
+  );
   /**
    * Gate na identidade REAL, nunca na simulada — a aba de Administração
    * precisa continuar acessível (para "Sair da simulação") mesmo enquanto o
@@ -1843,6 +2245,11 @@ export function DashboardApp() {
   async function carregarDemo() {
     setProcessando(true);
     try {
+      // Sempre um exemplo de escala 6x1 — limpa qualquer preview de Plantão
+      // que tenha ficado de uma importação anterior nesta mesma sessão.
+      setTipoArquivoDetectado('ESCALA_6X1');
+      setResultadoPlantao(null);
+      setVinculosPlantao([]);
       if (!modoDemo && usuarioEfetivo !== null) {
         const resposta = await fetch('/demo/Escala-SOC-Controle-Agosto.xls');
         if (!resposta.ok) {
@@ -2229,6 +2636,43 @@ export function DashboardApp() {
     }
   }
 
+  /**
+   * Fase PLANTÃO-2: nenhuma escrita, nenhuma persistência — só popula o
+   * preview em memória (`resultadoPlantao`) e o estado inicial de vínculos
+   * (nunca com login preenchido automaticamente, ver
+   * `iniciarVinculosPlantao`).
+   */
+  function interpretarPlantao(buffer: ArrayBuffer, nome: string, resultado: ResultadoParsePlantao) {
+    setArquivo(buffer);
+    setNomeArquivo(nome);
+    setResultadoPlantao(resultado);
+    setVinculosPlantao(iniciarVinculosPlantao(consolidarParticipantesPlantao(resultado), usuarios));
+    setPreviaPlantaoValidada(false);
+    setAbaPreviaPlantao('resumo');
+    setBuscaVinculoPlantao({});
+    setMensagem(resultado.ok
+      ? ''
+      : `${resultado.erros.length} problema(s) encontrado(s) na planilha de Plantão.`);
+  }
+
+  function confirmarVinculoPlantaoAcao(participanteNomeOriginal: string, usuario: Usuario) {
+    setVinculosPlantao((atuais) => confirmarVinculoPlantao(atuais, participanteNomeOriginal, usuario));
+    setPreviaPlantaoValidada(false);
+  }
+
+  function desfazerVinculoPlantaoAcao(participanteNomeOriginal: string) {
+    setVinculosPlantao((atuais) => desfazerVinculoPlantao(atuais, participanteNomeOriginal));
+    setPreviaPlantaoValidada(false);
+  }
+
+  function validarPreviaPlantao() {
+    if (!previaPlantaoValidavel(vinculosPlantao)) {
+      return;
+    }
+    setPreviaPlantaoValidada(true);
+    setMensagem('Prévia validada. Nenhum dado de Plantão foi publicado nesta fase.');
+  }
+
   function selecionarVinculoConciliacao(linha: LinhaConciliacao, login: string) {
     if (arquivo === null) {
       return;
@@ -2287,6 +2731,14 @@ export function DashboardApp() {
     }
   }
 
+  /**
+   * Ponto único de entrada da importação: detecta a estrutura ANTES de
+   * decidir o fluxo (ver `docs/spec/PLANTOES.md`, "dois domínios, não
+   * um"). A escala 6x1 continua exatamente com o fluxo que já existia
+   * (`interpretar`); Plantão ganha um preview novo, sem tocar o
+   * comportamento 6x1; uma estrutura não reconhecida só avisa — nunca
+   * tenta nenhum dos dois parsers "na sorte".
+   */
   async function receberArquivo(file: File | undefined) {
     if (file === undefined) {
       return;
@@ -2296,7 +2748,38 @@ export function DashboardApp() {
       setMensagem('Selecione um arquivo XLS ou XLSX.');
       return;
     }
-    interpretar(await file.arrayBuffer(), file.name);
+
+    const buffer = await file.arrayBuffer();
+    const processado = processarArquivoImportado(buffer, {
+      equipeId: usuarioEfetivo?.equipeId ?? EQUIPE_DEMO.id,
+      competencia: '2026-08',
+      catalogo,
+      loginParaUid: mapaLogins(usuarios),
+    });
+    setTipoArquivoDetectado(processado.tipo);
+
+    if (processado.tipo === 'DESCONHECIDA') {
+      setResultado(null);
+      setLinhasConciliacao([]);
+      setResultadoPlantao(null);
+      setVinculosPlantao([]);
+      setArquivo(null);
+      setNomeArquivo(file.name);
+      setMotivoArquivoDesconhecido(processado.motivo);
+      setMensagem(processado.motivo);
+      return;
+    }
+
+    if (processado.tipo === 'PLANTAO') {
+      setResultado(null);
+      setLinhasConciliacao([]);
+      interpretarPlantao(buffer, file.name, processado.resultado);
+      return;
+    }
+
+    setResultadoPlantao(null);
+    setVinculosPlantao([]);
+    interpretar(buffer, file.name);
   }
 
   function soltar(evento: DragEvent<HTMLDivElement>) {
@@ -3371,222 +3854,267 @@ export function DashboardApp() {
                 <small>XLS legado ou XLSX · leitura local</small>
               </div>
             </div>
-            <div className="import-summary">
-              <div><span>Período</span><strong>{resultado ? '26 jul – 25 ago' : '—'}</strong></div>
-              <div><span>Colaboradores</span><strong>{resultado?.documentos.length ?? '—'}</strong></div>
-              <div><span>Dias</span><strong>{resultado?.totalDias ?? '—'}</strong></div>
-            </div>
-            <div className="file-row">
-              <FileSpreadsheet size={20} />
-              <div><strong>{nomeArquivo}</strong><span>{resultado?.ok ? 'Pronto para salvar' : 'Aguardando correções'}</span></div>
-              {processando
-                ? <LoaderCircle className="spin" />
-                : resultado?.ok
-                  ? <CheckCircle2 className="success-icon" />
-                  : <AlertTriangle className="warning-icon" />}
-            </div>
-            <div className="import-actions">
-              <button className="secondary-button" type="button" onClick={() => void carregarDemo()}>
-                Carregar exemplo
-              </button>
-              <button
-                className="primary-button"
-                type="button"
-                disabled={!resultado?.ok || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
-                onClick={() => void salvar()}
-              >
-                <Save size={17} /> Salvar rascunho
-              </button>
-            </div>
+            {(tipoArquivoDetectado === null || tipoArquivoDetectado === 'ESCALA_6X1') && (
+              <>
+                <div className="import-summary">
+                  <div><span>Período</span><strong>{resultado ? '26 jul – 25 ago' : '—'}</strong></div>
+                  <div><span>Colaboradores</span><strong>{resultado?.documentos.length ?? '—'}</strong></div>
+                  <div><span>Dias</span><strong>{resultado?.totalDias ?? '—'}</strong></div>
+                </div>
+                <div className="file-row">
+                  <FileSpreadsheet size={20} />
+                  <div><strong>{nomeArquivo}</strong><span>{resultado?.ok ? 'Pronto para salvar' : 'Aguardando correções'}</span></div>
+                  {processando
+                    ? <LoaderCircle className="spin" />
+                    : resultado?.ok
+                      ? <CheckCircle2 className="success-icon" />
+                      : <AlertTriangle className="warning-icon" />}
+                </div>
+                <div className="import-actions">
+                  <button className="secondary-button" type="button" onClick={() => void carregarDemo()}>
+                    Carregar exemplo
+                  </button>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={!resultado?.ok || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
+                    onClick={() => void salvar()}
+                  >
+                    <Save size={17} /> Salvar rascunho
+                  </button>
+                </div>
+              </>
+            )}
           </article>
 
-          {resultado && resultado.erros.length > 0 && (
-            <article className="panel error-panel">
-              <div className="panel-title">
-                <div><h2>Corrigir inconsistências</h2><p>Nada será gravado enquanto houver erros.</p></div>
-                {resultado.erros.some((erro) => erro.motivo.includes('loginParaUid')) && (
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    disabled={escritaBloqueada}
-                    onClick={() => void cadastrarFaltantes()}
-                  >
-                    <UserPlus size={16} /> Cadastrar usuários faltantes
-                  </button>
-                )}
-              </div>
-              <div className="table-scroll">
-                <table className="data-table">
-                  <thead><tr><th>Local</th><th>Login</th><th>Valor</th><th>Motivo</th><th>Correção</th></tr></thead>
-                  <tbody>
-                    {resultado.erros.map((erro, indice) => (
-                      <tr key={`${erro.linha}-${erro.coluna}-${indice}`}>
-                        <td>{erro.coluna}{erro.linha}</td>
-                        <td>{erro.login ?? '—'}</td>
-                        <td><code>{erro.valorEncontrado}</code></td>
-                        <td>{erro.motivo}<small>{erro.sugestao}</small></td>
-                        <td>
-                          <div className="inline-edit">
-                            <input
-                              value={correcoes[indice] ?? ''}
-                              onChange={(evento) => setCorrecoes((atuais) => ({
-                                ...atuais,
-                                [indice]: evento.target.value,
-                              }))}
-                              aria-label={`Correção para ${erro.coluna}${erro.linha}`}
-                            />
-                            <button type="button" onClick={() => corrigirErro(erro, indice)}>
-                              Aplicar
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </article>
-          )}
-
-          {resultado && resultado.avisos.length > 0 && (
+          {tipoArquivoDetectado === 'DESCONHECIDA' && (
             <article className="panel warning-panel">
               <div className="panel-title">
-                <div><h2>Avisos</h2><p>Não impedem salvar, mas vale conferir antes de publicar.</p></div>
-                <span className="status-badge warning">{resultado.avisos.length} aviso(s)</span>
+                <div>
+                  <h2>Estrutura de planilha não reconhecida</h2>
+                  <p>{motivoArquivoDesconhecido || 'Não foi possível identificar o tipo desta planilha.'}</p>
+                </div>
+                <AlertTriangle className="warning-icon" />
               </div>
-              <ul className="warning-list">
-                {resultado.avisos.map((aviso) => (
-                  <li key={aviso}>{aviso}</li>
-                ))}
-              </ul>
+              <p>Formatos suportados hoje: escala 6x1 (aba &ldquo;Escalistas&rdquo;) e Plantão (colunas &ldquo;Plantonista.../Data Início/Data Fim&rdquo;).</p>
             </article>
           )}
 
-          {linhasConciliacao.length > 0 && (
-            <article className="panel conciliation-panel">
-              <div className="panel-title">
-                <div>
-                  <h2>Conciliação de nomes da planilha</h2>
-                  <p>Confira quem cada nome da planilha representa antes de salvar ou publicar.</p>
+          {tipoArquivoDetectado === 'PLANTAO' && resultadoPlantao && (
+            <PreviewPlantao
+              resultado={resultadoPlantao}
+              nomeArquivo={nomeArquivo}
+              participantes={participantesPlantao}
+              atribuicoes={atribuicoesPlantaoComVinculo}
+              vinculos={vinculosPlantao}
+              usuarios={usuarios}
+              aba={abaPreviaPlantao}
+              onMudarAba={setAbaPreviaPlantao}
+              buscaPorParticipante={buscaVinculoPlantao}
+              onMudarBusca={(participanteNomeOriginal, termo) =>
+                setBuscaVinculoPlantao((atuais) => ({ ...atuais, [participanteNomeOriginal]: termo }))}
+              onConfirmarVinculo={confirmarVinculoPlantaoAcao}
+              onDesfazerVinculo={desfazerVinculoPlantaoAcao}
+              divergenciaContabilidade={divergenciaContabilidadePlantao}
+              pendencias={pendenciasVinculoPlantao}
+              podeValidar={previaPlantaoPodeValidar}
+              validada={previaPlantaoValidada}
+              onValidar={validarPreviaPlantao}
+              onIrParaUsuarios={() => setTela('usuarios')}
+            />
+          )}
+
+          {tipoArquivoDetectado !== 'PLANTAO' && (
+            <>
+            {resultado && resultado.erros.length > 0 && (
+              <article className="panel error-panel">
+                <div className="panel-title">
+                  <div><h2>Corrigir inconsistências</h2><p>Nada será gravado enquanto houver erros.</p></div>
+                  {resultado.erros.some((erro) => erro.motivo.includes('loginParaUid')) && (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={escritaBloqueada}
+                      onClick={() => void cadastrarFaltantes()}
+                    >
+                      <UserPlus size={16} /> Cadastrar usuários faltantes
+                    </button>
+                  )}
                 </div>
-                <span className={`status-badge ${pendenciasConciliacao ? 'warning' : 'success'}`}>
-                  {pendenciasConciliacao ? `${pendenciasConciliacao} pendência(s)` : 'Tudo conciliado'}
-                </span>
-              </div>
-              <div className="table-scroll">
-                <table className="data-table conciliation-table">
-                  <thead>
-                    <tr>
-                      <th>Nome encontrado na planilha</th>
-                      <th>Usuário vinculado</th>
-                      <th>Status</th>
-                      <th>Ação</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {linhasConciliacao.map((linha) => {
-                      const vinculado = usuarios.find((item) => item.login === linha.login);
-                      return (
-                        <tr key={linha.nomePlanilha} data-status={linha.status}>
-                          <td>{linha.nomePlanilha}</td>
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead><tr><th>Local</th><th>Login</th><th>Valor</th><th>Motivo</th><th>Correção</th></tr></thead>
+                    <tbody>
+                      {resultado.erros.map((erro, indice) => (
+                        <tr key={`${erro.linha}-${erro.coluna}-${indice}`}>
+                          <td>{erro.coluna}{erro.linha}</td>
+                          <td>{erro.login ?? '—'}</td>
+                          <td><code>{erro.valorEncontrado}</code></td>
+                          <td>{erro.motivo}<small>{erro.sugestao}</small></td>
                           <td>
-                            <select
-                              value={linha.login ?? ''}
-                              onChange={(evento) => {
-                                if (evento.target.value) {
-                                  selecionarVinculoConciliacao(linha, evento.target.value);
-                                }
-                              }}
-                              aria-label={`Usuário vinculado a ${linha.nomePlanilha}`}
-                            >
-                              <option value="">Selecionar usuário…</option>
-                              {usuarios.map((item) => (
-                                <option key={item.login} value={item.login}>
-                                  {item.nome}{item.ativo ? '' : ' (inativo)'}
-                                </option>
-                              ))}
-                            </select>
-                            {linha.status === 'CONFLITO_ALIAS' && (
-                              <small>
-                                Candidatos: {linha.candidatos
-                                  .map((login) => usuarios.find((item) => item.login === login)?.nome ?? login)
-                                  .join(', ')}
-                              </small>
-                            )}
-                          </td>
-                          <td>
-                            <span className={`status-badge ${
-                              linha.status === 'VINCULADO_LOGIN' || linha.status === 'VINCULADO_ALIAS' || linha.status === 'IGNORADA'
-                                ? 'success'
-                                : 'warning'
-                            }`}
-                            >
-                              {STATUS_CONCILIACAO_LABEL[linha.status]}
-                            </span>
-                          </td>
-                          <td>
-                            <div className="conciliation-actions">
-                              {linha.login !== null && linha.status !== 'VINCULADO_LOGIN' && (
-                                <button
-                                  className="icon-button"
-                                  type="button"
-                                  title={`Salvar "${linha.nomePlanilha}" como alias de ${vinculado?.nome ?? ''}`}
-                                  disabled={escritaBloqueada}
-                                  onClick={() => void salvarAliasConciliacao(linha)}
-                                >
-                                  <Link2 size={15} />
-                                </button>
-                              )}
-                              {linha.status !== 'PRECISA_MAPEAR' && linha.status !== 'IGNORADA' && (
-                                <button
-                                  className="icon-button"
-                                  type="button"
-                                  title="Marcar como pendente"
-                                  onClick={() => marcarConciliacaoPendente(linha)}
-                                >
-                                  <HelpCircle size={15} />
-                                </button>
-                              )}
-                              {linha.status !== 'IGNORADA' && (
-                                <button
-                                  className="icon-button"
-                                  type="button"
-                                  title="Ignorar esta linha"
-                                  onClick={() => ignorarConciliacao(linha)}
-                                >
-                                  <Ban size={15} />
-                                </button>
-                              )}
+                            <div className="inline-edit">
+                              <input
+                                value={correcoes[indice] ?? ''}
+                                onChange={(evento) => setCorrecoes((atuais) => ({
+                                  ...atuais,
+                                  [indice]: evento.target.value,
+                                }))}
+                                aria-label={`Correção para ${erro.coluna}${erro.linha}`}
+                              />
+                              <button type="button" onClick={() => corrigirErro(erro, indice)}>
+                                Aplicar
+                              </button>
                             </div>
                           </td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </article>
-          )}
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            )}
 
-          {resultado && resultado.documentos.length > 0 && (
-            <article className="panel grid-panel">
-              <div className="panel-title">
-                <div><h2>Prévia da escala</h2><p>{resultado.equipeNome} · {resultado.periodoInicio} a {resultado.periodoFim}</p></div>
-                <span className={`status-badge ${resultado.ok ? 'success' : 'danger'}`}>
-                  {resultado.ok ? 'Sem erros' : `${resultado.erros.length} erros`}
-                </span>
-              </div>
-              <ScheduleGrid
-                documentos={resultado.documentos}
-                usuarios={usuarios}
-                catalogo={catalogo}
-                indiceAlertas={indiceAlertasGrade}
-                compacta
-              />
-            </article>
-          )}
-          {resultado && resultado.documentos.length > 0 && (
-            <ScheduleLegend catalogo={catalogo} />
+            {resultado && resultado.avisos.length > 0 && (
+              <article className="panel warning-panel">
+                <div className="panel-title">
+                  <div><h2>Avisos</h2><p>Não impedem salvar, mas vale conferir antes de publicar.</p></div>
+                  <span className="status-badge warning">{resultado.avisos.length} aviso(s)</span>
+                </div>
+                <ul className="warning-list">
+                  {resultado.avisos.map((aviso) => (
+                    <li key={aviso}>{aviso}</li>
+                  ))}
+                </ul>
+              </article>
+            )}
+
+            {linhasConciliacao.length > 0 && (
+              <article className="panel conciliation-panel">
+                <div className="panel-title">
+                  <div>
+                    <h2>Conciliação de nomes da planilha</h2>
+                    <p>Confira quem cada nome da planilha representa antes de salvar ou publicar.</p>
+                  </div>
+                  <span className={`status-badge ${pendenciasConciliacao ? 'warning' : 'success'}`}>
+                    {pendenciasConciliacao ? `${pendenciasConciliacao} pendência(s)` : 'Tudo conciliado'}
+                  </span>
+                </div>
+                <div className="table-scroll">
+                  <table className="data-table conciliation-table">
+                    <thead>
+                      <tr>
+                        <th>Nome encontrado na planilha</th>
+                        <th>Usuário vinculado</th>
+                        <th>Status</th>
+                        <th>Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {linhasConciliacao.map((linha) => {
+                        const vinculado = usuarios.find((item) => item.login === linha.login);
+                        return (
+                          <tr key={linha.nomePlanilha} data-status={linha.status}>
+                            <td>{linha.nomePlanilha}</td>
+                            <td>
+                              <select
+                                value={linha.login ?? ''}
+                                onChange={(evento) => {
+                                  if (evento.target.value) {
+                                    selecionarVinculoConciliacao(linha, evento.target.value);
+                                  }
+                                }}
+                                aria-label={`Usuário vinculado a ${linha.nomePlanilha}`}
+                              >
+                                <option value="">Selecionar usuário…</option>
+                                {usuarios.map((item) => (
+                                  <option key={item.login} value={item.login}>
+                                    {item.nome}{item.ativo ? '' : ' (inativo)'}
+                                  </option>
+                                ))}
+                              </select>
+                              {linha.status === 'CONFLITO_ALIAS' && (
+                                <small>
+                                  Candidatos: {linha.candidatos
+                                    .map((login) => usuarios.find((item) => item.login === login)?.nome ?? login)
+                                    .join(', ')}
+                                </small>
+                              )}
+                            </td>
+                            <td>
+                              <span className={`status-badge ${
+                                linha.status === 'VINCULADO_LOGIN' || linha.status === 'VINCULADO_ALIAS' || linha.status === 'IGNORADA'
+                                  ? 'success'
+                                  : 'warning'
+                              }`}
+                              >
+                                {STATUS_CONCILIACAO_LABEL[linha.status]}
+                              </span>
+                            </td>
+                            <td>
+                              <div className="conciliation-actions">
+                                {linha.login !== null && linha.status !== 'VINCULADO_LOGIN' && (
+                                  <button
+                                    className="icon-button"
+                                    type="button"
+                                    title={`Salvar "${linha.nomePlanilha}" como alias de ${vinculado?.nome ?? ''}`}
+                                    disabled={escritaBloqueada}
+                                    onClick={() => void salvarAliasConciliacao(linha)}
+                                  >
+                                    <Link2 size={15} />
+                                  </button>
+                                )}
+                                {linha.status !== 'PRECISA_MAPEAR' && linha.status !== 'IGNORADA' && (
+                                  <button
+                                    className="icon-button"
+                                    type="button"
+                                    title="Marcar como pendente"
+                                    onClick={() => marcarConciliacaoPendente(linha)}
+                                  >
+                                    <HelpCircle size={15} />
+                                  </button>
+                                )}
+                                {linha.status !== 'IGNORADA' && (
+                                  <button
+                                    className="icon-button"
+                                    type="button"
+                                    title="Ignorar esta linha"
+                                    onClick={() => ignorarConciliacao(linha)}
+                                  >
+                                    <Ban size={15} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            )}
+
+            {resultado && resultado.documentos.length > 0 && (
+              <article className="panel grid-panel">
+                <div className="panel-title">
+                  <div><h2>Prévia da escala</h2><p>{resultado.equipeNome} · {resultado.periodoInicio} a {resultado.periodoFim}</p></div>
+                  <span className={`status-badge ${resultado.ok ? 'success' : 'danger'}`}>
+                    {resultado.ok ? 'Sem erros' : `${resultado.erros.length} erros`}
+                  </span>
+                </div>
+                <ScheduleGrid
+                  documentos={resultado.documentos}
+                  usuarios={usuarios}
+                  catalogo={catalogo}
+                  indiceAlertas={indiceAlertasGrade}
+                  compacta
+                />
+              </article>
+            )}
+            {resultado && resultado.documentos.length > 0 && (
+              <ScheduleLegend catalogo={catalogo} />
+            )}
+            </>
           )}
         </section>
       )}

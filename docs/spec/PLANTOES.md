@@ -1,11 +1,12 @@
-# Especificação — Plantões (arquitetura + parser, Fases PLANTÃO-0/1)
+# Especificação — Plantões (arquitetura + parser + preview, Fases PLANTÃO-0/1/2)
 
-Documento de **planejamento arquitetural**, com uma fatia real já
-implementada a partir da Fase PLANTÃO-1 (seção 18): detecção de tipo de
-planilha e parser isolado de Plantão, ambos em `packages/contrato`, sem
+Documento de **planejamento arquitetural**, com fatias reais já
+implementadas: PLANTÃO-1 (seção 18) — detecção de tipo de planilha e
+parser isolado de Plantão em `packages/contrato`; PLANTÃO-2 (seção 19) —
+preview do Dashboard e conciliação obrigatória nome→login, em memória, sem
 nenhuma persistência. Não há coleção Firestore nova, nenhuma Rule nova,
 nenhum schema persistido — isso continua para PLANTÃO-3. É a fonte de
-verdade para as fases seguintes (PLANTÃO-2 em diante), formalizando
+verdade para as fases seguintes (PLANTÃO-3 em diante), formalizando
 decisões de domínio antes de cada fatia de código funcional.
 
 Segue a mesma convenção dos demais documentos de `docs/spec/`: aponta para
@@ -386,7 +387,7 @@ quem está de plantão, início, término, contatos e próximo plantonista.
 ```
 PLANTÃO-0  Arquitetura + correção visual                         (concluída)
 PLANTÃO-1  Detector de planilha + parser isolado + fixture sanitizada  (concluída — ver seção 18)
-PLANTÃO-2  Preview no Dashboard + conciliação nome/login
+PLANTÃO-2  Preview no Dashboard + conciliação nome/login          (concluída — ver seção 19)
 PLANTÃO-3  Persistência + Rules + grupos + participantes + contatos
 PLANTÃO-4  Central de Plantões no App
 PLANTÃO-5  Nova escala + gerador determinístico
@@ -394,7 +395,7 @@ PLANTÃO-6  Overrides/substituições/trocas
 PLANTÃO-7  Homologação staging completa
 ```
 
-Nenhuma das fases 1–7 é iniciada nesta fase.
+Nenhuma das fases 3–7 é iniciada nesta fase.
 
 ## 16. O que esta fase explicitamente NÃO faz
 
@@ -438,6 +439,21 @@ Nenhuma das fases 1–7 é iniciada nesta fase.
   desta fase usa texto (mesma forma da planilha real analisada); esse
   caminho numérico "puro" fica como risco aceito e documentado, a revisar
   se aparecer um caso real assim em PLANTÃO-2.
+- A busca de usuário do preview de Plantão (PLANTÃO-2, seção 19) reaproveita
+  o `<select>` já usado pela conciliação 6x1 (todas as opções na lista) em
+  vez de um combobox de busca ao vivo — decisão deliberada de reaproveitar
+  Design System existente em vez de construir um widget novo; em uma
+  equipe muito grande, isso pode ficar menos ágil do que uma busca
+  filtrada de verdade. Risco aceito nesta fase, mesma limitação que a
+  conciliação 6x1 já tem hoje.
+- O preview de Plantão não reage automaticamente a novos usuários
+  cadastrados enquanto a planilha já está carregada (sem um recadastro
+  explícito da lista de sugestões) — a lista de usuários pesquisável é
+  sempre a atual (o coordenador consegue vincular a um usuário recém
+  cadastrado normalmente), mas a `sugestao` automática calculada no
+  momento da importação não se atualiza sozinha. Aceitável nesta fase
+  (seção 19 do pedido original não exige isso); revisar se o fluxo real de
+  "cadastrar durante a conciliação" mostrar necessidade.
 
 ## 18. PLANTÃO-1 — o que foi implementado
 
@@ -631,3 +647,165 @@ cenários de parser pedidos para esta fase, incluindo os casos de erro
 (mesmo plantonista e plantonistas diferentes), aba renomeada, planilha
 desconhecida, e a confirmação de que `parsePlanilhaEscala` continua
 passando sobre a fixture 6x1 original.
+
+## 19. PLANTÃO-2 — preview no Dashboard + conciliação nome→login
+
+Fatia real implementada: importar um XLS agora detecta a estrutura e
+mostra um preview coerente para Plantão, com conciliação obrigatória de
+cada nome para um login real — tudo em memória, sem persistir nada.
+
+### 19.1 Roteamento no Dashboard
+
+`lib/importadorPlanilha.ts` (novo, puro): `processarArquivoImportado(arquivo,
+opcoes6x1)` chama `detectarTipoPlanilha()` e delega para
+`parsePlanilhaEscala()` (ESCALA_6X1) ou `parsePlanilhaPlantao()` (PLANTAO),
+ou retorna `{ tipo: 'DESCONHECIDA', motivo }`. Não reimplementa detecção
+nem parsing — só decide qual dos dois parsers do pacote `contrato` chamar.
+
+`apps/dashboard/src/DashboardApp.tsx`: `receberArquivo()` (ponto único de
+entrada — o mesmo dropzone/input já existente, nenhum segundo botão de
+importação) passa a chamar `processarArquivoImportado` antes de decidir o
+fluxo:
+
+- **ESCALA_6X1**: `interpretar()` continua exatamente como antes —
+  mesma função, mesmo corpo, nenhuma linha alterada dentro dela. O
+  preview 6x1 (resumo/erros/avisos/conciliação/grade) continua idêntico.
+- **PLANTAO**: `interpretarPlantao()` (novo) popula o preview em memória —
+  nunca chama `salvarRascunho`/`publicarEscalas`/nenhuma escrita.
+- **DESCONHECIDA**: mensagem explícita, nenhum dos dois parsers é
+  tentado "na sorte".
+
+Os blocos visuais do preview 6x1 (resumo/erros/avisos/conciliação 6x1/
+grade) ficam escondidos enquanto `tipoArquivoDetectado === 'PLANTAO'` —
+achado durante a implementação: o Dashboard já tem um `useEffect` que
+recarrega automaticamente a escala de demonstração sempre que `resultado`
+fica `null` (modo demo). Como o fluxo de Plantão zera `resultado`
+propositalmente (não é uma escala 6x1), esse efeito recarregava a
+demonstração por baixo do preview de Plantão; a correção foi um guard
+único (`tipoArquivoDetectado !== 'PLANTAO'`) ao redor de todo o bloco
+6x1 antigo, sem tocar no próprio efeito nem no fluxo 6x1.
+
+### 19.2 Camada de conciliação (`lib/conciliacaoPlantoes.ts`, novo, puro)
+
+Sem SDK do Firestore, sem React. Núcleo:
+
+```ts
+type StatusVinculoPlantao = 'PENDENTE' | 'VINCULADO' | 'USUARIO_NAO_ENCONTRADO' | 'CONFLITO';
+
+interface VinculoPlantao {
+  participanteNomeOriginal: string;
+  login: string | null;       // nunca UID
+  status: StatusVinculoPlantao;
+  sugestao: { login: string; nome: string } | null;
+}
+```
+
+- `consolidarParticipantesPlantao(resultado)` — união dos nomes das
+  atribuições brutas com a contabilidade informada (um participante só na
+  contabilidade, como "0 plantões", continua identificado).
+- `iniciarVinculosPlantao(participantes, usuarios)` — estado inicial:
+  **nunca** com `login` preenchido. Uma correspondência única de nome
+  normalizado vira `sugestao` (não aplicada); zero correspondências vira
+  `USUARIO_NAO_ENCONTRADO` (o coordenador ainda pode escolher manualmente
+  qualquer usuário — não é um estado bloqueante, só informativo).
+- `confirmarVinculoPlantao(vinculos, nome, usuario)` — único jeito de um
+  vínculo ganhar `login`; recebe o `Usuario` inteiro (não uma string), e
+  o `login` gravado é sempre `usuario.login`.
+- `desfazerVinculoPlantao(vinculos, nome)` — volta ao estado sem login.
+- Conflito (dois participantes apontando pro mesmo login) é recalculado a
+  cada mudança (`recalcularConflitosPlantao`, interno): ambos os lados
+  viram `CONFLITO` até um dos dois ser desfeito.
+- `previaPlantaoValidavel(vinculos)` — só `true` quando **todo**
+  participante está `VINCULADO`.
+- `aplicarVinculosNasAtribuicoes(atribuicoes, vinculos)` — todas as
+  atribuições do mesmo plantonista refletem o mesmo vínculo automaticamente
+  (o coordenador vincula uma vez, não linha a linha).
+- `buscarUsuariosPlantao(usuarios, termo)` — filtro por nome/login sobre a
+  mesma lista de usuários já carregada pelo Dashboard (nenhum endpoint novo).
+
+Esta camada é deliberadamente **mais estrita** que
+`lib/conciliacaoUsuarios.ts` (a conciliação 6x1): lá, uma correspondência
+única de nome/alias já vincula automaticamente. Aqui, nenhuma
+correspondência — nem exata — vincula sozinha; o máximo é uma `sugestao`
+que o coordenador precisa confirmar clicando.
+
+### 19.3 UI do preview (Dashboard)
+
+Reaproveita o Design System do preview 6x1 — nenhum componente visual
+novo, só uma composição nova das classes existentes
+(`.panel`/`.status-badge`/`.data-table`+`.table-scroll`/
+`.segmented-control`/`.conciliation-table`+`.conciliation-actions`).
+Estrutura: card de resumo (Intervalos lidos / Duração bruta dos
+intervalos / Plantões informados no relatório / Horas informadas no
+relatório, via `formatarMinutos` — mesma convenção de exibição de horas
+já usada em todo o Dashboard) + aviso de divergência (quando aplicável) +
+`segmented-control` com 4 seções: **Resumo** (erros/avisos do parser),
+**Plantões** (32 intervalos em ordem cronológica, com badge "duração
+atípica" para o que não é 12h/24h — nunca "incorreto"), **Contabilidade**
+(linhas informadas + total, participante de 0 plantões preservado),
+**Vínculos** (uma linha por participante único: contexto encontrado na
+planilha, busca por nome/login, sugestão clicável, status, ação de
+desfazer). Botão **"Validar prévia"** (nunca "Publicar"/"Salvar escala")
+fica desabilitado enquanto houver pendência; ao clicar, mostra "Prévia
+validada. Nenhum dado de Plantão foi publicado nesta fase." — não chama
+nenhuma escrita.
+
+Duas correções de cascade encontradas durante a implementação (mesma
+disciplina de `docs/spec/UI_CASCADE_E_HERANCA.md`):
+
+- `.import-summary` tem `grid-template-columns: repeat(3, 1fr)` — o
+  resumo de Plantão tem 4 indicadores. Em vez de reescrever a classe
+  compartilhada com o preview 6x1, o card de Plantão leva as duas classes
+  (`import-summary plantao-resumo-grid`), e só a coluna é redefinida (nos
+  mesmos dois breakpoints de `.import-summary`) — border/tipografia
+  continuam vindo da classe original.
+- `.search-control` (usada no `<label>` de busca de usuário) só recebe
+  borda/fundo/padding quando é descendente de `.toolbar`; usá-la solta
+  dentro de uma célula de tabela renderizaria sem estilo nenhum. Criada
+  `.plantao-busca-linha`, com os mesmos tokens (`--border`/`--surface`),
+  própria para o contexto de célula de tabela — `.search-control` em si
+  não foi alterada.
+
+### 19.4 Permissão
+
+Nenhum guard novo: o preview de Plantão vive na mesma tela "Importar
+escala" já protegida pelo acesso normal ao Dashboard — mesma exposição que
+a importação 6x1 sempre teve. Não foi criado nenhum bypass nem checagem
+baseada em cargo.
+
+### 19.5 Testes
+
+24 testes novos: `lib/conciliacaoPlantoes.test.ts` (21 — consolidação,
+sugestão sem vínculo automático, confirmação usando `usuario.login`,
+conflito de login duplicado e sua resolução, bloqueio/liberação de
+`previaPlantaoValidavel`, propagação do vínculo a todas as atribuições do
+mesmo participante, contagens/durações preservadas) e
+`lib/importadorPlanilha.test.ts` (3 — roteamento 6x1/Plantão/desconhecida
+usando as fixtures reais). Mais 5 testes de fronteira em
+`tests/plantao-preview-boundaries.test.mjs` (registrado em
+`test:boundaries`): os módulos puros de Plantão não importam nenhuma
+escrita administrativa nem usam catálogo/regras 6x1; `writeRepository.ts`
+e `firestore.rules` seguem sem nenhuma menção a Plantão; o Dashboard
+roteia pelo importador/conciliação puros.
+
+### 19.6 Confirmações desta fase
+
+- Nenhuma escala de Plantão foi persistida — "Validar prévia" só muda
+  estado local.
+- `firestore.rules`/`writeRepository.ts` sem nenhuma menção a Plantão.
+- `parsePlanilhaEscala`/`CATALOGO_SOC`/`lib/alertasEscala.ts` não são
+  usados por nenhum caminho de código de Plantão.
+- `login` é sempre a identidade gravada em `VinculoPlantao` — nunca UID.
+- Zero PII real: busca automatizada por `Bruno Bueno`/`Caroline Ribeiro
+  de Freitas`/`Claudio Rogerio Lis`/`Jean Carlo Machado Ribeiro` confirma
+  zero ocorrências em todo arquivo novo/alterado desta fase.
+
+### 19.7 Decisões adiadas para PLANTÃO-3
+
+- Persistir grupos/participantes/contatos de Plantão de verdade.
+- Regra de "não pode publicar Plantão com plantonista sem login
+  conciliado" — nesta fase não existe "publicar" Plantão, então essa
+  regra ainda não tem onde se aplicar; `previaPlantaoValidavel` é o
+  equivalente em memória.
+- Reconciliar 504h vs. 468h — continua só documentado como divergência,
+  nunca resolvido automaticamente.
