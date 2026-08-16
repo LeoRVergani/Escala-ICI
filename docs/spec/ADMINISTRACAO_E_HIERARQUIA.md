@@ -5,6 +5,15 @@ atuais (branch `feature/push-fcm-staging`). Cada afirmação de permissão apont
 para a evidência que a sustenta — este documento não supõe poderes que não
 estejam implementados.
 
+**Para a semântica normativa da organização** (o que é Unidade
+Organizacional vs. Equipe, por que `parentId` tem profundidade arbitrária,
+"pertencimento não é autorização", e como a visibilidade de Plantão se
+relaciona com a hierarquia), **consultar
+[`HIERARQUIA_ORGANIZACIONAL.md`](HIERARQUIA_ORGANIZACIONAL.md)** (Fase
+HIERARQUIA-1) — este documento aqui continua sendo a referência para os
+*fluxos administrativos* (telas do Dashboard, matriz de permissões por
+ação, modo de simulação, auditoria), sem duplicar a semântica estrutural.
+
 ## Objetivo
 
 Descrever quem pode fazer o quê no Escala ICI: perfis de usuário, unidades

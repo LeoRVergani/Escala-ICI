@@ -15,6 +15,19 @@ evidência real do código quando descreve o que já existe hoje (para não
 confundir "estado atual" com "proposta futura"), e é explícito quando está
 descrevendo algo que **ainda não existe**.
 
+**Antes de ler este documento, ler
+[`docs/spec/HIERARQUIA_ORGANIZACIONAL.md`](HIERARQUIA_ORGANIZACIONAL.md)**
+(Fase HIERARQUIA-1) — é a fonte normativa de como Unidade Organizacional,
+Equipe, Usuário, perfis e escopos administrativos se relacionam, e de
+regras permanentes que este documento pressupõe sem repetir por inteiro:
+"pertencimento não é autorização" (§ 8) e "visibilidade de Plantão é
+data-driven via `equipesConsulta`, nunca inferida pela hierarquia" (§ 9,
+que detalha e formaliza exatamente a decisão já tomada aqui na seção 20.3).
+Qualquer sigla (COSI/SOC/NOC/CODB/GEDSI) usada abaixo é **exemplo
+conhecido nesta data**, nunca a árvore inteira do ICI nem uma regra de
+autorização compilada — ver a mesma ressalva, em detalhe, no documento de
+hierarquia.
+
 ## Por que este documento existe
 
 O Escala ICI hoje resolve um problema: **jornada normal 6x1** (SOC/NOC),
