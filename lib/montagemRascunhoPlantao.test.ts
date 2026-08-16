@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import type { AtribuicaoPlantaoBruta, CompetenciaPlantao, GrupoPlantao, ParticipantePlantao } from '@escala-ici/contrato';
 
-import type { AtribuicaoPlantaoComVinculo, VinculoPlantao } from './conciliacaoPlantoes';
+import { aplicarVinculosNasAtribuicoes, type AtribuicaoPlantaoComVinculo, type VinculoPlantao } from './conciliacaoPlantoes';
 import {
+  adicionarAtribuicaoEditavel,
+  criarAtribuicoesEditaveis,
+  editarAtribuicaoEditavel,
+  excluirAtribuicaoEditavel,
+} from './editorPlantao';
+import {
+  competenciaDoDia,
   montarAtribuicoesPlantaoRascunho,
   montarCompetenciaPlantaoRascunho,
   montarGrupoPlantaoParaSalvar,
   montarParticipantesPlantaoParaSalvar,
+  periodoDaCompetencia,
   sugerirCompetenciaPlantao,
 } from './montagemRascunhoPlantao';
 
@@ -32,33 +40,74 @@ function vinculo(overrides: Partial<VinculoPlantao> = {}): VinculoPlantao {
   };
 }
 
+describe('competenciaDoDia — janela 26→25 (Fase ESCALAS-UX-1A)', () => {
+  it('dia <= 25 pertence à competência do próprio mês', () => {
+    expect(competenciaDoDia('2026-08-01')).toBe('2026-08');
+    expect(competenciaDoDia('2026-08-25')).toBe('2026-08');
+  });
+
+  it('dia >= 26 pertence à competência do mês seguinte', () => {
+    expect(competenciaDoDia('2026-07-26')).toBe('2026-08');
+    expect(competenciaDoDia('2026-07-31')).toBe('2026-08');
+  });
+
+  it('rollover de dezembro para janeiro do ano seguinte', () => {
+    expect(competenciaDoDia('2026-12-26')).toBe('2027-01');
+  });
+
+  it('data malformada devolve null', () => {
+    expect(competenciaDoDia('data-invalida')).toBeNull();
+    expect(competenciaDoDia('2026-13-01')).toBeNull();
+  });
+});
+
+describe('periodoDaCompetencia — janela 26→25 (Fase ESCALAS-UX-1A)', () => {
+  it('periodoInicio é dia 26 do mês anterior; periodoFim é dia 25 do próprio mês', () => {
+    expect(periodoDaCompetencia('2026-08')).toEqual({ periodoInicio: '2026-07-26', periodoFim: '2026-08-25' });
+  });
+
+  it('rollover de janeiro para dezembro do ano anterior', () => {
+    expect(periodoDaCompetencia('2026-01')).toEqual({ periodoInicio: '2025-12-26', periodoFim: '2026-01-25' });
+  });
+
+  it('nunca depende de quantos dias o mês tem (fevereiro seria diferente num cálculo de "último dia do mês")', () => {
+    expect(periodoDaCompetencia('2026-02')).toEqual({ periodoInicio: '2026-01-26', periodoFim: '2026-02-25' });
+    expect(periodoDaCompetencia('2028-02')).toEqual({ periodoInicio: '2028-01-26', periodoFim: '2028-02-25' });
+  });
+
+  it('competência malformada devolve null', () => {
+    expect(periodoDaCompetencia('2026-8')).toBeNull();
+    expect(periodoDaCompetencia('não-é-competencia')).toBeNull();
+  });
+});
+
 describe('sugerirCompetenciaPlantao', () => {
   it('retorna null quando não há atribuições', () => {
     expect(sugerirCompetenciaPlantao([])).toBeNull();
   });
 
-  it('sugere o mês com mais ocorrências entre as atribuições', () => {
+  it('sugere a competência (janela 26→25) com mais ocorrências entre as atribuições', () => {
     const atribuicoes = [
-      atribuicaoBruta({ inicio: { data: '2026-07-31', hora: '19:00' } }),
+      atribuicaoBruta({ inicio: { data: '2026-07-26', hora: '19:00' } }), // já é competência 2026-08
       atribuicaoBruta({ inicio: { data: '2026-08-01', hora: '19:00' } }),
       atribuicaoBruta({ inicio: { data: '2026-08-05', hora: '19:00' } }),
     ];
     expect(sugerirCompetenciaPlantao(atribuicoes)?.competencia).toBe('2026-08');
   });
 
-  it('calcula periodoInicio/periodoFim como o primeiro e o último dia do mês', () => {
+  it('calcula periodoInicio/periodoFim como a janela 26→25, não o mês calendário', () => {
     const resultado = sugerirCompetenciaPlantao([atribuicaoBruta({ inicio: { data: '2026-08-10', hora: '19:00' } })]);
-    expect(resultado).toEqual({ competencia: '2026-08', periodoInicio: '2026-08-01', periodoFim: '2026-08-31' });
+    expect(resultado).toEqual({ competencia: '2026-08', periodoInicio: '2026-07-26', periodoFim: '2026-08-25' });
   });
 
-  it('calcula corretamente o último dia de fevereiro em ano bissexto', () => {
-    const resultado = sugerirCompetenciaPlantao([atribuicaoBruta({ inicio: { data: '2028-02-10', hora: '19:00' } })]);
-    expect(resultado?.periodoFim).toBe('2028-02-29');
+  it('uma atribuição no dia 25 (contexto do mês anterior) conta para a competência desse mês, não do seguinte', () => {
+    const resultado = sugerirCompetenciaPlantao([atribuicaoBruta({ inicio: { data: '2026-07-25', hora: '00:00' } })]);
+    expect(resultado?.competencia).toBe('2026-07');
   });
 
-  it('calcula corretamente o último dia de fevereiro fora de ano bissexto', () => {
-    const resultado = sugerirCompetenciaPlantao([atribuicaoBruta({ inicio: { data: '2026-02-10', hora: '19:00' } })]);
-    expect(resultado?.periodoFim).toBe('2026-02-28');
+  it('uma atribuição no dia 26 (início da janela seguinte) já conta para a competência do mês seguinte', () => {
+    const resultado = sugerirCompetenciaPlantao([atribuicaoBruta({ inicio: { data: '2026-07-26', hora: '00:00' } })]);
+    expect(resultado?.competencia).toBe('2026-08');
   });
 
   it('ignora datas malformadas e ainda sugere a partir das válidas', () => {
@@ -277,6 +326,80 @@ describe('montarAtribuicoesPlantaoRascunho', () => {
       revisao: 0,
       schemaVersion: 1,
     });
+  });
+});
+
+describe('CRÍTICO — o payload do rascunho reflete a working copy EDITADA, nunca o parser original (Fase ESCALAS-UX-1A)', () => {
+  const ORIGINAIS: AtribuicaoPlantaoBruta[] = [
+    atribuicaoBruta({ plantonistaNomeOriginal: 'Ana Costa', inicio: { data: '2026-07-26', hora: '19:00' }, fim: { data: '2026-07-27', hora: '07:00' }, duracaoMinutos: 12 * 60 }),
+    atribuicaoBruta({ plantonistaNomeOriginal: 'Bruno Lima', inicio: { data: '2026-07-27', hora: '19:00' }, fim: { data: '2026-07-28', hora: '07:00' }, duracaoMinutos: 12 * 60 }),
+  ];
+  const VINCULOS: VinculoPlantao[] = [
+    vinculo({ participanteNomeOriginal: 'Ana Costa', login: 'acosta' }),
+    vinculo({ participanteNomeOriginal: 'Bruno Lima', login: 'blima' }),
+  ];
+
+  it('edição de horário: o payload usa o horário EDITADO, não o original importado', () => {
+    const copiaOriginalAntes = JSON.parse(JSON.stringify(ORIGINAIS));
+    let editaveis = criarAtribuicoesEditaveis(ORIGINAIS);
+    editaveis = editarAtribuicaoEditavel(editaveis, 'importado-0', {
+      plantonistaNomeOriginal: 'Ana Costa',
+      inicio: { data: '2026-07-26', hora: '20:00' },
+      fim: { data: '2026-07-27', hora: '08:00' },
+    });
+
+    const comVinculo = aplicarVinculosNasAtribuicoes(editaveis, VINCULOS);
+    const payload = montarAtribuicoesPlantaoRascunho({
+      grupoId: 'PLANTAO_SEGURANCA',
+      competenciaId: 'PLANTAO_SEGURANCA_2026-08',
+      atribuicoes: comVinculo,
+      timezone: 'America/Sao_Paulo',
+      agoraIso: '2026-08-01T00:00:00.000Z',
+    });
+
+    const anaNoPayload = payload.find((item) => item.plantonistaLogin === 'acosta');
+    // 20:00 em America/Sao_Paulo (UTC-3) = 23:00 UTC — nunca o 19:00/22:00 original.
+    expect(anaNoPayload?.inicio).toBe('2026-07-26T23:00:00.000Z');
+    expect(ORIGINAIS).toEqual(copiaOriginalAntes);
+  });
+
+  it('exclusão: o payload NÃO inclui a atribuição excluída na working copy', () => {
+    let editaveis = criarAtribuicoesEditaveis(ORIGINAIS);
+    editaveis = excluirAtribuicaoEditavel(editaveis, 'importado-1');
+
+    const comVinculo = aplicarVinculosNasAtribuicoes(editaveis, VINCULOS);
+    const payload = montarAtribuicoesPlantaoRascunho({
+      grupoId: 'PLANTAO_SEGURANCA',
+      competenciaId: 'PLANTAO_SEGURANCA_2026-08',
+      atribuicoes: comVinculo,
+      timezone: 'America/Sao_Paulo',
+      agoraIso: '2026-08-01T00:00:00.000Z',
+    });
+
+    expect(payload).toHaveLength(1);
+    expect(payload.some((item) => item.plantonistaLogin === 'blima')).toBe(false);
+  });
+
+  it('adição: o payload INCLUI uma atribuição adicionada manualmente na working copy (não vinda do XLS)', () => {
+    let editaveis = criarAtribuicoesEditaveis(ORIGINAIS);
+    editaveis = adicionarAtribuicaoEditavel(editaveis, {
+      plantonistaNomeOriginal: 'Ana Costa',
+      inicio: { data: '2026-08-10', hora: '19:00' },
+      fim: { data: '2026-08-11', hora: '07:00' },
+      abaOrigem: 'PlantaoCOSI',
+    });
+
+    const comVinculo = aplicarVinculosNasAtribuicoes(editaveis, VINCULOS);
+    const payload = montarAtribuicoesPlantaoRascunho({
+      grupoId: 'PLANTAO_SEGURANCA',
+      competenciaId: 'PLANTAO_SEGURANCA_2026-08',
+      atribuicoes: comVinculo,
+      timezone: 'America/Sao_Paulo',
+      agoraIso: '2026-08-01T00:00:00.000Z',
+    });
+
+    expect(payload).toHaveLength(3);
+    expect(payload.some((item) => item.inicio === '2026-08-10T22:00:00.000Z')).toBe(true);
   });
 });
 

@@ -142,6 +142,21 @@ import {
   sugerirCompetenciaPlantao,
 } from '@/lib/montagemRascunhoPlantao';
 import {
+  adicionarAtribuicaoEditavel,
+  conferirEscalaAtualPlantao,
+  criarAtribuicoesEditaveis,
+  duracaoPlantaoAtipica,
+  editarAtribuicaoEditavel,
+  excluirAtribuicaoEditavel,
+  resumirPorPessoa,
+  type AtribuicaoPlantaoEditavel,
+} from '@/lib/editorPlantao';
+import { PlantaoCalendario } from '@/components/plantao/PlantaoCalendario';
+import {
+  ModalEditarAtribuicaoPlantao,
+  type FormularioAtribuicaoPlantao,
+} from '@/components/plantao/ModalEditarAtribuicaoPlantao';
+import {
   excluirEscalaPublicada,
   excluirUsuario,
   listarEquipes,
@@ -594,16 +609,6 @@ const STATUS_VINCULO_PLANTAO_BADGE: Record<StatusVinculoPlantao, string> = {
   USUARIO_NAO_ENCONTRADO: 'warning',
   CONFLITO: 'danger',
 };
-
-/**
- * 12h e 24h são os padrões normais do Plantão COSI analisado (após
- * expediente / fim de semana). Qualquer outra duração (ex.: as bordas
- * reais de 43h/5h da fixture) é só sinalizada como "atípica" para conferir
- * — nunca tratada como incorreta (ver docs/spec/PLANTOES.md).
- */
-function duracaoPlantaoAtipica(duracaoMinutos: number): boolean {
-  return duracaoMinutos !== 12 * 60 && duracaoMinutos !== 24 * 60;
-}
 
 function formatarMomentoPlantao(momento: { data: string; hora: string }): string {
   const [ano, mes, dia] = momento.data.split('-');
@@ -2101,7 +2106,7 @@ function ModalLembretesAtribuidos({
   );
 }
 
-type AbaPreviaPlantao = 'resumo' | 'plantoes' | 'contabilidade' | 'vinculos';
+type AbaPreviaPlantao = 'calendario' | 'resumo' | 'plantoes' | 'contabilidade' | 'vinculos';
 
 interface PreviewPlantaoProps {
   resultado: ResultadoParsePlantao;
@@ -2123,6 +2128,21 @@ interface PreviewPlantaoProps {
   validada: boolean;
   onValidar: () => void;
   onIrParaUsuarios: () => void;
+  /**
+   * Fase ESCALAS-UX-1A — o Editor visual. `atribuicoesEditaveis` é a
+   * WORKING COPY (nunca `resultado.atribuicoes`, que fica congelado para a
+   * "Conferência da fonte"); o calendário, o "Resumo do editor" e a
+   * "Conferência da escala editada" derivam todos dela, nunca do XLS
+   * declarado.
+   */
+  atribuicoesEditaveis: AtribuicaoPlantaoEditavel[];
+  competencia: string;
+  periodoInicio: string;
+  periodoFim: string;
+  dataHoje: string;
+  editadoDesdeImportacao: boolean;
+  onEditarAtribuicao: (idLocal: string) => void;
+  onAdicionarPlantao: (dataIso: string) => void;
 }
 
 /**
@@ -2152,8 +2172,25 @@ function PreviewPlantao({
   validada,
   onValidar,
   onIrParaUsuarios,
+  atribuicoesEditaveis,
+  competencia,
+  periodoInicio,
+  periodoFim,
+  dataHoje,
+  editadoDesdeImportacao,
+  onEditarAtribuicao,
+  onAdicionarPlantao,
 }: PreviewPlantaoProps) {
   const vinculoPorParticipante = new Map(vinculos.map((vinculo) => [vinculo.participanteNomeOriginal, vinculo]));
+  const conferenciaEscalaAtual = conferirEscalaAtualPlantao(atribuicoesEditaveis, duracaoPlantaoAtipica);
+  const resumoPorPessoa = resumirPorPessoa(
+    atribuicoesEditaveis,
+    participantes.map((participante) => ({ nomeOriginal: participante.nomeOriginal })),
+  );
+  const totalAlertasEditor = conferenciaEscalaAtual.quantidadeDuracoesAtipicas
+    + conferenciaEscalaAtual.sobreposicoes.length
+    + pendencias;
+  const primeiraAtipica = atribuicoesEditaveis.find((atribuicao) => duracaoPlantaoAtipica(atribuicao.duracaoMinutos));
 
   return (
     <>
@@ -2236,13 +2273,85 @@ function PreviewPlantao({
 
       <article className="panel">
         <div className="segmented-control" aria-label="Seções da prévia de Plantão">
+          <button type="button" className={aba === 'calendario' ? 'active' : ''} aria-pressed={aba === 'calendario'} onClick={() => onMudarAba('calendario')}>Calendário</button>
           <button type="button" className={aba === 'resumo' ? 'active' : ''} aria-pressed={aba === 'resumo'} onClick={() => onMudarAba('resumo')}>Resumo</button>
-          <button type="button" className={aba === 'plantoes' ? 'active' : ''} aria-pressed={aba === 'plantoes'} onClick={() => onMudarAba('plantoes')}>Plantões</button>
+          <button type="button" className={aba === 'plantoes' ? 'active' : ''} aria-pressed={aba === 'plantoes'} onClick={() => onMudarAba('plantoes')}>Lista</button>
           <button type="button" className={aba === 'contabilidade' ? 'active' : ''} aria-pressed={aba === 'contabilidade'} onClick={() => onMudarAba('contabilidade')}>Contabilidade</button>
           <button type="button" className={aba === 'vinculos' ? 'active' : ''} aria-pressed={aba === 'vinculos'} onClick={() => onMudarAba('vinculos')}>
             Vínculos{pendencias > 0 ? ` (${pendencias})` : ''}
           </button>
         </div>
+
+        {aba === 'calendario' && (
+          <div className="plantao-editor-calendario">
+            <div className="import-summary plantao-resumo-grid">
+              <div><span>Plantonistas</span><strong>{conferenciaEscalaAtual.quantidadePessoas}</strong></div>
+              <div><span>Plantões</span><strong>{atribuicoesEditaveis.length}</strong></div>
+              <div><span>Horas atuais</span><strong>{formatarMinutos(conferenciaEscalaAtual.bruto.minutos)}</strong></div>
+              <div><span>Alertas</span><strong>{totalAlertasEditor}</strong></div>
+            </div>
+            <p className={`plantao-estado-edicao ${editadoDesdeImportacao ? 'sujo' : 'limpo'}`}>
+              {editadoDesdeImportacao ? 'Alterações não salvas' : 'Nenhuma alteração desde a importação'}
+            </p>
+            {pendencias > 0 && (
+              <div className="import-actions plantao-vinculo-pendente-banner">
+                <span className="status-badge warning">{pendencias} usuário(s) precisam ser vinculados</span>
+                <button type="button" className="secondary-button compact-button" onClick={() => onMudarAba('vinculos')}>
+                  <Link2 size={14} /> Resolver vínculos
+                </button>
+              </div>
+            )}
+            {totalAlertasEditor > 0 && (
+              <ul className="warning-list plantao-alertas-clicaveis">
+                {conferenciaEscalaAtual.quantidadeDuracoesAtipicas > 0 && (
+                  <li>
+                    <button
+                      type="button"
+                      className="alert-item-button"
+                      onClick={() => primeiraAtipica && onEditarAtribuicao(primeiraAtipica.idLocal)}
+                    >
+                      ⚠ {conferenciaEscalaAtual.quantidadeDuracoesAtipicas} duração(ões) atípica(s)
+                    </button>
+                  </li>
+                )}
+                {conferenciaEscalaAtual.sobreposicoes.length > 0 && (
+                  <li>⚠ {conferenciaEscalaAtual.sobreposicoes.length} sobreposição(ões) de horário</li>
+                )}
+                {pendencias > 0 && (
+                  <li>
+                    <button type="button" className="alert-item-button" onClick={() => onMudarAba('vinculos')}>
+                      ⚠ {pendencias} usuário(s) sem vínculo
+                    </button>
+                  </li>
+                )}
+              </ul>
+            )}
+            {periodoInicio !== '' && periodoFim !== '' ? (
+              <PlantaoCalendario
+                competencia={competencia}
+                periodoInicio={periodoInicio}
+                periodoFim={periodoFim}
+                dataHoje={dataHoje}
+                atribuicoes={atribuicoesEditaveis}
+                onEditarAtribuicao={onEditarAtribuicao}
+                onAdicionarPlantao={onAdicionarPlantao}
+              />
+            ) : (
+              <p>Não foi possível calcular a competência desta planilha — confira as datas na aba Lista.</p>
+            )}
+            <div className="plantao-resumo-por-pessoa">
+              <h3>Resumo por pessoa</h3>
+              <ul>
+                {resumoPorPessoa.map((pessoa) => (
+                  <li key={pessoa.nomeOriginal}>
+                    <span>{pessoa.nomeOriginal}</span>
+                    <span>{pessoa.quantidade} plantões · {formatarMinutos(pessoa.minutos)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
 
         {aba === 'resumo' && (
           <div className="plantao-resumo-conteudo">
@@ -2305,6 +2414,19 @@ function PreviewPlantao({
         )}
 
         {aba === 'contabilidade' && (
+          <>
+            <div className="plantao-conferencia-escala-atual">
+              <h3>Escala atual (working copy editada)</h3>
+              <p>Recalculada a partir do que está no calendário/lista agora — nunca comparada automaticamente com a fonte.</p>
+              <div className="import-summary plantao-resumo-grid">
+                <div><span>Plantonistas</span><strong>{conferenciaEscalaAtual.quantidadePessoas}</strong></div>
+                <div><span>Plantões</span><strong>{atribuicoesEditaveis.length}</strong></div>
+                <div><span>Horas atuais</span><strong>{formatarMinutos(conferenciaEscalaAtual.bruto.minutos)}</strong></div>
+                <div><span>Durações atípicas</span><strong>{conferenciaEscalaAtual.quantidadeDuracoesAtipicas}</strong></div>
+              </div>
+            </div>
+            <h3>Fonte original (contabilidade declarada na planilha)</h3>
+            <p>Estes valores representam o arquivo importado original.</p>
           <div className="table-scroll">
             <table className="data-table">
               <thead><tr><th>Plantonista</th><th>Plantões informados</th><th>Horas informadas</th></tr></thead>
@@ -2336,6 +2458,7 @@ function PreviewPlantao({
               )}
             </table>
           </div>
+          </>
         )}
 
         {aba === 'vinculos' && (
@@ -2502,8 +2625,21 @@ export function DashboardApp() {
   const [resultadoPlantao, setResultadoPlantao] = useState<ResultadoParsePlantao | null>(null);
   const [vinculosPlantao, setVinculosPlantao] = useState<VinculoPlantao[]>([]);
   const [previaPlantaoValidada, setPreviaPlantaoValidada] = useState(false);
-  const [abaPreviaPlantao, setAbaPreviaPlantao] = useState<'resumo' | 'plantoes' | 'contabilidade' | 'vinculos'>('resumo');
+  const [abaPreviaPlantao, setAbaPreviaPlantao] = useState<'calendario' | 'resumo' | 'plantoes' | 'contabilidade' | 'vinculos'>('calendario');
   const [buscaVinculoPlantao, setBuscaVinculoPlantao] = useState<Record<string, string>>({});
+  /**
+   * Fase ESCALAS-UX-1A — a WORKING COPY editável do Editor visual.
+   * `resultadoPlantao.atribuicoes` continua congelado (fonte da
+   * "Conferência da fonte"); esta é a ÚNICA fonte de verdade que o
+   * calendário, a Lista, o "Resumo do editor" e o payload de
+   * `salvarRascunhoPlantaoAcao()` consultam depois da importação —
+   * "Importação não é um destino, é só uma forma de preencher o Editor".
+   */
+  const [atribuicoesEditaveisPlantao, setAtribuicoesEditaveisPlantao] = useState<AtribuicaoPlantaoEditavel[]>([]);
+  const [plantaoEditadoDesdeImportacao, setPlantaoEditadoDesdeImportacao] = useState(false);
+  const [modalAtribuicaoPlantao, setModalAtribuicaoPlantao] = useState<
+    { modo: 'criar' | 'editar'; idLocal: string | null; valoresIniciais: FormularioAtribuicaoPlantao } | null
+  >(null);
   // --- Administração de Plantão (Fase PLANTÃO-3B) — Grupos/participantes/contatos/rascunho ---
   const [gruposPlantaoAdmin, setGruposPlantaoAdmin] = useState<GrupoPlantao[]>([]);
   const [participantesPorGrupoPlantao, setParticipantesPorGrupoPlantao] = useState<Record<string, ParticipantePlantao[]>>({});
@@ -2597,18 +2733,27 @@ export function DashboardApp() {
   const escritaBloqueada = !modoDemo && !escritaAdministrativaHabilitada;
   const conciliacaoBloqueiaPublicacao = publicacaoBloqueadaPorConciliacao(linhasConciliacao);
   const pendenciasConciliacao = contarPendenciasConciliacao(linhasConciliacao);
+  /**
+   * Fase ESCALAS-UX-1A — `atribuicoes` vem da WORKING COPY
+   * (`atribuicoesEditaveisPlantao`), nunca de `resultadoPlantao.atribuicoes`
+   * (esse fica congelado para a "Conferência da fonte"); só
+   * `contabilidadeInformada` continua vindo da fonte, porque é o que
+   * garante que alguém com 0 atribuições atuais (ex.: consta só na
+   * contabilidade declarada) continue visível na lista de participantes.
+   */
   const participantesPlantao = useMemo(
-    () => (resultadoPlantao === null ? [] : consolidarParticipantesPlantao(resultadoPlantao)),
-    [resultadoPlantao],
+    () => (resultadoPlantao === null ? [] : consolidarParticipantesPlantao({
+      atribuicoes: atribuicoesEditaveisPlantao,
+      contabilidadeInformada: resultadoPlantao.contabilidadeInformada,
+    })),
+    [resultadoPlantao, atribuicoesEditaveisPlantao],
   );
-  const atribuicoesPlantaoComVinculo = useMemo(() => {
-    if (resultadoPlantao === null) {
-      return [];
-    }
-    return aplicarVinculosNasAtribuicoes(resultadoPlantao.atribuicoes, vinculosPlantao)
+  const atribuicoesPlantaoComVinculo = useMemo(
+    () => aplicarVinculosNasAtribuicoes(atribuicoesEditaveisPlantao, vinculosPlantao)
       .slice()
-      .sort((a, b) => `${a.inicio.data}${a.inicio.hora}`.localeCompare(`${b.inicio.data}${b.inicio.hora}`));
-  }, [resultadoPlantao, vinculosPlantao]);
+      .sort((a, b) => `${a.inicio.data}${a.inicio.hora}`.localeCompare(`${b.inicio.data}${b.inicio.hora}`)),
+    [atribuicoesEditaveisPlantao, vinculosPlantao],
+  );
   const pendenciasVinculoPlantao = contarPendenciasVinculoPlantao(vinculosPlantao);
   const previaPlantaoPodeValidar = previaPlantaoValidavel(vinculosPlantao);
   /**
@@ -3175,14 +3320,21 @@ export function DashboardApp() {
     setArquivo(buffer);
     setNomeArquivo(nome);
     setResultadoPlantao(resultado);
+    setAtribuicoesEditaveisPlantao(criarAtribuicoesEditaveis(resultado.atribuicoes));
+    setPlantaoEditadoDesdeImportacao(false);
     setVinculosPlantao(iniciarVinculosPlantao(consolidarParticipantesPlantao(resultado), usuarios));
     setPreviaPlantaoValidada(false);
-    setAbaPreviaPlantao('resumo');
+    setAbaPreviaPlantao('calendario');
     setBuscaVinculoPlantao({});
     setGrupoRascunhoEscolhido('');
-    setCompetenciaRascunho('');
-    setPeriodoInicioRascunho('');
-    setPeriodoFimRascunho('');
+    // Fase ESCALAS-UX-1A — sugerida já na importação (não só ao validar a
+    // prévia), para o calendário destacar a janela 26→25 antes mesmo dos
+    // vínculos serem resolvidos (vínculo pendente nunca bloqueia a
+    // visualização, só o "Salvar rascunho").
+    const sugestao = sugerirCompetenciaPlantao(resultado.atribuicoes);
+    setCompetenciaRascunho(sugestao?.competencia ?? '');
+    setPeriodoInicioRascunho(sugestao?.periodoInicio ?? '');
+    setPeriodoFimRascunho(sugestao?.periodoFim ?? '');
     setErroRascunhoPlantao('');
     setRascunhoPlantaoSalvoEm(null);
     setMensagem(resultado.ok
@@ -3200,18 +3352,82 @@ export function DashboardApp() {
     setPreviaPlantaoValidada(false);
   }
 
+  /**
+   * Fase ESCALAS-UX-1A — toda mutação da working copy do Editor passa por
+   * aqui: marca "Alterações não salvas" e invalida o "Rascunho salvo"
+   * anterior (mesmo princípio de `setPreviaPlantaoValidada(false)` acima —
+   * qualquer mudança de conteúdo exige salvar de novo).
+   */
+  function marcarPlantaoEditadoNoEditor() {
+    setPlantaoEditadoDesdeImportacao(true);
+    setRascunhoPlantaoSalvoEm(null);
+  }
+
+  function abrirEdicaoAtribuicaoPlantao(idLocal: string) {
+    const atribuicao = atribuicoesEditaveisPlantao.find((item) => item.idLocal === idLocal);
+    if (atribuicao === undefined) {
+      return;
+    }
+    setModalAtribuicaoPlantao({
+      modo: 'editar',
+      idLocal,
+      valoresIniciais: {
+        plantonistaNomeOriginal: atribuicao.plantonistaNomeOriginal,
+        inicio: atribuicao.inicio,
+        fim: atribuicao.fim,
+      },
+    });
+  }
+
+  function abrirCriacaoAtribuicaoPlantao(dataIso: string) {
+    setModalAtribuicaoPlantao({
+      modo: 'criar',
+      idLocal: null,
+      valoresIniciais: {
+        plantonistaNomeOriginal: '',
+        inicio: { data: dataIso, hora: '' },
+        fim: { data: dataIso, hora: '' },
+      },
+    });
+  }
+
+  function fecharModalAtribuicaoPlantao() {
+    setModalAtribuicaoPlantao(null);
+  }
+
+  function salvarModalAtribuicaoPlantao(valores: FormularioAtribuicaoPlantao) {
+    const modal = modalAtribuicaoPlantao;
+    if (modal === null) {
+      return;
+    }
+    if (modal.modo === 'editar' && modal.idLocal !== null) {
+      const idLocal = modal.idLocal;
+      setAtribuicoesEditaveisPlantao((atuais) => editarAtribuicaoEditavel(atuais, idLocal, valores));
+    } else {
+      const abaOrigem = resultadoPlantao?.atribuicoes[0]?.abaOrigem ?? '';
+      setAtribuicoesEditaveisPlantao((atuais) => adicionarAtribuicaoEditavel(atuais, { ...valores, abaOrigem }));
+    }
+    marcarPlantaoEditadoNoEditor();
+    setModalAtribuicaoPlantao(null);
+  }
+
+  function excluirModalAtribuicaoPlantao() {
+    const modal = modalAtribuicaoPlantao;
+    if (modal === null || modal.idLocal === null) {
+      return;
+    }
+    const idLocal = modal.idLocal;
+    setAtribuicoesEditaveisPlantao((atuais) => excluirAtribuicaoEditavel(atuais, idLocal));
+    marcarPlantaoEditadoNoEditor();
+    setModalAtribuicaoPlantao(null);
+  }
+
   function validarPreviaPlantao() {
     if (!previaPlantaoValidavel(vinculosPlantao)) {
       return;
     }
     setPreviaPlantaoValidada(true);
     setMensagem('Prévia validada. Nenhum dado de Plantão foi publicado.');
-    const sugestao = resultadoPlantao === null ? null : sugerirCompetenciaPlantao(resultadoPlantao.atribuicoes);
-    if (sugestao !== null) {
-      setCompetenciaRascunho((atual) => (atual === '' ? sugestao.competencia : atual));
-      setPeriodoInicioRascunho((atual) => (atual === '' ? sugestao.periodoInicio : atual));
-      setPeriodoFimRascunho((atual) => (atual === '' ? sugestao.periodoFim : atual));
-    }
   }
 
   function selecionarVinculoConciliacao(linha: LinhaConciliacao, login: string) {
@@ -4754,6 +4970,26 @@ export function DashboardApp() {
               validada={previaPlantaoValidada}
               onValidar={validarPreviaPlantao}
               onIrParaUsuarios={() => setTela('usuarios')}
+              atribuicoesEditaveis={atribuicoesEditaveisPlantao}
+              competencia={competenciaRascunho}
+              periodoInicio={periodoInicioRascunho}
+              periodoFim={periodoFimRascunho}
+              dataHoje={dataIsoLocal(new Date())}
+              editadoDesdeImportacao={plantaoEditadoDesdeImportacao}
+              onEditarAtribuicao={abrirEdicaoAtribuicaoPlantao}
+              onAdicionarPlantao={abrirCriacaoAtribuicaoPlantao}
+            />
+          )}
+
+          {modalAtribuicaoPlantao !== null && (
+            <ModalEditarAtribuicaoPlantao
+              titulo={modalAtribuicaoPlantao.modo === 'criar' ? 'Adicionar plantão' : 'Editar plantão'}
+              valoresIniciais={modalAtribuicaoPlantao.valoresIniciais}
+              modo={modalAtribuicaoPlantao.modo}
+              participantesConhecidos={participantesPlantao.map((participante) => participante.nomeOriginal)}
+              onFechar={fecharModalAtribuicaoPlantao}
+              onSalvar={salvarModalAtribuicaoPlantao}
+              onExcluir={modalAtribuicaoPlantao.modo === 'editar' ? excluirModalAtribuicaoPlantao : undefined}
             />
           )}
 

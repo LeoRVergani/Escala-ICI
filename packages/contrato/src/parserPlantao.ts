@@ -51,6 +51,23 @@ function minutosAbsolutos(momento: MomentoPlantao): number {
   ) / 60_000;
 }
 
+/**
+ * Diferença em minutos entre dois momentos civis (`fim - início`) — Fase
+ * ESCALAS-UX-1A, versão pública de `minutosAbsolutos()` para o Editor
+ * visual recalcular duração ao vivo enquanto o coordenador edita uma
+ * atribuição. Nunca lança: `momento` malformado (data/hora fora do padrão
+ * esperado) devolve `null` — quem chama decide como tratar (nunca deveria
+ * travar a UI no meio de uma edição). Não valida se o resultado é
+ * positivo; `fim <= início` é responsabilidade de quem chama.
+ */
+export function calcularDuracaoEntreMomentos(inicio: MomentoPlantao, fim: MomentoPlantao): number | null {
+  try {
+    return minutosAbsolutos(fim) - minutosAbsolutos(inicio);
+  } catch {
+    return null;
+  }
+}
+
 interface MomentoInterpretado {
   momento: MomentoPlantao;
   avisoDiaSemana?: string;

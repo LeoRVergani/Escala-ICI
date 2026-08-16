@@ -1,4 +1,5 @@
 import {
+  competenciaOperacional,
   converterMomentoParaInstanteUtc,
   idAtribuicaoPlantao,
   idCompetenciaPlantao,
@@ -24,12 +25,76 @@ import type { AtribuicaoPlantaoComVinculo, VinculoPlantao } from './conciliacaoP
 
 const PADRAO_DATA_ISO = /^(\d{4})-(\d{2})-(\d{2})$/u;
 
+function mesAnoValidos(ano: number, mes: number): boolean {
+  return Number.isInteger(ano) && Number.isInteger(mes) && mes >= 1 && mes <= 12;
+}
+
 /**
- * Sugere `competencia`/`periodoInicio`/`periodoFim` a partir da data mais
- * frequente (por mês) entre as atribuições lidas — nunca decide sozinho:
- * é só um valor inicial editável pelo gestor antes de salvar (planilhas reais
- * podem ter uma ou duas linhas "vazando" para o mês seguinte/anterior, ver
- * `docs/spec/PLANTOES.md`). `null` quando não há nenhuma atribuição.
+ * A competência operacional do Escala ICI vai do dia 26 de um mês até o dia
+ * 25 do mês seguinte — rótulo `AAAA-MM` sempre igual ao mês em que termina
+ * (mesmo princípio de `COMPETENCIA_ATUAL` em `lib/sessao.ts` e do período
+ * real da escala 6x1, ex.: `periodoInicio: '2026-07-26'`/`periodoFim:
+ * '2026-08-25'` para a competência `'2026-08'`). Fase ESCALAS-UX-1A —
+ * antes desta fase, `sugerirCompetenciaPlantao()` calculava um mês
+ * calendário (dia 1 ao último dia), divergindo dessa convenção; corrigido
+ * aqui porque o Editor visual precisa distinguir "dia de contexto" (antes
+ * do 26 ou depois do 25) de "dia da competência" de verdade.
+ *
+ * A regra de rollover em si (`dia <= 25` fica no próprio mês, `dia >= 26`
+ * vira competência do mês seguinte) já existe como `competenciaOperacional()`
+ * (`packages/contrato/src/jornada.ts`, usada pela Escala 6x1/`EmployeeApp`)
+ * — reaproveitada aqui em vez de reimplementada, para as duas escalas nunca
+ * divergirem sobre o que é "dia 26". A única coisa que esta função
+ * acrescenta é a validação defensiva: `competenciaOperacional()` lança para
+ * data malformada (correto para dado já confiável da 6x1), mas uma
+ * planilha de Plantão importada pode ter uma linha com data quebrada — aqui
+ * isso vira `null` (linha ignorada pelo chamador), nunca uma exceção que
+ * derruba a importação inteira.
+ */
+export function competenciaDoDia(dataIso: string): string | null {
+  const match = PADRAO_DATA_ISO.exec(dataIso);
+  if (match === null) {
+    return null;
+  }
+  const ano = Number(match[1]);
+  const mes = Number(match[2]);
+  if (!mesAnoValidos(ano, mes)) {
+    return null;
+  }
+  return competenciaOperacional(dataIso);
+}
+
+/**
+ * `periodoInicio` é sempre dia 26 do mês ANTERIOR ao rótulo da competência;
+ * `periodoFim` é sempre dia 25 do próprio mês do rótulo — nunca depende de
+ * quantos dias o mês tem (diferente do cálculo antigo de "último dia do
+ * mês calendário").
+ */
+export function periodoDaCompetencia(competencia: string): { periodoInicio: string; periodoFim: string } | null {
+  const match = /^(\d{4})-(\d{2})$/u.exec(competencia);
+  if (match === null) {
+    return null;
+  }
+  const ano = Number(match[1]);
+  const mes = Number(match[2]);
+  if (!mesAnoValidos(ano, mes)) {
+    return null;
+  }
+  const mesAnterior = mes === 1 ? 12 : mes - 1;
+  const anoDoMesAnterior = mes === 1 ? ano - 1 : ano;
+  return {
+    periodoInicio: `${String(anoDoMesAnterior).padStart(4, '0')}-${String(mesAnterior).padStart(2, '0')}-26`,
+    periodoFim: `${String(ano).padStart(4, '0')}-${String(mes).padStart(2, '0')}-25`,
+  };
+}
+
+/**
+ * Sugere `competencia`/`periodoInicio`/`periodoFim` a partir da competência
+ * (janela 26→25) mais frequente entre as atribuições lidas — nunca decide
+ * sozinho: é só um valor inicial editável pelo gestor antes de salvar
+ * (planilhas reais podem ter uma ou duas linhas "vazando" para os dias de
+ * contexto antes do 26/depois do 25, ver `docs/spec/PLANTOES.md`). `null`
+ * quando não há nenhuma atribuição.
  */
 export function sugerirCompetenciaPlantao(
   atribuicoes: readonly AtribuicaoPlantaoBruta[],
@@ -37,31 +102,26 @@ export function sugerirCompetenciaPlantao(
   if (atribuicoes.length === 0) {
     return null;
   }
-  const contagemPorMes = new Map<string, number>();
+  const contagemPorCompetencia = new Map<string, number>();
   for (const atribuicao of atribuicoes) {
-    const match = PADRAO_DATA_ISO.exec(atribuicao.inicio.data);
-    if (match === null) {
+    const competencia = competenciaDoDia(atribuicao.inicio.data);
+    if (competencia === null) {
       continue;
     }
-    const mesChave = `${match[1]}-${match[2]}`;
-    contagemPorMes.set(mesChave, (contagemPorMes.get(mesChave) ?? 0) + 1);
+    contagemPorCompetencia.set(competencia, (contagemPorCompetencia.get(competencia) ?? 0) + 1);
   }
-  if (contagemPorMes.size === 0) {
+  if (contagemPorCompetencia.size === 0) {
     return null;
   }
-  const [competencia] = [...contagemPorMes.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
+  const [competencia] = [...contagemPorCompetencia.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
   if (competencia === undefined) {
     return null;
   }
-  const [anoTexto, mesTexto] = competencia.split('-');
-  const ano = Number(anoTexto);
-  const mes = Number(mesTexto);
-  const ultimoDia = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
-  return {
-    competencia,
-    periodoInicio: `${competencia}-01`,
-    periodoFim: `${competencia}-${String(ultimoDia).padStart(2, '0')}`,
-  };
+  const periodo = periodoDaCompetencia(competencia);
+  if (periodo === null) {
+    return null;
+  }
+  return { competencia, ...periodo };
 }
 
 /**

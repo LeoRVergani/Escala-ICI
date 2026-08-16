@@ -777,6 +777,8 @@ button.shift-chip:disabled { cursor: default; }
 .publication-reason textarea:focus { outline: 2px solid color-mix(in srgb, var(--primary-bright) 25%, transparent); border-color: var(--primary-bright); }
 .publication-reason small { justify-self: end; color: var(--muted); font-size: 9px; font-weight: 500; }
 .rollback-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+/* Excluir some para a esquerda quando um modal tem 3 ações (Excluir/Cancelar/Salvar) — Fase ESCALAS-UX-1A. */
+.rollback-actions-excluir { margin-right: auto; }
 .login-code { font-size: 11px; font-weight: 800; }
 
 /*
@@ -4718,3 +4720,146 @@ fieldset.checkbox-card-list > legend {
 @media (max-width: 560px) {
   .contato-plantonista-linha { flex-direction: column; align-items: stretch; }
 }
+
+/*
+ * Fase ESCALAS-UX-1A — calendário do Editor de Plantão. Grade PRÓPRIA
+ * (`.plantao-grid`), a TERCEIRA família paralela a `.calendar-grid`
+ * (escala 6x1) e `.lembretes-grid` (Lembretes) — mesmo raciocínio já
+ * documentado acima para Lembretes: `.calendar-grid` tem a regra
+ * `.app-shell.product-app .calendar-grid > button > small { display: none; }`
+ * (Fase 3F), que esconderia qualquer rótulo pequeno dentro da célula.
+ * Reaproveitar `.calendar-weekdays` para o cabeçalho de dias da semana é
+ * seguro (nenhuma das duas famílias anteriores sofre esse tipo de
+ * colisão nele).
+ *
+ * Diferença estrutural das duas famílias anteriores: uma célula de
+ * Plantão pode ter MAIS DE UM cartão (vários plantonistas no mesmo dia),
+ * então a célula não é um único `<button>` — é um `<div role="gridcell">`
+ * com um cabeçalho (número do dia) + uma lista de cartões (cada um seu
+ * próprio `<button>`) + um botão "+ Adicionar" sempre presente (mesmo
+ * princípio do "Hoje" de Lembretes: nunca condicional, para não deslocar
+ * o layout ao aparecer/sumir).
+ */
+.plantao-calendario-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+.plantao-calendario-header strong { font-size: 14px; }
+.plantao-calendario-periodo { color: var(--muted); font-size: 11.5px; }
+
+.plantao-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+}
+.plantao-dia {
+  min-height: 96px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--surface);
+}
+/* Dia de contexto (antes do dia 26 / depois do dia 25) — nunca conta na
+   competência, então fica visualmente discreto, nunca escondido: os
+   plantões que já existirem nele (ex.: a borda real de 43h da fixture,
+   que começa um dia antes do início da janela) continuam visíveis. */
+.plantao-dia.contexto { background: var(--surface-muted); }
+.plantao-dia.hoje { box-shadow: inset 0 0 0 2px var(--primary-bright); }
+
+.plantao-dia-cabecalho { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.plantao-dia-numero { font-size: 13px; font-weight: 700; }
+.plantao-dia.contexto .plantao-dia-numero { color: var(--muted); font-weight: 600; }
+.plantao-dia-contexto-rotulo {
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.plantao-cartoes { display: flex; flex-direction: column; gap: 3px; }
+
+.plantao-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 3px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--plantao-id-border, var(--border));
+  background: var(--plantao-id-bg, var(--surface-muted));
+  color: var(--plantao-id-text, var(--text));
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.25;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.plantao-card:hover { filter: brightness(0.97); }
+.plantao-card[data-atipica="true"] { border-style: dashed; border-color: var(--warning); }
+.plantao-card-horario { font-weight: 600; opacity: 0.85; }
+
+.plantao-adicionar {
+  margin-top: auto;
+  align-self: stretch;
+  border: 1px dashed var(--border-strong);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 4px;
+  cursor: pointer;
+}
+.plantao-adicionar:hover { border-color: var(--primary-bright); color: var(--primary-bright); background: var(--primary-soft); }
+
+@media (max-width: 780px) {
+  .plantao-dia { min-height: 72px; padding: 3px 4px 4px; }
+  .plantao-card { font-size: 9px; padding: 2px 4px; }
+  .plantao-adicionar { font-size: 9px; }
+}
+
+/*
+ * Paleta categórica de identidade visual por plantonista — 8 tons
+ * distintos, deliberadamente SEM relação com `--periodo-*` (essa é
+ * semântica de código de turno 6x1, não de pessoa). Nunca escolhida pelo
+ * usuário (sem seletor de cor nesta fase); o índice 0..7 vem de
+ * `indiceIdentidadePlantonista()` (hash do nome), nunca de posição num
+ * array — assim a mesma pessoa nunca muda de cor quando outra pessoa
+ * entra ou sai do conjunto.
+ */
+:root {
+  --plantao-id-0-bg: #eef2ff; --plantao-id-0-border: #c7d2fe; --plantao-id-0-text: #4338ca;
+  --plantao-id-1-bg: #ecfeff; --plantao-id-1-border: #a5f3fc; --plantao-id-1-text: #0891b2;
+  --plantao-id-2-bg: #fff7ed; --plantao-id-2-border: #fed7aa; --plantao-id-2-text: #c2410c;
+  --plantao-id-3-bg: #f0fdf4; --plantao-id-3-border: #bbf7d0; --plantao-id-3-text: #15803d;
+  --plantao-id-4-bg: #fdf4ff; --plantao-id-4-border: #f0abfc; --plantao-id-4-text: #a21caf;
+  --plantao-id-5-bg: #fefce8; --plantao-id-5-border: #fde68a; --plantao-id-5-text: #a16207;
+  --plantao-id-6-bg: #f0f9ff; --plantao-id-6-border: #7dd3fc; --plantao-id-6-text: #0369a1;
+  --plantao-id-7-bg: #fef2f2; --plantao-id-7-border: #fecaca; --plantao-id-7-text: #b91c1c;
+}
+:root[data-theme="dark"] {
+  --plantao-id-0-bg: #312e81; --plantao-id-0-border: #4338ca; --plantao-id-0-text: #c7d2fe;
+  --plantao-id-1-bg: #164e63; --plantao-id-1-border: #0e7490; --plantao-id-1-text: #a5f3fc;
+  --plantao-id-2-bg: #7c2d12; --plantao-id-2-border: #c2410c; --plantao-id-2-text: #fed7aa;
+  --plantao-id-3-bg: #14532d; --plantao-id-3-border: #15803d; --plantao-id-3-text: #bbf7d0;
+  --plantao-id-4-bg: #701a75; --plantao-id-4-border: #a21caf; --plantao-id-4-text: #f5d0fe;
+  --plantao-id-5-bg: #713f12; --plantao-id-5-border: #a16207; --plantao-id-5-text: #fde68a;
+  --plantao-id-6-bg: #0c4a6e; --plantao-id-6-border: #0369a1; --plantao-id-6-text: #bae6fd;
+  --plantao-id-7-bg: #7f1d1d; --plantao-id-7-border: #dc2626; --plantao-id-7-text: #fecaca;
+}
+[data-identidade="0"] { --plantao-id-bg: var(--plantao-id-0-bg); --plantao-id-border: var(--plantao-id-0-border); --plantao-id-text: var(--plantao-id-0-text); }
+[data-identidade="1"] { --plantao-id-bg: var(--plantao-id-1-bg); --plantao-id-border: var(--plantao-id-1-border); --plantao-id-text: var(--plantao-id-1-text); }
+[data-identidade="2"] { --plantao-id-bg: var(--plantao-id-2-bg); --plantao-id-border: var(--plantao-id-2-border); --plantao-id-text: var(--plantao-id-2-text); }
+[data-identidade="3"] { --plantao-id-bg: var(--plantao-id-3-bg); --plantao-id-border: var(--plantao-id-3-border); --plantao-id-text: var(--plantao-id-3-text); }
+[data-identidade="4"] { --plantao-id-bg: var(--plantao-id-4-bg); --plantao-id-border: var(--plantao-id-4-border); --plantao-id-text: var(--plantao-id-4-text); }
+[data-identidade="5"] { --plantao-id-bg: var(--plantao-id-5-bg); --plantao-id-border: var(--plantao-id-5-border); --plantao-id-text: var(--plantao-id-5-text); }
+[data-identidade="6"] { --plantao-id-bg: var(--plantao-id-6-bg); --plantao-id-border: var(--plantao-id-6-border); --plantao-id-text: var(--plantao-id-6-text); }
+[data-identidade="7"] { --plantao-id-bg: var(--plantao-id-7-bg); --plantao-id-border: var(--plantao-id-7-border); --plantao-id-text: var(--plantao-id-7-text); }

@@ -1474,3 +1474,146 @@ diagnóstico.
 
 Ver `CHECKPOINT-FASE-PLANTAO-3B1-CONFERENCIA-CONTABIL.md` para o
 detalhamento completo.
+
+## 24. ESCALAS-UX-1A — Editor visual de Plantão importado
+
+Até esta fase, a prévia de Plantão (PLANTÃO-2/3B/3B.1) era uma tela
+"só-leitura + tabela": importar mostrava os dados, e a única ação
+possível era vincular participantes e salvar como rascunho — nenhuma
+correção de horário/data era possível sem editar a planilha original e
+reimportar. Esta fase corrige isso com um **princípio permanente**, que
+vale para qualquer fluxo de escala futuro (Plantão ou 6x1):
+
+> **Importação nunca é um destino. Importação é apenas uma forma de
+> preencher o Editor de Escala.**
+
+O fluxo principal de qualquer escala passa a ser:
+
+> **IMPORTAR → CONFERIR → EDITAR → SALVAR RASCUNHO → PUBLICAR FUTURAMENTE**
+
+Ou seja: **importação é entrada do Editor, não uma tela final.** Depois
+de `parsePlanilhaPlantao()`, o resultado nunca é consumido diretamente
+pela UI de edição — ele primeiro vira uma **working copy** editável
+(`AtribuicaoPlantaoEditavel[]`, `lib/editorPlantao.ts`), e é essa cópia,
+não o resultado bruto do parser, que a Lista, o Calendário e o payload de
+"Salvar rascunho" consultam a partir daí.
+
+Ver `docs/spec/EDITOR_ESCALAS.md` para a definição completa da working
+copy, do rascunho, da conferência e do princípio de simplicidade do
+Editor — este documento (PLANTÕES.md) permanece o dono do domínio de
+Plantão em si (parser/conciliação/modelo persistente); `EDITOR_ESCALAS.md`
+é o dono do conceito de Editor compartilhado entre Plantão e 6x1.
+
+### 24.1 A working copy nunca substitui a "Conferência da fonte"
+
+`resultadoPlantao` (o retorno bruto do parser) continua **congelado**
+depois da importação — nunca mutado por uma edição no calendário/lista.
+Ele é a única fonte da "Conferência da fonte" (as três camadas de
+verdade da PLANTÃO-3B.1: 32 intervalos/504h bruto, 31/480h soma
+individual, 31/468h declarado — ver § 23), com uma nota explícita na UI:
+"Estes valores representam o arquivo importado original."
+
+A working copy tem sua **própria conferência**, separada — "Conferência
+da escala editada" (`conferirEscalaAtualPlantao()`): quantidade atual de
+atribuições/pessoas, horas atuais, lacunas, sobreposições e durações
+atípicas, recalculados a cada edição. As duas conferências nunca são
+comparadas automaticamente uma com a outra — cada uma só relata o que é
+seu.
+
+### 24.2 Competência 26→25 — janela real, nunca mês calendário
+
+A competência operacional do Escala ICI vai do dia 26 de um mês até o
+dia 25 do mês seguinte (rótulo `AAAA-MM` igual ao mês em que termina —
+mesmo princípio de `COMPETENCIA_ATUAL`/`competenciaOperacional()`, agora
+também usado por `sugerirCompetenciaPlantao()`). Um dia fora dessa janela
+("dia de contexto" — o 25 antes do início, o 26 depois do fim) nunca é
+usado para redefinir a competência nem para "renormalizar" nenhuma
+duração — inclusive as bordas reais da fixture (43h/5h) continuam
+mostradas como estão, com aviso, nunca corrigidas.
+
+### 24.3 O calendário
+
+`components/plantao/PlantaoCalendario.tsx` é a visão PRIMÁRIA da prévia
+de Plantão (aba "Calendário", padrão logo após importar). Grade própria
+(`.plantao-grid`, terceira família paralela a `.calendar-grid`/
+`.lembretes-grid` — mesmo raciocínio de colisão de CSS documentado para
+Lembretes) cobrindo a janela inteira da competência (26→25) mais os dias
+necessários para completar semanas — esses dias extras são reais (dias
+de contexto), nunca células em branco, porque a fixture real já tem
+atribuições que começam/terminam exatamente neles.
+
+Cada célula mostra o número do dia e um cartão por atribuição (nome
+curto + horário, "24h" para plantão de 24h, "⚠ Nh" para duração
+atípica) — identidade visual por plantonista é um índice de cor estável
+(hash do nome, nunca posição no array, nunca escolhido pelo usuário).
+Clicar num cartão abre o modal de edição; um botão "+ Adicionar" sempre
+presente em cada célula abre o mesmo modal em modo de criação, sem
+nenhum horário padrão pré-preenchido (nunca hardcoda 19:00→07:00 ou
+qualquer outro horário específico de COSI).
+
+### 24.4 O modal de edição
+
+`components/plantao/ModalEditarAtribuicaoPlantao.tsx` — um único modal
+para criar OU editar uma atribuição da working copy. Campos:
+Plantonista (select sobre os participantes já conhecidos desta
+competência — nunca texto livre, para nunca introduzir um nome que a
+conciliação de vínculos desconhece), Data/Hora iniciais, Data/Hora
+finais, duração calculada ao vivo. Bloqueia só os quatro erros
+objetivos: plantonista vazio, data inicial vazia, data final vazia, fim
+&le; início. Duração atípica é só um aviso não bloqueante. "Excluir"
+(só em modo edição) e "Salvar" nunca tocam o Firestore diretamente — só
+atualizam a working copy em memória; a persistência real continua
+exclusivamente pelo fluxo "Salvar rascunho" já existente.
+
+### 24.5 Vínculos pendentes nunca bloqueiam a visualização
+
+Um participante sem login vinculado nunca impede ver ou editar o
+calendário — só impede "Salvar rascunho", com um aviso claro ("N
+usuário(s) precisam ser vinculados" + atalho para a aba Vínculos). Como
+o Plantonista do modal é sempre um dos participantes já conhecidos
+(nunca um nome novo digitado), a lista de vínculos pendentes nunca
+precisa ser recalculada por causa de uma edição no calendário — só por
+uma nova importação ou por confirmar/desfazer um vínculo (comportamento
+inalterado desde a PLANTÃO-2).
+
+### 24.6 O que esta fase explicitamente NÃO faz
+
+- Nenhuma publicação (`publicarPlantao()` continua inexistente); nenhuma
+  mudança de Firestore Rules/índices; a coleção `competenciasPlantao`
+  (publicada) continua sem nenhuma escrita a partir do Dashboard.
+- Nenhum arrastar-e-soltar (drag-and-drop) — fase futura.
+- Nenhum "+ Nova escala vazia" nem "Copiar período anterior" — adiados
+  para ESCALAS-UX-1B.
+- Nenhum gerador/distribuição automática/rotação/autocomplete de
+  plantonista.
+- Nenhuma mudança funcional na escala 6x1 (`ScheduleGrid`, parser 6x1 —
+  diff zero).
+- Nenhuma mudança em `OrganizationTree`/`OrganizationTeamPicker`/
+  `lib/organizacao.ts` (fechadas na UI-ORG-1A).
+- Nenhuma mudança no modelo de timezone (`grupo.timezone`,
+  `converterMomentoParaInstanteUtc()` inalterados) — o calendário exibe
+  sempre em horário civil (igual à Lista, já existente), só a conversão
+  para o instante UTC persistido no "Salvar rascunho" usa o timezone do
+  grupo, como já acontecia antes desta fase.
+- `@testing-library/react`/jsdom continuam não adicionados (decisão da
+  UI-ORG-1A, mantida).
+
+### 24.7 Auditoria de NOC (documentada, não corrigida)
+
+Por instrução explícita desta fase, uma equipe/unidade real encontrada
+faltando ou quebrada durante a auditoria deve ser **documentada, nunca
+corrigida silenciosamente**. Achado: `EQ_NOC` (NOC) existe apenas em
+`scripts/seed-organizacao.mjs` (dado de seed, nunca confirmado como
+efetivamente executado num ambiente real) e em fixtures de teste
+(`tests/firebase/firestore.rules.test.ts`, `lib/organizacao.test.ts`,
+`lib/sessao.test.ts`, `lib/importUsers.test.ts`,
+`packages/contrato/test/modeloPlantaoPersistente.test.ts`,
+`lib/firebase/shared.test.ts`) — nenhum código de produção (`lib/organizacao.ts`,
+`components/organizacao/*`, `DashboardApp.tsx`) trata NOC como um caso
+especial, e não há confirmação de que a equipe `EQ_NOC` exista de fato
+no Firestore de nenhum ambiente. Nada foi alterado a respeito nesta
+fase — permanece como estava antes, só registrado aqui para uma decisão
+futura.
+
+Ver `CHECKPOINT-FASE-ESCALAS-UX-1A-EDITOR-PLANTAO.md` para o
+detalhamento completo desta fase.
