@@ -1,4 +1,4 @@
-# Especificação — Editor de Escalas (conceito compartilhado, Fases ESCALAS-UX-1A/1B)
+# Especificação — Editor de Escalas (conceito compartilhado, Fases ESCALAS-UX-1A/1B/1B.1)
 
 ## Por que este documento existe
 
@@ -33,10 +33,25 @@ permanente dos três acima:
 Ou seja: "+ Nova escala" → "Criar escala vazia" não é uma segunda porta
 de entrada com sua própria tela de montagem — é só uma segunda forma de
 chegar à MESMA working copy, começando com `[]` em vez de vir de um
-parser. Ver § 8 abaixo ("Origens suportadas pelo mesmo Editor").
+parser. Ver § 7 abaixo ("Origens suportadas pelo mesmo Editor").
 
-Estes três princípios são permanentes — valem para qualquer fase futura
-que toque o Editor (ESCALAS-UX-1B, PLANTÃO-3C, ou qualquer evolução da
+Fase ESCALAS-UX-1B.1 adiciona o quarto princípio permanente, fechando o
+ciclo básico de trabalho do Editor:
+
+> **RASCUNHO É RETOMÁVEL.**
+
+Salvar um rascunho e sair não é um ponto final — o coordenador precisa
+poder voltar depois, abrir a mesma competência e continuar exatamente de
+onde parou, sem reimportar XLS, sem recriar a escala, sem perder
+edições. O ciclo completo é:
+
+> **Criar/importar → editar → salvar → fechar → reabrir → continuar
+> editando.**
+
+Ver § 10 abaixo ("Rascunho é retomável — o round-trip completo").
+
+Estes princípios são permanentes — valem para qualquer fase futura
+que toque o Editor (PLANTÃO-3C, ESCALAS-UX-1C, ou qualquer evolução da
 escala 6x1). Um recurso avançado (importação, geração automática, cópia
 de período, arrastar-e-soltar) pode existir, mas nunca como pré-requisito
 para o caminho comum de "ver o que já existe e corrigir uma célula".
@@ -128,7 +143,7 @@ uma decisão de fase própria antes de entrar no Editor:
   quando existir, será uma etapa POSTERIOR ao rascunho, nunca parte da
   edição em memória.
 
-## 8. Origens suportadas pelo mesmo Editor
+## 7. Origens suportadas pelo mesmo Editor
 
 Fase ESCALAS-UX-1B formaliza a `origem` (`OrigemPlantao`, já existente
 no contrato persistido desde a PLANTÃO-3A) como o único diferencial
@@ -164,7 +179,12 @@ explicitamente para ESCALAS-UX-1C). Quando existir, deve seguir a MESMA
 regra: nasce como uma working copy comum via `criarAtribuicoesEditaveis()`
 (populada a partir da competência anterior), nunca um quarto pipeline.
 
-## 9. Onde isso vive hoje
+**Reabrir um rascunho existente (Fase ESCALAS-UX-1B.1) não é uma quarta
+origem** — é uma quarta PORTA DE ENTRADA que preserva a origem já
+persistida (`IMPORTADO` continua `IMPORTADO`, `MANUAL` continua
+`MANUAL`). Ver § 10 abaixo.
+
+## 8. Onde isso vive hoje
 
 - `lib/editorPlantao.ts` — working copy pura (tipos + funções, sem
   React, sem Firestore) — igual para `IMPORTADO` e `MANUAL`.
@@ -175,18 +195,116 @@ regra: nasce como uma working copy comum via `criarAtribuicoesEditaveis()`
   do Grupo, não da planilha).
 - `lib/montagemRascunhoPlantao.ts` — `montarCompetenciaPlantaoRascunho()`/
   `montarAtribuicoesPlantaoRascunho()` recebem `origem` como parâmetro
-  (Fase ESCALAS-UX-1B — antes hardcoded para `'IMPORTADO'`) e
-  `validarNovoPlantaoEmBranco()` (novo) valida só Grupo + competência.
+  (Fase ESCALAS-UX-1B — antes hardcoded para `'IMPORTADO'`),
+  `validarNovoPlantaoEmBranco()` valida só Grupo + competência, e
+  (Fase ESCALAS-UX-1B.1) `reidratarRascunhoPlantao()` é a operação
+  INVERSA — persistido → working copy — para reabrir um rascunho.
+- `packages/contrato/src/modeloPlantaoPersistente.ts` — Fase
+  ESCALAS-UX-1B.1: `converterInstanteUtcParaMomento()`, o inverso de
+  `converterMomentoParaInstanteUtc()` (instante UTC persistido +
+  timezone do Grupo → momento civil).
+- `lib/firebase/plantaoReadRepository.ts` — Fase ESCALAS-UX-1B.1:
+  `listarCompetenciasPlantaoRascunho()` (novo, lista os rascunhos de um
+  Grupo) e `listarAtribuicoesPlantaoRascunho()` (já existia, ganhou
+  `where('grupoId', ...)` para funcionar para um GESTOR_EQUIPE
+  autorizado, não só ADMIN_SISTEMA — ver § 9).
+- `lib/firebase/plantaoWriteRepository.ts` — Fase ESCALAS-UX-1B.1:
+  `salvarAtribuicoesPlantaoRascunho()` ganhou limpeza de documentos
+  órfãos (uma atribuição excluída depois de reaberta precisa deixar de
+  existir no Firestore, não só parar de ser sobrescrita).
 - `components/plantao/PlantaoCalendario.tsx` — visão de calendário.
 - `components/plantao/ModalEditarAtribuicaoPlantao.tsx` — modal único
   de criar/editar.
 - `apps/dashboard/src/DashboardApp.tsx` (`PreviewPlantao`,
   `ModalNovaEscala`) — orquestra a working copy, a conferência dupla e o
-  rascunho, e (Fase ESCALAS-UX-1B) o fluxo "+ Nova escala"; nenhuma
-  lógica de domínio nova mora aqui além da fiação de estado/props.
+  rascunho, o fluxo "+ Nova escala" e (Fase ESCALAS-UX-1B.1) "Abrir
+  rascunho" (tela "Plantões" e o atalho dentro de "+ Nova escala");
+  nenhuma lógica de domínio nova mora aqui além da fiação de
+  estado/props.
 
 A escala 6x1 não foi tocada nestas fases — este documento descreve o
 conceito para que uma fase futura que precise dar ao 6x1 um Editor
 equivalente (célula a célula, já existe de forma mais simples via
 `celulaEditando`) tenha uma referência de vocabulário e princípios, não
 para forçar uma unificação de código agora.
+
+## 9. Limitação pré-existente de leitura corrigida no repository, não na Rule
+
+A Rule de `rascunhosCompetenciasPlantao/{id}` e de
+`rascunhosCompetenciasPlantao/{id}/atribuicoes/{atribuicaoId}` depende de
+`resource.data.grupoId` (um campo do documento, não uma variável de
+path) — o Firestore não consegue validar um `list` sem filtro contra
+essa regra para ninguém além de ADMIN_SISTEMA (achado original da
+PLANTÃO-3A, ver PLANTOES.md § 21.8). A ESCALAS-UX-1B.1 precisava que um
+GESTOR_EQUIPE comum conseguisse listar os próprios rascunhos para
+reabri-los — resolvido adicionando `where('grupoId', '==', grupoId)` às
+duas consultas, no **repository** (`lib/firebase/plantaoReadRepository.ts`),
+nunca na Rule: `firestore.rules` permanece com diff zero. O `where` não
+amplia quem pode ler (confirmado por teste de Rules com um gestor de
+outro grupo, que continua sem acesso) — só dá ao Firestore a informação
+que faltava para validar a consulta.
+
+## 10. Rascunho é retomável — o round-trip completo
+
+O ciclo básico do Editor só fica completo quando "salvar" e "reabrir"
+são o inverso exato um do outro:
+
+```
+  criar/importar
+        |
+        v
+  WORKING COPY  (AtribuicaoPlantaoEditavel[])
+        |
+        v      montarAtribuicoesPlantaoRascunho() + converterMomentoParaInstanteUtc()
+   RASCUNHO PERSISTIDO  (AtribuicaoPlantaoPersistida[], instante UTC)
+        |
+        v      reidratarRascunhoPlantao() + converterInstanteUtcParaMomento()
+  WORKING COPY  (de novo — mesmo tipo, mesmo Editor)
+        |
+        v
+   editar / salvar de novo
+```
+
+Garantias que fazem esse ciclo seguro:
+
+- **Round-trip temporal exato**: `converterInstanteUtcParaMomento()` é o
+  inverso de `converterMomentoParaInstanteUtc()` — o horário civil que o
+  coordenador digitou volta a ser exibido, nunca o instante UTC como se
+  fosse a hora digitada. Testado para várias timezones/horas em
+  `packages/contrato/test/modeloPlantaoPersistente.test.ts`, nunca
+  dependente da timezone da máquina que roda o código.
+- **Origem preservada**: reabrir nunca transforma `IMPORTADO` em
+  `MANUAL` nem vice-versa (§ 7/§ 9 acima).
+- **Identidade estável**: a working copy reidratada usa
+  `idLocal = "rehidratado-${atribuicaoId}"` (nunca posicional) — editar/
+  excluir depois de reabrir nunca confunde qual atribuição é qual.
+- **Sincronização exata ao salvar de novo**: o conjunto persistido
+  precisa ficar EXATAMENTE igual à working copy — nunca só "o que está
+  na working copy foi gravado", também "o que não está mais na working
+  copy foi removido". `salvarAtribuicoesPlantaoRascunho()` diz quais
+  `atribuicaoId` já existiam (mesma competência) e inclui `batch.delete()`
+  para os que saíram, no MESMO lote das atualizações — nunca uma segunda
+  chamada separada que poderia deixar o Firestore num estado misto.
+- **Participante inativo referenciado nunca desaparece**: uma
+  atribuição persistida continua aparecendo mesmo que o participante
+  tenha sido desativado depois de salva (`reidratarRascunhoPlantao()`
+  resolve o nome de qualquer participante, ativo ou não); só o `<select>`
+  de novas atribuições considera participantes ativos.
+- **Conferência da fonte nunca é reconstruída**: para um rascunho
+  reaberto — `IMPORTADO` ou `MANUAL` — `resultadoPlantao` permanece
+  `null`. O modelo persistido nunca guardou a contabilidade por
+  plantonista declarada na planilha original (só os dois agregados da
+  competência, `totalBruto`/`totaisInformadosOrigem`); inventar essa
+  reconstrução seria fabricar dado que não existe. Registrado como
+  limitação conhecida, não uma omissão silenciosa — ver PLANTOES.md
+  § 26.2.
+- **Grupo sempre atual**: reabrir usa a configuração ATUAL do Grupo
+  (nome, timezone, participantes) para a UI/autorização — nunca um
+  snapshot de quando o rascunho foi salvo. As atribuições persistidas
+  em si nunca mudam por isso. Se a timezone do Grupo mudar DEPOIS de um
+  rascunho ser salvo, o round-trip usa a timezone ATUAL para reabrir —
+  um instante UTC persistido sob uma timezone antiga seria exibido com
+  o horário civil errado. O modelo não guarda um snapshot de timezone
+  por competência; risco registrado (não resolvido nesta fase — mudar o
+  schema para snapshot exigiria autorização explícita de uma fase
+  própria).

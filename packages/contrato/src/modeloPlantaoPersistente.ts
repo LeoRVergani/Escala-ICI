@@ -281,6 +281,53 @@ export function converterMomentoParaInstanteUtc(
   return new Date(instanteUtc).toISOString();
 }
 
+/**
+ * Fase ESCALAS-UX-1B.1 — a operação INVERSA de `converterMomentoParaInstanteUtc()`:
+ * um instante absoluto (ISO 8601 UTC, o que fica persistido em
+ * `AtribuicaoPlantaoPersistida.inicio`/`.fim`) mais o timezone do Grupo
+ * voltam a ser o momento civil `{ data, hora }` que o coordenador via no
+ * Editor antes de salvar — necessário para reabrir um rascunho existente
+ * na MESMA working copy, sem nunca mostrar o instante em UTC como se
+ * fosse o horário que a pessoa digitou.
+ *
+ * Mais simples que a direção direta: um `Date` já representa um instante
+ * inequívoco, então basta formatá-lo com `Intl.DateTimeFormat` usando o
+ * `timeZone` do Grupo — nenhuma estimativa em duas passadas é necessária
+ * (essa técnica só existe na direção direta porque ali o offset ainda é
+ * desconhecido no início do cálculo). Determinístico e independente do
+ * timezone da máquina que roda o código — nunca usa o timezone padrão do
+ * processo/SO.
+ */
+export function converterInstanteUtcParaMomento(
+  instanteUtc: string,
+  timezone: string,
+): MomentoPlantao {
+  const instante = new Date(instanteUtc);
+  if (Number.isNaN(instante.getTime())) {
+    throw new Error(`Instante UTC inválido: "${instanteUtc}".`);
+  }
+  if (!timezoneValida(timezone)) {
+    throw new Error(`Timezone inválida: "${timezone}".`);
+  }
+
+  const formatador = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const partes = Object.fromEntries(
+    formatador.formatToParts(instante).map((parte) => [parte.type, parte.value]),
+  );
+  return {
+    data: `${partes.year}-${partes.month}-${partes.day}`,
+    hora: `${partes.hour}:${partes.minute}`,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Validações puras (retornam a lista de erros; vazio = válido — mesmo
 // padrão de `validarEdicaoUsuario()` em lib/importUsers.ts)

@@ -4927,3 +4927,19 @@ fieldset.checkbox-card-list > legend {
   padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border));
   border-radius: 8px; background: var(--warning-soft);
 }
+
+/*
+ * Fase ESCALAS-UX-1B.1 — lista de rascunhos existentes de um Grupo, na
+ * tela "Plantões" (participantes expandidos). Mesma paleta/espaçamento
+ * das listas já existentes (`.plantao-busca-resultados`), sem nenhum
+ * sistema visual novo.
+ */
+.plantao-rascunhos-secao { margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.plantao-rascunhos-secao h3 { margin: 0 0 var(--space-2); font-size: 13px; }
+.plantao-rascunhos-lista { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.plantao-rascunho-item {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2);
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted);
+}
+.plantao-rascunho-item > div { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.plantao-rascunho-item > div > span:not(.status-badge) { color: var(--muted); }

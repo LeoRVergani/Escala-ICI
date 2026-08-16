@@ -57,6 +57,38 @@ export function criarAtribuicoesEditaveis(
   }));
 }
 
+/**
+ * Fase ESCALAS-UX-1B.1 — constrói UMA atribuição editável a partir de uma
+ * atribuição JÁ PERSISTIDA (reabertura de rascunho). Diferente de
+ * `criarAtribuicoesEditaveis()` (que gera `idLocal` sequencial por
+ * posição — correto só para uma leitura fresca do parser, nunca
+ * persistida antes): aqui `idLocal` é derivado do `atribuicaoId` REAL e
+ * estável, para a mesma atribuição sempre receber o mesmo `idLocal` entre
+ * reaberturas — nunca confundir "qual atribuição é essa" ao
+ * editar/excluir depois de reidratar. Recebe início/fim JÁ em horário
+ * civil — a conversão do instante UTC persistido é responsabilidade de
+ * quem chama (`lib/montagemRascunhoPlantao.ts`), para este módulo
+ * continuar sem nenhum conhecimento de timezone.
+ */
+export function criarAtribuicaoEditavelDePersistida(opcoes: {
+  atribuicaoId: string;
+  plantonistaNomeOriginal: string;
+  inicio: MomentoPlantao;
+  fim: MomentoPlantao;
+  duracaoMinutos: number;
+}): AtribuicaoPlantaoEditavel {
+  return {
+    plantonistaNomeOriginal: opcoes.plantonistaNomeOriginal,
+    inicio: opcoes.inicio,
+    fim: opcoes.fim,
+    duracaoMinutos: opcoes.duracaoMinutos,
+    linhaOrigem: -1,
+    abaOrigem: '',
+    idLocal: `rehidratado-${opcoes.atribuicaoId}`,
+    origemImportacao: true,
+  };
+}
+
 let proximoIdManual = 0;
 
 /**

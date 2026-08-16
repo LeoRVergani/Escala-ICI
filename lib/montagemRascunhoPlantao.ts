@@ -1,5 +1,6 @@
 import {
   competenciaOperacional,
+  converterInstanteUtcParaMomento,
   converterMomentoParaInstanteUtc,
   idAtribuicaoPlantao,
   idCompetenciaPlantao,
@@ -11,7 +12,9 @@ import {
   type ParticipantePlantao,
   type ResultadoParsePlantao,
 } from '@escala-ici/contrato';
-import type { AtribuicaoPlantaoComVinculo, VinculoPlantao } from './conciliacaoPlantoes';
+import { nomeParticipantePlantao, vinculosDeParticipantesGrupoPlantao, type AtribuicaoPlantaoComVinculo, type VinculoPlantao } from './conciliacaoPlantoes';
+import { criarAtribuicaoEditavelDePersistida, type AtribuicaoPlantaoEditavel } from './editorPlantao';
+import type { Usuario } from './modelos';
 
 /**
  * Fase PLANTÃO-3B — ponte pura entre a prévia validada de Plantão (Fase
@@ -295,5 +298,83 @@ export function montarGrupoPlantaoParaSalvar(opcoes: {
     criadoPorLogin: grupoExistente?.criadoPorLogin ?? loginAtual,
     criadoEm: grupoExistente?.criadoEm ?? agoraIso,
     atualizadoEm: agoraIso,
+  };
+}
+
+export interface RascunhoPlantaoReidratado {
+  grupo: GrupoPlantao;
+  competencia: CompetenciaPlantao;
+  origem: OrigemPlantao;
+  atribuicoesEditaveis: AtribuicaoPlantaoEditavel[];
+  vinculos: VinculoPlantao[];
+  /** Sempre `false` — reabrir um rascunho nunca começa "sujo" (ver docs/spec/EDITOR_ESCALAS.md § 10). */
+  dirtyInicial: false;
+}
+
+/**
+ * Fase ESCALAS-UX-1B.1 — a operação inversa de `montarAtribuicoesPlantaoRascunho()`/
+ * `montarCompetenciaPlantaoRascunho()`: converte o que está persistido
+ * (`CompetenciaPlantao` + `AtribuicaoPlantaoPersistida[]` + `GrupoPlantao`)
+ * de volta na MESMA working copy que o Editor sempre usa
+ * (`AtribuicaoPlantaoEditavel[]`, `lib/editorPlantao.ts`) — nunca um
+ * segundo tipo de working copy, nunca um segundo Editor.
+ *
+ * Preserva a `origem` exatamente como foi persistida (`IMPORTADO` continua
+ * `IMPORTADO`, `MANUAL` continua `MANUAL` — nunca "tudo vira MANUAL por
+ * ter sido reaberto"). Para `IMPORTADO`, a "Conferência da fonte" (as três
+ * camadas de verdade da planilha original) NÃO pode ser reconstruída — o
+ * modelo persistido nunca guardou a contabilidade por plantonista
+ * declarada na fonte, só os dois agregados da competência
+ * (`totalBruto`/`totaisInformadosOrigem`, já usados para outra coisa); o
+ * chamador deve manter `resultadoPlantao = null` mesmo quando `origem ===
+ * 'IMPORTADO'` — exatamente o comportamento já usado hoje para `MANUAL`
+ * (ver docs/spec/PLANTOES.md § 26.2, limitação registrada, não inventada
+ * silenciosamente).
+ *
+ * `participantes` deve incluir TODOS os participantes do grupo (ativos e
+ * inativos) — uma atribuição persistida pode referenciar um login que foi
+ * desativado depois de salva; ela precisa continuar aparecendo (nunca
+ * apagada), então o nome dela precisa ser resolvido de qualquer jeito.
+ * `vinculos` (o que autoriza "Salvar rascunho") só considera os
+ * participantes ATIVOS — reativar alguém é responsabilidade da tela
+ * "Plantões", não do Editor.
+ *
+ * Módulo puro: sem React, sem Firebase — quem chama já leu tudo via
+ * `plantaoReadRepository.ts`.
+ */
+export function reidratarRascunhoPlantao(dados: {
+  grupo: GrupoPlantao;
+  competencia: CompetenciaPlantao;
+  atribuicoesPersistidas: readonly AtribuicaoPlantaoPersistida[];
+  participantes: readonly ParticipantePlantao[];
+  usuarios: readonly Usuario[];
+}): RascunhoPlantaoReidratado {
+  const { grupo, competencia, atribuicoesPersistidas, participantes, usuarios } = dados;
+  const participantePorLogin = new Map(participantes.map((item) => [item.login, item] as const));
+
+  const atribuicoesEditaveis = atribuicoesPersistidas.map((persistida) => {
+    const participante = participantePorLogin.get(persistida.plantonistaLogin);
+    const nomeOriginal = participante !== undefined
+      ? nomeParticipantePlantao(participante, usuarios)
+      : (usuarios.find((usuario) => usuario.login === persistida.plantonistaLogin)?.nome ?? persistida.plantonistaLogin);
+    return criarAtribuicaoEditavelDePersistida({
+      atribuicaoId: persistida.atribuicaoId,
+      plantonistaNomeOriginal: nomeOriginal,
+      inicio: converterInstanteUtcParaMomento(persistida.inicio, grupo.timezone),
+      fim: converterInstanteUtcParaMomento(persistida.fim, grupo.timezone),
+      duracaoMinutos: persistida.duracaoMinutos,
+    });
+  });
+
+  const participantesAtivos = participantes.filter((item) => item.ativo);
+  const vinculos = vinculosDeParticipantesGrupoPlantao(participantesAtivos, usuarios);
+
+  return {
+    grupo,
+    competencia,
+    origem: competencia.origem,
+    atribuicoesEditaveis,
+    vinculos,
+    dirtyInicial: false,
   };
 }

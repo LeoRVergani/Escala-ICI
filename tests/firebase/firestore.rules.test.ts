@@ -10,6 +10,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  orderBy,
   query,
   runTransaction,
   setDoc,
@@ -2442,21 +2443,59 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
         doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08', 'atribuicoes', '0001'),
         atribuicaoPlantao({ duracaoMinutos: 720 }),
       ));
-      // Achado desta fase: a MESMA query sem `where` nesta subcoleção
-      // (idêntica à de `listarAtribuicoesPlantaoRascunho()`), quando feita
-      // como `usuarios.gestor`, falha no emulador com "Property grupoId is
-      // undefined on object" — a regra depende de `resource.data.grupoId`
-      // (não de uma variável de path, diferente da subcoleção
-      // `participantes`), o que o emulador não avalia de forma confiável
-      // para `list` sem filtro fora do papel ADMIN_SISTEMA. Registrado no
-      // relatório desta fase como limitação pré-existente (Fase PLANTÃO-3A)
-      // a investigar depois — `firestore.rules` fica congelado nesta fase,
-      // então o teste aqui verifica só o que de fato se sustenta hoje.
+      // Achado da Fase PLANTÃO-3A, mantido aqui como registro histórico: a
+      // MESMA query SEM `where` nesta subcoleção falha no emulador com
+      // "Property grupoId is undefined on object" para `usuarios.gestor`
+      // (funciona só para ADMIN_SISTEMA) — a regra depende de
+      // `resource.data.grupoId` (não de uma variável de path, diferente da
+      // subcoleção `participantes`), e o Firestore exige um `where` que
+      // corresponda a esse campo para validar um `list` sem precisar
+      // avaliar a regra contra a coleção inteira.
       const adminDb = autenticarComo(usuarios.admin);
-      const atribuicoes = await assertSucceeds(getDocs(
+      const semFiltro = await assertSucceeds(getDocs(
         collection(adminDb, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08', 'atribuicoes'),
       ));
-      expect(atribuicoes.docs).toHaveLength(1);
+      expect(semFiltro.docs).toHaveLength(1);
+
+      // Fase ESCALAS-UX-1B.1 — corrigido no REPOSITORY (não em
+      // `firestore.rules`, que fica com diff zero): `listarAtribuicoesPlantaoRascunho()`
+      // agora inclui `where('grupoId', '==', grupoId)` — a MESMA query,
+      // com esse filtro, passa a funcionar para `usuarios.gestor` (o
+      // GESTOR_EQUIPE autorizado que precisa reabrir o próprio rascunho),
+      // sem nenhuma mudança na Rule.
+      const gestorDb = autenticarComo(usuarios.gestor);
+      const comFiltro = await assertSucceeds(getDocs(query(
+        collection(gestorDb, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08', 'atribuicoes'),
+        where('grupoId', '==', 'PLANTAO_TESTE'),
+        orderBy('atribuicaoId'),
+      )));
+      expect(comFiltro.docs.map((item) => item.id)).toEqual(['0001']);
+
+      // Um gestor de outro grupo (fora do escopo) continua sem conseguir
+      // ler — o `where` melhora a validação do `list`, nunca relaxa quem
+      // pode ler.
+      const foraDeEscopoDb = autenticarComo(gestorForaEscopo);
+      await assertFails(getDocs(query(
+        collection(foraDeEscopoDb, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08', 'atribuicoes'),
+        where('grupoId', '==', 'PLANTAO_TESTE'),
+        orderBy('atribuicaoId'),
+      )));
+    });
+
+    it('Fase ESCALAS-UX-1B.1 — listarCompetenciasPlantaoRascunho(): o GESTOR_EQUIPE autorizado lista os rascunhos do próprio grupo (mesma técnica de where(grupoId) na coleção de competências)', async () => {
+      const gestorDb = autenticarComo(usuarios.gestor);
+      const resultado = await assertSucceeds(getDocs(query(
+        collection(gestorDb, 'rascunhosCompetenciasPlantao'),
+        where('grupoId', '==', 'PLANTAO_TESTE'),
+      )));
+      expect(resultado.docs.map((item) => item.id)).toEqual(['PLANTAO_TESTE_2026-08']);
+
+      // Um gestor de outro grupo não vê o rascunho deste grupo.
+      const foraDeEscopoDb = autenticarComo(gestorForaEscopo);
+      await assertFails(getDocs(query(
+        collection(foraDeEscopoDb, 'rascunhosCompetenciasPlantao'),
+        where('grupoId', '==', 'PLANTAO_TESTE'),
+      )));
     });
   });
 });

@@ -1750,3 +1750,167 @@ modal só para eliminar uma navegação extra.
 
 Ver `CHECKPOINT-FASE-ESCALAS-UX-1B-NOVA-ESCALA-VAZIA.md` para o
 detalhamento completo desta fase.
+
+## 26. ESCALAS-UX-1B.1 — reabrir rascunho de Plantão no mesmo Editor
+
+A ESCALAS-UX-1B fechou "criar/importar → editar → salvar", mas registrou
+explicitamente (§ 25.5) que "Abrir rascunho existente" ainda não
+reidratava o calendário — faltava a conversão inversa de instante UTC
+persistido para momento civil. Esta fase fecha esse ciclo:
+
+> **Criar/importar → editar → salvar → fechar → reabrir → continuar
+> editando → salvar de novo.**
+
+Sem reimportar XLS, sem recriar a escala, sem perder edições, sem
+alterar horários por causa de timezone, sem duplicar atribuições.
+
+### 26.1 A conversão inversa
+
+`converterInstanteUtcParaMomento()` (novo,
+`packages/contrato/src/modeloPlantaoPersistente.ts`) é o inverso exato
+de `converterMomentoParaInstanteUtc()` (PLANTÃO-3A) — instante UTC
+persistido + timezone do Grupo → `MomentoPlantao` civil. Mais simples
+que a direção direta: um `Date` já representa um instante inequívoco,
+então basta formatá-lo com `Intl.DateTimeFormat({timeZone})` — nenhuma
+estimativa em duas passadas é necessária (essa técnica só existe na
+direção direta porque ali o offset ainda é desconhecido no início do
+cálculo). Determinístico, nunca depende da timezone da máquina que roda
+o código; rejeita timezone inválida ou instante malformado, nunca cai
+silenciosamente na timezone local. Testado com round-trip completo
+(civil → UTC → civil resulta no momento original) para várias
+timezones/horas, incluindo as bordas reais de 43h/5h da fixture — nunca
+normalizadas.
+
+### 26.2 Reidratação — persistido vira working copy
+
+`reidratarRascunhoPlantao()` (novo, `lib/montagemRascunhoPlantao.ts`)
+converte `CompetenciaPlantao` + `AtribuicaoPlantaoPersistida[]` +
+`GrupoPlantao` de volta na MESMA working copy do Editor
+(`AtribuicaoPlantaoEditavel[]`, `lib/editorPlantao.ts`) — nunca um
+segundo tipo, nunca um segundo Editor. Preserva a `origem` exatamente
+como persistida (`IMPORTADO` continua `IMPORTADO`, `MANUAL` continua
+`MANUAL` — nunca "tudo vira MANUAL por ter sido reaberto"). `idLocal` é
+derivado do `atribuicaoId` real (`rehidratado-${atribuicaoId}`, nunca
+posicional) — estável entre reaberturas.
+
+**Limitação registrada, não uma omissão silenciosa**: para um rascunho
+`IMPORTADO`, a "Conferência da fonte" (32 intervalos/504h bruto, 31/480h
+soma individual, 31/468h declarado — PLANTÃO-3B.1) NÃO é reconstruída ao
+reabrir. O modelo persistido (`CompetenciaPlantao.totalBruto`/
+`.totaisInformadosOrigem`) só guarda dois agregados da competência,
+nunca a contabilidade por plantonista declarada linha a linha na
+planilha original — esse dado nunca foi persistido (só existe em
+`ResultadoParsePlantao.contabilidadeInformada`, output do parser, nunca
+gravado no Firestore). Por isso `resultadoPlantao` permanece `null` ao
+reabrir, **mesmo para origem `IMPORTADO`** — exatamente como já
+acontecia para `MANUAL`. A PLANTÃO-3C poderá decidir se vale persistir
+mais evidência da importação antes da publicação; esta fase não
+aumentou o schema para isso.
+
+Participante inativo referenciado por uma atribuição persistida nunca
+desaparece: `reidratarRascunhoPlantao()` resolve o nome de QUALQUER
+participante do Grupo (ativo ou não); só os vínculos (o que autoriza
+"Salvar rascunho") e o `<select>` de novas atribuições consideram
+participantes ativos.
+
+### 26.3 Limitação de leitura pré-existente (PLANTÃO-3A), corrigida no repository
+
+A Rule de `rascunhosCompetenciasPlantao/{id}` e de
+`.../atribuicoes/{atribuicaoId}` depende de `resource.data.grupoId` (um
+campo do documento, não uma variável de path) — o Firestore não valida
+um `list` sem filtro contra essa regra para ninguém além de
+ADMIN_SISTEMA (achado da PLANTÃO-3A § 21.8, confirmado no emulador com
+"Property grupoId is undefined on object" para GESTOR_EQUIPE). Como o
+coordenador que precisa reabrir um rascunho é quase sempre um
+GESTOR_EQUIPE, não um ADMIN_SISTEMA, essa limitação bloqueava
+diretamente o fluxo desta fase.
+
+**Corrigido no nível responsável — o repository, nunca a Rule**:
+`listarAtribuicoesPlantaoRascunho()` e a nova
+`listarCompetenciasPlantaoRascunho()` (`lib/firebase/plantaoReadRepository.ts`)
+passaram a incluir `where('grupoId', '==', grupoId)` na consulta. O
+`where` não é um filtro de negócio (todo documento já pertence a esse
+`grupoId` pelo próprio caminho) — é o que permite ao Firestore validar
+o `list` sem precisar avaliar a regra contra a coleção inteira.
+Confirmado empiricamente no emulador (`tests/firebase/firestore.rules.test.ts`):
+a mesma consulta, com o `where`, passa a funcionar para o GESTOR_EQUIPE
+autorizado e continua falhando para um gestor de outro grupo —
+**`firestore.rules` permanece com diff zero**, nenhuma permissão foi
+ampliada, nenhuma atribuição ficou pública.
+
+### 26.4 Sincronização exata ao salvar de novo — documentos órfãos
+
+`idAtribuicaoPlantao(indice)` é posicional (0001, 0002, ... pela ordem
+do array), nunca baseado numa identidade estável por atribuição. Isso
+significa que reabrir um rascunho, excluir uma atribuição no meio da
+lista e salvar de novo reindexa as atribuições restantes — sem nenhuma
+limpeza, o documento que tinha o ID mais alto antes nunca seria
+sobrescrito nem apagado, ficando órfão no Firestore para sempre. Esse
+bug já existia em teoria desde a PLANTÃO-3A (`salvarAtribuicoesPlantaoRascunho()`
+sempre foi só upsert), mas nunca era alcançável na prática — nenhum
+fluxo anterior editava-e-resalvava um rascunho JÁ persistido. Reabrir
+rascunho torna esse caminho real.
+
+**Corrigido em `salvarAtribuicoesPlantaoRascunho()`**: a função agora lê
+os `atribuicaoId` já persistidos desta competência (mesmo `where('grupoId',
+...)` do § 26.3), calcula quais não estão mais na lista nova, e inclui
+um `batch.delete()` para cada um — no MESMO lote de escrita das
+atualizações, nunca uma chamada separada que poderia deixar o Firestore
+num estado misto se falhasse sozinha. `grupoId` passou a ser parâmetro
+explícito da função (nunca derivado de `atribuicoes[0]`, porque excluir
+TODAS as atribuições produz um array vazio, que não indicaria de quem
+são os documentos a limpar). Testado explicitamente: excluir 1 de 3 e
+salvar limpa exatamente o órfão; excluir todas e salvar limpa tudo;
+salvar de novo sem alterações não exclui nem duplica nada; adicionar
+uma atribuição nova nunca exclui as anteriores.
+
+### 26.5 "Abrir rascunho" — onde vive na UI
+
+Na tela "Plantões", cada Grupo expandido agora mostra uma seção
+"Rascunhos" (competência, período 26→25, status RASCUNHO, botão "Abrir
+rascunho" — só para quem administra o grupo). Dentro de "+ Nova escala",
+quando já existe um rascunho para o Grupo/competência escolhidos, o
+botão "Abrir rascunho existente" chama o MESMO fluxo diretamente — não
+exige mais navegação indireta pela tela "Plantões" (limitação registrada
+na ESCALAS-UX-1B). As duas entradas chamam a mesma ação
+(`abrirRascunhoNoEditorAcao`), que nunca navega para o Editor antes da
+leitura terminar (estados distintos de carregando/erro/não encontrado —
+erro de permissão nunca é mascarado como "não encontrado").
+
+### 26.6 Dirty state
+
+Corrigido de passagem: `salvarRascunhoPlantaoAcao()` não zerava o
+indicador de "Alterações não salvas" depois de um salvamento
+bem-sucedido — o indicador continuava aceso mesmo com o rascunho já
+salvo. Agora zera, junto com a atualização da lista de rascunhos
+carregada na tela "Plantões" (para o rascunho recém-salvo aparecer ali
+sem precisar recarregar a página).
+
+### 26.7 O que esta fase explicitamente NÃO faz
+
+- Nenhuma publicação (`publicarPlantao()` continua inexistente);
+  nenhuma mudança de Firestore Rules — `test:firestore-rules` permanece
+  em 153/153 + 1 teste novo (154), diff zero em `firestore.rules`.
+- Nenhum "Copiar período anterior" (`origem: 'COPIADO'` continua
+  registrada como futura, não implementada).
+- Nenhum drag-and-drop.
+- Nenhum gerador/distribuição automática.
+- Nenhuma mudança funcional na escala 6x1, em `OrganizationTree`/
+  `OrganizationTeamPicker`/`lib/organizacao.ts`, ou hardcode de NOC
+  (reconfirmado: `EQ_NOC` continua só em seed/fixtures).
+- **Reidratar a "Conferência da fonte" de um rascunho `IMPORTADO`
+  reaberto** — limitação registrada em § 26.2, não implementada (o
+  modelo persistido não guarda o dado necessário).
+- **Marcar visualmente "(Inativo)" no `<select>` de plantonista** para
+  um participante desativado referenciado por uma atribuição existente
+  — a atribuição em si nunca desaparece (§ 26.2), mas o rótulo visual
+  distintivo foi deixado de fora desta fase (item explicitamente opcional
+  no pedido original — "pode marcar"); registrado como possível
+  refinamento futuro, não uma omissão de comportamento.
+- Nenhuma mudança em `ParticipanteConsolidadoPlantao` nem em nenhum
+  outro tipo já existente do Editor — a limpeza de órfãos e a
+  reidratação coube inteiramente em funções novas ou parâmetros novos
+  em funções já existentes.
+
+Ver `CHECKPOINT-FASE-ESCALAS-UX-1B1-REABRIR-RASCUNHO.md` para o
+detalhamento completo desta fase.

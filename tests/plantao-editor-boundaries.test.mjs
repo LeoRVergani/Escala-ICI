@@ -198,3 +198,75 @@ test('19. apps/app (PWA do colaborador) continua sem nenhum editor administrativ
     assert.doesNotMatch(fonte, new RegExp(proibido, 'u'), proibido);
   }
 });
+
+// Fase ESCALAS-UX-1B.1: reabrir um rascunho de Plantão no MESMO Editor
+// (round-trip UTC↔civil + reidratação da working copy). Ver
+// docs/spec/PLANTOES.md § 26 e CHECKPOINT-FASE-ESCALAS-UX-1B1-REABRIR-RASCUNHO.md.
+
+test('20. reidratarRascunhoPlantao() (lib/montagemRascunhoPlantao.ts) é pura — sem React, sem Firestore', async () => {
+  const fonte = semComentarios(await ler('lib/montagemRascunhoPlantao.ts'));
+  for (const proibido of ['firebase/firestore', 'firebase/auth', 'setDoc', 'updateDoc', 'getDoc', 'getDocs', "from 'react'", 'useState', 'useEffect']) {
+    assert.doesNotMatch(fonte, new RegExp(proibido.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'), proibido);
+  }
+});
+
+test('21. converterInstanteUtcParaMomento()/converterMomentoParaInstanteUtc() (packages/contrato/src/modeloPlantaoPersistente.ts) nunca importam Firebase nem dependem da timezone do host', async () => {
+  const fonte = semComentarios(await ler('packages/contrato/src/modeloPlantaoPersistente.ts'));
+  for (const proibido of ['firebase/firestore', 'firebase/auth', "from 'firebase", 'Intl.DateTimeFormat().resolvedOptions']) {
+    assert.doesNotMatch(fonte, new RegExp(proibido.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'), proibido);
+  }
+  assert.match(fonte, /export function converterInstanteUtcParaMomento/u, 'a conversão inversa precisa existir e ser exportada');
+});
+
+test('22. reabrir um rascunho continua usando a MESMA working copy/calendário/modal — nenhum segundo Editor, nenhuma segunda estrutura de dados', async () => {
+  const [editor, calendario, modal, dashboard, montagem] = await Promise.all([
+    ler('lib/editorPlantao.ts'),
+    ler('components/plantao/PlantaoCalendario.tsx'),
+    ler('components/plantao/ModalEditarAtribuicaoPlantao.tsx'),
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('lib/montagemRascunhoPlantao.ts'),
+  ]);
+  const fontes = [editor, calendario, modal, dashboard, montagem].map(semComentarios);
+  const contarOcorrencias = (regex) => fontes.reduce((soma, fonte) => soma + (fonte.match(regex) ?? []).length, 0);
+
+  assert.equal(contarOcorrencias(/interface AtribuicaoPlantaoEditavel\b/gu), 1, 'só pode existir UMA definição de working copy de Plantão');
+  assert.equal(contarOcorrencias(/function PlantaoCalendario\b/gu), 1, 'só pode existir UM componente de calendário de Plantão');
+  assert.equal(contarOcorrencias(/function ModalEditarAtribuicaoPlantao\b/gu), 1, 'só pode existir UM modal de edição de atribuição de Plantão');
+  assert.equal(contarOcorrencias(/function reidratarRascunhoPlantao\b/gu), 1, 'só pode existir UMA função de reidratação');
+  assert.doesNotMatch(
+    semComentarios(dashboard),
+    /function EditorRascunhoPlantao|function CalendarioRascunhoPlantao|AtribuicaoPlantaoRascunhoEditavelV2/u,
+    'reabrir um rascunho não pode ter um Editor/tipo próprio',
+  );
+});
+
+test('23. a limpeza de documentos órfãos em salvarAtribuicoesPlantaoRascunho() nunca usa deleteDoc solto — sempre dentro do mesmo batch das atualizações (atomicidade)', async () => {
+  const fonte = semComentarios(await ler('lib/firebase/plantaoWriteRepository.ts'));
+  assert.doesNotMatch(fonte, /\bdeleteDoc\(/u, 'exclusão de atribuições órfãs deve ser batch.delete(), nunca deleteDoc() solto');
+  assert.match(fonte, /batch\.delete\(/u, 'a limpeza de documentos órfãos precisa existir');
+});
+
+test('24. nenhuma publicação, nenhum copiar-anterior, nenhum drag-and-drop foram introduzidos por esta fase', async () => {
+  const arquivos = await Promise.all([
+    ler('lib/montagemRascunhoPlantao.ts'),
+    ler('lib/editorPlantao.ts'),
+    ler('lib/firebase/plantaoWriteRepository.ts'),
+    ler('lib/firebase/plantaoReadRepository.ts'),
+  ]);
+  for (const fonteBruta of arquivos) {
+    const fonte = semComentarios(fonteBruta);
+    assert.doesNotMatch(fonte, /function\s+publicarPlantao/u, 'nenhuma função de publicação pode existir nesta fase');
+    assert.doesNotMatch(fonte, /['"]competenciasPlantao['"]/u, 'a coleção PUBLICADA nunca é escrita por esta fase');
+    for (const proibido of ['onDragStart', 'onDrop', 'draggable', 'copiarPeriodoAnterior', 'copiarEscalaAnterior']) {
+      assert.doesNotMatch(fonte, new RegExp(proibido, 'iu'), proibido);
+    }
+  }
+});
+
+test('25. firestore.rules continua com diff zero — a correção de leitura para GESTOR_EQUIPE foi feita no repository, nunca na Rule', async () => {
+  // Prova indireta: nenhuma das funções novas/alteradas do repository de
+  // leitura referencia "firestore.rules" como algo a modificar, e o
+  // `where('grupoId', ...)` (a correção real) vive no client, não na Rule.
+  const leitura = semComentarios(await ler('lib/firebase/plantaoReadRepository.ts'));
+  assert.match(leitura, /where\('grupoId', '==', grupoId\)/u, "a correção de list precisa estar no repository (where('grupoId', ...))");
+});

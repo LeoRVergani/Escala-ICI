@@ -5,7 +5,7 @@ import {
   type GrupoPlantao,
   type ParticipantePlantao,
 } from '@escala-ici/contrato';
-import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, orderBy, query, where } from 'firebase/firestore';
 
 import { exigirFirebase } from './shared';
 
@@ -68,14 +68,49 @@ export async function obterCompetenciaPlantaoRascunho(
   return snapshot.exists() ? (snapshot.data() as CompetenciaPlantao) : null;
 }
 
+/**
+ * Fase ESCALAS-UX-1B.1 — todos os rascunhos (qualquer competência) de um
+ * Grupo, para a tela "Plantões" listar "Abrir rascunho" sem o coordenador
+ * precisar saber de antemão qual competência já foi salva. Mesmo
+ * raciocínio do `where('grupoId', ...)` de `listarAtribuicoesPlantaoRascunho()`:
+ * a Rule de `rascunhosCompetenciasPlantao/{id}` também depende de
+ * `resource.data.grupoId` (não de uma variável de path), então o filtro
+ * aqui é o que permite o Firestore validar este `list` para um
+ * GESTOR_EQUIPE autorizado, não só para ADMIN_SISTEMA.
+ */
+export async function listarCompetenciasPlantaoRascunho(grupoId: string): Promise<CompetenciaPlantao[]> {
+  const { db } = exigirFirebase();
+  const resultado = await getDocs(query(
+    collection(db, 'rascunhosCompetenciasPlantao'),
+    where('grupoId', '==', grupoId),
+  ));
+  return resultado.docs.map((snapshot) => snapshot.data() as CompetenciaPlantao);
+}
+
+/**
+ * Fase ESCALAS-UX-1B.1 — o `where('grupoId', ...)` aqui não é um filtro de
+ * negócio (todo documento desta subcoleção já pertence a este `grupoId`
+ * pelo próprio caminho) — é o que permite a Rule desta subcoleção (que
+ * depende de `resource.data.grupoId`, não de uma variável de path, ver
+ * `docs/spec/PLANTOES.md` § 21.8/§ 26.3) ser validada estaticamente pelo
+ * Firestore para um `list` sem precisar avaliar a regra contra a coleção
+ * inteira. Sem esse `where`, a mesma consulta falha no emulador para um
+ * GESTOR_EQUIPE autorizado (funciona só para ADMIN_SISTEMA) — corrigido
+ * aqui, no repository, sem nenhuma mudança em `firestore.rules`.
+ * `orderBy('atribuicaoId')` garante ordem determinística (0001, 0002, ...)
+ * — necessária para reidratar a working copy na mesma ordem em que foi
+ * salva, já que `getDocs()` sem `orderBy` não garante ordem alguma.
+ */
 export async function listarAtribuicoesPlantaoRascunho(
   grupoId: string,
   competencia: string,
 ): Promise<AtribuicaoPlantaoPersistida[]> {
   const { db } = exigirFirebase();
   const id = idCompetenciaPlantao(grupoId, competencia);
-  const resultado = await getDocs(
+  const resultado = await getDocs(query(
     collection(db, 'rascunhosCompetenciasPlantao', id, 'atribuicoes'),
-  );
+    where('grupoId', '==', grupoId),
+    orderBy('atribuicaoId'),
+  ));
   return resultado.docs.map((snapshot) => snapshot.data() as AtribuicaoPlantaoPersistida);
 }

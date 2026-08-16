@@ -13,8 +13,9 @@ vi.mock('./shared', () => ({
 
 vi.mock('firebase/firestore', () => ({
   collection: (_db: unknown, ...segmentos: string[]) => ({ __caminho: segmentos.join('/') }),
-  where: (campo: string, operador: string, valor: unknown) => ({ campo, operador, valor }),
-  query: (colecaoRef: { __caminho: string }, ...condicoes: Array<{ campo: string; operador: string; valor: unknown }>) => ({
+  where: (campo: string, operador: string, valor: unknown) => ({ __tipo: 'where', campo, operador, valor }),
+  orderBy: (campo: string) => ({ __tipo: 'orderBy', campo }),
+  query: (colecaoRef: { __caminho: string }, ...condicoes: Array<{ __tipo: string; campo: string; operador?: string; valor?: unknown }>) => ({
     __caminho: colecaoRef.__caminho,
     condicoes,
   }),
@@ -28,30 +29,37 @@ vi.mock('firebase/firestore', () => ({
       data: () => encontrado?.data,
     };
   },
-  getDocs: async (ref: { __caminho: string; condicoes?: Array<{ campo: string; operador: string; valor: unknown }> }) => {
+  getDocs: async (ref: { __caminho: string; condicoes?: Array<{ __tipo: string; campo: string; operador?: string; valor?: unknown }> }) => {
     const partes = ref.__caminho.split('/');
     let fonte: Array<{ id: string; data: Record<string, unknown> }> = [];
     if (partes[0] === 'gruposPlantao' && partes.length === 1) {
       fonte = estado.gruposPlantao;
     } else if (partes[0] === 'gruposPlantao' && partes[2] === 'participantes') {
       fonte = estado.participantes[partes[1] as string] ?? [];
+    } else if (partes[0] === 'rascunhosCompetenciasPlantao' && partes.length === 1) {
+      fonte = estado.rascunhosCompetencias;
     } else if (partes[0] === 'rascunhosCompetenciasPlantao' && partes[2] === 'atribuicoes') {
       fonte = estado.atribuicoes[partes[1] as string] ?? [];
     }
-    const condicoes = ref.condicoes ?? [];
-    const filtrados = fonte.filter((item) => condicoes.every((condicao) => {
+    const filtrosWhere = (ref.condicoes ?? []).filter((condicao) => condicao.__tipo === 'where');
+    const ordenacao = (ref.condicoes ?? []).find((condicao) => condicao.__tipo === 'orderBy');
+    let filtrados = fonte.filter((item) => filtrosWhere.every((condicao) => {
       const valorCampo = item.data[condicao.campo];
       if (condicao.operador === 'array-contains') {
         return Array.isArray(valorCampo) && valorCampo.includes(condicao.valor);
       }
       return valorCampo === condicao.valor;
     }));
+    if (ordenacao !== undefined) {
+      filtrados = [...filtrados].sort((a, b) => String(a.data[ordenacao.campo]).localeCompare(String(b.data[ordenacao.campo])));
+    }
     return { docs: filtrados.map((item) => ({ id: item.id, data: () => item.data })) };
   },
 }));
 
 const {
   listarAtribuicoesPlantaoRascunho,
+  listarCompetenciasPlantaoRascunho,
   listarGruposPlantaoPermitidos,
   listarParticipantesPlantao,
   listarTodosGruposPlantao,
@@ -146,13 +154,48 @@ describe('obterCompetenciaPlantaoRascunho / listarAtribuicoesPlantaoRascunho', (
     expect(resultado?.status).toBe('RASCUNHO');
   });
 
-  it('lista as atribuições da competência correta', async () => {
+  it('lista as atribuições da competência correta, ordenadas por atribuicaoId', async () => {
     estado.atribuicoes = {
       'PLANTAO_SEGURANCA_2026-08': [
-        { id: '0001', data: { atribuicaoId: '0001', plantonistaLogin: 'acosta' } },
+        { id: '0002', data: { atribuicaoId: '0002', grupoId: 'PLANTAO_SEGURANCA', plantonistaLogin: 'blima' } },
+        { id: '0001', data: { atribuicaoId: '0001', grupoId: 'PLANTAO_SEGURANCA', plantonistaLogin: 'acosta' } },
       ],
     };
     const resultado = await listarAtribuicoesPlantaoRascunho('PLANTAO_SEGURANCA', '2026-08');
-    expect(resultado.map((a) => a.atribuicaoId)).toEqual(['0001']);
+    expect(resultado.map((a) => a.atribuicaoId)).toEqual(['0001', '0002']);
+  });
+
+  // Fase ESCALAS-UX-1B.1 — o `where('grupoId', ...)` existe para permitir
+  // ao Firestore validar o `list` sem `resource.data` ambíguo (ver
+  // docs/spec/PLANTOES.md § 26.3), não como filtro de negócio real (todo
+  // documento da subcoleção já pertence ao grupoId do próprio caminho) —
+  // mas o mock precisa respeitar o filtro do mesmo jeito, então uma
+  // atribuição com `grupoId` diferente (nunca deveria existir na prática,
+  // mas a query não pode silenciosamente ignorar o filtro) não aparece.
+  it('nunca retorna uma atribuição de outro grupoId', async () => {
+    estado.atribuicoes = {
+      'PLANTAO_SEGURANCA_2026-08': [
+        { id: '0001', data: { atribuicaoId: '0001', grupoId: 'PLANTAO_OUTRO', plantonistaLogin: 'acosta' } },
+      ],
+    };
+    const resultado = await listarAtribuicoesPlantaoRascunho('PLANTAO_SEGURANCA', '2026-08');
+    expect(resultado).toEqual([]);
+  });
+});
+
+describe('listarCompetenciasPlantaoRascunho — Fase ESCALAS-UX-1B.1 (listar rascunhos existentes de um Grupo)', () => {
+  it('lista todos os rascunhos do grupo informado, sem misturar com outro grupo', async () => {
+    estado.rascunhosCompetencias = [
+      { id: 'PLANTAO_SEGURANCA_2026-08', data: { id: 'PLANTAO_SEGURANCA_2026-08', grupoId: 'PLANTAO_SEGURANCA', competencia: '2026-08', status: 'RASCUNHO' } },
+      { id: 'PLANTAO_SEGURANCA_2026-07', data: { id: 'PLANTAO_SEGURANCA_2026-07', grupoId: 'PLANTAO_SEGURANCA', competencia: '2026-07', status: 'RASCUNHO' } },
+      { id: 'PLANTAO_REDES_2026-08', data: { id: 'PLANTAO_REDES_2026-08', grupoId: 'PLANTAO_REDES', competencia: '2026-08', status: 'RASCUNHO' } },
+    ];
+    const resultado = await listarCompetenciasPlantaoRascunho('PLANTAO_SEGURANCA');
+    expect(resultado.map((item) => item.competencia).sort()).toEqual(['2026-07', '2026-08']);
+  });
+
+  it('retorna lista vazia quando o grupo não tem nenhum rascunho', async () => {
+    const resultado = await listarCompetenciasPlantaoRascunho('PLANTAO_SEGURANCA');
+    expect(resultado).toEqual([]);
   });
 });

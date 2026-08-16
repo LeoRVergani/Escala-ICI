@@ -8,7 +8,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const estado = vi.hoisted(() => ({
   escritaHabilitada: true,
-  operacoes: [] as Array<{ tipo: 'set' | 'update'; colecao: string; id: string; dados: Record<string, unknown> }>,
+  operacoes: [] as Array<{ tipo: 'set' | 'update' | 'delete'; colecao: string; id: string; dados?: Record<string, unknown> }>,
+  /** Fase ESCALAS-UX-1B.1 — simula o que já existe no Firestore antes de `salvarAtribuicoesPlantaoRascunho()` rodar, para testar a limpeza de documentos órfãos. */
+  atribuicoesJaPersistidas: [] as Array<{ id: string; grupoId: string }>,
 }));
 
 vi.mock('./shared', () => ({
@@ -21,7 +23,13 @@ vi.mock('./shared', () => ({
 }));
 
 vi.mock('firebase/firestore', () => ({
+  collection: (_db: unknown, ...segmentos: string[]) => ({ __colecao: segmentos.at(-1) }),
   doc: (_db: unknown, ...segmentos: string[]) => ({ __colecao: segmentos.at(-2), __id: segmentos.at(-1) }),
+  query: (colecaoRef: { __colecao: string }, ...filtros: unknown[]) => ({ __colecaoRef: colecaoRef, __filtros: filtros }),
+  where: (campo: string, operador: string, valor: unknown) => ({ __tipo: 'where', campo, operador, valor }),
+  getDocs: async (_consulta: { __colecaoRef: { __colecao: string } }) => ({
+    docs: estado.atribuicoesJaPersistidas.map((item) => ({ id: item.id, data: () => item })),
+  }),
   setDoc: async (ref: { __colecao: string; __id: string }, dados: Record<string, unknown>) => {
     estado.operacoes.push({ tipo: 'set', colecao: ref.__colecao, id: ref.__id, dados });
   },
@@ -31,6 +39,9 @@ vi.mock('firebase/firestore', () => ({
   writeBatch: () => ({
     set: (ref: { __colecao: string; __id: string }, dados: Record<string, unknown>) => {
       estado.operacoes.push({ tipo: 'set', colecao: ref.__colecao, id: ref.__id, dados });
+    },
+    delete: (ref: { __colecao: string; __id: string }) => {
+      estado.operacoes.push({ tipo: 'delete', colecao: ref.__colecao, id: ref.__id });
     },
     commit: async () => {},
   }),
@@ -116,6 +127,7 @@ function atribuicaoValida(overrides: Partial<AtribuicaoPlantaoPersistida> = {}):
 beforeEach(() => {
   estado.escritaHabilitada = true;
   estado.operacoes.length = 0;
+  estado.atribuicoesJaPersistidas.length = 0;
 });
 
 describe('salvarGrupoPlantao', () => {
@@ -160,7 +172,7 @@ describe('salvarParticipantePlantao', () => {
         { rotulo: 'Celular pessoal', numero: '11988887777', ativo: false },
       ],
     }));
-    expect((estado.operacoes[0]?.dados.contatos as unknown[])).toHaveLength(3);
+    expect((estado.operacoes[0]?.dados?.contatos as unknown[])).toHaveLength(3);
   });
 
   it('rejeita mais de 3 contatos antes de enviar', async () => {
@@ -186,7 +198,7 @@ describe('desativarParticipantePlantao', () => {
     await desativarParticipantePlantao('PLANTAO_SEGURANCA', 'acosta');
     expect(estado.operacoes).toHaveLength(1);
     expect(estado.operacoes[0]?.tipo).toBe('update');
-    expect(estado.operacoes[0]?.dados.ativo).toBe(false);
+    expect(estado.operacoes[0]?.dados?.ativo).toBe(false);
   });
 });
 
@@ -212,19 +224,72 @@ describe('salvarCompetenciaPlantaoRascunho', () => {
 
 describe('salvarAtribuicoesPlantaoRascunho', () => {
   it('salva as atribuições em lote', async () => {
-    await salvarAtribuicoesPlantaoRascunho('PLANTAO_SEGURANCA_2026-08', [
+    await salvarAtribuicoesPlantaoRascunho('PLANTAO_SEGURANCA', 'PLANTAO_SEGURANCA_2026-08', [
       atribuicaoValida({ atribuicaoId: '0001' }),
       atribuicaoValida({ atribuicaoId: '0002', plantonistaLogin: 'blima' }),
     ]);
     expect(estado.operacoes).toHaveLength(2);
+    expect(estado.operacoes.every((o) => o.tipo === 'set')).toBe(true);
     expect(estado.operacoes.map((o) => o.id).sort()).toEqual(['0001', '0002']);
   });
 
   it('rejeita a lista inteira se qualquer atribuição for inválida (fim antes do início)', async () => {
-    await expect(salvarAtribuicoesPlantaoRascunho('PLANTAO_SEGURANCA_2026-08', [
+    await expect(salvarAtribuicoesPlantaoRascunho('PLANTAO_SEGURANCA', 'PLANTAO_SEGURANCA_2026-08', [
       atribuicaoValida({ atribuicaoId: '0001' }),
       atribuicaoValida({ atribuicaoId: '0002', inicio: '2026-07-26T10:00:00.000Z', fim: '2026-07-25T22:00:00.000Z' }),
     ])).rejects.toThrow();
     expect(estado.operacoes).toHaveLength(0);
+  });
+
+  // Fase ESCALAS-UX-1B.1 — reabrir um rascunho, excluir/editar/adicionar
+  // atribuições e salvar de novo precisa deixar o Firestore EXATAMENTE
+  // igual à working copy — nunca um documento órfão sobrando de antes.
+  describe('limpeza de documentos órfãos (reabrir rascunho → excluir → salvar)', () => {
+    it('exclui do Firestore o documento cujo atribuicaoId não está mais na lista nova', async () => {
+      estado.atribuicoesJaPersistidas = [
+        { id: '0001', grupoId: 'PLANTAO_SEGURANCA' },
+        { id: '0002', grupoId: 'PLANTAO_SEGURANCA' },
+        { id: '0003', grupoId: 'PLANTAO_SEGURANCA' },
+      ];
+      // A atribuição do meio foi excluída na working copy — o array novo
+      // reindexa para 0001/0002, deixando o antigo 0003 sem nenhum "set"
+      // que o sobrescreva.
+      await salvarAtribuicoesPlantaoRascunho('PLANTAO_SEGURANCA', 'PLANTAO_SEGURANCA_2026-08', [
+        atribuicaoValida({ atribuicaoId: '0001' }),
+        atribuicaoValida({ atribuicaoId: '0002', plantonistaLogin: 'blima' }),
+      ]);
+      const exclusoes = estado.operacoes.filter((o) => o.tipo === 'delete');
+      expect(exclusoes.map((o) => o.id)).toEqual(['0003']);
+    });
+
+    it('salvar sem nenhuma atribuição (todas excluídas) limpa todos os documentos antigos', async () => {
+      estado.atribuicoesJaPersistidas = [
+        { id: '0001', grupoId: 'PLANTAO_SEGURANCA' },
+        { id: '0002', grupoId: 'PLANTAO_SEGURANCA' },
+        { id: '0003', grupoId: 'PLANTAO_SEGURANCA' },
+      ];
+      await salvarAtribuicoesPlantaoRascunho('PLANTAO_SEGURANCA', 'PLANTAO_SEGURANCA_2026-08', []);
+      const exclusoes = estado.operacoes.filter((o) => o.tipo === 'delete');
+      expect(exclusoes.map((o) => o.id).sort()).toEqual(['0001', '0002', '0003']);
+    });
+
+    it('salvar de novo sem alterações não gera nenhuma exclusão nem duplicata — idempotente', async () => {
+      estado.atribuicoesJaPersistidas = [{ id: '0001', grupoId: 'PLANTAO_SEGURANCA' }];
+      await salvarAtribuicoesPlantaoRascunho('PLANTAO_SEGURANCA', 'PLANTAO_SEGURANCA_2026-08', [
+        atribuicaoValida({ atribuicaoId: '0001' }),
+      ]);
+      expect(estado.operacoes.filter((o) => o.tipo === 'delete')).toHaveLength(0);
+      expect(estado.operacoes.filter((o) => o.tipo === 'set')).toHaveLength(1);
+    });
+
+    it('adicionar uma atribuição nova (id além do que já existia) só grava a nova, sem excluir as anteriores', async () => {
+      estado.atribuicoesJaPersistidas = [{ id: '0001', grupoId: 'PLANTAO_SEGURANCA' }];
+      await salvarAtribuicoesPlantaoRascunho('PLANTAO_SEGURANCA', 'PLANTAO_SEGURANCA_2026-08', [
+        atribuicaoValida({ atribuicaoId: '0001' }),
+        atribuicaoValida({ atribuicaoId: '0002', plantonistaLogin: 'blima' }),
+      ]);
+      expect(estado.operacoes.filter((o) => o.tipo === 'delete')).toHaveLength(0);
+      expect(estado.operacoes.filter((o) => o.tipo === 'set')).toHaveLength(2);
+    });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AtribuicaoPlantaoBruta, CompetenciaPlantao, GrupoPlantao, ParticipantePlantao } from '@escala-ici/contrato';
+import type { AtribuicaoPlantaoBruta, AtribuicaoPlantaoPersistida, CompetenciaPlantao, GrupoPlantao, ParticipantePlantao } from '@escala-ici/contrato';
 
 import type { Usuario } from './modelos';
 
@@ -26,6 +26,7 @@ import {
   montarGrupoPlantaoParaSalvar,
   montarParticipantesPlantaoParaSalvar,
   periodoDaCompetencia,
+  reidratarRascunhoPlantao,
   sugerirCompetenciaPlantao,
   validarNovoPlantaoEmBranco,
 } from './montagemRascunhoPlantao';
@@ -699,5 +700,288 @@ describe('CRÍTICO — unificação do Editor: IMPORTADO e MANUAL usam a MESMA w
       agoraIso: '2026-08-01T00:00:00.000Z',
     });
     expect(payload).toHaveLength(1);
+  });
+});
+
+describe('reidratarRascunhoPlantao — Fase ESCALAS-UX-1B.1 (reabrir rascunho no mesmo Editor)', () => {
+  function usuario(overrides: Partial<Usuario> & { login: string; nome: string }): Usuario {
+    return {
+      email: `${overrides.login}@empresa.com`,
+      cargo: 'Analista',
+      equipeId: 'EQ_COSI',
+      gestorUid: null,
+      nivelHierarquico: 6,
+      turnoPadrao: 'M',
+      ativo: true,
+      ...overrides,
+    };
+  }
+
+  const USUARIOS = [
+    usuario({ login: 'acosta', nome: 'Ana Costa' }),
+    usuario({ login: 'blima', nome: 'Bruno Lima' }),
+  ];
+
+  function participantePlantao(overrides: Partial<ParticipantePlantao> & { login: string }): ParticipantePlantao {
+    return {
+      grupoId: 'PLANTAO_SEGURANCA',
+      ativo: true,
+      contatos: [],
+      schemaVersion: 1,
+      criadoPorLogin: 'gestor1',
+      criadoEm: '2026-08-01T00:00:00.000Z',
+      atualizadoEm: '2026-08-01T00:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  const GRUPO: GrupoPlantao = {
+    grupoId: 'PLANTAO_SEGURANCA',
+    nome: 'Plantão de Segurança',
+    equipeResponsavelId: 'EQ_COSI',
+    equipesConsulta: ['EQ_COSI'],
+    timezone: 'America/Sao_Paulo',
+    ativo: true,
+    schemaVersion: 1,
+    criadoPorLogin: 'gestor1',
+    criadoEm: '2026-08-01T00:00:00.000Z',
+    atualizadoEm: '2026-08-01T00:00:00.000Z',
+  };
+
+  function competenciaPersistida(overrides: Partial<CompetenciaPlantao> = {}): CompetenciaPlantao {
+    return {
+      id: 'PLANTAO_SEGURANCA_2026-08',
+      grupoId: 'PLANTAO_SEGURANCA',
+      competencia: '2026-08',
+      periodoInicio: '2026-07-26',
+      periodoFim: '2026-08-25',
+      status: 'RASCUNHO',
+      revisao: 0,
+      origem: 'MANUAL',
+      totaisInformadosOrigem: null,
+      totalBruto: { quantidade: 0, minutos: 0 },
+      schemaVersion: 1,
+      criadoPorLogin: 'gestor1',
+      criadoEm: '2026-08-01T00:00:00.000Z',
+      atualizadoEm: '2026-08-01T00:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  function atribuicaoPersistida(overrides: Partial<AtribuicaoPlantaoPersistida> & { atribuicaoId: string }): AtribuicaoPlantaoPersistida {
+    return {
+      grupoId: 'PLANTAO_SEGURANCA',
+      competenciaId: 'PLANTAO_SEGURANCA_2026-08',
+      plantonistaLogin: 'acosta',
+      inicio: '2026-07-26T22:00:00.000Z',
+      fim: '2026-07-27T10:00:00.000Z',
+      duracaoMinutos: 720,
+      papel: 'PRIMARIO',
+      origem: 'MANUAL',
+      revisao: 0,
+      schemaVersion: 1,
+      criadoEm: '2026-08-01T00:00:00.000Z',
+      atualizadoEm: '2026-08-01T00:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  it('1. rascunho MANUAL vazio (0 atribuições persistidas) reidrata para working copy vazia', () => {
+    const resultado = reidratarRascunhoPlantao({
+      grupo: GRUPO,
+      competencia: competenciaPersistida(),
+      atribuicoesPersistidas: [],
+      participantes: [participantePlantao({ login: 'acosta' })],
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoesEditaveis).toEqual([]);
+  });
+
+  it('2. rascunho MANUAL com atribuições reidrata cada uma delas', () => {
+    const resultado = reidratarRascunhoPlantao({
+      grupo: GRUPO,
+      competencia: competenciaPersistida(),
+      atribuicoesPersistidas: [atribuicaoPersistida({ atribuicaoId: '0001' }), atribuicaoPersistida({ atribuicaoId: '0002', plantonistaLogin: 'blima' })],
+      participantes: [participantePlantao({ login: 'acosta' }), participantePlantao({ login: 'blima' })],
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoesEditaveis).toHaveLength(2);
+  });
+
+  it('3. origem MANUAL persistida é preservada — nunca virou outra coisa por ter sido reaberta', () => {
+    const resultado = reidratarRascunhoPlantao({
+      grupo: GRUPO,
+      competencia: competenciaPersistida({ origem: 'MANUAL' }),
+      atribuicoesPersistidas: [],
+      participantes: [],
+      usuarios: USUARIOS,
+    });
+    expect(resultado.origem).toBe('MANUAL');
+  });
+
+  it('4. origem IMPORTADO persistida é preservada — nunca "cai" para MANUAL só porque foi reaberta pelo Editor', () => {
+    const resultado = reidratarRascunhoPlantao({
+      grupo: GRUPO,
+      competencia: competenciaPersistida({ origem: 'IMPORTADO' }),
+      atribuicoesPersistidas: [],
+      participantes: [],
+      usuarios: USUARIOS,
+    });
+    expect(resultado.origem).toBe('IMPORTADO');
+  });
+
+  it('5. competência preservada (rótulo AAAA-MM, período 26→25) — nunca recalculada a partir das atribuições', () => {
+    const resultado = reidratarRascunhoPlantao({
+      grupo: GRUPO,
+      competencia: competenciaPersistida({ competencia: '2026-08', periodoInicio: '2026-07-26', periodoFim: '2026-08-25' }),
+      atribuicoesPersistidas: [],
+      participantes: [],
+      usuarios: USUARIOS,
+    });
+    expect(resultado.competencia.competencia).toBe('2026-08');
+    expect(resultado.competencia.periodoInicio).toBe('2026-07-26');
+    expect(resultado.competencia.periodoFim).toBe('2026-08-25');
+  });
+
+  it('6. grupo preservado — o mesmo grupoId/timezone/nome usados na reidratação são devolvidos', () => {
+    const resultado = reidratarRascunhoPlantao({
+      grupo: GRUPO,
+      competencia: competenciaPersistida(),
+      atribuicoesPersistidas: [],
+      participantes: [],
+      usuarios: USUARIOS,
+    });
+    expect(resultado.grupo).toEqual(GRUPO);
+  });
+
+  it('7. login preservado — a atribuição reidratada resolve o mesmo participante (por nome, mas o vínculo aponta pro mesmo login)', () => {
+    const resultado = reidratarRascunhoPlantao({
+      grupo: GRUPO,
+      competencia: competenciaPersistida(),
+      atribuicoesPersistidas: [atribuicaoPersistida({ atribuicaoId: '0001', plantonistaLogin: 'blima' })],
+      participantes: [participantePlantao({ login: 'blima' })],
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoesEditaveis[0]?.plantonistaNomeOriginal).toBe('Bruno Lima');
+    expect(resultado.vinculos.find((v) => v.participanteNomeOriginal === 'Bruno Lima')?.login).toBe('blima');
+  });
+
+  it('8. início/fim civis corretos — o instante UTC persistido volta a ser o horário que o coordenador digitou', () => {
+    const resultado = reidratarRascunhoPlantao({
+      grupo: GRUPO,
+      competencia: competenciaPersistida(),
+      atribuicoesPersistidas: [atribuicaoPersistida({ atribuicaoId: '0001', inicio: '2026-07-26T22:00:00.000Z', fim: '2026-07-27T10:00:00.000Z' })],
+      participantes: [participantePlantao({ login: 'acosta' })],
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoesEditaveis[0]?.inicio).toEqual({ data: '2026-07-26', hora: '19:00' });
+    expect(resultado.atribuicoesEditaveis[0]?.fim).toEqual({ data: '2026-07-27', hora: '07:00' });
+  });
+
+  it('9. duração correta — nunca recalculada, sempre a persistida', () => {
+    const resultado = reidratarRascunhoPlantao({
+      grupo: GRUPO,
+      competencia: competenciaPersistida(),
+      atribuicoesPersistidas: [atribuicaoPersistida({ atribuicaoId: '0001', duracaoMinutos: 43 * 60 })],
+      participantes: [participantePlantao({ login: 'acosta' })],
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoesEditaveis[0]?.duracaoMinutos).toBe(43 * 60);
+  });
+
+  it('10. dirtyInicial é sempre false', () => {
+    const resultado = reidratarRascunhoPlantao({
+      grupo: GRUPO,
+      competencia: competenciaPersistida(),
+      atribuicoesPersistidas: [],
+      participantes: [],
+      usuarios: USUARIOS,
+    });
+    expect(resultado.dirtyInicial).toBe(false);
+  });
+
+  it('11. participante inativo referenciado por uma atribuição não desaparece — a atribuição continua reidratada com o nome correto', () => {
+    const resultado = reidratarRascunhoPlantao({
+      grupo: GRUPO,
+      competencia: competenciaPersistida(),
+      atribuicoesPersistidas: [atribuicaoPersistida({ atribuicaoId: '0001', plantonistaLogin: 'blima' })],
+      participantes: [participantePlantao({ login: 'blima', ativo: false })],
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoesEditaveis).toHaveLength(1);
+    expect(resultado.atribuicoesEditaveis[0]?.plantonistaNomeOriginal).toBe('Bruno Lima');
+    // Vínculo não inclui inativos — "Salvar rascunho" não conta esse participante como candidato ativo.
+    expect(resultado.vinculos.some((v) => v.login === 'blima')).toBe(false);
+  });
+
+  it('12. login que não corresponde a nenhum participante cadastrado (nem ativo nem inativo) ainda resolve pelo cadastro de usuários, nunca lança', () => {
+    const resultado = reidratarRascunhoPlantao({
+      grupo: GRUPO,
+      competencia: competenciaPersistida(),
+      atribuicoesPersistidas: [atribuicaoPersistida({ atribuicaoId: '0001', plantonistaLogin: 'acosta' })],
+      participantes: [],
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoesEditaveis[0]?.plantonistaNomeOriginal).toBe('Ana Costa');
+  });
+
+  it('13. login sem usuário cadastrado nenhum cai no próprio login como nome — nunca lança, nunca inventa nome', () => {
+    const resultado = reidratarRascunhoPlantao({
+      grupo: GRUPO,
+      competencia: competenciaPersistida(),
+      atribuicoesPersistidas: [atribuicaoPersistida({ atribuicaoId: '0001', plantonistaLogin: 'usuario-removido' })],
+      participantes: [],
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoesEditaveis[0]?.plantonistaNomeOriginal).toBe('usuario-removido');
+  });
+
+  it('14. CRÍTICO — round-trip completo: working copy A → persistir → reidratar → working copy B semanticamente igual (data/hora/login/duração/quantidade/origem/competência)', () => {
+    const vinculosIniciais = vinculosDeParticipantesGrupoPlantao(
+      [participantePlantao({ login: 'acosta' }), participantePlantao({ login: 'blima' })],
+      USUARIOS,
+    );
+    let workingCopyA = criarAtribuicoesEditaveis([]);
+    workingCopyA = adicionarAtribuicaoEditavel(workingCopyA, {
+      plantonistaNomeOriginal: 'Ana Costa',
+      inicio: { data: '2026-07-26', hora: '19:00' },
+      fim: { data: '2026-07-27', hora: '07:00' },
+      abaOrigem: '',
+    });
+    workingCopyA = adicionarAtribuicaoEditavel(workingCopyA, {
+      plantonistaNomeOriginal: 'Bruno Lima',
+      inicio: { data: '2026-07-31', hora: '19:00' },
+      fim: { data: '2026-08-01', hora: '19:00' },
+      abaOrigem: '',
+    });
+
+    const payload = montarAtribuicoesPlantaoRascunho({
+      grupoId: 'PLANTAO_SEGURANCA',
+      competenciaId: 'PLANTAO_SEGURANCA_2026-08',
+      atribuicoes: aplicarVinculosNasAtribuicoes(workingCopyA, vinculosIniciais),
+      timezone: 'America/Sao_Paulo',
+      origem: 'MANUAL',
+      agoraIso: '2026-08-01T00:00:00.000Z',
+    });
+
+    const resultado = reidratarRascunhoPlantao({
+      grupo: GRUPO,
+      competencia: competenciaPersistida({ origem: 'MANUAL' }),
+      atribuicoesPersistidas: payload,
+      participantes: [participantePlantao({ login: 'acosta' }), participantePlantao({ login: 'blima' })],
+      usuarios: USUARIOS,
+    });
+
+    expect(resultado.origem).toBe('MANUAL');
+    expect(resultado.competencia.competencia).toBe('2026-08');
+    expect(resultado.atribuicoesEditaveis).toHaveLength(2);
+
+    const semIdentidadeLocal = (item: (typeof resultado.atribuicoesEditaveis)[number]) =>
+      ({ plantonistaNomeOriginal: item.plantonistaNomeOriginal, inicio: item.inicio, fim: item.fim, duracaoMinutos: item.duracaoMinutos });
+    const original = workingCopyA.map(semIdentidadeLocal);
+    const reidratado = resultado.atribuicoesEditaveis.map(semIdentidadeLocal);
+    // Ordena pelos mesmos critérios (nome) para comparar sem depender de ordem de array/IDs transitórios.
+    const ordenar = (lista: typeof original) => [...lista].sort((a, b) => a.plantonistaNomeOriginal.localeCompare(b.plantonistaNomeOriginal));
+    expect(ordenar(reidratado)).toEqual(ordenar(original));
   });
 });

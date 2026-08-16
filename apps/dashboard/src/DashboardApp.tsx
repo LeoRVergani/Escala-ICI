@@ -6,6 +6,7 @@ import {
   conferirContabilidadePlantao,
   dataIsoLocal,
   equipesConsultaEfetivas,
+  formatarCompetencia,
   formatarData,
   formatarMinutos,
   idCompetenciaPlantao,
@@ -86,6 +87,7 @@ import {
   contarPendenciasVinculoPlantao,
   desfazerVinculoPlantao,
   iniciarVinculosPlantao,
+  nomeParticipantePlantao,
   previaPlantaoValidavel,
   vinculosDeParticipantesGrupoPlantao,
   type AtribuicaoPlantaoComVinculo,
@@ -128,6 +130,8 @@ import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
 import { ambienteFirebaseAtual } from '@/lib/firebase/shared';
 import {
+  listarAtribuicoesPlantaoRascunho,
+  listarCompetenciasPlantaoRascunho,
   listarGruposPlantaoPermitidos,
   listarParticipantesPlantao,
   listarTodosGruposPlantao,
@@ -145,6 +149,7 @@ import {
   montarCompetenciaPlantaoRascunho,
   montarParticipantesPlantaoParaSalvar,
   periodoDaCompetencia,
+  reidratarRascunhoPlantao,
   sugerirCompetenciaPlantao,
   validarNovoPlantaoEmBranco,
 } from '@/lib/montagemRascunhoPlantao';
@@ -224,6 +229,7 @@ import { OrganizationTeamPicker } from '@/components/organizacao/OrganizationTea
 import { OrganizationTree } from '@/components/organizacao/OrganizationTree';
 import { formatarDataHoraSafe } from '@/lib/dataSegura';
 import { useTeclaEsc } from '@/lib/hooks/useTeclaEsc';
+import { normalizarNome } from '@/lib/nomes';
 import {
   construirIndiceAlertasGrade,
   detectarDescansoInsuficiente,
@@ -2160,7 +2166,7 @@ function ModalNovaEscala({
   erro: string;
   criando: boolean;
   rascunhoExistente: CompetenciaPlantao | null;
-  onAbrirRascunhoExistente: () => void;
+  onAbrirRascunhoExistente: () => void | Promise<void>;
   onImportarPlanilha: () => void;
   onCriarVazia: () => void;
 }) {
@@ -2252,8 +2258,13 @@ function ModalNovaEscala({
             {rascunhoExistente !== null && (
               <div className="warning-panel-inline">
                 <span className="status-badge warning">Já existe um rascunho para este Plantão e competência.</span>
-                <button className="secondary-button compact-button" type="button" onClick={onAbrirRascunhoExistente}>
-                  Abrir rascunho existente
+                <button
+                  className="secondary-button compact-button"
+                  type="button"
+                  disabled={criando}
+                  onClick={() => void onAbrirRascunhoExistente()}
+                >
+                  {criando ? <LoaderCircle className="spin" size={14} /> : null} Abrir rascunho existente
                 </button>
               </div>
             )}
@@ -2856,6 +2867,17 @@ export function DashboardApp() {
   const [participantesPorGrupoPlantao, setParticipantesPorGrupoPlantao] = useState<Record<string, ParticipantePlantao[]>>({});
   const [grupoPlantaoExpandido, setGrupoPlantaoExpandido] = useState<string | null>(null);
   const [erroPlantaoAdmin, setErroPlantaoAdmin] = useState('');
+  // --- Reabrir rascunho (Fase ESCALAS-UX-1B.1) ---
+  const [rascunhosPlantaoPorGrupo, setRascunhosPlantaoPorGrupo] = useState<Record<string, CompetenciaPlantao[]>>({});
+  /**
+   * Estado transitório de "Abrir rascunho" — distingue carregando/erro/
+   * não encontrado (§ 17-19 da fase): nunca abre o calendário vazio
+   * enquanto a leitura está pendente, nunca confunde erro de permissão
+   * com "não encontrado". `null` = nenhuma abertura em andamento.
+   */
+  const [abrirRascunhoPlantaoStatus, setAbrirRascunhoPlantaoStatus] = useState<
+    { fase: 'carregando' } | { fase: 'erro'; mensagem: string } | { fase: 'nao-encontrado' } | null
+  >(null);
   /**
    * Carregamento de `equipesAdmin`/`unidadesAdmin` para o `OrganizationTeamPicker`
    * (Fase UI-ORG-1A) — inicia `true` e só vira `false` dentro do `.then()`
@@ -2958,16 +2980,34 @@ export function DashboardApp() {
    * vêm dos participantes ATIVOS do Grupo escolhido, resolvidos por login →
    * nome do usuário cadastrado (`consolidarParticipantesGrupoPlantao`).
    */
+  /**
+   * `resultadoPlantao === null` cobre MANUAL (nunca teve XLS) e qualquer
+   * origem REABERTA (Fase ESCALAS-UX-1B.1 — mesmo um rascunho
+   * originalmente IMPORTADO nunca reconstrói `resultadoPlantao`, porque o
+   * modelo persistido não guarda a contabilidade por plantonista
+   * declarada na fonte — ver `reidratarRascunhoPlantao()`). Nos dois
+   * casos, os candidatos vêm do Grupo, não de planilha.
+   *
+   * Inclui participantes INATIVOS quando (e só quando) uma atribuição da
+   * working copy atual ainda os referencia — uma atribuição persistida
+   * nunca desaparece só porque a pessoa foi desativada depois de salva
+   * (§ 29 da fase); sem isso, o `<select>` do modal de edição não teria
+   * nenhuma opção correspondendo ao nome já atribuído.
+   */
   const participantesPlantao = useMemo(() => {
-    if (origemPlantaoAtual === 'MANUAL') {
-      const participantesAtivos = (participantesPorGrupoPlantao[grupoRascunhoEscolhido] ?? []).filter((item) => item.ativo);
-      return consolidarParticipantesGrupoPlantao(participantesAtivos, usuarios, atribuicoesEditaveisPlantao);
+    if (resultadoPlantao !== null) {
+      return consolidarParticipantesPlantao({
+        atribuicoes: atribuicoesEditaveisPlantao,
+        contabilidadeInformada: resultadoPlantao.contabilidadeInformada,
+      });
     }
-    return resultadoPlantao === null ? [] : consolidarParticipantesPlantao({
-      atribuicoes: atribuicoesEditaveisPlantao,
-      contabilidadeInformada: resultadoPlantao.contabilidadeInformada,
-    });
-  }, [origemPlantaoAtual, resultadoPlantao, atribuicoesEditaveisPlantao, participantesPorGrupoPlantao, grupoRascunhoEscolhido, usuarios]);
+    const todosParticipantes = participantesPorGrupoPlantao[grupoRascunhoEscolhido] ?? [];
+    const ativos = todosParticipantes.filter((item) => item.ativo);
+    const nomesReferenciados = new Set(atribuicoesEditaveisPlantao.map((item) => normalizarNome(item.plantonistaNomeOriginal)));
+    const inativosReferenciados = todosParticipantes.filter((item) => !item.ativo
+      && nomesReferenciados.has(normalizarNome(nomeParticipantePlantao(item, usuarios))));
+    return consolidarParticipantesGrupoPlantao([...ativos, ...inativosReferenciados], usuarios, atribuicoesEditaveisPlantao);
+  }, [resultadoPlantao, atribuicoesEditaveisPlantao, participantesPorGrupoPlantao, grupoRascunhoEscolhido, usuarios]);
   const atribuicoesPlantaoComVinculo = useMemo(
     () => aplicarVinculosNasAtribuicoes(atribuicoesEditaveisPlantao, vinculosPlantao)
       .slice()
@@ -3715,19 +3755,30 @@ export function DashboardApp() {
   }
 
   /**
-   * Leva à mesma tela "Plantões" onde o rascunho existente já é visível
-   * (participantes/status), com o grupo expandido. Reabrir um rascunho
-   * existente DIRETO no calendário para continuar editando (reidratando a
-   * working copy a partir de `AtribuicaoPlantaoPersistida[]`, com a
-   * conversão inversa de instante UTC para horário civil) é um fluxo maior,
-   * fora do escopo desta fase — ver `CHECKPOINT-FASE-ESCALAS-UX-1B-NOVA-ESCALA-VAZIA.md`,
-   * "Próxima fase". Nunca sobrescreve nem cria um segundo rascunho.
+   * Fase ESCALAS-UX-1B.1 — quando "+ Nova escala" detecta que já existe um
+   * rascunho para o Grupo/competência escolhidos, esta ação abre esse
+   * rascunho DIRETO no Editor (`abrirRascunhoNoEditorAcao`), sem exigir
+   * navegação indireta pela tela "Plantões" (§ 35 da fase — antes desta
+   * fase, essa era a única opção, registrada como limitação na
+   * ESCALAS-UX-1B). Nunca sobrescreve nem cria um segundo rascunho.
    */
-  function abrirRascunhoExistenteNovoPlantao() {
-    const grupoId = novoPlantaoGrupoId;
-    fecharNovaEscala();
-    setTela('plantoes');
-    setGrupoPlantaoExpandido(grupoId);
+  async function abrirRascunhoExistenteNovoPlantao() {
+    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === novoPlantaoGrupoId);
+    const competenciaExistente = novoPlantaoRascunhoExistente;
+    if (grupo === undefined || competenciaExistente === null) {
+      return;
+    }
+    setNovoPlantaoCriando(true);
+    setNovoPlantaoErro('');
+    const resultado = await abrirRascunhoNoEditorAcao(grupo, competenciaExistente);
+    setNovoPlantaoCriando(false);
+    if (resultado.ok) {
+      fecharNovaEscala();
+    } else if (resultado.motivo === 'erro') {
+      setNovoPlantaoErro(resultado.mensagem);
+    } else {
+      setNovoPlantaoErro('Rascunho não encontrado — ele pode ter sido removido. Volte e tente novamente.');
+    }
   }
 
   /**
@@ -4564,6 +4615,10 @@ export function DashboardApp() {
 
   async function abrirParticipantesDoGrupo(grupoId: string) {
     setGrupoPlantaoExpandido((atual) => (atual === grupoId ? null : grupoId));
+    // Fase ESCALAS-UX-1B.1 — carrega os rascunhos do grupo junto (cache
+    // próprio, independente do de participantes) para a seção "Rascunhos"
+    // aparecer assim que o card expande, sem um segundo botão/toggle.
+    void garantirRascunhosDoGrupoCarregados(grupoId);
     if (modoDemo || participantesPorGrupoPlantao[grupoId] !== undefined) {
       return;
     }
@@ -4572,6 +4627,87 @@ export function DashboardApp() {
       setParticipantesPorGrupoPlantao((atuais) => ({ ...atuais, [grupoId]: participantes }));
     } catch (falha) {
       setErroPlantaoAdmin(mensagemErroFirebase(falha, 'Não foi possível carregar os participantes deste grupo.', ambienteFirebaseAtual));
+    }
+  }
+
+  /** Mesmo padrão de `abrirParticipantesDoGrupo()`, mas para a lista de rascunhos (§ 13 da fase) — cache próprio, nunca reconsulta se já carregado. */
+  async function garantirRascunhosDoGrupoCarregados(grupoId: string): Promise<CompetenciaPlantao[]> {
+    const cache = rascunhosPlantaoPorGrupo[grupoId];
+    if (modoDemo || cache !== undefined) {
+      return cache ?? [];
+    }
+    try {
+      const rascunhos = await listarCompetenciasPlantaoRascunho(grupoId);
+      setRascunhosPlantaoPorGrupo((atuais) => ({ ...atuais, [grupoId]: rascunhos }));
+      return rascunhos;
+    } catch (falha) {
+      setErroPlantaoAdmin(mensagemErroFirebase(falha, 'Não foi possível carregar os rascunhos deste grupo.', ambienteFirebaseAtual));
+      return [];
+    }
+  }
+
+  /**
+   * Fase ESCALAS-UX-1B.1 — o coração do "reabrir rascunho": lê
+   * Grupo/competência/atribuições/participantes já persistidos via
+   * `plantaoReadRepository.ts` (nenhuma query nova no Dashboard), reidrata
+   * com `reidratarRascunhoPlantao()` e alimenta o MESMO estado que
+   * `interpretarPlantao()`/`criarPlantaoEmBrancoAcao()` já usam — o
+   * Editor que abre a seguir é exatamente o mesmo, nunca um segundo.
+   * Nunca navega para "Importar" antes da leitura terminar (§ 17 da
+   * fase) — o calendário só aparece depois que tudo foi carregado com
+   * sucesso.
+   */
+  async function abrirRascunhoNoEditorAcao(
+    grupo: GrupoPlantao,
+    competenciaAlvo: CompetenciaPlantao,
+  ): Promise<{ ok: true } | { ok: false; motivo: 'nao-encontrado' } | { ok: false; motivo: 'erro'; mensagem: string }> {
+    setAbrirRascunhoPlantaoStatus({ fase: 'carregando' });
+    try {
+      const [atribuicoesPersistidas, participantes, competenciaFresca] = await Promise.all([
+        modoDemo ? Promise.resolve([]) : listarAtribuicoesPlantaoRascunho(grupo.grupoId, competenciaAlvo.competencia),
+        modoDemo ? Promise.resolve(participantesPorGrupoPlantao[grupo.grupoId] ?? []) : listarParticipantesPlantao(grupo.grupoId),
+        modoDemo ? Promise.resolve(competenciaAlvo) : obterCompetenciaPlantaoRascunho(grupo.grupoId, competenciaAlvo.competencia),
+      ]);
+      if (competenciaFresca === null) {
+        setAbrirRascunhoPlantaoStatus({ fase: 'nao-encontrado' });
+        return { ok: false, motivo: 'nao-encontrado' };
+      }
+
+      const reidratado = reidratarRascunhoPlantao({
+        grupo,
+        competencia: competenciaFresca,
+        atribuicoesPersistidas,
+        participantes,
+        usuarios,
+      });
+
+      setParticipantesPorGrupoPlantao((atuais) => ({ ...atuais, [grupo.grupoId]: participantes }));
+      setGruposPlantaoAdmin((atuais) => (atuais.some((item) => item.grupoId === grupo.grupoId) ? atuais : [...atuais, grupo]));
+      setArquivo(null);
+      setNomeArquivo('');
+      setResultadoPlantao(null);
+      setOrigemPlantaoAtual(reidratado.origem);
+      setAtribuicoesEditaveisPlantao(reidratado.atribuicoesEditaveis);
+      setPlantaoEditadoDesdeImportacao(false);
+      setVinculosPlantao(reidratado.vinculos);
+      setPreviaPlantaoValidada(previaPlantaoValidavel(reidratado.vinculos));
+      setAbaPreviaPlantao('calendario');
+      setBuscaVinculoPlantao({});
+      setGrupoRascunhoEscolhido(grupo.grupoId);
+      setCompetenciaRascunho(reidratado.competencia.competencia);
+      setPeriodoInicioRascunho(reidratado.competencia.periodoInicio);
+      setPeriodoFimRascunho(reidratado.competencia.periodoFim);
+      setErroRascunhoPlantao('');
+      setRascunhoPlantaoSalvoEm(null);
+      setTipoArquivoDetectado('PLANTAO');
+      setMensagem(`Rascunho de Plantão reaberto — "${grupo.nome}" (${reidratado.competencia.competencia}). Nenhum dado foi publicado.`);
+      setAbrirRascunhoPlantaoStatus(null);
+      setTela('importar');
+      return { ok: true };
+    } catch (falha) {
+      const mensagem = mensagemErroFirebase(falha, 'Não foi possível abrir este rascunho.', ambienteFirebaseAtual);
+      setAbrirRascunhoPlantaoStatus({ fase: 'erro', mensagem });
+      return { ok: false, motivo: 'erro', mensagem };
     }
   }
 
@@ -4735,9 +4871,21 @@ export function DashboardApp() {
           await salvarParticipantePlantao(participante);
         }
         await salvarCompetenciaPlantaoRascunho(competenciaParaSalvar);
-        await salvarAtribuicoesPlantaoRascunho(competenciaId, atribuicoesParaSalvar);
+        await salvarAtribuicoesPlantaoRascunho(grupo.grupoId, competenciaId, atribuicoesParaSalvar);
       }
       setParticipantesPorGrupoPlantao((atuais) => ({ ...atuais, [grupo.grupoId]: participantesParaSalvar }));
+      // Fase ESCALAS-UX-1B.1 — "Depois de salvar: dirty = false" (§ 20 da
+      // fase): sem isto, o indicador "Alterações não salvas" continuava
+      // aceso mesmo logo após um "Salvar rascunho" bem-sucedido.
+      setPlantaoEditadoDesdeImportacao(false);
+      // Mantém a lista de rascunhos da tela "Plantões" coerente sem
+      // precisar recarregar a página — a competência recém-salva aparece/
+      // atualiza imediatamente ali também.
+      setRascunhosPlantaoPorGrupo((atuais) => {
+        const existentes = atuais[grupo.grupoId] ?? [];
+        const outras = existentes.filter((item) => item.id !== competenciaParaSalvar.id);
+        return { ...atuais, [grupo.grupoId]: [...outras, competenciaParaSalvar] };
+      });
       setRascunhoPlantaoSalvoEm(grupo.grupoId);
       setMensagem(`Rascunho de Plantão salvo para "${grupo.nome}" (${competencia}). Nenhum dado foi publicado.`);
     } catch (falha) {
@@ -6216,6 +6364,47 @@ export function DashboardApp() {
                         )}
                       </>
                     )}
+                    <div className="plantao-rascunhos-secao">
+                      <h3>Rascunhos</h3>
+                      {(rascunhosPlantaoPorGrupo[grupo.grupoId] ?? []).length === 0 ? (
+                        <p className="empty-inline">Nenhum rascunho salvo ainda para este grupo.</p>
+                      ) : (
+                        <ul className="plantao-rascunhos-lista">
+                          {(rascunhosPlantaoPorGrupo[grupo.grupoId] ?? []).map((rascunho) => (
+                            <li key={rascunho.id} className="plantao-rascunho-item">
+                              <div>
+                                <strong>{formatarCompetencia(rascunho.competencia)}</strong>
+                                <span>
+                                  {formatarData(rascunho.periodoInicio, { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                  {' → '}
+                                  {formatarData(rascunho.periodoFim, { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                </span>
+                                <span className="status-badge neutral">RASCUNHO</span>
+                              </div>
+                              {gerencio && (
+                                <button
+                                  className="secondary-button compact-button"
+                                  type="button"
+                                  disabled={abrirRascunhoPlantaoStatus?.fase === 'carregando'}
+                                  onClick={() => void abrirRascunhoNoEditorAcao(grupo, rascunho)}
+                                >
+                                  {abrirRascunhoPlantaoStatus?.fase === 'carregando'
+                                    ? <LoaderCircle className="spin" size={14} />
+                                    : <ArrowUpRight size={14} />}
+                                  {' '}Abrir rascunho
+                                </button>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {abrirRascunhoPlantaoStatus?.fase === 'erro' && (
+                        <p className="admin-form-erro" role="alert">{abrirRascunhoPlantaoStatus.mensagem}</p>
+                      )}
+                      {abrirRascunhoPlantaoStatus?.fase === 'nao-encontrado' && (
+                        <p className="admin-form-erro" role="alert">Rascunho não encontrado.</p>
+                      )}
+                    </div>
                   </div>
                 )}
               </article>

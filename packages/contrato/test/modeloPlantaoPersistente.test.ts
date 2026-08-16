@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  converterInstanteUtcParaMomento,
   converterMomentoParaInstanteUtc,
   equipesConsultaEfetivas,
   idAtribuicaoPlantao,
@@ -333,6 +334,86 @@ describe('converterMomentoParaInstanteUtc — timezone determinística, sem depe
 
   it('rejeita momento malformado', () => {
     expect(() => converterMomentoParaInstanteUtc({ data: '2026-13-99', hora: '19:00' }, 'America/Sao_Paulo')).toThrow();
+  });
+});
+
+describe('converterInstanteUtcParaMomento — Fase ESCALAS-UX-1B.1 (operação inversa, para reabrir um rascunho)', () => {
+  it('22:00 UTC em America/Sao_Paulo volta a ser 19:00 (o inverso exato do primeiro teste acima)', () => {
+    const momento = converterInstanteUtcParaMomento('2026-07-25T22:00:00.000Z', 'America/Sao_Paulo');
+    expect(momento).toEqual({ data: '2026-07-25', hora: '19:00' });
+  });
+
+  it('10:00 UTC volta a ser 07:00', () => {
+    const momento = converterInstanteUtcParaMomento('2026-07-26T10:00:00.000Z', 'America/Sao_Paulo');
+    expect(momento).toEqual({ data: '2026-07-26', hora: '07:00' });
+  });
+
+  it('03:00 UTC volta a ser 00:00 do mesmo dia civil', () => {
+    const momento = converterInstanteUtcParaMomento('2026-07-25T03:00:00.000Z', 'America/Sao_Paulo');
+    expect(momento).toEqual({ data: '2026-07-25', hora: '00:00' });
+  });
+
+  it('02:00 UTC do dia seguinte volta a ser 23:00 do dia anterior — a virada de dia também é revertida', () => {
+    const momento = converterInstanteUtcParaMomento('2026-07-26T02:00:00.000Z', 'America/Sao_Paulo');
+    expect(momento).toEqual({ data: '2026-07-25', hora: '23:00' });
+  });
+
+  it('duração de 12h (plantão comum) preservada no round-trip: início e fim revertidos batem com o original', () => {
+    const inicioUtc = converterMomentoParaInstanteUtc({ data: '2026-07-26', hora: '19:00' }, 'America/Sao_Paulo');
+    const fimUtc = converterMomentoParaInstanteUtc({ data: '2026-07-27', hora: '07:00' }, 'America/Sao_Paulo');
+    expect(converterInstanteUtcParaMomento(inicioUtc, 'America/Sao_Paulo')).toEqual({ data: '2026-07-26', hora: '19:00' });
+    expect(converterInstanteUtcParaMomento(fimUtc, 'America/Sao_Paulo')).toEqual({ data: '2026-07-27', hora: '07:00' });
+  });
+
+  it('duração de 24h preservada no round-trip', () => {
+    const inicioUtc = converterMomentoParaInstanteUtc({ data: '2026-07-31', hora: '19:00' }, 'America/Sao_Paulo');
+    const fimUtc = converterMomentoParaInstanteUtc({ data: '2026-08-01', hora: '19:00' }, 'America/Sao_Paulo');
+    expect(converterInstanteUtcParaMomento(inicioUtc, 'America/Sao_Paulo')).toEqual({ data: '2026-07-31', hora: '19:00' });
+    expect(converterInstanteUtcParaMomento(fimUtc, 'America/Sao_Paulo')).toEqual({ data: '2026-08-01', hora: '19:00' });
+  });
+
+  it('borda real de 43h (fixture) preservada exatamente — nunca normalizada no round-trip', () => {
+    const inicioUtc = converterMomentoParaInstanteUtc({ data: '2026-07-25', hora: '00:00' }, 'America/Sao_Paulo');
+    const fimUtc = converterMomentoParaInstanteUtc({ data: '2026-07-26', hora: '19:00' }, 'America/Sao_Paulo');
+    expect(converterInstanteUtcParaMomento(inicioUtc, 'America/Sao_Paulo')).toEqual({ data: '2026-07-25', hora: '00:00' });
+    expect(converterInstanteUtcParaMomento(fimUtc, 'America/Sao_Paulo')).toEqual({ data: '2026-07-26', hora: '19:00' });
+  });
+
+  it('borda real de 5h (fixture) preservada exatamente — nunca normalizada no round-trip', () => {
+    const inicioUtc = converterMomentoParaInstanteUtc({ data: '2026-08-25', hora: '19:00' }, 'America/Sao_Paulo');
+    const fimUtc = converterMomentoParaInstanteUtc({ data: '2026-08-26', hora: '00:00' }, 'America/Sao_Paulo');
+    expect(converterInstanteUtcParaMomento(inicioUtc, 'America/Sao_Paulo')).toEqual({ data: '2026-08-25', hora: '19:00' });
+    expect(converterInstanteUtcParaMomento(fimUtc, 'America/Sao_Paulo')).toEqual({ data: '2026-08-26', hora: '00:00' });
+  });
+
+  it('rejeita timezone inválida — nunca cai silenciosamente na timezone da máquina', () => {
+    expect(() => converterInstanteUtcParaMomento('2026-08-25T22:00:00.000Z', 'Nao/Existe')).toThrow();
+  });
+
+  it('rejeita instante UTC malformado', () => {
+    expect(() => converterInstanteUtcParaMomento('não-é-uma-data', 'America/Sao_Paulo')).toThrow();
+  });
+
+  it('mesma entrada produz sempre o mesmo resultado (determinística)', () => {
+    const a = converterInstanteUtcParaMomento('2026-08-25T22:00:00.000Z', 'America/Sao_Paulo');
+    const b = converterInstanteUtcParaMomento('2026-08-25T22:00:00.000Z', 'America/Sao_Paulo');
+    expect(a).toEqual(b);
+  });
+
+  it('round-trip civil→UTC→civil resulta no momento original para várias horas e timezones — nunca depende do relógio/timezone da máquina', () => {
+    const casos: Array<{ momento: { data: string; hora: string }; timezone: string }> = [
+      { momento: { data: '2026-01-01', hora: '00:00' }, timezone: 'America/Sao_Paulo' },
+      { momento: { data: '2026-06-15', hora: '12:00' }, timezone: 'America/Sao_Paulo' },
+      { momento: { data: '2026-12-31', hora: '23:59' }, timezone: 'America/Sao_Paulo' },
+      { momento: { data: '2026-08-25', hora: '19:00' }, timezone: 'UTC' },
+      { momento: { data: '2026-08-25', hora: '19:00' }, timezone: 'America/New_York' },
+      { momento: { data: '2026-08-25', hora: '19:00' }, timezone: 'Asia/Tokyo' },
+    ];
+    for (const caso of casos) {
+      const instanteUtc = converterMomentoParaInstanteUtc(caso.momento, caso.timezone);
+      const devolta = converterInstanteUtcParaMomento(instanteUtc, caso.timezone);
+      expect(devolta, `${JSON.stringify(caso.momento)} em ${caso.timezone}`).toEqual(caso.momento);
+    }
   });
 });
 
