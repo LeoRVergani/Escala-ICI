@@ -1,10 +1,12 @@
-# Especificação — Plantões (arquitetura, Fase PLANTÃO-0)
+# Especificação — Plantões (arquitetura + parser, Fases PLANTÃO-0/1)
 
-Documento de **planejamento arquitetural**, não de estado implementado. Nada
-aqui está construído no código de produção — nenhuma coleção nova, nenhuma
-Rule nova, nenhum schema persistido. É a fonte de verdade para as fases
-seguintes (PLANTÃO-1 em diante), formalizando decisões de domínio antes de
-qualquer linha de código funcional.
+Documento de **planejamento arquitetural**, com uma fatia real já
+implementada a partir da Fase PLANTÃO-1 (seção 18): detecção de tipo de
+planilha e parser isolado de Plantão, ambos em `packages/contrato`, sem
+nenhuma persistência. Não há coleção Firestore nova, nenhuma Rule nova,
+nenhum schema persistido — isso continua para PLANTÃO-3. É a fonte de
+verdade para as fases seguintes (PLANTÃO-2 em diante), formalizando
+decisões de domínio antes de cada fatia de código funcional.
 
 Segue a mesma convenção dos demais documentos de `docs/spec/`: aponta para
 evidência real do código quando descreve o que já existe hoje (para não
@@ -201,7 +203,7 @@ conceitual do resultado esperado:
 Plantão de Segurança — COSI
 
 EM PLANTÃO AGORA
-Caroline Ribeiro de Freitas
+Ana Costa
 
 Início:  15/08 19:00
 Término: 16/08 19:00
@@ -209,7 +211,7 @@ Término: 16/08 19:00
 Contato corporativo: <número>
 Contato alternativo: <número>
 
-Próximo: Bruno Bueno, 16/08 19:00
+Próximo: Bruno Lima, 16/08 19:00
 ```
 
 Capacidades a prever (não implementar):
@@ -298,7 +300,7 @@ existente para a escala 6x1 (`lib/conciliacaoUsuarios.ts`,
 `aliasesPlanilha?` em `Usuario`, `lib/modelos.ts:100`):
 
 ```
-XLS (nome completo, ex. "Caroline Ribeiro de Freitas")
+XLS (nome completo, ex. "Ana Costa")
     ↓
 extrair nomes únicos
     ↓
@@ -382,8 +384,8 @@ quem está de plantão, início, término, contatos e próximo plantonista.
 ## 15. Sequência de fases prevista
 
 ```
-PLANTÃO-0  Arquitetura + correção visual                         (esta fase)
-PLANTÃO-1  Detector de planilha + parser isolado + fixture sanitizada
+PLANTÃO-0  Arquitetura + correção visual                         (concluída)
+PLANTÃO-1  Detector de planilha + parser isolado + fixture sanitizada  (concluída — ver seção 18)
 PLANTÃO-2  Preview no Dashboard + conciliação nome/login
 PLANTÃO-3  Persistência + Rules + grupos + participantes + contatos
 PLANTÃO-4  Central de Plantões no App
@@ -421,5 +423,211 @@ Nenhuma das fases 1–7 é iniciada nesta fase.
   explícita) é decisão de PLANTÃO-3, alinhada ao padrão de
   `equipesPermitidas`/`unidadesPermitidas` já existente.
 - Timezone por grupo é mencionado como campo necessário (planilha real
-  mistura virada de dia), mas a estratégia de armazenamento/exibição
-  (UTC + timezone vs. horário local gravado direto) é decisão de PLANTÃO-3.
+  mistura virada de dia), mas a estratégia de armazenamento/exibição em
+  Firestore (UTC + timezone vs. horário local gravado direto) continua
+  decisão de PLANTÃO-3. O que a PLANTÃO-1 já resolveu foi só o nível do
+  parser: `MomentoPlantao` representa data+hora como par civil
+  (`{data, hora}`, sem timezone anexado — ver seção 18) para não sofrer
+  conversão silenciosa pelo timezone da máquina que roda o código; isso não
+  fecha a decisão de timezone do Grupo de Plantão em si.
+- `interpretarMomento` (ver seção 18) lê a data/hora a partir do texto de
+  exibição da célula (`.w`, quando presente, senão `.v`). Uma célula de
+  data/hora genuinamente numérica (serial do Excel) sem nenhuma formatação
+  associada (`.w` ausente) não é decodificada automaticamente hoje — vira
+  erro de linha em vez de adivinhar silenciosamente. A fixture sanitizada
+  desta fase usa texto (mesma forma da planilha real analisada); esse
+  caminho numérico "puro" fica como risco aceito e documentado, a revisar
+  se aparecer um caso real assim em PLANTÃO-2.
+
+## 18. PLANTÃO-1 — o que foi implementado
+
+Tudo em `packages/contrato` (pacote puro, sem React/Firebase/DOM). Nenhuma
+persistência, nenhuma tela, nenhum login/conciliação (ver seção 10, ainda
+não implementada) — só leitura determinística de planilha.
+
+### Arquivos novos
+
+- `src/tiposPlantao.ts` — contrato puro (tipos abaixo).
+- `src/celulas.ts` — helpers genéricos de leitura de célula XLSX
+  (`obterCelula`/`valorCelula`/`textoCelula`/`ehVazio`), equivalentes aos
+  helpers privados já existentes em `parser.ts`, duplicados deliberadamente
+  para não tocar no parser 6x1 (ver seção 9).
+- `src/detectorPlanilha.ts` — `detectarTipoPlanilha()` (roteador) e
+  `localizarTabelaPlantao()` (localização da tabela de Plantão,
+  compartilhada com o parser).
+- `src/parserPlantao.ts` — `parsePlanilhaPlantao()` e os helpers puros
+  `calcularDuracaoBrutaDosIntervalos`, `detectarSobreposicoesPlantao`,
+  `identificarLacunasPlantao`, `listarPlantonistasUnicos`.
+- `src/normalizar.ts` ganhou uma função nova, `normalizarChaveEstrutural`
+  (remove tudo que não é letra/dígito, além de acento/caixa) — usada para
+  comparar cabeçalhos por assinatura estrutural. As duas funções já
+  existentes (`normalizarTexto`/`normalizarCelula`) não foram alteradas.
+- `test/dadosPlantao.ts`, `test/detectorPlanilha.test.ts`,
+  `test/parserPlantao.test.ts`.
+- `test/fixtures/Plantao-COSI-SANITIZADO.xls` — fixture sanitizada (ver
+  seção 18.3).
+
+`src/parser.ts` (parser 6x1) **não foi alterado** — zero linhas no diff.
+`src/index.ts` só ganhou 4 linhas de export novas, nenhum export existente
+foi removido ou renomeado.
+
+### 18.1 Detecção de tipo de planilha
+
+`detectarTipoPlanilha(arquivo: ArrayBuffer): ResultadoDeteccaoPlanilha` —
+um único parâmetro, nunca nome de arquivo. Retorna:
+
+```ts
+type TipoPlanilha = 'ESCALA_6X1' | 'PLANTAO' | 'DESCONHECIDA';
+interface ResultadoDeteccaoPlanilha {
+  tipo: TipoPlanilha;
+  abaEncontrada?: string;
+  abasCandidatas?: string[];   // presente só quando há ambiguidade
+  motivo?: string;
+}
+```
+
+Assinatura estrutural usada (nenhuma depende de nome de aba/arquivo):
+
+- **ESCALA_6X1**: existe uma aba cujo nome normaliza para "ESCALISTAS"
+  (sem acento/caixa) e que contém, em algum lugar, a célula "DIA/MÊS" —
+  sinal mínimo, não uma reimplementação da busca completa de
+  `parsePlanilhaEscala`.
+- **PLANTAO**: em qualquer aba, três colunas contíguas na mesma linha onde
+  a primeira normaliza com prefixo "PLANTONISTA" (aceita "Plantonista
+  Segurança"/"Plantonista Redes"/etc.), a segunda normaliza exatamente
+  para "DATAINICIO" e a terceira para "DATAFIM". Uma célula solta com a
+  palavra "Plantão" nunca basta — as três colunas precisam bater juntas.
+- **Ambiguidade nunca é resolvida silenciosamente**: mais de uma aba com a
+  assinatura de Plantão retorna `DESCONHECIDA` com `abasCandidatas`
+  preenchido; uma planilha com sinais de **ambos** os domínios ao mesmo
+  tempo (6x1 e Plantão) também retorna `DESCONHECIDA` explícita, nunca
+  escolhe um lado.
+
+### 18.2 Parser de Plantão
+
+`parsePlanilhaPlantao(arquivo: ArrayBuffer): ResultadoParsePlantao`.
+Contrato:
+
+```ts
+interface MomentoPlantao { data: string; hora: string; }  // civil, sem timezone
+
+interface AtribuicaoPlantaoBruta {
+  plantonistaNomeOriginal: string;
+  inicio: MomentoPlantao;
+  fim: MomentoPlantao;
+  duracaoMinutos: number;
+  linhaOrigem: number;
+  abaOrigem: string;
+}
+
+interface ResultadoParsePlantao {
+  ok: boolean;
+  abaOrigem: string;
+  atribuicoes: AtribuicaoPlantaoBruta[];
+  contabilidadeInformada: ContabilidadePlantaoInformada[];
+  totaisInformados: TotaisInformadosPlantao | null;
+  totalBrutoCalculado: { quantidade: number; minutos: number };
+  sobreposicoes: SobreposicaoPlantao[];
+  erros: ErroImportacaoPlantao[];
+  avisos: string[];
+}
+```
+
+Pontos de desenho relevantes:
+
+- **Nunca cria login.** `AtribuicaoPlantaoBruta` só tem
+  `plantonistaNomeOriginal` — nenhum campo de identidade técnica. Testado
+  explicitamente (o objeto retornado só tem essas 6 chaves).
+- **Fim de tabela vs. linha com erro**: a leitura só para quando a linha
+  inteira está vazia (nome **e** início **e** fim em branco). Uma linha
+  com nome vazio mas datas preenchidas gera um erro de linha e a leitura
+  continua — não trata "faltou o nome aqui" como "acabou a tabela".
+- **Nunca aborta no primeiro erro**: cada linha inválida vira uma entrada
+  em `erros` e a leitura segue para a próxima linha, na mesma filosofia de
+  `parsePlanilhaEscala` (`ok=false` não impede preview parcial).
+- **Sobreposição, nunca correção**: `detectarSobreposicoesPlantao` marca
+  pares de atribuições cujos intervalos se cruzam no tempo —
+  `MESMO_PLANTONISTA` (inclusive o caso degenerado de duas linhas
+  idênticas) ou `PLANTONISTAS_DIFERENTES`. Nunca escolhe vencedor, nunca
+  remove linha.
+- **Lacuna ≠ violação**: `identificarLacunasPlantao` só expõe o intervalo
+  cronológico entre o fim de uma atribuição e o início da seguinte — a
+  lacuna real de 12h (07:00 → 19:00) que aparece na fixture **não** é
+  tratada como falta de cobertura; isso é regra do futuro Grupo de
+  Plantão (PLANTÃO-3).
+- **Contabilidade bruta ≠ contabilidade de negócio**: a soma das durações
+  lidas vive em `totalBrutoCalculado`, nunca chamada de "contabilidade
+  mensal" — só `calcularDuracaoBrutaDosIntervalos()`. O valor informado
+  pelo XLS (`totaisInformados`) é lido à parte, da seção opcional
+  "Contabilidade dos Plantões no mês" (colunas "Plantonistas"/"N°
+  Plantões"/"N° Horas"; uma linha cuja coluna de nome normaliza para
+  "TOTAL" vira o agregado, não um plantonista). Quando os dois valores
+  divergem, um aviso é adicionado — **nenhum dos dois números é alterado**
+  para forçar coincidência.
+- **Zero plantões é um dado, não um motivo de exclusão**: uma linha de
+  contabilidade com quantidade/horas zeradas (ex.: "Daniela Rocha" na
+  fixture) é preservada normalmente.
+
+### 18.3 Datas, horas e timezone (decisão desta fase)
+
+A fonte real usa texto como `"Segunda-feira, 17/08/2026 - 19:00"`. Decisão:
+
+- A **fonte de verdade é sempre o padrão numérico** `DD/MM/AAAA - HH:mm`,
+  extraído por regex do texto de exibição da célula
+  (`textoCelula`: prefere `.w`, cai para `.v` stringificado).
+- O nome do dia da semana (texto antes da primeira vírgula) **nunca altera
+  a data** — é só validado opcionalmente contra o dia da semana real
+  calculado a partir da data numérica; uma divergência vira `aviso`, nunca
+  corrige nem rejeita a linha.
+- **Sem conversão de timezone em lugar nenhum.** `MomentoPlantao` é um par
+  civil `{ data: 'YYYY-MM-DD', hora: 'HH:mm' }`, nunca uma string
+  combinada com timezone nem um `Date` com fuso — mesmo princípio de
+  `ReferenciaTemporal` (`jornada.ts`), que já existe no projeto
+  exatamente para não sofrer conversão silenciosa pelo timezone da
+  máquina que roda o código. Interna e apenas para calcular a diferença
+  em minutos entre dois momentos, `Date.UTC(...)` é usado como relógio
+  aritmético neutro (mesma técnica de `dataUtc()`/`minutosHora()` em
+  `jornada.ts`) — isso **não é uma afirmação de fuso horário real** sobre
+  o dado; é só aritmética de data civil.
+- **Decisão adiada, documentada**: qual timezone real um Grupo de Plantão
+  declara (e como isso é persistido) é decisão de PLANTÃO-3. Esta fase só
+  garante que o parser não perde nem corrompe a informação por conversão
+  prematura.
+
+### 18.4 Fixture sanitizada — o que ela prova
+
+`test/fixtures/Plantao-COSI-SANITIZADO.xls` (aba `PlantaoCOSI`, mas o
+parser não depende desse nome — testado explicitamente renomeando a aba).
+Nomes fictícios (`Ana Costa`, `Bruno Lima`, `Carlos Nunes`, `Daniela
+Rocha`) — busca automatizada confirmou **zero ocorrências** dos quatro
+nomes reais da planilha original em qualquer arquivo novo/versionado desta
+fase.
+
+Reproduz, com os mesmos números da planilha real:
+
+- **32 atribuições brutas**, incluindo a virada de mês (última semana de
+  julho → agosto) e a virada de competência dentro do próprio período.
+- Primeira linha: sábado 00:00 → domingo 19:00 = **43h** (não virou 24h).
+- Última linha: terça 19:00 → quarta 00:00 = **5h** (não virou 12h).
+- Padrões normais: plantões de **12h** (após expediente) e **24h** (fim de
+  semana), calculados pelo intervalo, nunca por uma regra fixa tipo
+  "sexta = 24h".
+- Contabilidade informada: **31 plantões, 468h** (Carlos Nunes 10/156h,
+  Ana Costa 10/168h, Daniela Rocha 0/0h, Bruno Lima 11/156h).
+- Soma bruta calculada dos 32 intervalos: **504h**.
+- **504h ≠ 468h — divergência preservada e testada explicitamente**
+  (`parserPlantao.test.ts`, casos 18-21): nenhuma das duas somas é alterada
+  para forçar coincidência; o parser gera um aviso de divergência e segue.
+  A reconciliação de negócio (por que a contabilidade informada dá um
+  número diferente da soma literal dos intervalos) não foi — e não devia
+  ser — inventada nesta fase.
+
+### 18.5 Testes
+
+37 testes novos (8 em `detectorPlanilha.test.ts`, 29 em
+`parserPlantao.test.ts`), cobrindo os 8 cenários de detecção e os 24+
+cenários de parser pedidos para esta fase, incluindo os casos de erro
+(nome vazio, início/fim inválido, fim antes do início), sobreposição
+(mesmo plantonista e plantonistas diferentes), aba renomeada, planilha
+desconhecida, e a confirmação de que `parsePlanilhaEscala` continua
+passando sobre a fixture 6x1 original.

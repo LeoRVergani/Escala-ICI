@@ -14,6 +14,17 @@ export function normalizarCelula(v: unknown): string {
   return normalizarTexto(v).replace(/\s+/gu, '');
 }
 
+/**
+ * Chave de comparação estrutural: remove qualquer caractere que não seja
+ * letra/dígito (espaço, `/`, `°`, `º`, pontuação) além de acento e caixa.
+ * Usada para reconhecer cabeçalhos de planilha por assinatura estrutural
+ * (ex.: "N° Horas" e "N o Horas" e "n horas" devem comparar iguais), nunca
+ * para dado de negócio exibido ao usuário.
+ */
+export function normalizarChaveEstrutural(v: unknown): string {
+  return normalizarTexto(v).replace(/[^0-9A-Z]/gu, '');
+}
+
 export function montarChaveDia(d: Date): string {
   if (Number.isNaN(d.getTime())) {
     throw new RangeError('Data inválida.');
