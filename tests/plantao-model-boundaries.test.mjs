@@ -1,0 +1,140 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import test from 'node:test';
+
+const ler = (caminho) => readFile(new URL(`../${caminho}`, import.meta.url), 'utf8');
+const semComentarios = (fonte) => fonte.replace(/\/\*[\s\S]*?\*\//g, '');
+
+// Fase PLANTÃO-3A: modelo persistente + Rules + repositories, sem UI, sem
+// publicação. Ver docs/spec/PLANTOES.md, seção 20.
+
+test('1. o App do colaborador não ganha nenhuma escrita administrativa de Plantão', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  for (const proibido of [
+    'plantaoWriteRepository',
+    'plantaoReadRepository',
+    'salvarGrupoPlantao',
+    'salvarParticipantePlantao',
+    'salvarCompetenciaPlantaoRascunho',
+    'salvarAtribuicoesPlantaoRascunho',
+  ]) {
+    assert.doesNotMatch(app, new RegExp(proibido), proibido);
+  }
+});
+
+test('2. o Dashboard (PLANTÃO-2) ainda não chama os repositories de Plantão desta fase', async () => {
+  const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
+  for (const proibido of [
+    'plantaoWriteRepository',
+    'plantaoReadRepository',
+    'salvarGrupoPlantao',
+    'salvarParticipantePlantao',
+    'desativarParticipantePlantao',
+    'salvarCompetenciaPlantaoRascunho',
+    'salvarAtribuicoesPlantaoRascunho',
+    'obterGrupoPlantao',
+    'listarGruposPlantaoPermitidos',
+    'listarParticipantesPlantao',
+    'obterCompetenciaPlantaoRascunho',
+    'listarAtribuicoesPlantaoRascunho',
+  ]) {
+    assert.doesNotMatch(dashboard, new RegExp(proibido), proibido);
+  }
+});
+
+test('3. o parser isolado de Plantão (PLANTÃO-1) continua sem nenhum import de Firebase', async () => {
+  const parserPlantao = await ler('packages/contrato/src/parserPlantao.ts');
+  for (const proibido of ['firebase', 'Firestore', 'getFirestore']) {
+    assert.doesNotMatch(parserPlantao, new RegExp(proibido, 'iu'), proibido);
+  }
+});
+
+test('4. e 5. os repositories de Plantão não importam o parser XLS nem React', async () => {
+  const [leitura, escrita] = await Promise.all([
+    ler('lib/firebase/plantaoReadRepository.ts'),
+    ler('lib/firebase/plantaoWriteRepository.ts'),
+  ]);
+  const fonte = semComentarios(`${leitura}\n${escrita}`);
+
+  for (const proibido of [
+    'parsePlanilhaPlantao',
+    'detectarTipoPlanilha',
+    'parsePlanilhaEscala',
+    "from 'xlsx'",
+    "from \"react\"",
+    "from 'react'",
+    'useState',
+    'useEffect',
+  ]) {
+    assert.doesNotMatch(fonte, new RegExp(escaparRegex(proibido)), proibido);
+  }
+});
+
+test('6. e 7. o modelo e os repositories de Plantão não usam o catálogo nem as regras de negócio da escala 6x1', async () => {
+  const [modelo, leitura, escrita] = await Promise.all([
+    ler('packages/contrato/src/modeloPlantaoPersistente.ts'),
+    ler('lib/firebase/plantaoReadRepository.ts'),
+    ler('lib/firebase/plantaoWriteRepository.ts'),
+  ]);
+  const fonte = semComentarios(`${modelo}\n${leitura}\n${escrita}`);
+
+  for (const proibido of [
+    'CATALOGO_SOC',
+    'alertasEscala',
+    'detectarSequencias6x1',
+    'detectarDescansoInsuficiente',
+    'calcularTotais',
+    'TipoTurno',
+  ]) {
+    assert.doesNotMatch(fonte, new RegExp(proibido), proibido);
+  }
+});
+
+test('8. Plantão não altera nenhum módulo de autenticação', async () => {
+  const [modelo, leitura, escrita] = await Promise.all([
+    ler('packages/contrato/src/modeloPlantaoPersistente.ts'),
+    ler('lib/firebase/plantaoReadRepository.ts'),
+    ler('lib/firebase/plantaoWriteRepository.ts'),
+  ]);
+  const fonte = `${modelo}\n${leitura}\n${escrita}`;
+  for (const proibido of ['authRepository', 'signInWithPopup', 'signInWithEmailAndPassword', 'GoogleAuthProvider', 'OAuthProvider']) {
+    assert.doesNotMatch(fonte, new RegExp(proibido), proibido);
+  }
+});
+
+test('9. nenhum tipo/repository de Plantão usa UID como identidade funcional', async () => {
+  const modelo = await ler('packages/contrato/src/modeloPlantaoPersistente.ts');
+  const semComentario = semComentarios(modelo);
+  // O único "uid" tolerado é dentro de comentários/strings explicando a
+  // regra (já removidos acima) — o código real (tipos/campos) nunca deve
+  // declarar um campo `uid`/`usuarioUid` para Plantão.
+  assert.doesNotMatch(semComentario, /\buid\b/iu, 'uid');
+  assert.doesNotMatch(semComentario, /usuarioUid/u, 'usuarioUid');
+});
+
+test('10. contatos de plantonistas não aparecem hardcoded em nenhum arquivo estático versionado', async () => {
+  const [modelo, leitura, escrita, fixture] = await Promise.all([
+    ler('packages/contrato/src/modeloPlantaoPersistente.ts'),
+    ler('lib/firebase/plantaoReadRepository.ts'),
+    ler('lib/firebase/plantaoWriteRepository.ts'),
+    ler('packages/contrato/src/parserPlantao.ts'),
+  ]);
+  // O domínio só define A FORMA do contato (rotulo/numero/ativo) — nunca um
+  // valor de telefone literal. Procuramos por um padrão de número de
+  // telefone plausível (7+ dígitos seguidos, com ou sem separadores) em
+  // qualquer um desses arquivos-fonte.
+  const fonte = `${modelo}\n${leitura}\n${escrita}\n${fixture}`;
+  const pareceTelefone = /(?:\+?\d[\d\s()./-]{6,}\d)/u;
+  const encontrados = fonte.match(new RegExp(pareceTelefone, 'gu')) ?? [];
+  // Datas ISO/timestamps (ex.: "2026-08-01T00:00:00.000Z") e datas/horas em
+  // texto (ex.: "17/08/2026 - 19:00", usadas nos comentários que explicam o
+  // formato do XLS) batem acidentalmente nesse padrão frouxo — filtra só
+  // candidatos plausíveis a telefone (sem "/" nem "AAAA-MM-DD").
+  const candidatosReais = encontrados.filter((trecho) =>
+    !trecho.includes('/') && !/\d{4}-\d{2}-\d{2}/u.test(trecho));
+  assert.deepEqual(candidatosReais, [], `possíveis números hardcoded: ${candidatosReais.join(', ')}`);
+});
+
+function escaparRegex(texto) {
+  return texto.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}

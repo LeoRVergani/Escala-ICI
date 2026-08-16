@@ -122,6 +122,63 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/usuarios/$(login)).data;
     }
 
+    /**
+     * Plantão (Fase PLANTÃO-3A, docs/spec/PLANTOES.md seção 20) — domínio
+     * paralelo à escala 6x1, nunca misturado com `turnosMes`/`usuarios`.
+     * Helpers de autorização espelhados 1:1 em
+     * `lib/modelosPlantao`/`lib/sessao.ts`-style: qualquer mudança aqui
+     * exige a mudança gêmea lá, mesmo princípio de `perfilDe()`/
+     * `minhasEquipesPermitidas()` acima.
+     */
+    function grupoPlantaoPorId(grupoId) {
+      return get(/databases/$(database)/documents/gruposPlantao/$(grupoId)).data;
+    }
+
+    /**
+     * `equipesConsulta` é gravado SEMPRE não vazio e SEMPRE contendo
+     * `equipeResponsavelId` (garantido por `equipesConsultaEfetivas()` no
+     * cliente e revalidado na escrita, abaixo) — diferente de
+     * `equipesPermitidas`/`unidadesPermitidas` de `usuarios`, aqui não há
+     * fallback em tempo de leitura porque Plantão é domínio novo, sem
+     * documento legado a preservar.
+     */
+    function podeConsultarGrupoPlantao(grupoDoc) {
+      return autenticado()
+        && (souAdminSistema() || minhaEquipe() in grupoDoc.equipesConsulta);
+    }
+
+    /**
+     * Administrar (criar/editar Grupo, participantes, contatos, rascunho)
+     * exige SER GESTOR (não só pertencer à equipe — um analista comum da
+     * própria equipe responsável não administra nada só por participar do
+     * grupo, ver seção "Participante do Grupo") E ter poder sobre a EQUIPE
+     * RESPONSÁVEL especificamente — nunca basta estar entre as equipes que
+     * só consultam (SOC/NOC podem consultar o Plantão de Segurança sem
+     * poder administrá-lo). Mesma composição `souGestor() &&
+     * podeOperarNaEquipe(...)` que toda regra de escrita 6x1 já usa
+     * (`turnosMes`/`rascunhosTurnosMes` acima) — `podeOperarNaEquipe()`
+     * sozinha só verifica pertencimento à equipe, não perfil.
+     */
+    function podeGerenciarGrupoPlantao(grupoDoc) {
+      return souGestor() && podeOperarNaEquipe(grupoDoc.equipeResponsavelId);
+    }
+
+    /** Até 3 contatos por plantonista; cada um com rótulo/número não vazios e sem campo extra. */
+    function contatoPlantonistaValido(contato) {
+      return contato.keys().hasOnly(['rotulo', 'numero', 'ativo'])
+        && contato.rotulo is string && contato.rotulo.size() > 0 && contato.rotulo.size() <= 40
+        && contato.numero is string && contato.numero.size() > 0 && contato.numero.size() <= 30
+        && contato.ativo is bool;
+    }
+
+    function contatosPlantonistaValidos(contatos) {
+      return contatos is list
+        && contatos.size() <= 3
+        && (contatos.size() < 1 || contatoPlantonistaValido(contatos[0]))
+        && (contatos.size() < 2 || contatoPlantonistaValido(contatos[1]))
+        && (contatos.size() < 3 || contatoPlantonistaValido(contatos[2]));
+    }
+
     match /config/{doc} {
       allow read: if true;
       allow write: if false;
@@ -702,6 +759,227 @@ service cloud.firestore {
     }
 
     /**
+     * Grupo de Plantão (Fase PLANTÃO-3A). `equipeResponsavelId` imutável
+     * após criado (reatribuir o grupo a outra equipe é decisão adiada —
+     * evita esvaziar acidentalmente o poder de gestão de quem administrava
+     * antes). `equipesConsulta` sempre precisa conter a própria
+     * `equipeResponsavelId` — nunca fica vazio nem depende de fallback em
+     * tempo de leitura (ver `equipesConsultaEfetivas()` em
+     * `@escala-ici/contrato`). Sem `delete` — igual `equipes`/
+     * `unidadesOrganizacionais`, desativar é `ativo: false`.
+     */
+    match /gruposPlantao/{grupoId} {
+      allow read: if autenticado()
+        && (souAdminSistema() || minhaEquipe() in resource.data.equipesConsulta);
+
+      allow create: if autenticado()
+        && souGestor()
+        && request.resource.data.grupoId == grupoId
+        && request.resource.data.equipeResponsavelId in request.resource.data.equipesConsulta
+        && podeOperarNaEquipe(request.resource.data.equipeResponsavelId)
+        && request.resource.data.nome is string && request.resource.data.nome.size() > 0
+        && request.resource.data.ativo is bool
+        && request.resource.data.timezone is string && request.resource.data.timezone.size() > 0
+        && request.resource.data.equipesConsulta is list && request.resource.data.equipesConsulta.size() > 0
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.criadoPorLogin == loginDoAuth()
+        && request.resource.data.keys().hasOnly([
+          'grupoId', 'nome', 'descricao', 'equipeResponsavelId', 'equipesConsulta',
+          'timezone', 'ativo', 'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
+        ]);
+
+      allow update: if autenticado()
+        && podeGerenciarGrupoPlantao(resource.data)
+        && request.resource.data.grupoId == resource.data.grupoId
+        && request.resource.data.equipeResponsavelId == resource.data.equipeResponsavelId
+        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
+        && request.resource.data.criadoEm == resource.data.criadoEm
+        && request.resource.data.equipeResponsavelId in request.resource.data.equipesConsulta
+        && request.resource.data.nome is string && request.resource.data.nome.size() > 0
+        && request.resource.data.ativo is bool
+        && request.resource.data.timezone is string && request.resource.data.timezone.size() > 0
+        && request.resource.data.equipesConsulta is list && request.resource.data.equipesConsulta.size() > 0
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.keys().hasOnly([
+          'grupoId', 'nome', 'descricao', 'equipeResponsavelId', 'equipesConsulta',
+          'timezone', 'ativo', 'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
+        ]);
+
+      allow delete: if false;
+    }
+
+    /**
+     * Participante do Grupo de Plantão — subcoleção, ID = login
+     * (determinístico). Consultar exige só `podeConsultarGrupoPlantao()`
+     * (SOC/NOC podem ver quem está no Plantão de Segurança sem participar
+     * dele); administrar (criar/editar, inclusive contatos) exige
+     * `podeGerenciarGrupoPlantao()` — participar do grupo NUNCA dá poder
+     * administrativo sobre ele. `login` precisa corresponder a um usuário
+     * cadastrado (`exists()`) — nunca inventa identidade.
+     */
+    match /gruposPlantao/{grupoId}/participantes/{login} {
+      allow read: if podeConsultarGrupoPlantao(grupoPlantaoPorId(grupoId));
+
+      allow create: if autenticado()
+        && podeGerenciarGrupoPlantao(grupoPlantaoPorId(grupoId))
+        && exists(/databases/$(database)/documents/usuarios/$(login))
+        && request.resource.data.grupoId == grupoId
+        && request.resource.data.login == login
+        && request.resource.data.ativo is bool
+        && contatosPlantonistaValidos(request.resource.data.contatos)
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.criadoPorLogin == loginDoAuth()
+        && request.resource.data.keys().hasOnly([
+          'grupoId', 'login', 'ativo', 'ordem', 'contatos',
+          'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
+        ]);
+
+      allow update: if autenticado()
+        && podeGerenciarGrupoPlantao(grupoPlantaoPorId(grupoId))
+        && request.resource.data.grupoId == resource.data.grupoId
+        && request.resource.data.login == resource.data.login
+        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
+        && request.resource.data.criadoEm == resource.data.criadoEm
+        && request.resource.data.ativo is bool
+        && contatosPlantonistaValidos(request.resource.data.contatos)
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.keys().hasOnly([
+          'grupoId', 'login', 'ativo', 'ordem', 'contatos',
+          'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
+        ]);
+
+      allow delete: if false;
+    }
+
+    /**
+     * Competência de Plantão — RASCUNHO e PUBLICADA são coleções
+     * SEPARADAS (mesmo padrão de `rascunhosTurnosMes`/`turnosMes`): nunca
+     * um único campo `status` filtrando a mesma coleção, para uma consulta
+     * de colaborador jamais poder "vazar" um rascunho por engano.
+     * `rascunhosCompetenciasPlantao` só existe enquanto RASCUNHO — gestor
+     * autorizado (`podeGerenciarGrupoPlantao`) lê/escreve; nunca visível a
+     * quem só pode consultar.
+     */
+    match /rascunhosCompetenciasPlantao/{id} {
+      allow read: if podeGerenciarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId));
+
+      allow create: if autenticado()
+        && podeGerenciarGrupoPlantao(grupoPlantaoPorId(request.resource.data.grupoId))
+        && request.resource.data.id == id
+        && request.resource.data.status == 'RASCUNHO'
+        && request.resource.data.revisao == 0
+        && request.resource.data.competencia is string && request.resource.data.competencia.size() > 0
+        && request.resource.data.periodoInicio is string
+        && request.resource.data.periodoFim is string
+        && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO']
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.criadoPorLogin == loginDoAuth()
+        && request.resource.data.totalBruto.keys().hasOnly(['quantidade', 'minutos'])
+        && (
+          request.resource.data.totaisInformadosOrigem == null
+          || request.resource.data.totaisInformadosOrigem.keys()
+            .hasOnly(['totalPlantoesInformado', 'totalMinutosInformado'])
+        )
+        && request.resource.data.keys().hasOnly([
+          'id', 'grupoId', 'competencia', 'periodoInicio', 'periodoFim', 'status',
+          'revisao', 'origem', 'totaisInformadosOrigem', 'totalBruto', 'schemaVersion',
+          'criadoPorLogin', 'criadoEm', 'atualizadoEm',
+        ]);
+
+      allow update: if autenticado()
+        && podeGerenciarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId))
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.grupoId == resource.data.grupoId
+        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
+        && request.resource.data.criadoEm == resource.data.criadoEm
+        && request.resource.data.status == 'RASCUNHO'
+        && request.resource.data.revisao == 0
+        && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO']
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.totalBruto.keys().hasOnly(['quantidade', 'minutos'])
+        && (
+          request.resource.data.totaisInformadosOrigem == null
+          || request.resource.data.totaisInformadosOrigem.keys()
+            .hasOnly(['totalPlantoesInformado', 'totalMinutosInformado'])
+        )
+        && request.resource.data.keys().hasOnly([
+          'id', 'grupoId', 'competencia', 'periodoInicio', 'periodoFim', 'status',
+          'revisao', 'origem', 'totaisInformadosOrigem', 'totalBruto', 'schemaVersion',
+          'criadoPorLogin', 'criadoEm', 'atualizadoEm',
+        ]);
+
+      allow delete: if autenticado() && podeGerenciarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId));
+    }
+
+    /**
+     * Atribuições do rascunho — subcoleção, cada intervalo é o próprio
+     * documento (não um mapa gigante), para uma futura substituição pontual
+     * (override, PLANTÃO-6) poder mirar uma atribuição específica sem
+     * reescrever a competência inteira. `duracaoMinutos` é validado contra
+     * `inicio`/`fim` no cliente (`validarAtribuicaoPlantaoPersistida`) —
+     * aqui só o formato/autorização são checados (Rules não fazem
+     * aritmética de datas ISO).
+     */
+    match /rascunhosCompetenciasPlantao/{id}/atribuicoes/{atribuicaoId} {
+      allow read: if podeGerenciarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId));
+
+      allow create: if autenticado()
+        && podeGerenciarGrupoPlantao(grupoPlantaoPorId(request.resource.data.grupoId))
+        && request.resource.data.atribuicaoId == atribuicaoId
+        && request.resource.data.competenciaId == id
+        && request.resource.data.plantonistaLogin is string && request.resource.data.plantonistaLogin.size() > 0
+        && request.resource.data.inicio is string
+        && request.resource.data.fim is string
+        && request.resource.data.duracaoMinutos is int && request.resource.data.duracaoMinutos > 0
+        && request.resource.data.papel in ['PRIMARIO', 'SECUNDARIO']
+        && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO']
+        && request.resource.data.revisao == 0
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.keys().hasOnly([
+          'atribuicaoId', 'grupoId', 'competenciaId', 'plantonistaLogin', 'inicio', 'fim',
+          'duracaoMinutos', 'papel', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
+        ]);
+
+      allow update: if autenticado()
+        && podeGerenciarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId))
+        && request.resource.data.atribuicaoId == resource.data.atribuicaoId
+        && request.resource.data.grupoId == resource.data.grupoId
+        && request.resource.data.competenciaId == resource.data.competenciaId
+        && request.resource.data.plantonistaLogin is string && request.resource.data.plantonistaLogin.size() > 0
+        && request.resource.data.inicio is string
+        && request.resource.data.fim is string
+        && request.resource.data.duracaoMinutos is int && request.resource.data.duracaoMinutos > 0
+        && request.resource.data.papel in ['PRIMARIO', 'SECUNDARIO']
+        && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO']
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.keys().hasOnly([
+          'atribuicaoId', 'grupoId', 'competenciaId', 'plantonistaLogin', 'inicio', 'fim',
+          'duracaoMinutos', 'papel', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
+        ]);
+
+      allow delete: if autenticado() && podeGerenciarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId));
+    }
+
+    /**
+     * Competência PUBLICADA — existe só para a LEITURA futura (App,
+     * PLANTÃO-4) não exigir uma migração de Rules quando a publicação
+     * chegar (PLANTÃO-3C). Escrita bloqueada de propósito nesta fase:
+     * nenhum fluxo real de publicação existe ainda, e abrir a transição
+     * RASCUNHO -> PUBLICADA antes de existir esse fluxo seria publicar
+     * escala de Plantão sem revisão nenhuma. Preferível bloquear
+     * explicitamente a criar uma regra "provisória" permissiva.
+     */
+    match /competenciasPlantao/{id} {
+      allow read: if podeConsultarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId));
+      allow create, update, delete: if false;
+    }
+
+    match /competenciasPlantao/{id}/atribuicoes/{atribuicaoId} {
+      allow read: if podeConsultarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId));
+      allow create, update, delete: if false;
+    }
+
+    /**
      * Riscos conscientemente aceitos nesta fase (não são bugs esquecidos):
      *
      * - `LEITURA` (PerfilUsuario) hoje equivale exatamente a ANALISTA_SOC —
@@ -712,6 +990,13 @@ service cloud.firestore {
      *   chicken-and-egg que o bootstrap do primeiro gestor sempre teve).
      *   Resolvido fora das rules: edição manual do documento no Console do
      *   Firestore (ver docs/operacao/BOOTSTRAP_ADMIN_STAGING.md).
+     * - Plantão (PLANTÃO-3A): `competenciasPlantao`/`.../atribuicoes`
+     *   (lado PUBLICADA) tem escrita bloqueada (`if false`) de propósito —
+     *   nenhum fluxo de publicação existe ainda (PLANTÃO-3C). Reatribuir
+     *   `equipeResponsavelId` de um Grupo já existente para outra equipe
+     *   também não é possível nesta fase (campo imutável no `update`) —
+     *   decisão aceita para não abrir uma via de transferência de poder
+     *   administrativo sem revisão dedicada.
      */
   }
 }

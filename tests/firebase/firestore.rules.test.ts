@@ -1931,3 +1931,386 @@ describe('lembretesAtribuidos — query administrativa real (Fase 5.1)', () => {
     expect(resultado.docs.map((item) => item.id)).toEqual(['lembrete-colaborador']);
   });
 });
+
+/**
+ * Plantão (Fase PLANTÃO-3A) — domínio paralelo, mesmos atores de
+ * `usuarios` (gestor/colaborador/colega/externo/admin), mais dois novos
+ * só para este bloco: um gestor de OUTRA equipe autorizada a consultar
+ * (mas não a administrar) e um analista de uma equipe sem NENHUMA
+ * permissão sobre o grupo. Grupo de teste: equipe responsável EQ_COSI_SOC
+ * (gestor), consulta liberada também para EQ_CODB_NOC (externo).
+ */
+describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-3A)', () => {
+  const gestorForaEscopo = {
+    login: 'renata.lima',
+    nome: 'Renata Lima',
+    email: 'renata.lima@teste.local',
+    equipeId: 'EQ_CODB_NOC',
+    nivelHierarquico: 5,
+  };
+  const analistaSemPermissao = {
+    login: 'joao.pereira',
+    nome: 'João Pereira',
+    email: 'joao.pereira@teste.local',
+    equipeId: 'EQ_GEDSI_ADM',
+    nivelHierarquico: 6,
+  };
+
+  function grupoPlantao(ajustes: Record<string, unknown> = {}) {
+    return {
+      grupoId: 'PLANTAO_TESTE',
+      nome: 'Plantão de Teste',
+      descricao: 'Grupo usado nos testes de Rules',
+      equipeResponsavelId: 'EQ_COSI_SOC',
+      equipesConsulta: ['EQ_COSI_SOC', 'EQ_CODB_NOC'],
+      timezone: 'America/Sao_Paulo',
+      ativo: true,
+      schemaVersion: 1,
+      criadoPorLogin: usuarios.gestor.login,
+      criadoEm: '2026-08-01T00:00:00.000Z',
+      atualizadoEm: '2026-08-01T00:00:00.000Z',
+      ...ajustes,
+    };
+  }
+
+  function participantePlantao(login: string, ajustes: Record<string, unknown> = {}) {
+    return {
+      grupoId: 'PLANTAO_TESTE',
+      login,
+      ativo: true,
+      contatos: [] as unknown[],
+      schemaVersion: 1,
+      criadoPorLogin: usuarios.gestor.login,
+      criadoEm: '2026-08-01T00:00:00.000Z',
+      atualizadoEm: '2026-08-01T00:00:00.000Z',
+      ...ajustes,
+    };
+  }
+
+  function competenciaRascunhoPlantao(ajustes: Record<string, unknown> = {}) {
+    return {
+      id: 'PLANTAO_TESTE_2026-08',
+      grupoId: 'PLANTAO_TESTE',
+      competencia: '2026-08',
+      periodoInicio: '2026-07-26',
+      periodoFim: '2026-08-25',
+      status: 'RASCUNHO',
+      revisao: 0,
+      origem: 'IMPORTADO',
+      totaisInformadosOrigem: { totalPlantoesInformado: 31, totalMinutosInformado: 28_080 },
+      totalBruto: { quantidade: 32, minutos: 30_240 },
+      schemaVersion: 1,
+      criadoPorLogin: usuarios.gestor.login,
+      criadoEm: '2026-08-01T00:00:00.000Z',
+      atualizadoEm: '2026-08-01T00:00:00.000Z',
+      ...ajustes,
+    };
+  }
+
+  function atribuicaoPlantao(ajustes: Record<string, unknown> = {}) {
+    return {
+      atribuicaoId: '0001',
+      grupoId: 'PLANTAO_TESTE',
+      competenciaId: 'PLANTAO_TESTE_2026-08',
+      plantonistaLogin: usuarios.colaborador.login,
+      inicio: '2026-07-25T22:00:00.000Z',
+      fim: '2026-07-26T10:00:00.000Z',
+      duracaoMinutos: 720,
+      papel: 'PRIMARIO',
+      origem: 'IMPORTADO',
+      revisao: 0,
+      schemaVersion: 1,
+      criadoEm: '2026-08-01T00:00:00.000Z',
+      atualizadoEm: '2026-08-01T00:00:00.000Z',
+      ...ajustes,
+    };
+  }
+
+  beforeEach(async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await Promise.all([
+        setDoc(doc(db, 'usuarios', gestorForaEscopo.login), gestorForaEscopo),
+        setDoc(doc(db, 'usuarios', analistaSemPermissao.login), analistaSemPermissao),
+        setDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), grupoPlantao()),
+        setDoc(
+          doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+          participantePlantao(usuarios.colaborador.login, {
+            contatos: [{ rotulo: 'Celular corporativo', numero: '11999990000', ativo: true }],
+          }),
+        ),
+        setDoc(
+          doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08'),
+          competenciaRascunhoPlantao(),
+        ),
+        setDoc(
+          doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08', 'atribuicoes', '0001'),
+          atribuicaoPlantao(),
+        ),
+        setDoc(doc(db, 'competenciasPlantao', 'PLANTAO_TESTE_2026-08'), {
+          ...competenciaRascunhoPlantao(),
+          status: 'PUBLICADA',
+        }),
+      ]);
+    });
+  });
+
+  describe('não autenticado', () => {
+    it('não lê Grupo, participante (com contatos) nem competência', async () => {
+      const db = ambiente.unauthenticatedContext().firestore();
+      await assertFails(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE')));
+      await assertFails(getDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+      ));
+      await assertFails(getDoc(doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08')));
+    });
+
+    it('não cria nem altera Grupo', async () => {
+      const db = ambiente.unauthenticatedContext().firestore();
+      await assertFails(setDoc(doc(db, 'gruposPlantao', 'novo-grupo'), grupoPlantao({ grupoId: 'novo-grupo' })));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { nome: 'Outro nome' }));
+    });
+  });
+
+  describe('analista autorizado a consultar (equipe está em equipesConsulta, não é a responsável)', () => {
+    it('lê Grupo, participante e contatos', async () => {
+      const db = autenticarComo(usuarios.externo);
+      const grupo = await assertSucceeds(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE')));
+      expect(grupo.data()?.nome).toBe('Plantão de Teste');
+      const participante = await assertSucceeds(getDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+      ));
+      expect(participante.data()?.contatos).toEqual([
+        { rotulo: 'Celular corporativo', numero: '11999990000', ativo: true },
+      ]);
+    });
+
+    it('não altera Grupo nem participante, não cria rascunho', async () => {
+      const db = autenticarComo(usuarios.externo);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { nome: 'Hackeado' }));
+      await assertFails(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.externo.login),
+        participantePlantao(usuarios.externo.login),
+      ));
+      await assertFails(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-09'),
+        competenciaRascunhoPlantao({ id: 'PLANTAO_TESTE_2026-09', competencia: '2026-09' }),
+      ));
+    });
+  });
+
+  describe('analista não autorizado (equipe fora de equipesConsulta)', () => {
+    it('não lê Grupo, participantes nem contatos', async () => {
+      const db = autenticarComo(analistaSemPermissao);
+      await assertFails(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE')));
+      await assertFails(getDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+      ));
+    });
+  });
+
+  describe('participante do grupo (participar não implica poder administrativo)', () => {
+    it('o próprio participante consegue ler o grupo (equipe responsável já está em equipesConsulta), mas não administra nada', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE')));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { nome: 'Outro nome' }));
+      await assertFails(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { ativo: false },
+      ));
+      await assertFails(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-09'),
+        competenciaRascunhoPlantao({ id: 'PLANTAO_TESTE_2026-09', competencia: '2026-09' }),
+      ));
+    });
+  });
+
+  describe('gestor autorizado (equipe responsável)', () => {
+    it('cria e edita o Grupo', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_NOVO'),
+        grupoPlantao({ grupoId: 'PLANTAO_NOVO', criadoPorLogin: usuarios.gestor.login }),
+      ));
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { nome: 'Plantão renomeado' }));
+    });
+
+    it('cria e edita participante, gerencia contatos (até 3)', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colega.login),
+        participantePlantao(usuarios.colega.login, {
+          contatos: [
+            { rotulo: 'Celular corporativo', numero: '11999990000', ativo: true },
+            { rotulo: 'Ramal', numero: '4321', ativo: true },
+          ],
+        }),
+      ));
+      await assertSucceeds(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { contatos: [{ rotulo: 'Celular alternativo', numero: '11988887777', ativo: true }] },
+      ));
+    });
+
+    it('não cria participante cujo login não corresponde a nenhum usuário cadastrado', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', 'login.inexistente'),
+        participantePlantao('login.inexistente'),
+      ));
+    });
+
+    it('cria rascunho de competência e atribuições', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-09'),
+        competenciaRascunhoPlantao({ id: 'PLANTAO_TESTE_2026-09', competencia: '2026-09' }),
+      ));
+      await assertSucceeds(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08', 'atribuicoes', '0002'),
+        atribuicaoPlantao({ atribuicaoId: '0002' }),
+      ));
+    });
+
+    it('lê o rascunho e as atribuições (visível só a quem administra, não à consulta geral)', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(getDoc(doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08')));
+      await assertSucceeds(getDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08', 'atribuicoes', '0001'),
+      ));
+    });
+  });
+
+  describe('gestor fora do escopo (gestor de uma equipe que só consulta, não administra)', () => {
+    it('lê o Grupo (a equipe dele está em equipesConsulta) mas não administra nada', async () => {
+      const db = autenticarComo(gestorForaEscopo);
+      await assertSucceeds(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE')));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { nome: 'Hackeado' }));
+      await assertFails(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.externo.login),
+        participantePlantao(usuarios.externo.login),
+      ));
+      await assertFails(getDoc(doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08')));
+      await assertFails(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-09'),
+        competenciaRascunhoPlantao({ id: 'PLANTAO_TESTE_2026-09', competencia: '2026-09' }),
+      ));
+    });
+  });
+
+  describe('payload inválido (testado contra o gestor autorizado, para isolar a validação de campo)', () => {
+    it('4 contatos é negado', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colega.login),
+        participantePlantao(usuarios.colega.login, {
+          contatos: [
+            { rotulo: 'A', numero: '1', ativo: true },
+            { rotulo: 'B', numero: '2', ativo: true },
+            { rotulo: 'C', numero: '3', ativo: true },
+            { rotulo: 'D', numero: '4', ativo: true },
+          ],
+        }),
+      ));
+    });
+
+    it('contato sem rótulo ou sem número é negado', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colega.login),
+        participantePlantao(usuarios.colega.login, {
+          contatos: [{ rotulo: '', numero: '11999990000', ativo: true }],
+        }),
+      ));
+      await assertFails(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colega.login),
+        participantePlantao(usuarios.colega.login, {
+          contatos: [{ rotulo: 'Celular', numero: '', ativo: true }],
+        }),
+      ));
+    });
+
+    it('campo extra no payload é negado (Grupo, participante e atribuição)', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_OUTRO'),
+        { ...grupoPlantao({ grupoId: 'PLANTAO_OUTRO' }), campoInventado: true },
+      ));
+      await assertFails(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colega.login),
+        { ...participantePlantao(usuarios.colega.login), campoInventado: true },
+      ));
+      await assertFails(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08', 'atribuicoes', '0003'),
+        { ...atribuicaoPlantao({ atribuicaoId: '0003' }), campoInventado: true },
+      ));
+    });
+
+    it('login vazio na atribuição é negado', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08', 'atribuicoes', '0004'),
+        atribuicaoPlantao({ atribuicaoId: '0004', plantonistaLogin: '' }),
+      ));
+    });
+
+    it('login do payload do participante diferente do ID do documento é negado', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colega.login),
+        participantePlantao(usuarios.externo.login),
+      ));
+    });
+
+    it('status inválido na competência é negado (nunca aceita "PUBLICADA" direto no rascunho)', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-10'),
+        competenciaRascunhoPlantao({ id: 'PLANTAO_TESTE_2026-10', competencia: '2026-10', status: 'PUBLICADA' }),
+      ));
+    });
+
+    it('origem inválida na competência e na atribuição é negada', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-11'),
+        competenciaRascunhoPlantao({ id: 'PLANTAO_TESTE_2026-11', competencia: '2026-11', origem: 'INVENTADA' }),
+      ));
+      await assertFails(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08', 'atribuicoes', '0005'),
+        atribuicaoPlantao({ atribuicaoId: '0005', origem: 'INVENTADA' }),
+      ));
+    });
+  });
+
+  describe('competência PUBLICADA — leitura pronta para o futuro, escrita bloqueada nesta fase', () => {
+    it('consulta autorizada lê a competência publicada', async () => {
+      const db = autenticarComo(usuarios.externo);
+      const documento = await assertSucceeds(
+        getDoc(doc(db, 'competenciasPlantao', 'PLANTAO_TESTE_2026-08')),
+      );
+      expect(documento.data()?.status).toBe('PUBLICADA');
+    });
+
+    it('ninguém escreve na competência publicada — nem o gestor autorizado, nem o admin', async () => {
+      const gestorDb = autenticarComo(usuarios.gestor);
+      await assertFails(updateDoc(
+        doc(gestorDb, 'competenciasPlantao', 'PLANTAO_TESTE_2026-08'),
+        { revisao: 1 },
+      ));
+      const adminDb = autenticarComo(usuarios.admin);
+      await assertFails(setDoc(
+        doc(adminDb, 'competenciasPlantao', 'PLANTAO_TESTE_2026-09'),
+        { ...competenciaRascunhoPlantao({ id: 'PLANTAO_TESTE_2026-09', competencia: '2026-09' }), status: 'PUBLICADA' },
+      ));
+    });
+  });
+
+  describe('ADMIN_SISTEMA — acesso global também em Plantão', () => {
+    it('lê e administra o grupo mesmo sem estar em equipesConsulta', async () => {
+      const db = autenticarComo(usuarios.admin);
+      await assertSucceeds(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE')));
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { nome: 'Renomeado pelo admin' }));
+    });
+  });
+});

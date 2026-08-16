@@ -64,14 +64,9 @@ test('o parser isolado de Plantão (PLANTÃO-1) continua sem catálogo/regras 6x
   }
 });
 
-test('nenhuma escrita/coleção de Plantão foi criada nesta fase (writeRepository e Rules seguem sem menção a Plantão)', async () => {
-  const [writeRepository, rules] = await Promise.all([
-    ler('lib/firebase/writeRepository.ts'),
-    ler('firestore.rules'),
-  ]);
-
-  assert.doesNotMatch(writeRepository, /plantao/iu, 'writeRepository.ts não deve mencionar Plantão nesta fase');
-  assert.doesNotMatch(rules, /plantao/iu, 'firestore.rules não deve mencionar Plantão nesta fase');
+test('o writeRepository.ts compartilhado (6x1) segue sem qualquer menção a Plantão — a escrita de Plantão vive isolada em lib/firebase/plantaoWriteRepository.ts (Fase PLANTÃO-3A)', async () => {
+  const writeRepository = await ler('lib/firebase/writeRepository.ts');
+  assert.doesNotMatch(writeRepository, /plantao/iu, 'writeRepository.ts não deve mencionar Plantão');
 });
 
 test('o Dashboard não grava Plantão: o preview usa só o roteador/conciliação puros, nunca uma escrita real', async () => {

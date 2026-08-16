@@ -1,13 +1,14 @@
-# Especificação — Plantões (arquitetura + parser + preview, Fases PLANTÃO-0/1/2)
+# Especificação — Plantões (arquitetura + parser + preview + modelo persistente, Fases PLANTÃO-0/1/2/3A)
 
 Documento de **planejamento arquitetural**, com fatias reais já
 implementadas: PLANTÃO-1 (seção 18) — detecção de tipo de planilha e
 parser isolado de Plantão em `packages/contrato`; PLANTÃO-2 (seção 19) —
 preview do Dashboard e conciliação obrigatória nome→login, em memória, sem
-nenhuma persistência. Não há coleção Firestore nova, nenhuma Rule nova,
-nenhum schema persistido — isso continua para PLANTÃO-3. É a fonte de
-verdade para as fases seguintes (PLANTÃO-3 em diante), formalizando
-decisões de domínio antes de cada fatia de código funcional.
+nenhuma persistência; PLANTÃO-3A (seção 20) — modelo persistente,
+Firestore Rules e repositórios de leitura/escrita, ainda sem nenhuma
+integração de UI e sem publicação. É a fonte de verdade para as fases
+seguintes (PLANTÃO-3B em diante), formalizando decisões de domínio antes
+de cada fatia de código funcional.
 
 Segue a mesma convenção dos demais documentos de `docs/spec/`: aponta para
 evidência real do código quando descreve o que já existe hoje (para não
@@ -385,17 +386,19 @@ quem está de plantão, início, término, contatos e próximo plantonista.
 ## 15. Sequência de fases prevista
 
 ```
-PLANTÃO-0  Arquitetura + correção visual                         (concluída)
-PLANTÃO-1  Detector de planilha + parser isolado + fixture sanitizada  (concluída — ver seção 18)
-PLANTÃO-2  Preview no Dashboard + conciliação nome/login          (concluída — ver seção 19)
-PLANTÃO-3  Persistência + Rules + grupos + participantes + contatos
-PLANTÃO-4  Central de Plantões no App
-PLANTÃO-5  Nova escala + gerador determinístico
-PLANTÃO-6  Overrides/substituições/trocas
-PLANTÃO-7  Homologação staging completa
+PLANTÃO-0   Arquitetura + correção visual                                (concluída)
+PLANTÃO-1   Detector de planilha + parser isolado + fixture sanitizada   (concluída — ver seção 18)
+PLANTÃO-2   Preview no Dashboard + conciliação nome/login                (concluída — ver seção 19)
+PLANTÃO-3A  Modelo persistente + Firestore Rules + repositórios          (concluída — ver seção 20)
+PLANTÃO-3B  Integração da UI (Dashboard chama os repositórios de verdade)
+PLANTÃO-3C  Publicação de Plantão (RASCUNHO -> PUBLICADA)
+PLANTÃO-4   Central de Plantões no App
+PLANTÃO-5   Nova escala + gerador determinístico
+PLANTÃO-6   Overrides/substituições/trocas
+PLANTÃO-7   Homologação staging completa
 ```
 
-Nenhuma das fases 3–7 é iniciada nesta fase.
+Nenhuma das fases 3B–7 é iniciada nesta fase.
 
 ## 16. O que esta fase explicitamente NÃO faz
 
@@ -809,3 +812,311 @@ roteia pelo importador/conciliação puros.
   equivalente em memória.
 - Reconciliar 504h vs. 468h — continua só documentado como divergência,
   nunca resolvido automaticamente.
+
+## 20. PLANTÃO-3A — modelo persistente + Firestore Rules + repositórios
+
+Fatia real implementada: a fundação persistente do domínio — schema,
+validação pura, Firestore Rules e repositórios de leitura/escrita. **Sem
+nenhuma integração de UI** (Dashboard/App inalterados) **e sem
+publicação** (RASCUNHO → PUBLICADA continua bloqueado nas Rules).
+
+### 20.1 Auditoria — padrões reaproveitados, nada reinventado
+
+Antes de desenhar o schema, a fase auditou como o projeto já resolve os
+mesmos problemas para a escala 6x1, e reaproveitou cada um deles:
+
+- **Identidade**: `loginDoAuth()` deriva o login do e-mail autenticado;
+  `usuarios/{login}` é a fonte de verdade. Plantão nunca usa UID.
+- **Autorização**: `souGestor()`/`podeOperarNaEquipe()`/`souAdminSistema()`
+  (`firestore.rules`) — reaproveitados tal como são, nunca duplicados.
+  Achado real durante a implementação: `podeOperarNaEquipe()` sozinha só
+  checa PERTENCIMENTO à equipe, não perfil — toda regra de escrita 6x1
+  (`turnosMes`/`rascunhosTurnosMes`) sempre combina `souGestor() &&
+  podeOperarNaEquipe(...)`. Uma primeira versão de
+  `podeGerenciarGrupoPlantao()` esqueceu o `souGestor()` e deixava
+  qualquer analista da equipe responsável editar o Grupo — pego pelo
+  teste "participante do grupo não administra nada" no emulador, corrigido
+  antes do commit (ver seção 20.9).
+- **IDs determinísticos**: mesma técnica de `idDocumento()`
+  (`packages/contrato/src/documentos.ts`) — concatenação validada
+  (sem `/`, sem vazio) em vez de UUID aleatório.
+- **RASCUNHO/PUBLICADA como coleções separadas**: `turnosMes` (sempre
+  `PUBLICADA`, imposto pela Rule) e `rascunhosTurnosMes` (sempre
+  `RASCUNHO`) já são duas coleções distintas, nunca uma única filtrada por
+  `status` — Plantão espelha exatamente essa separação (seção 20.4).
+- **Sem `undefined` no Firestore**: `removerUndefined()`
+  (`lib/firebase/sanitizar.ts`) reaproveitado tal como é.
+- **Timestamps**: todo o projeto usa string ISO 8601 (`new
+  Date().toISOString()`), nunca `Timestamp` nativo do Firestore
+  (`PublicacaoEscala.publicadoEm`, `EventoEscala.publicadoEm`, etc.) —
+  Plantão segue a mesma convenção para `criadoEm`/`atualizadoEm`/
+  `inicio`/`fim`.
+- **Auditoria administrativa**: `auditoriaAdmin`/`registrarAuditoriaSeSimulando`
+  não foram estendidos nesta fase — não há nenhuma escrita administrativa
+  de Plantão acontecendo de verdade ainda (PLANTÃO-3B fará a integração;
+  a auditoria será conectada nesse momento, reaproveitando o padrão
+  existente, não um sistema novo).
+
+### 20.2 Por que dois domínios continuam separados no schema
+
+Nenhum campo de Plantão foi adicionado a `usuarios`/`turnosMes`. Participar
+de um grupo de Plantão é uma relação N:N (subcoleção `participantes` por
+grupo, ver 20.4) — nunca um campo escalar como `usuario.tipoEscala`.
+
+### 20.3 Grupo de Plantão — `gruposPlantao/{grupoId}`
+
+```ts
+interface GrupoPlantao {
+  grupoId: string;
+  nome: string;
+  descricao?: string;
+  equipeResponsavelId: string;
+  equipesConsulta: string[];   // sempre não vazio, sempre inclui equipeResponsavelId
+  timezone: string;           // nome IANA, ex. "America/Sao_Paulo" — validado, nunca hardcoded como única opção
+  ativo: boolean;
+  schemaVersion: number;
+  criadoPorLogin: string;
+  criadoEm: string;
+  atualizadoEm: string;
+}
+```
+
+Decisão deliberada: `equipesConsulta` é **sempre concreto** (nunca um
+campo opcional com fallback calculado em tempo de leitura, diferente de
+`equipesPermitidas`/`unidadesPermitidas` em `usuarios`). Essas duas
+existem com fallback porque `usuarios` tem cadastros ANTIGOS que precisam
+continuar funcionando sem migração — Plantão é domínio novo, sem nenhum
+documento legado, então `equipesConsultaEfetivas(equipeResponsavelId,
+lista)` (`packages/contrato`) já resolve o valor final ANTES de qualquer
+escrita, garantindo por construção que `equipeResponsavelId` está sempre
+incluído. Isso também simplifica a Rule e a query "grupos que posso
+consultar" (`array-contains` direto, sem se preocupar com ausência do
+campo).
+
+`equipeResponsavelId` é imutável após a criação (seção 20.6) — reatribuir
+o grupo a outra equipe é decisão adiada.
+
+### 20.4 Por que RASCUNHO e PUBLICADA são coleções separadas
+
+Mesmo padrão de `rascunhosTurnosMes`/`turnosMes`: nunca um único campo
+`status` filtrando a mesma coleção. `rascunhosCompetenciasPlantao` só
+existe enquanto rascunho — a Rule de leitura exige
+`podeGerenciarGrupoPlantao()` (nunca visível a quem só consulta).
+`competenciasPlantao` (o lado PUBLICADA) existe só para a **leitura**
+futura (App, PLANTÃO-4) não exigir uma migração de Rules quando a
+publicação chegar — a **escrita está bloqueada com `if false`** nesta
+fase inteira, de propósito (seção 20.7).
+
+### 20.5 Participante — `gruposPlantao/{grupoId}/participantes/{login}`
+
+```ts
+interface ParticipantePlantao {
+  grupoId: string;
+  login: string;              // ID do documento — determinístico, nunca UID/nome/e-mail
+  ativo: boolean;
+  ordem?: number;              // posição para futura rotação (PLANTÃO-5)
+  contatos: ContatoPlantonista[];  // 0 a 3
+  schemaVersion: number;
+  criadoPorLogin: string;
+  criadoEm: string;
+  atualizadoEm: string;
+}
+
+interface ContatoPlantonista {
+  rotulo: string;   // texto livre validado — não um enum fechado
+  numero: string;
+  ativo: boolean;
+}
+```
+
+`login` como ID do documento garante unicidade por participante sem
+precisar de query extra. A Rule de `create` exige
+`exists(usuarios/{login})` — nunca inventa identidade; o login precisa
+corresponder a um usuário cadastrado de verdade.
+
+Contatos: até 3, validados em dois níveis independentes —
+`validarContatosPlantonista()` (client, `packages/contrato`, mensagem de
+erro legível) e `contatosPlantonistaValidos()` (Rules, defesa real —
+`firestore.rules` valida cada um dos até 3 elementos individualmente,
+já que a linguagem de Rules não itera listas de tamanho variável).
+`normalizarContatosPlantonista()` remove espaços extras antes de gravar.
+Nenhum contato é obrigatório (0 contatos é um estado válido).
+
+### 20.6 Competência — `rascunhosCompetenciasPlantao/{grupoId_competencia}`
+
+```ts
+interface CompetenciaPlantao {
+  id: string;                 // idCompetenciaPlantao(grupoId, competencia)
+  grupoId: string;
+  competencia: string;        // "2026-08"
+  periodoInicio: string;
+  periodoFim: string;
+  status: 'RASCUNHO' | 'PUBLICADA';
+  revisao: number;             // fixo em 0 nesta fase — só ganha sentido em PLANTÃO-3C
+  origem: 'IMPORTADO' | 'MANUAL' | 'GERADO';
+  totaisInformadosOrigem: { totalPlantoesInformado: number; totalMinutosInformado: number } | null;
+  totalBruto: { quantidade: number; minutos: number };
+  schemaVersion: number;
+  criadoPorLogin: string;
+  criadoEm: string;
+  atualizadoEm: string;
+}
+```
+
+`totaisInformadosOrigem`/`totalBruto` preservam a divergência real da
+planilha (504h brutas vs. 468h informadas, PLANTÃO-1) — nenhum dos dois é
+recalculado no outro (seção 20.10).
+
+### Atribuição — subcoleção `.../atribuicoes/{atribuicaoId}`
+
+```ts
+interface AtribuicaoPlantaoPersistida {
+  atribuicaoId: string;       // idAtribuicaoPlantao(indice) -> "0001", "0002", ...
+  grupoId: string;
+  competenciaId: string;
+  plantonistaLogin: string;
+  inicio: string;              // instante ISO 8601 UTC
+  fim: string;
+  duracaoMinutos: number;      // derivado, VALIDADO contra fim-início — nunca fonte da verdade
+  papel: 'PRIMARIO' | 'SECUNDARIO';
+  origem: 'IMPORTADO' | 'MANUAL' | 'GERADO';
+  revisao: number;             // fixo em 0 nesta fase
+  schemaVersion: number;
+  criadoEm: string;
+  atualizadoEm: string;
+}
+```
+
+Cada intervalo é o próprio documento — não um mapa gigante dentro da
+competência (diferente de `Dia`/`dias` da escala 6x1). Decisão pensando no
+futuro: um override pontual (PLANTÃO-6, seção "BASE/OVERRIDE/EFETIVA") vai
+poder mirar uma atribuição específica por ID sem reescrever a competência
+inteira. `atribuicaoId` é sequencial e determinístico (`idAtribuicaoPlantao`,
+`0001`/`0002`/...) — reimportar a mesma planilha na mesma ordem sobrescreve
+os mesmos IDs, em vez de duplicar.
+
+`duracaoMinutos` nunca é fonte de verdade: `validarAtribuicaoPlantaoPersistida()`
+recusa qualquer atribuição cuja duração não bata com `fim - início`
+recalculado a partir dos instantes.
+
+### 20.7 Fronteira RASCUNHO/PUBLICADA — bloqueio deliberado
+
+```
+match /competenciasPlantao/{id} { allow create, update, delete: if false; }
+match /competenciasPlantao/{id}/atribuicoes/{atribuicaoId} { allow create, update, delete: if false; }
+```
+
+Nenhum fluxo de publicação existe ainda (PLANTÃO-3C) — abrir a transição
+RASCUNHO → PUBLICADA antes de existir esse fluxo seria publicar escala de
+Plantão sem revisão nenhuma. Bloquear explicitamente é preferível a criar
+uma regra "provisória" permissiva que alguém esqueceria de revisitar. A
+leitura de `competenciasPlantao` já está pronta (gated por
+`podeConsultarGrupoPlantao()`) para quando PLANTÃO-3C existir.
+
+### 20.8 Timezone — momento civil (parser) + timezone do Grupo → instante
+
+`converterMomentoParaInstanteUtc(momento, timezone)`
+(`packages/contrato/src/modeloPlantaoPersistente.ts`) usa
+`Intl.DateTimeFormat` com `timeZone` explícito — determinístico,
+independente do timezone da máquina que roda o código (nunca `new
+Date(string)` puro, que depende do fuso do processo). Duas passadas
+resolvem uma eventual virada de horário de verão; não resolve o caso
+extremo de horário civil inexistente/ambíguo exatamente no segundo da
+transição — aceitável porque os grupos reais de hoje usam
+`America/Sao_Paulo`, sem DST desde 2019. Testado explicitamente: 19:00 →
+22:00 UTC, 07:00 → 10:00 UTC, 00:00 → 03:00 UTC (mesmo dia), 23:00 → 02:00
+UTC do dia seguinte (a conversão muda a data, não só a hora), timezone
+inválida rejeitada, determinismo (mesma entrada sempre produz a mesma
+saída).
+
+### 20.9 Autorização — resumo por ator
+
+| Ator | Lê Grupo/participante/contato | Administra (Grupo/participante/contato/rascunho) |
+| --- | --- | --- |
+| Não autenticado | não | não |
+| Analista de equipe em `equipesConsulta` | sim | não |
+| Analista de equipe fora de `equipesConsulta` | não | não |
+| Participante do grupo (analista comum) | sim (se a equipe dele está em `equipesConsulta`) | **não** — participar não implica administrar |
+| Gestor da equipe responsável | sim | sim |
+| Gestor de outra equipe (mesmo que em `equipesConsulta`) | sim | não |
+| ADMIN_SISTEMA | sim, sempre | sim, sempre |
+
+Todas as linhas desta tabela têm um teste correspondente no emulador
+(`tests/firebase/firestore.rules.test.ts`, describe `Plantão —
+Grupo/Participantes/Contatos/Competência`), incluindo o bug real
+encontrado e corrigido (seção 20.1): a primeira versão de
+`podeGerenciarGrupoPlantao()` deixava um analista comum da equipe
+responsável editar o Grupo.
+
+### 20.10 Contabilidade 504h/468h — continua preservada, não resolvida
+
+`totalBruto` (calculado) e `totaisInformadosOrigem` (vindo do XLS) são
+dois campos INDEPENDENTES na mesma `CompetenciaPlantao` — nenhuma função
+de escrita converte um no outro. A reconciliação de negócio continua
+decisão adiada.
+
+### 20.11 Repositórios
+
+`lib/firebase/plantaoReadRepository.ts`: `obterGrupoPlantao`,
+`listarGruposPlantaoPermitidos` (query `array-contains` em
+`equipesConsulta` — só possível sem fallback porque o campo é sempre
+concreto, seção 20.3), `listarParticipantesPlantao`,
+`obterCompetenciaPlantaoRascunho`, `listarAtribuicoesPlantaoRascunho`.
+Deliberadamente SEM `localizarPlantaoNoInstante()`/`localizarProximoPlantao()`
+— só fariam sentido sobre `competenciasPlantao` (PUBLICADA), que não tem
+nenhum dado real ainda (escrita bloqueada); adicionar agora seria API
+especulativa sem dado para exercitar.
+
+`lib/firebase/plantaoWriteRepository.ts`: `salvarGrupoPlantao`,
+`salvarParticipantePlantao`, `desativarParticipantePlantao` (nunca
+exclui — `ativo: false`, mesmo princípio de `equipes`/
+`unidadesOrganizacionais`), `salvarCompetenciaPlantaoRascunho` (recusa
+qualquer `status` diferente de `RASCUNHO` antes mesmo de chegar à Rule),
+`salvarAtribuicoesPlantaoRascunho` (em lotes de até 499, mesmo padrão de
+`salvarRascunho()` em `writeRepository.ts`). **Nenhuma função
+`publicarPlantao()` existe.** Cada função valida com `validar*()` de
+`@escala-ici/contrato` antes de qualquer chamada ao SDK, e usa
+`removerUndefined()` antes de `setDoc`/`batch.set`.
+
+**Nenhum destes repositórios é chamado pelo Dashboard/App nesta fase** —
+confirmado por teste de fronteira (`tests/plantao-model-boundaries.test.mjs`).
+A integração é PLANTÃO-3B.
+
+### 20.12 Índices Firestore
+
+**Nenhum índice novo foi adicionado.** Toda consulta preparada nesta fase
+é de campo único: `array-contains` em `equipesConsulta` (índice de campo
+único, criado automaticamente pelo Firestore) ou listagem simples de
+subcoleção (sem `where` composto). Uma futura consulta "meus grupos de
+Plantão" (`collectionGroup('participantes').where('login', '==', X)`,
+PLANTÃO-4) vai precisar de um índice de collection group dedicado — não
+adicionado agora porque nenhum repositório desta fase efetivamente a
+executa (`docs/spec/PLANTOES.md` seção 19 já lista essa consulta como
+"suportável pelo schema", não como "implementada").
+
+### 20.13 Testes
+
+67 testes novos: `packages/contrato/test/modeloPlantaoPersistente.test.ts`
+(43 — validações de domínio, IDs determinísticos, conversão de
+timezone), `lib/firebase/plantaoReadRepository.test.ts` (6),
+`lib/firebase/plantaoWriteRepository.test.ts` (14, incluindo a prova de
+que nenhum campo `undefined` chega ao mock de `setDoc`), 22 testes novos
+no emulador Firestore (`tests/firebase/firestore.rules.test.ts`, describe
+dedicado — leitura/escrita para os 7 perfis de ator da tabela 20.9,
+payload inválido nos 7 formatos pedidos, competência publicada com
+leitura permitida e escrita sempre bloqueada), e 8 testes de fronteira
+(`tests/plantao-model-boundaries.test.mjs`).
+
+### 20.14 Decisões adiadas para PLANTÃO-3B/3C
+
+- Integração real: Dashboard passa a chamar
+  `plantaoReadRepository`/`plantaoWriteRepository` de verdade (formulário
+  de Grupo, tela de participantes/contatos, botão para salvar rascunho de
+  competência a partir do preview da PLANTÃO-2).
+- Conectar `registrarAuditoriaSeSimulando`/`auditoriaAdmin` às escritas de
+  Plantão quando a integração de UI existir.
+- `publicarPlantao()` e a transição RASCUNHO → PUBLICADA (PLANTÃO-3C).
+- Índice de collection group para "meus grupos de Plantão" (PLANTÃO-4).
+- Reatribuir `equipeResponsavelId` de um Grupo já existente para outra
+  equipe — hoje imutável, decisão aceita para não abrir uma via de
+  transferência de poder administrativo sem revisão dedicada.

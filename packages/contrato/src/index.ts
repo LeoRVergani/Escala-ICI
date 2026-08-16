@@ -3,6 +3,7 @@ export * from './celulas.js';
 export * from './detectorPlanilha.js';
 export * from './documentos.js';
 export * from './jornada.js';
+export * from './modeloPlantaoPersistente.js';
 export * from './normalizar.js';
 export * from './parser.js';
 export * from './parserPlantao.js';
