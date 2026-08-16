@@ -3,6 +3,7 @@
 import {
   CATALOGO_SOC,
   calcularTotais,
+  conferirContabilidadePlantao,
   dataIsoLocal,
   equipesConsultaEfetivas,
   formatarMinutos,
@@ -12,8 +13,10 @@ import {
   parsePlanilhaEscala,
   validarContatosPlantonista,
   validarGrupoPlantao,
+  type ConferenciaContabilPlantao,
   type ContatoPlantonista,
   type Dia,
+  type DivergenciaPlantao,
   type ErroImportacao,
   type ErroImportacaoPlantao,
   type GrupoPlantao,
@@ -605,6 +608,31 @@ function duracaoPlantaoAtipica(duracaoMinutos: number): boolean {
 function formatarMomentoPlantao(momento: { data: string; hora: string }): string {
   const [ano, mes, dia] = momento.data.split('-');
   return `${dia}/${mes}/${ano} · ${momento.hora}`;
+}
+
+/**
+ * Descreve uma `DivergenciaPlantao` (Fase PLANTÃO-3B.1) em texto neutro —
+ * nunca chama nenhum dos dois valores de "correto"/"real", nunca culpa o
+ * usuário, nunca afirma que a planilha está errada. Só relata os dois
+ * números que divergem.
+ */
+function descreverDivergenciaPlantao(divergencia: DivergenciaPlantao): string {
+  switch (divergencia.chave) {
+    case 'INTERVALOS_VS_CONTABILIDADE_QUANTIDADE':
+      return `Foram encontrados ${divergencia.valorA} intervalo(s), enquanto a contabilidade por `
+        + `plantonista soma ${divergencia.valorB} plantão(ões).`;
+    case 'INTERVALOS_VS_CONTABILIDADE_MINUTOS':
+      return `A duração literal dos intervalos soma ${formatarMinutos(divergencia.valorA)}, enquanto a `
+        + `contabilidade por plantonista soma ${formatarMinutos(divergencia.valorB)}.`;
+    case 'CONTABILIDADE_VS_DECLARADO_QUANTIDADE':
+      return `A contabilidade por plantonista soma ${divergencia.valorA} plantão(ões), enquanto o total `
+        + `declarado na planilha informa ${divergencia.valorB}.`;
+    case 'CONTABILIDADE_VS_DECLARADO_MINUTOS':
+      return `A contabilidade por plantonista soma ${formatarMinutos(divergencia.valorA)}, enquanto o total `
+        + `declarado na planilha informa ${formatarMinutos(divergencia.valorB)}.`;
+    default:
+      return '';
+  }
 }
 
 const NAVEGACAO: ItemNavegacao[] = [
@@ -2088,7 +2116,8 @@ interface PreviewPlantaoProps {
   onMudarBusca: (participanteNomeOriginal: string, termo: string) => void;
   onConfirmarVinculo: (participanteNomeOriginal: string, usuario: Usuario) => void;
   onDesfazerVinculo: (participanteNomeOriginal: string) => void;
-  divergenciaContabilidade: boolean;
+  /** Fase PLANTÃO-3B.1 — as três camadas de verdade + divergências entre elas, nunca uma reconciliação. */
+  conferencia: ConferenciaContabilPlantao;
   pendencias: number;
   podeValidar: boolean;
   validada: boolean;
@@ -2117,7 +2146,7 @@ function PreviewPlantao({
   onMudarBusca,
   onConfirmarVinculo,
   onDesfazerVinculo,
-  divergenciaContabilidade,
+  conferencia,
   pendencias,
   podeValidar,
   validada,
@@ -2140,10 +2169,24 @@ function PreviewPlantao({
           </span>
         </div>
         <div className="import-summary plantao-resumo-grid">
-          <div><span>Intervalos lidos</span><strong>{resultado.atribuicoes.length}</strong></div>
-          <div><span>Duração bruta dos intervalos</span><strong>{formatarMinutos(resultado.totalBrutoCalculado.minutos)}</strong></div>
-          <div><span>Plantões informados no relatório</span><strong>{resultado.totaisInformados?.totalPlantoesInformado ?? '—'}</strong></div>
-          <div><span>Horas informadas no relatório</span><strong>{resultado.totaisInformados !== null ? formatarMinutos(resultado.totaisInformados.totalMinutosInformado) : '—'}</strong></div>
+          <div><span>Intervalos encontrados</span><strong>{conferencia.bruto.quantidade}</strong></div>
+          <div><span>Duração literal dos intervalos</span><strong>{formatarMinutos(conferencia.bruto.minutos)}</strong></div>
+          <div>
+            <span>Contabilidade por plantonista</span>
+            <strong>
+              {resultado.contabilidadeInformada.length > 0
+                ? `${conferencia.somaContabilidadeInformada.quantidade} plantões · ${formatarMinutos(conferencia.somaContabilidadeInformada.minutos)}`
+                : 'Não informada na fonte'}
+            </strong>
+          </div>
+          <div>
+            <span>Total declarado na planilha</span>
+            <strong>
+              {conferencia.declarado
+                ? `${conferencia.declarado.totalPlantoesInformado} plantões · ${formatarMinutos(conferencia.declarado.totalMinutosInformado)}`
+                : 'Não informado na fonte'}
+            </strong>
+          </div>
         </div>
         <div className="import-actions">
           <span className={`status-badge ${pendencias === 0 ? 'success' : 'warning'}`}>
@@ -2165,20 +2208,30 @@ function PreviewPlantao({
         )}
       </article>
 
-      {divergenciaContabilidade && resultado.totaisInformados && (
-        <article className="panel warning-panel">
-          <div className="panel-title">
-            <div>
-              <h2>Divergência de conferência</h2>
-              <p>
-                A soma literal dos intervalos resulta em {formatarMinutos(resultado.totalBrutoCalculado.minutos)}.
-                {' '}A planilha informa {formatarMinutos(resultado.totaisInformados.totalMinutosInformado)} na contabilidade mensal.
-              </p>
+      {conferencia.divergencias.length > 0 && (
+        conferencia.divergencias.some((divergencia) => divergencia.divergente) ? (
+          <article className="panel warning-panel">
+            <div className="panel-title">
+              <div>
+                <h2>Divergências encontradas na fonte</h2>
+              </div>
+              <AlertTriangle className="warning-icon" />
             </div>
-            <AlertTriangle className="warning-icon" />
-          </div>
-          <p>Nenhum valor foi corrigido automaticamente — conferência necessária antes de qualquer decisão operacional.</p>
-        </article>
+            <ul className="warning-list">
+              {conferencia.divergencias
+                .filter((divergencia) => divergencia.divergente)
+                .map((divergencia) => <li key={divergencia.chave}>{descreverDivergenciaPlantao(divergencia)}</li>)}
+            </ul>
+            <p>Nenhum valor foi corrigido automaticamente — conferência necessária antes de qualquer decisão operacional.</p>
+          </article>
+        ) : (
+          <article className="panel">
+            <div className="panel-title"><div><h2>Conferência consistente</h2></div></div>
+            <p className="plantao-validado-nota">
+              <ShieldCheck size={15} /> As camadas de contabilidade da fonte coincidem entre si.
+            </p>
+          </article>
+        )
       )}
 
       <article className="panel">
@@ -2267,12 +2320,17 @@ function PreviewPlantao({
                   <tr><td colSpan={3}>Esta planilha não tem a seção de contabilidade informada.</td></tr>
                 )}
               </tbody>
-              {resultado.totaisInformados && (
+              {resultado.contabilidadeInformada.length > 0 && (
                 <tfoot>
                   <tr>
-                    <td><strong>Total</strong></td>
-                    <td><strong>{resultado.totaisInformados.totalPlantoesInformado}</strong></td>
-                    <td><strong>{formatarMinutos(resultado.totaisInformados.totalMinutosInformado)}</strong></td>
+                    <td><strong>Soma das linhas</strong></td>
+                    <td><strong>{conferencia.somaContabilidadeInformada.quantidade}</strong></td>
+                    <td><strong>{formatarMinutos(conferencia.somaContabilidadeInformada.minutos)}</strong></td>
+                  </tr>
+                  <tr>
+                    <td><strong>Total declarado na planilha</strong></td>
+                    <td><strong>{conferencia.declarado ? conferencia.declarado.totalPlantoesInformado : 'Não informado na fonte'}</strong></td>
+                    <td><strong>{conferencia.declarado ? formatarMinutos(conferencia.declarado.totalMinutosInformado) : 'Não informado na fonte'}</strong></td>
                   </tr>
                 </tfoot>
               )}
@@ -2553,10 +2611,6 @@ export function DashboardApp() {
   }, [resultadoPlantao, vinculosPlantao]);
   const pendenciasVinculoPlantao = contarPendenciasVinculoPlantao(vinculosPlantao);
   const previaPlantaoPodeValidar = previaPlantaoValidavel(vinculosPlantao);
-  const divergenciaContabilidadePlantao = resultadoPlantao?.totaisInformados != null && (
-    resultadoPlantao.totaisInformados.totalMinutosInformado !== resultadoPlantao.totalBrutoCalculado.minutos
-    || resultadoPlantao.totaisInformados.totalPlantoesInformado !== resultadoPlantao.totalBrutoCalculado.quantidade
-  );
   /**
    * Gate na identidade REAL, nunca na simulada — a aba de Administração
    * precisa continuar acessível (para "Sair da simulação") mesmo enquanto o
@@ -4694,7 +4748,7 @@ export function DashboardApp() {
                 setBuscaVinculoPlantao((atuais) => ({ ...atuais, [participanteNomeOriginal]: termo }))}
               onConfirmarVinculo={confirmarVinculoPlantaoAcao}
               onDesfazerVinculo={desfazerVinculoPlantaoAcao}
-              divergenciaContabilidade={divergenciaContabilidadePlantao}
+              conferencia={conferirContabilidadePlantao(resultadoPlantao)}
               pendencias={pendenciasVinculoPlantao}
               podeValidar={previaPlantaoPodeValidar}
               validada={previaPlantaoValidada}

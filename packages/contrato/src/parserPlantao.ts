@@ -5,12 +5,15 @@ import { localizarTabelaPlantao } from './detectorPlanilha.js';
 import { montarChaveDia, normalizarCelula, normalizarChaveEstrutural } from './normalizar.js';
 import type {
   AtribuicaoPlantaoBruta,
+  ConferenciaContabilPlantao,
   ContabilidadePlantaoInformada,
+  DivergenciaPlantao,
   ErroImportacaoPlantao,
   LacunaPlantao,
   MomentoPlantao,
   ResultadoParsePlantao,
   SobreposicaoPlantao,
+  SomaContabilidadeInformada,
   TotaisInformadosPlantao,
   TotalBrutoPlantao,
 } from './tiposPlantao.js';
@@ -163,13 +166,32 @@ interface ContabilidadeExtraida {
 
 const MARCADOR_CONTABILIDADE = 'CONTABILIDADE';
 const LINHAS_BUSCA_CABECALHO_CONTABILIDADE = 5;
+const PREFIXO_LINHA_TOTAL = 'TOTAL';
+
+/**
+ * Fase PLANTÃO-3B.1 — causa raiz de um bug real observado no Dashboard
+ * (`totaisInformados` chegava `null` mesmo com a planilha tendo uma linha
+ * de total): a versão anterior comparava `normalizarChaveEstrutural(nome)
+ * === 'TOTAL'`, uma igualdade EXATA. Qualquer rótulo real que não seja
+ * literalmente "Total" — "Total Geral", "Total:", "TOTAL DO MÊS" — falha
+ * nessa comparação; a linha então era tratada como se fosse mais um
+ * plantonista (poluindo `contabilidadeInformada`) e `totaisInformados`
+ * nunca era preenchido. A fixture sanitizada usa exatamente "Total", por
+ * isso os testes desta fixture nunca pegaram o problema. Corrigido para
+ * `startsWith` — mesmo princípio de detectar a seção pela ESTRUTURA, não
+ * por um texto absoluto frágil (já usado para `MARCADOR_CONTABILIDADE`
+ * logo acima).
+ */
+function ehLinhaTotalPlantao(nome: string): boolean {
+  return normalizarChaveEstrutural(nome).startsWith(PREFIXO_LINHA_TOTAL);
+}
 
 /**
  * Procura, em qualquer lugar da mesma aba, a seção opcional "Contabilidade
  * dos Plantões no mês" (colunas "Plantonistas"/"N° Plantões"/"N° Horas").
  * Sua ausência não é erro — nem toda planilha de Plantão precisa ter essa
- * seção. Uma linha cuja coluna de nome normaliza para "TOTAL" é tratada
- * como o total agregado, não como um plantonista.
+ * seção. Uma linha cuja coluna de nome COMEÇA com "Total" (`ehLinhaTotalPlantao`)
+ * é tratada como o total agregado, não como um plantonista.
  */
 function extrairContabilidadeInformada(
   planilha: XLSX.WorkSheet,
@@ -244,7 +266,7 @@ function extrairContabilidadeInformada(
       );
     }
 
-    if (normalizarChaveEstrutural(nome) === 'TOTAL') {
+    if (ehLinhaTotalPlantao(nome)) {
       totais = {
         totalPlantoesInformado: Number.isFinite(quantidade) ? quantidade : 0,
         totalMinutosInformado: minutosInformados ?? 0,
@@ -279,6 +301,87 @@ export function calcularDuracaoBrutaDosIntervalos(
     }),
     { quantidade: 0, minutos: 0 },
   );
+}
+
+/**
+ * Soma as linhas INDIVIDUAIS de contabilidade informada (Fase
+ * PLANTÃO-3B.1) — terceira camada de verdade, ver `SomaContabilidadeInformada`
+ * em `tiposPlantao.ts`. Puramente aditiva: nunca lê nem substitui
+ * `TotaisInformadosPlantao` (a linha de total que a própria planilha
+ * declara) — as duas podem divergir (ex.: 480min somados vs. 468min
+ * declarados na mesma planilha real), e nenhuma delas é "a correta".
+ */
+export function somarContabilidadeInformada(
+  linhas: readonly ContabilidadePlantaoInformada[],
+): SomaContabilidadeInformada {
+  return linhas.reduce<SomaContabilidadeInformada>(
+    (acumulado, linha) => ({
+      quantidade: acumulado.quantidade + linha.quantidadeInformada,
+      minutos: acumulado.minutos + linha.minutosInformados,
+    }),
+    { quantidade: 0, minutos: 0 },
+  );
+}
+
+/**
+ * Compara as três camadas de verdade entre si (Fase PLANTÃO-3B.1) — nunca
+ * reconcilia, só relata. Cada comparação só entra em `divergencias` quando
+ * as DUAS pontas dela realmente existem na fonte: as duas primeiras (bruto
+ * vs. contabilidade individual) exigem que a seção de contabilidade exista
+ * (`contabilidadeInformada.length > 0`); as duas últimas (contabilidade
+ * individual vs. declarado) exigem que a linha de total exista
+ * (`totaisInformados !== null`). Sem isso, uma planilha sem contabilidade
+ * informada geraria uma "divergência" falsa comparando o bruto contra
+ * zero — nunca o objetivo. `divergente: false` é um resultado tão válido
+ * quanto `true` (nenhuma diferença encontrada é "conferência
+ * consistente", não a ausência da comparação).
+ */
+export function conferirContabilidadePlantao(
+  resultado: Pick<ResultadoParsePlantao, 'totalBrutoCalculado' | 'contabilidadeInformada' | 'totaisInformados'>,
+): ConferenciaContabilPlantao {
+  const somaContabilidadeInformada = somarContabilidadeInformada(resultado.contabilidadeInformada);
+  const divergencias: DivergenciaPlantao[] = [];
+
+  if (resultado.contabilidadeInformada.length > 0) {
+    divergencias.push(
+      {
+        chave: 'INTERVALOS_VS_CONTABILIDADE_QUANTIDADE',
+        valorA: resultado.totalBrutoCalculado.quantidade,
+        valorB: somaContabilidadeInformada.quantidade,
+        divergente: resultado.totalBrutoCalculado.quantidade !== somaContabilidadeInformada.quantidade,
+      },
+      {
+        chave: 'INTERVALOS_VS_CONTABILIDADE_MINUTOS',
+        valorA: resultado.totalBrutoCalculado.minutos,
+        valorB: somaContabilidadeInformada.minutos,
+        divergente: resultado.totalBrutoCalculado.minutos !== somaContabilidadeInformada.minutos,
+      },
+    );
+  }
+
+  if (resultado.totaisInformados !== null) {
+    divergencias.push(
+      {
+        chave: 'CONTABILIDADE_VS_DECLARADO_QUANTIDADE',
+        valorA: somaContabilidadeInformada.quantidade,
+        valorB: resultado.totaisInformados.totalPlantoesInformado,
+        divergente: somaContabilidadeInformada.quantidade !== resultado.totaisInformados.totalPlantoesInformado,
+      },
+      {
+        chave: 'CONTABILIDADE_VS_DECLARADO_MINUTOS',
+        valorA: somaContabilidadeInformada.minutos,
+        valorB: resultado.totaisInformados.totalMinutosInformado,
+        divergente: somaContabilidadeInformada.minutos !== resultado.totaisInformados.totalMinutosInformado,
+      },
+    );
+  }
+
+  return {
+    bruto: resultado.totalBrutoCalculado,
+    somaContabilidadeInformada,
+    declarado: resultado.totaisInformados,
+    divergencias,
+  };
 }
 
 /**

@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   calcularDuracaoBrutaDosIntervalos,
+  conferirContabilidadePlantao,
   detectarSobreposicoesPlantao,
   identificarLacunasPlantao,
   listarPlantonistasUnicos,
   parsePlanilhaEscala,
   parsePlanilhaPlantao,
+  somarContabilidadeInformada,
 } from '../src/index.js';
 import { carregarFixture, OPCOES_SOC } from './dados.js';
 import { carregarFixturePlantao } from './dadosPlantao.js';
@@ -268,5 +270,155 @@ describe('helpers puros do domínio de Plantão', () => {
   it('listarPlantonistasUnicos retorna os 3 nomes únicos que efetivamente têm atribuição, preservando a grafia original', () => {
     const nomes = listarPlantonistasUnicos(resultadoFixture());
     expect(nomes.sort()).toEqual(['Ana Costa', 'Bruno Lima', 'Carlos Nunes'].sort());
+  });
+});
+
+describe('somarContabilidadeInformada — terceira camada de verdade (Fase PLANTÃO-3B.1)', () => {
+  it('soma as 4 linhas individuais da fixture: 31 plantões, 480h — NUNCA o total declarado (468h)', () => {
+    const soma = somarContabilidadeInformada(resultadoFixture().contabilidadeInformada);
+    expect(soma).toEqual({ quantidade: 31, minutos: 480 * 60 });
+  });
+
+  it('participante com 0/0 entra na soma sem alterar o resultado', () => {
+    const soma = somarContabilidadeInformada([
+      { plantonistaNomeOriginal: 'A', quantidadeInformada: 10, minutosInformados: 100, valorHorasBruto: '1:40' },
+      { plantonistaNomeOriginal: 'B', quantidadeInformada: 0, minutosInformados: 0, valorHorasBruto: '0' },
+    ]);
+    expect(soma).toEqual({ quantidade: 10, minutos: 100 });
+  });
+
+  it('lista vazia soma para {quantidade: 0, minutos: 0} — nunca lança, nunca retorna ausente', () => {
+    expect(somarContabilidadeInformada([])).toEqual({ quantidade: 0, minutos: 0 });
+  });
+});
+
+describe('conferirContabilidadePlantao — três camadas + divergências (Fase PLANTÃO-3B.1)', () => {
+  it('camada bruta: 32 intervalos, 504h — igual a totalBrutoCalculado, nunca recalculado diferente', () => {
+    const conferencia = conferirContabilidadePlantao(resultadoFixture());
+    expect(conferencia.bruto).toEqual({ quantidade: 32, minutos: 504 * 60 });
+  });
+
+  it('camada de contabilidade individual somada: 31 plantões, 480h', () => {
+    const conferencia = conferirContabilidadePlantao(resultadoFixture());
+    expect(conferencia.somaContabilidadeInformada).toEqual({ quantidade: 31, minutos: 480 * 60 });
+  });
+
+  it('camada declarada na fonte: 31 plantões, 468h', () => {
+    const conferencia = conferirContabilidadePlantao(resultadoFixture());
+    expect(conferencia.declarado).toEqual({ totalPlantoesInformado: 31, totalMinutosInformado: 468 * 60 });
+  });
+
+  it('divergência A: 32 intervalos brutos vs. 31 da contabilidade individual — divergente', () => {
+    const conferencia = conferirContabilidadePlantao(resultadoFixture());
+    const divergenciaA = conferencia.divergencias.find((d) => d.chave === 'INTERVALOS_VS_CONTABILIDADE_QUANTIDADE');
+    expect(divergenciaA).toEqual({ chave: 'INTERVALOS_VS_CONTABILIDADE_QUANTIDADE', valorA: 32, valorB: 31, divergente: true });
+  });
+
+  it('divergência B: 504h brutas vs. 480h da contabilidade individual — divergente', () => {
+    const conferencia = conferirContabilidadePlantao(resultadoFixture());
+    const divergenciaB = conferencia.divergencias.find((d) => d.chave === 'INTERVALOS_VS_CONTABILIDADE_MINUTOS');
+    expect(divergenciaB).toEqual({ chave: 'INTERVALOS_VS_CONTABILIDADE_MINUTOS', valorA: 504 * 60, valorB: 480 * 60, divergente: true });
+  });
+
+  it('divergência C: 480h da contabilidade individual vs. 468h declaradas — divergente', () => {
+    const conferencia = conferirContabilidadePlantao(resultadoFixture());
+    const divergenciaC = conferencia.divergencias.find((d) => d.chave === 'CONTABILIDADE_VS_DECLARADO_MINUTOS');
+    expect(divergenciaC).toEqual({ chave: 'CONTABILIDADE_VS_DECLARADO_MINUTOS', valorA: 480 * 60, valorB: 468 * 60, divergente: true });
+  });
+
+  it('divergência D: 31 da contabilidade individual vs. 31 declarados — SEM divergência de quantidade', () => {
+    const conferencia = conferirContabilidadePlantao(resultadoFixture());
+    const divergenciaD = conferencia.divergencias.find((d) => d.chave === 'CONTABILIDADE_VS_DECLARADO_QUANTIDADE');
+    expect(divergenciaD).toEqual({ chave: 'CONTABILIDADE_VS_DECLARADO_QUANTIDADE', valorA: 31, valorB: 31, divergente: false });
+  });
+
+  it('nenhum campo/valor é rotulado como "correto" — auditoria estrutural do próprio objeto retornado', () => {
+    const conferencia = conferirContabilidadePlantao(resultadoFixture());
+    const chaves = JSON.stringify(conferencia).toLowerCase();
+    expect(chaves).not.toMatch(/correto|correta|realcorreto|totalcorreto/u);
+  });
+
+  it('sem seção de contabilidade informada: nenhuma divergência bruto-vs-individual é gerada (não compara contra zero)', () => {
+    const conferencia = conferirContabilidadePlantao({
+      totalBrutoCalculado: { quantidade: 5, minutos: 500 },
+      contabilidadeInformada: [],
+      totaisInformados: null,
+    });
+    expect(conferencia.divergencias).toEqual([]);
+    expect(conferencia.somaContabilidadeInformada).toEqual({ quantidade: 0, minutos: 0 });
+  });
+
+  it('com contabilidade individual mas sem linha de total declarada: só as divergências A/B aparecem, nunca C/D', () => {
+    const conferencia = conferirContabilidadePlantao({
+      totalBrutoCalculado: { quantidade: 2, minutos: 200 },
+      contabilidadeInformada: [
+        { plantonistaNomeOriginal: 'A', quantidadeInformada: 1, minutosInformados: 100, valorHorasBruto: '1:40' },
+      ],
+      totaisInformados: null,
+    });
+    expect(conferencia.divergencias.map((d) => d.chave).sort()).toEqual([
+      'INTERVALOS_VS_CONTABILIDADE_MINUTOS',
+      'INTERVALOS_VS_CONTABILIDADE_QUANTIDADE',
+    ]);
+  });
+
+  it('quando todas as camadas coincidem, nenhuma divergência é reportada (conferência consistente)', () => {
+    const conferencia = conferirContabilidadePlantao({
+      totalBrutoCalculado: { quantidade: 1, minutos: 60 },
+      contabilidadeInformada: [
+        { plantonistaNomeOriginal: 'A', quantidadeInformada: 1, minutosInformados: 60, valorHorasBruto: '1:0' },
+      ],
+      totaisInformados: { totalPlantoesInformado: 1, totalMinutosInformado: 60 },
+    });
+    expect(conferencia.divergencias.every((d) => !d.divergente)).toBe(true);
+    expect(conferencia.divergencias).toHaveLength(4);
+  });
+});
+
+describe('linha de total com rótulo diferente de "Total" — causa raiz do bug dos "—" no Dashboard (Fase PLANTÃO-3B.1)', () => {
+  function construirPlanilhaComContabilidade(rotuloLinhaTotal: string): ArrayBuffer {
+    return construirArrayBuffer('Aba1', [
+      ['Plantonista Segurança', 'Data Inicio', 'Data Fim'],
+      ['Ana Costa', 'Sábado, 25/07/2026 - 00:00', 'Domingo, 26/07/2026 - 12:00'],
+      [],
+      ['CONTABILIDADE DOS PLANTÕES NO MÊS'],
+      ['Plantonistas', 'N° Plantões', 'N° Horas'],
+      ['Ana Costa', '1', '12:0'],
+      [rotuloLinhaTotal, '1', '12:0'],
+    ]);
+  }
+
+  it('reconhece "Total Geral" como linha de total (antes desta fase, ficava null e virava um plantonista falso)', () => {
+    const resultado = parsePlanilhaPlantao(construirPlanilhaComContabilidade('Total Geral'));
+    expect(resultado.totaisInformados).toEqual({ totalPlantoesInformado: 1, totalMinutosInformado: 12 * 60 });
+    expect(resultado.contabilidadeInformada.map((c) => c.plantonistaNomeOriginal)).toEqual(['Ana Costa']);
+  });
+
+  it('reconhece "Total:" como linha de total', () => {
+    const resultado = parsePlanilhaPlantao(construirPlanilhaComContabilidade('Total:'));
+    expect(resultado.totaisInformados).toEqual({ totalPlantoesInformado: 1, totalMinutosInformado: 12 * 60 });
+  });
+
+  it('reconhece "TOTAL DO MÊS" como linha de total', () => {
+    const resultado = parsePlanilhaPlantao(construirPlanilhaComContabilidade('TOTAL DO MÊS'));
+    expect(resultado.totaisInformados).toEqual({ totalPlantoesInformado: 1, totalMinutosInformado: 12 * 60 });
+  });
+
+  it('continua reconhecendo "Total" exato (compatibilidade com a fixture existente)', () => {
+    const resultado = parsePlanilhaPlantao(construirPlanilhaComContabilidade('Total'));
+    expect(resultado.totaisInformados).toEqual({ totalPlantoesInformado: 1, totalMinutosInformado: 12 * 60 });
+  });
+
+  it('sem nenhuma linha de total na planilha, totaisInformados é null (ausência, nunca 0 inventado)', () => {
+    const resultado = parsePlanilhaPlantao(construirArrayBuffer('Aba1', [
+      ['Plantonista Segurança', 'Data Inicio', 'Data Fim'],
+      ['Ana Costa', 'Sábado, 25/07/2026 - 00:00', 'Domingo, 26/07/2026 - 12:00'],
+      [],
+      ['CONTABILIDADE DOS PLANTÕES NO MÊS'],
+      ['Plantonistas', 'N° Plantões', 'N° Horas'],
+      ['Ana Costa', '1', '12:0'],
+    ]));
+    expect(resultado.totaisInformados).toBeNull();
+    expect(resultado.contabilidadeInformada).toHaveLength(1);
   });
 });

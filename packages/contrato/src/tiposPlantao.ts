@@ -80,6 +80,55 @@ export interface TotalBrutoPlantao {
   minutos: number;
 }
 
+/**
+ * Soma das linhas INDIVIDUAIS de `ContabilidadePlantaoInformada[]` —
+ * CALCULADA pelo sistema a partir das linhas por plantonista, nunca lida
+ * diretamente de uma célula. Terceira camada de verdade (Fase
+ * PLANTÃO-3B.1, ver `docs/spec/PLANTOES.md`): diferente de
+ * `TotalBrutoPlantao` (soma dos INTERVALOS brutos) e de
+ * `TotaisInformadosPlantao` (a linha de total que a própria planilha
+ * DECLARA) — as três podem divergir entre si, e nenhuma é "a correta". Ver
+ * `somarContabilidadeInformada()` em `parserPlantao.ts`.
+ */
+export interface SomaContabilidadeInformada {
+  quantidade: number;
+  minutos: number;
+}
+
+export type ChaveDivergenciaPlantao =
+  | 'INTERVALOS_VS_CONTABILIDADE_QUANTIDADE'
+  | 'INTERVALOS_VS_CONTABILIDADE_MINUTOS'
+  | 'CONTABILIDADE_VS_DECLARADO_QUANTIDADE'
+  | 'CONTABILIDADE_VS_DECLARADO_MINUTOS';
+
+/**
+ * Uma comparação estruturada entre duas das três camadas de verdade —
+ * nunca decide qual valor está certo, só relata `valorA`/`valorB` e se
+ * divergem. `divergente: false` é um resultado tão válido quanto `true`
+ * (ver seção "Se não houver divergência" de `docs/spec/PLANTOES.md`).
+ */
+export interface DivergenciaPlantao {
+  chave: ChaveDivergenciaPlantao;
+  valorA: number;
+  valorB: number;
+  divergente: boolean;
+}
+
+/**
+ * Relatório de conferência contábil da fonte (Fase PLANTÃO-3B.1) — as três
+ * camadas de verdade lado a lado, mais as divergências detectadas entre
+ * elas. `divergencias` só inclui uma comparação quando as DUAS pontas dela
+ * existem na fonte (nunca gera uma divergência falsa por ausência — ver
+ * `conferirContabilidadePlantao()` em `parserPlantao.ts`).
+ */
+export interface ConferenciaContabilPlantao {
+  bruto: TotalBrutoPlantao;
+  somaContabilidadeInformada: SomaContabilidadeInformada;
+  /** `null` quando a planilha não tem uma linha de total declarado — nunca `0` inventado. */
+  declarado: TotaisInformadosPlantao | null;
+  divergencias: DivergenciaPlantao[];
+}
+
 export type TipoSobreposicaoPlantao = 'MESMO_PLANTONISTA' | 'PLANTONISTAS_DIFERENTES';
 
 /** Duas atribuições cujos intervalos se sobrepõem no tempo — só detecção, nunca correção automática. */

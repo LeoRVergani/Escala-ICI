@@ -1382,3 +1382,95 @@ antes de qualquer `onSalvar`, como já era desde a PLANTÃO-3B.
 Ver `CHECKPOINT-FASE-UI-ORG-1-ARVORE-PICKER.md` para o detalhamento
 completo (decisões de design, acessibilidade, testes, limitação conhecida
 de cobertura de testes de componente).
+
+## 23. PLANTÃO-3B.1 — conferência contábil da fonte (três camadas de verdade)
+
+A contabilidade de uma planilha de Plantão tem **três camadas de verdade
+independentes**, e as três podem divergir entre si na mesma planilha real
+— nenhuma delas é "a correta":
+
+1. **Bruto** (`TotalBrutoPlantao`, `calcularDuracaoBrutaDosIntervalos()`)
+   — soma literal dos INTERVALOS lidos (`atribuicoes[]`). Fixture real:
+   **32 intervalos, 504h**.
+2. **Contabilidade por plantonista, somada** (`SomaContabilidadeInformada`,
+   `somarContabilidadeInformada()`, nova nesta fase) — soma das LINHAS
+   INDIVIDUAIS da seção "Contabilidade dos Plantões no mês"
+   (`contabilidadeInformada[]`). CALCULADA pelo sistema a partir das
+   linhas, nunca lida de uma célula de total. Fixture real: **31
+   plantões, 480h**.
+3. **Total declarado na fonte** (`TotaisInformadosPlantao`,
+   já existente desde a PLANTÃO-1) — a linha de total que a própria
+   planilha declara (`totaisInformados`). Fixture real: **31 plantões,
+   468h**. `null` quando a planilha não tem essa linha — nunca `0`
+   inventado.
+
+`ConferenciaContabilPlantao`/`conferirContabilidadePlantao()`
+(`packages/contrato/src/parserPlantao.ts`, novos) juntam as três camadas e
+comparam duas a duas, produzindo `DivergenciaPlantao[]` — cada uma só
+aparece quando as DUAS pontas da comparação existem na fonte (nunca gera
+divergência falsa comparando contra zero por ausência):
+
+| Divergência | Compara | Fixture real |
+| --- | --- | --- |
+| `INTERVALOS_VS_CONTABILIDADE_QUANTIDADE` | bruto.quantidade vs. soma individual.quantidade | 32 vs. 31 — **divergente** |
+| `INTERVALOS_VS_CONTABILIDADE_MINUTOS` | bruto.minutos vs. soma individual.minutos | 504h vs. 480h — **divergente** |
+| `CONTABILIDADE_VS_DECLARADO_QUANTIDADE` | soma individual.quantidade vs. declarado.totalPlantoesInformado | 31 vs. 31 — **sem divergência** |
+| `CONTABILIDADE_VS_DECLARADO_MINUTOS` | soma individual.minutos vs. declarado.totalMinutosInformado | 480h vs. 468h — **divergente** |
+
+Nenhuma reconciliação automática existe nem existirá nesta fase: `504 →
+480`, `480 → 468` ou `504 → 468` nunca são aplicados; nenhuma linha é
+descartada para a soma "fechar"; nenhuma duração é alterada. A UI (ver
+§ 23.2) só **relata**, nunca "corrige".
+
+### 23.1 Causa raiz corrigida: `totaisInformados` chegava `null` mesmo com total declarado
+
+Bug real observado no Dashboard staging: os cards de "Plantões informados
+no relatório"/"Horas informadas no relatório" mostravam `—` mesmo com a
+planilha real tendo uma linha de total. Causa raiz: `extrairContabilidadeInformada()`
+identificava a linha de total por **igualdade exata** —
+`normalizarChaveEstrutural(nome) === 'TOTAL'`. A fixture sanitizada usa
+literalmente "Total" (por isso os testes desta fixture nunca detectaram o
+problema), mas qualquer rótulo real diferente — "Total Geral", "Total:",
+"TOTAL DO MÊS" — falha nessa comparação; a linha então virava um
+plantonista FALSO dentro de `contabilidadeInformada`, e `totaisInformados`
+nunca era preenchido. Corrigido para `ehLinhaTotalPlantao()` (`startsWith`
+em vez de igualdade exata) — mesmo princípio de detecção estrutural, não
+por texto absoluto frágil, já usado para `MARCADOR_CONTABILIDADE`
+("Contabilidade..."). Testado com "Total Geral"/"Total:"/"TOTAL DO MÊS"/
+"Total" (compatibilidade).
+
+### 23.2 Dashboard — conferência clara, nunca ambígua
+
+O card de resumo (`plantao-resumo-panel`) mostra as três camadas lado a
+lado, com nomenclatura neutra ("Contabilidade por plantonista", "Total
+declarado na planilha" — nunca "correto"/"real"), e "Não informada/o na
+fonte" (nunca `0`) quando uma camada não existe na planilha. O painel de
+divergências (`conferencia.divergencias`) mostra uma "Divergências
+encontradas na fonte" com uma linha por comparação divergente, ou
+"Conferência consistente" quando todas as comparáveis coincidem — nunca
+esconde os números, nunca culpa o usuário, nunca afirma que a planilha
+está errada. A aba "Contabilidade" ganhou um rodapé com "Soma das linhas"
+(nova) separado de "Total declarado na planilha" (já existente) — os dois
+nunca no mesmo campo.
+
+**"Validar prévia" continua não bloqueada por divergência contábil** —
+só por vínculo pendente (`previaPlantaoValidavel()`, inalterado). Se um
+bloqueio antes de publicação vier a ser necessário, é decisão da
+PLANTÃO-3C — não desta fase, que é só importação/contrato/preview/
+diagnóstico.
+
+### 23.3 O que esta fase explicitamente NÃO faz
+
+- Nenhuma publicação (`publicarPlantao()` continua inexistente).
+- Nenhuma mudança de Firestore Rules/índices.
+- Nenhuma mudança no schema persistente (`GrupoPlantao`/
+  `CompetenciaPlantao`/`AtribuicaoPlantaoPersistida` inalterados — as três
+  camadas de verdade são conceito de IMPORTAÇÃO/preview, não de
+  persistência).
+- Nenhuma mudança na árvore organizacional (`OrganizationTree`/
+  `OrganizationTeamPicker`/`lib/organizacao.ts`, fechadas na UI-ORG-1A).
+- Nenhuma regra de negócio inventada para transformar 504h/480h/468h num
+  único valor.
+
+Ver `CHECKPOINT-FASE-PLANTAO-3B1-CONFERENCIA-CONTABIL.md` para o
+detalhamento completo.
