@@ -10,6 +10,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Radio,
   ShieldCheck,
   UploadCloud,
   UserRound,
@@ -26,7 +27,7 @@ import { ThemeToggle } from './ThemeProvider';
 export interface ItemNavegacao {
   id: string;
   rotulo: string;
-  icone: 'home' | 'upload' | 'calendar' | 'grid' | 'users' | 'user' | 'trocas' | 'admin';
+  icone: 'home' | 'upload' | 'calendar' | 'grid' | 'users' | 'user' | 'trocas' | 'admin' | 'plantao';
 }
 
 const ICONES: Record<ItemNavegacao['icone'], LucideIcon> = {
@@ -38,6 +39,7 @@ const ICONES: Record<ItemNavegacao['icone'], LucideIcon> = {
   user: UserRound,
   trocas: ArrowLeftRight,
   admin: ShieldCheck,
+  plantao: Radio,
 };
 
 interface AppFrameProps {

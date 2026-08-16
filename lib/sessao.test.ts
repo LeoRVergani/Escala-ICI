@@ -11,10 +11,12 @@ import {
   nivelPermiteDashboard,
   perfilEfetivo,
   podeGerenciarEquipe,
+  podeGerenciarGrupoPlantao,
   podeGerenciarUnidade,
   podeIniciarListeners,
   preferenciaPadraoSessao,
   resolverManterConectado,
+  souGestorDePlantao,
   unidadesPermitidasEfetivas,
 } from './sessao';
 
@@ -220,5 +222,45 @@ describe('podeGerenciarEquipe', () => {
     const gestor = usuarioBase({ perfil: 'GESTOR_UNIDADE', equipeId: 'EQ_SOC', equipesPermitidas: ['EQ_SOC', 'EQ_NOC'] });
     expect(podeGerenciarEquipe(gestor, 'EQ_NOC')).toBe(true);
     expect(podeGerenciarEquipe(gestor, 'EQ_OUTRA')).toBe(false);
+  });
+});
+
+describe('souGestorDePlantao', () => {
+  it('true para ADMIN_SISTEMA', () => {
+    expect(souGestorDePlantao(usuarioBase({ perfil: 'ADMIN_SISTEMA' }))).toBe(true);
+  });
+
+  it('true para GESTOR_EQUIPE', () => {
+    expect(souGestorDePlantao(usuarioBase({ perfil: 'GESTOR_EQUIPE' }))).toBe(true);
+  });
+
+  it('false para GESTOR_UNIDADE — Plantão não é administrado por quem gerencia a unidade', () => {
+    expect(souGestorDePlantao(usuarioBase({ perfil: 'GESTOR_UNIDADE' }))).toBe(false);
+  });
+
+  it('false para ANALISTA_SOC', () => {
+    expect(souGestorDePlantao(usuarioBase({ perfil: 'ANALISTA_SOC' }))).toBe(false);
+  });
+});
+
+describe('podeGerenciarGrupoPlantao', () => {
+  it('admin sempre pode, mesmo sem pertencer à equipe responsável', () => {
+    expect(podeGerenciarGrupoPlantao(usuarioBase({ perfil: 'ADMIN_SISTEMA', equipeId: 'EQ_OUTRA' }), 'EQ_SOC')).toBe(true);
+  });
+
+  it('GESTOR_EQUIPE só pode dentro de equipesPermitidasEfetivas', () => {
+    const gestor = usuarioBase({ perfil: 'GESTOR_EQUIPE', equipeId: 'EQ_SOC', equipesPermitidas: ['EQ_SOC', 'EQ_PLANTAO_COSI'] });
+    expect(podeGerenciarGrupoPlantao(gestor, 'EQ_PLANTAO_COSI')).toBe(true);
+    expect(podeGerenciarGrupoPlantao(gestor, 'EQ_NOC')).toBe(false);
+  });
+
+  it('pertencer à equipe responsável NÃO basta sem ser GESTOR_EQUIPE/ADMIN_SISTEMA — mesmo bug corrigido nas Rules na Fase PLANTÃO-3A', () => {
+    const analista = usuarioBase({ perfil: 'ANALISTA_SOC', equipeId: 'EQ_SOC' });
+    expect(podeGerenciarGrupoPlantao(analista, 'EQ_SOC')).toBe(false);
+  });
+
+  it('GESTOR_UNIDADE não administra Plantão mesmo com a equipe em unidadesPermitidas', () => {
+    const gestorUnidade = usuarioBase({ perfil: 'GESTOR_UNIDADE', equipeId: 'EQ_SOC', unidadesPermitidas: ['COSI'] });
+    expect(podeGerenciarGrupoPlantao(gestorUnidade, 'EQ_SOC')).toBe(false);
   });
 });

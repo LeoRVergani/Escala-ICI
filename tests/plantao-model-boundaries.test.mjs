@@ -22,9 +22,16 @@ test('1. o App do colaborador não ganha nenhuma escrita administrativa de Plant
   }
 });
 
-test('2. o Dashboard (PLANTÃO-2) ainda não chama os repositories de Plantão desta fase', async () => {
-  const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
-  for (const proibido of [
+/**
+ * 2. Fase PLANTÃO-3B: a integração agora existe de propósito — este teste,
+ * criado em PLANTÃO-3A, dizia o oposto porque a Administração de Plantão no
+ * Dashboard ainda não tinha sido construída. Continua proibido publicar
+ * (`publicarPlantao`/escrever em `competenciasPlantao`) — ver também
+ * `tests/plantao-preview-boundaries.test.mjs`.
+ */
+test('2. o Dashboard (PLANTÃO-3B) passa a chamar os repositories de Plantão — grupo, participantes, contatos e rascunho', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  for (const esperado of [
     'plantaoWriteRepository',
     'plantaoReadRepository',
     'salvarGrupoPlantao',
@@ -32,14 +39,12 @@ test('2. o Dashboard (PLANTÃO-2) ainda não chama os repositories de Plantão d
     'desativarParticipantePlantao',
     'salvarCompetenciaPlantaoRascunho',
     'salvarAtribuicoesPlantaoRascunho',
-    'obterGrupoPlantao',
-    'listarGruposPlantaoPermitidos',
     'listarParticipantesPlantao',
     'obterCompetenciaPlantaoRascunho',
-    'listarAtribuicoesPlantaoRascunho',
   ]) {
-    assert.doesNotMatch(dashboard, new RegExp(proibido), proibido);
+    assert.match(dashboard, new RegExp(esperado), esperado);
   }
+  assert.doesNotMatch(dashboard, /publicarPlantao/u, 'publicar continua fora do escopo até PLANTÃO-3C');
 });
 
 test('3. o parser isolado de Plantão (PLANTÃO-1) continua sem nenhum import de Firebase', async () => {

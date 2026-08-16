@@ -173,3 +173,31 @@ export function podeGerenciarEquipe(usuario: Usuario, equipeId: string): boolean
   }
   return equipesPermitidasEfetivas(usuario).includes(equipeId);
 }
+
+/**
+ * Espelha `souGestor()` de `firestore.rules` — deliberadamente NÃO inclui
+ * GESTOR_UNIDADE (diferente de `podeAcessarAdministracao` no Dashboard, que
+ * é `souAdmin || souGestorUnidade`). Um Grupo de Plantão é administrado por
+ * quem gerencia a EQUIPE responsável, não por quem gerencia a unidade
+ * organizacional acima dela — ver `docs/spec/HIERARQUIA_ORGANIZACIONAL.md`
+ * § 7 e `docs/spec/PLANTOES.md`, seção 20.
+ */
+export function souGestorDePlantao(usuario: Usuario): boolean {
+  return ehAdminSistema(usuario) || perfilEfetivo(usuario) === 'GESTOR_EQUIPE';
+}
+
+/**
+ * Espelha `podeGerenciarGrupoPlantao()` de `firestore.rules`:
+ * `souGestor() && podeOperarNaEquipe(grupoDoc.equipeResponsavelId)`. Só UX —
+ * esconder/mostrar botões no Dashboard; a autorização real continua nas
+ * Rules. Pertencer à equipe responsável (`equipesPermitidasEfetivas`) sozinho
+ * NUNCA basta — precisa também ser GESTOR_EQUIPE (ou ADMIN_SISTEMA), mesmo
+ * bug já corrigido uma vez em `podeGerenciarGrupoPlantao()` das Rules
+ * (Fase PLANTÃO-3A): pertencimento à equipe não é autorização de gestor.
+ */
+export function podeGerenciarGrupoPlantao(usuario: Usuario, equipeResponsavelId: string): boolean {
+  if (!souGestorDePlantao(usuario)) {
+    return false;
+  }
+  return ehAdminSistema(usuario) || equipesPermitidasEfetivas(usuario).includes(equipeResponsavelId);
+}

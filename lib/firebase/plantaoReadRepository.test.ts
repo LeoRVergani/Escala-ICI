@@ -54,6 +54,7 @@ const {
   listarAtribuicoesPlantaoRascunho,
   listarGruposPlantaoPermitidos,
   listarParticipantesPlantao,
+  listarTodosGruposPlantao,
   obterCompetenciaPlantaoRascunho,
   obterGrupoPlantao,
 } = await import('./plantaoReadRepository');
@@ -102,6 +103,22 @@ describe('listarGruposPlantaoPermitidos', () => {
     ];
     const resultado = await listarGruposPlantaoPermitidos('EQ_SOC');
     expect(resultado.map((g) => g.grupoId)).toEqual(['PLANTAO_SEGURANCA']);
+  });
+});
+
+describe('listarTodosGruposPlantao', () => {
+  it('retorna todos os grupos, sem filtrar por equipesConsulta (uso exclusivo de ADMIN_SISTEMA)', async () => {
+    estado.gruposPlantao = [
+      { id: 'PLANTAO_SEGURANCA', data: grupo({ equipesConsulta: ['EQ_COSI'] }) },
+      { id: 'PLANTAO_REDES', data: grupo({ grupoId: 'PLANTAO_REDES', equipeResponsavelId: 'EQ_REDES', equipesConsulta: ['EQ_REDES'] }) },
+    ];
+    const resultado = await listarTodosGruposPlantao();
+    expect(resultado.map((g) => g.grupoId).sort()).toEqual(['PLANTAO_REDES', 'PLANTAO_SEGURANCA']);
+  });
+
+  it('retorna lista vazia quando não há nenhum grupo cadastrado', async () => {
+    const resultado = await listarTodosGruposPlantao();
+    expect(resultado).toEqual([]);
   });
 });
 

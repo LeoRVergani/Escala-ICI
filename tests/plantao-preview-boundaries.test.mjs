@@ -69,23 +69,35 @@ test('o writeRepository.ts compartilhado (6x1) segue sem qualquer menção a Pla
   assert.doesNotMatch(writeRepository, /plantao/iu, 'writeRepository.ts não deve mencionar Plantão');
 });
 
-test('o Dashboard não grava Plantão: o preview usa só o roteador/conciliação puros, nunca uma escrita real', async () => {
+test('o Dashboard roteia o preview de Plantão pelo importador/conciliação puros', async () => {
   const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
 
   assert.match(dashboard, /processarArquivoImportado/, 'o Dashboard deve rotear pelo importador puro');
   assert.match(dashboard, /conciliacaoPlantoes/, 'o Dashboard deve importar a conciliação pura de Plantão');
+});
 
-  // Nenhuma função de escrita real (existente hoje em writeRepository.ts)
-  // pode aparecer associada a "Plantao" no mesmo arquivo — checagem
-  // best-effort: nenhuma dessas funções é sequer declarada com sufixo
-  // "Plantao"/"Plantão" em todo o Dashboard.
-  for (const proibido of [
-    'salvarRascunhoPlantao',
-    'publicarPlantao',
-    'salvarPlantao',
-    'gravarPlantao',
-    'persistirPlantao',
-  ]) {
-    assert.doesNotMatch(dashboard, new RegExp(proibido, 'iu'), proibido);
+/**
+ * Fase PLANTÃO-3B: a integração real acontece agora — o Dashboard PASSA a
+ * importar `plantaoReadRepository.ts`/`plantaoWriteRepository.ts` (o
+ * teste acima, de PLANTÃO-2, dizia o oposto porque a integração ainda não
+ * existia). O que continua absolutamente proibido, em qualquer fase antes
+ * de PLANTÃO-3C, é publicar: nenhuma função `publicarPlantao()` pode
+ * existir, e a coleção `competenciasPlantao` (só a PUBLICADA) nunca pode
+ * ser alvo de escrita a partir do Dashboard.
+ */
+test('o Dashboard passa a integrar plantaoReadRepository/plantaoWriteRepository (Fase PLANTÃO-3B), mas nunca publica', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+
+  assert.match(dashboard, /plantaoReadRepository/, 'o Dashboard deve importar a leitura persistente de Plantão');
+  assert.match(dashboard, /plantaoWriteRepository/, 'o Dashboard deve importar a escrita persistente de Plantão (rascunho)');
+
+  for (const proibido of ['publicarPlantao', /salvarDoc\(\s*['"]competenciasPlantao['"]/u]) {
+    assert.doesNotMatch(dashboard, proibido instanceof RegExp ? proibido : new RegExp(proibido, 'iu'), String(proibido));
   }
+});
+
+test('plantaoWriteRepository.ts continua sem nenhuma função de publicação — publicar é PLANTÃO-3C', async () => {
+  const writeRepo = await ler('lib/firebase/plantaoWriteRepository.ts');
+  assert.doesNotMatch(writeRepo, /function\s+publicar/iu, 'nenhuma função de publicação pode existir nesta fase');
+  assert.doesNotMatch(writeRepo, /['"]competenciasPlantao['"]/u, 'a coleção PUBLICADA nunca é gravada por esta fase');
 });

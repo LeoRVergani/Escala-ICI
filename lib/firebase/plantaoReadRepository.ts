@@ -35,6 +35,23 @@ export async function listarGruposPlantaoPermitidos(equipeId: string): Promise<G
   return resultado.docs.map((snapshot) => snapshot.data() as GrupoPlantao);
 }
 
+/**
+ * Todos os Grupos, sem filtro de `equipesConsulta` — só ADMIN_SISTEMA
+ * consegue de fato (a Rule de `gruposPlantao` dispensa o filtro só para
+ * `souAdminSistema()`; qualquer outro perfil que chamar isto recebe
+ * `permission-denied` do próprio Firestore, porque a query sem `where`
+ * exigiria que TODO documento da coleção passasse na regra de leitura, não
+ * só os que já viriam por `listarGruposPlantaoPermitidos()`). Usado pela
+ * tela Administração › Plantões (Fase PLANTÃO-3B) para o ADMIN_SISTEMA
+ * enxergar todos os grupos, inclusive os que sua própria equipe não
+ * consulta.
+ */
+export async function listarTodosGruposPlantao(): Promise<GrupoPlantao[]> {
+  const { db } = exigirFirebase();
+  const resultado = await getDocs(collection(db, 'gruposPlantao'));
+  return resultado.docs.map((snapshot) => snapshot.data() as GrupoPlantao);
+}
+
 export async function listarParticipantesPlantao(grupoId: string): Promise<ParticipantePlantao[]> {
   const { db } = exigirFirebase();
   const resultado = await getDocs(collection(db, 'gruposPlantao', grupoId, 'participantes'));

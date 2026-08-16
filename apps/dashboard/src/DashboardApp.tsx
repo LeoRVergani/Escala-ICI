@@ -4,11 +4,20 @@ import {
   CATALOGO_SOC,
   calcularTotais,
   dataIsoLocal,
+  equipesConsultaEfetivas,
   formatarMinutos,
+  idCompetenciaPlantao,
+  MAXIMO_CONTATOS_PLANTONISTA,
+  normalizarContatosPlantonista,
   parsePlanilhaEscala,
+  validarContatosPlantonista,
+  validarGrupoPlantao,
+  type ContatoPlantonista,
   type Dia,
   type ErroImportacao,
   type ErroImportacaoPlantao,
+  type GrupoPlantao,
+  type ParticipantePlantao,
   type ResultadoParse,
   type ResultadoParsePlantao,
   type TipoTurno,
@@ -30,8 +39,10 @@ import {
   Link2,
   LoaderCircle,
   Pencil,
+  Phone,
   Plus,
   Power,
+  Radio,
   RotateCcw,
   Save,
   Search,
@@ -109,6 +120,25 @@ import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
 import { ambienteFirebaseAtual } from '@/lib/firebase/shared';
 import {
+  listarGruposPlantaoPermitidos,
+  listarParticipantesPlantao,
+  listarTodosGruposPlantao,
+  obterCompetenciaPlantaoRascunho,
+} from '@/lib/firebase/plantaoReadRepository';
+import {
+  desativarParticipantePlantao,
+  salvarAtribuicoesPlantaoRascunho,
+  salvarCompetenciaPlantaoRascunho,
+  salvarGrupoPlantao,
+  salvarParticipantePlantao,
+} from '@/lib/firebase/plantaoWriteRepository';
+import {
+  montarAtribuicoesPlantaoRascunho,
+  montarCompetenciaPlantaoRascunho,
+  montarParticipantesPlantaoParaSalvar,
+  sugerirCompetenciaPlantao,
+} from '@/lib/montagemRascunhoPlantao';
+import {
   excluirEscalaPublicada,
   excluirUsuario,
   listarEquipes,
@@ -140,7 +170,10 @@ import { exclusaoZeraGestores, podeExcluirCompetencia, podeExcluirUsuario } from
 import {
   COMPETENCIA_ATUAL,
   ehAdminSistema,
+  equipesPermitidasEfetivas,
   perfilEfetivo,
+  podeGerenciarGrupoPlantao,
+  souGestorDePlantao,
   unidadesPermitidasEfetivas,
 } from '@/lib/sessao';
 import {
@@ -207,7 +240,7 @@ import type {
   Usuario,
 } from '@/lib/modelos';
 
-type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'administracao';
+type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao';
 type FiltroTrocas = 'pendentes' | 'aprovadas' | 'recusadas' | 'historico';
 
 /**
@@ -573,6 +606,7 @@ const NAVEGACAO: ItemNavegacao[] = [
   { id: 'grade', rotulo: 'Grade', icone: 'grid' },
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   { id: 'usuarios', rotulo: 'Usuários', icone: 'users' },
+  { id: 'plantoes', rotulo: 'Plantões', icone: 'plantao' },
   { id: 'administracao', rotulo: 'Administração', icone: 'admin' },
 ];
 
@@ -988,6 +1022,334 @@ function ModalEquipe({
           <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
           <button className="primary-button" type="button" disabled={salvando} onClick={() => void aoClicarSalvar()}>
             {salvando ? <LoaderCircle className="spin" size={16} /> : null} Salvar equipe
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Modal de criação/edição de Grupo de Plantão (Fase PLANTÃO-3B). Reaproveita
+ * exatamente o mesmo padrão de `ModalEquipe`/`ModalUnidadeOrganizacional`
+ * (mesmas classes de modal, mesmo formato de validação) — a "equipe
+ * responsável" é escolhida por um `<select>` plano sobre `equipesExistentes`
+ * (nunca uma segunda árvore: equipes já não são hierárquicas, só a unidade
+ * acima delas é, e o rótulo de cada opção reaproveita `trechoFinalCaminho()`
+ * de `lib/organizacao.ts` para mostrar esse caminho). `equipesConsulta` é um
+ * multi-select de checkboxes sobre as mesmas equipes — a equipe responsável
+ * vem sempre marcada e desabilitada (a Rule exige `equipeResponsavelId in
+ * equipesConsulta` sempre; nunca uma equipe extra pré-marcada, ver
+ * docs/spec/PLANTOES.md, seção 20).
+ */
+function ModalGrupoPlantao({
+  modo,
+  inicial,
+  gruposExistentes,
+  equipesExistentes,
+  unidadesExistentes,
+  equipesPermitidas,
+  onFechar,
+  onSalvar,
+}: {
+  modo: 'criar' | 'editar';
+  inicial: GrupoPlantao;
+  gruposExistentes: GrupoPlantao[];
+  equipesExistentes: Equipe[];
+  unidadesExistentes: UnidadeOrganizacional[];
+  /** `null` = sem restrição (ADMIN_SISTEMA); não-null = só estas equipes podem ser "responsável" (GESTOR_EQUIPE). */
+  equipesPermitidas: string[] | null;
+  onFechar: () => void;
+  onSalvar: (grupo: GrupoPlantao) => Promise<void>;
+}) {
+  const [form, setForm] = useState(inicial);
+  const [erro, setErro] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  useTeclaEsc(onFechar);
+
+  const opcoesEquipeResponsavel = equipesExistentes
+    .filter((equipe) => equipesPermitidas === null || equipesPermitidas.includes(equipe.id));
+
+  function rotuloEquipePlantao(equipe: Equipe): string {
+    return equipe.caminhoUnidade && equipe.caminhoUnidade.length > 0
+      ? `${equipe.nome} — ${trechoFinalCaminho(equipe.caminhoUnidade, unidadesExistentes, 2)}`
+      : equipe.nome;
+  }
+
+  function alternarEquipeConsulta(equipeId: string) {
+    setForm((atual) => ({
+      ...atual,
+      equipesConsulta: atual.equipesConsulta.includes(equipeId)
+        ? atual.equipesConsulta.filter((item) => item !== equipeId)
+        : [...atual.equipesConsulta, equipeId],
+    }));
+  }
+
+  async function aoClicarSalvar() {
+    if (modo === 'criar' && gruposExistentes.some((item) => item.grupoId === form.grupoId)) {
+      setErro('Já existe um grupo de Plantão com esse identificador.');
+      return;
+    }
+    const candidato: GrupoPlantao = {
+      ...form,
+      equipesConsulta: equipesConsultaEfetivas(form.equipeResponsavelId, form.equipesConsulta),
+    };
+    const erros = validarGrupoPlantao(candidato);
+    if (erros.length > 0) {
+      setErro(erros.join(' '));
+      return;
+    }
+    setSalvando(true);
+    try {
+      await onSalvar(candidato);
+    } catch (falha) {
+      setErro(falha instanceof Error ? falha.message : 'Não foi possível salvar o grupo de Plantão.');
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal admin-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="grupo-plantao-modal-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <h2 id="grupo-plantao-modal-title">{modo === 'criar' ? 'Novo grupo de Plantão' : 'Editar grupo de Plantão'}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="admin-form-grid">
+          <label htmlFor="grupo-plantao-id">
+            Identificador
+            <input
+              id="grupo-plantao-id"
+              autoFocus
+              placeholder="Ex.: PLANTAO_SEGURANCA"
+              value={form.grupoId}
+              disabled={modo === 'editar'}
+              onChange={(evento) => setForm((atual) => ({ ...atual, grupoId: evento.target.value }))}
+            />
+            {modo === 'editar' && <small>O identificador não pode ser alterado.</small>}
+          </label>
+          <label htmlFor="grupo-plantao-nome">
+            Nome
+            <input
+              id="grupo-plantao-nome"
+              placeholder="Nome do grupo de Plantão"
+              value={form.nome}
+              onChange={(evento) => setForm((atual) => ({ ...atual, nome: evento.target.value }))}
+            />
+          </label>
+          <label className="admin-form-full" htmlFor="grupo-plantao-descricao">
+            Descrição (opcional)
+            <input
+              id="grupo-plantao-descricao"
+              value={form.descricao ?? ''}
+              onChange={(evento) => setForm((atual) => ({ ...atual, descricao: evento.target.value || undefined }))}
+            />
+          </label>
+          <label htmlFor="grupo-plantao-equipe">
+            Equipe responsável
+            <select
+              id="grupo-plantao-equipe"
+              value={form.equipeResponsavelId}
+              onChange={(evento) => setForm((atual) => ({ ...atual, equipeResponsavelId: evento.target.value }))}
+            >
+              <option value="">Selecione uma equipe</option>
+              {opcoesEquipeResponsavel.map((equipe) => (
+                <option key={equipe.id} value={equipe.id}>{rotuloEquipePlantao(equipe)}</option>
+              ))}
+            </select>
+          </label>
+          <label htmlFor="grupo-plantao-timezone">
+            Timezone
+            <input
+              id="grupo-plantao-timezone"
+              placeholder="Ex.: America/Sao_Paulo"
+              value={form.timezone}
+              onChange={(evento) => setForm((atual) => ({ ...atual, timezone: evento.target.value }))}
+            />
+          </label>
+          <label className="checkbox-row admin-form-active" htmlFor="grupo-plantao-ativo">
+            <input
+              id="grupo-plantao-ativo"
+              type="checkbox"
+              checked={form.ativo}
+              onChange={(evento) => setForm((atual) => ({ ...atual, ativo: evento.target.checked }))}
+            />
+            <span>Ativo</span>
+          </label>
+          <fieldset className="admin-form-full">
+            <legend>Equipes autorizadas a consultar</legend>
+            <p className="admin-form-preview">
+              Consultar é só visualizar o Plantão (participantes, atribuições) — nunca administra nada.
+              Só quem gerencia a equipe responsável (marcada abaixo, sempre incluída) administra este grupo.
+            </p>
+            {equipesExistentes.length === 0 && (
+              <small className="empty-inline">Nenhuma equipe cadastrada ainda.</small>
+            )}
+            {equipesExistentes.map((equipe) => {
+              const ehResponsavel = form.equipeResponsavelId !== '' && equipe.id === form.equipeResponsavelId;
+              return (
+                <label key={equipe.id} className="checkbox-inline">
+                  <input
+                    type="checkbox"
+                    checked={ehResponsavel || form.equipesConsulta.includes(equipe.id)}
+                    disabled={ehResponsavel}
+                    onChange={() => alternarEquipeConsulta(equipe.id)}
+                  />
+                  {rotuloEquipePlantao(equipe)}{ehResponsavel ? ' (responsável — sempre incluída)' : ''}
+                </label>
+              );
+            })}
+          </fieldset>
+        </div>
+        {erro && <p className="admin-form-erro">{erro}</p>}
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
+          <button className="primary-button" type="button" disabled={salvando} onClick={() => void aoClicarSalvar()}>
+            {salvando ? <LoaderCircle className="spin" size={16} /> : null} Salvar grupo
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Modal de contatos de um participante de Plantão (Fase PLANTÃO-3B) — até
+ * `MAXIMO_CONTATOS_PLANTONISTA` linhas de rótulo/número/ativo. Validação
+ * (`validarContatosPlantonista`) e normalização (`normalizarContatosPlantonista`)
+ * reaproveitam as mesmas funções puras de `@escala-ici/contrato` usadas por
+ * `firestore.rules`/`plantaoWriteRepository.ts` — nunca uma cópia divergente
+ * da regra de "0 a 3 contatos" aqui.
+ */
+function ModalContatosParticipante({
+  nomeExibicao,
+  contatosIniciais,
+  onFechar,
+  onSalvar,
+}: {
+  nomeExibicao: string;
+  contatosIniciais: ContatoPlantonista[];
+  onFechar: () => void;
+  onSalvar: (contatos: ContatoPlantonista[]) => Promise<void>;
+}) {
+  const [contatos, setContatos] = useState<ContatoPlantonista[]>(contatosIniciais);
+  const [erro, setErro] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  useTeclaEsc(onFechar);
+
+  function atualizarContato(indice: number, campo: 'rotulo' | 'numero', valor: string) {
+    setContatos((atuais) => atuais.map((item, posicao) => (posicao === indice ? { ...item, [campo]: valor } : item)));
+  }
+
+  function alternarAtivoContato(indice: number) {
+    setContatos((atuais) => atuais.map((item, posicao) => (posicao === indice ? { ...item, ativo: !item.ativo } : item)));
+  }
+
+  function adicionarContato() {
+    setContatos((atuais) => (atuais.length >= MAXIMO_CONTATOS_PLANTONISTA
+      ? atuais
+      : [...atuais, { rotulo: '', numero: '', ativo: true }]));
+  }
+
+  function removerContato(indice: number) {
+    setContatos((atuais) => atuais.filter((_, posicao) => posicao !== indice));
+  }
+
+  async function aoClicarSalvar() {
+    const normalizados = normalizarContatosPlantonista(contatos);
+    const erros = validarContatosPlantonista(normalizados);
+    if (erros.length > 0) {
+      setErro(erros.join(' '));
+      return;
+    }
+    setSalvando(true);
+    try {
+      await onSalvar(normalizados);
+    } catch (falha) {
+      setErro(falha instanceof Error ? falha.message : 'Não foi possível salvar os contatos.');
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal admin-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="contatos-modal-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <h2 id="contatos-modal-title">Contatos de {nomeExibicao}</h2>
+            <p>Até {MAXIMO_CONTATOS_PLANTONISTA} contatos operacionais por plantonista.</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="contato-plantonista-lista">
+          {contatos.length === 0 && <p className="empty-inline">Nenhum contato cadastrado ainda.</p>}
+          {contatos.map((contato, indice) => (
+            <div className="contato-plantonista-linha" key={indice}>
+              <label>
+                Rótulo
+                <input
+                  placeholder="Ex.: Celular corporativo"
+                  value={contato.rotulo}
+                  onChange={(evento) => atualizarContato(indice, 'rotulo', evento.target.value)}
+                />
+              </label>
+              <label>
+                Número
+                <input
+                  placeholder="Ex.: (11) 99999-0000"
+                  value={contato.numero}
+                  onChange={(evento) => atualizarContato(indice, 'numero', evento.target.value)}
+                />
+              </label>
+              <label className="checkbox-row">
+                <input type="checkbox" checked={contato.ativo} onChange={() => alternarAtivoContato(indice)} />
+                <span>Ativo</span>
+              </label>
+              <button
+                className="icon-button"
+                type="button"
+                title="Remover contato"
+                aria-label={`Remover contato ${indice + 1}`}
+                onClick={() => removerContato(indice)}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <button
+          className="secondary-button compact-button"
+          type="button"
+          disabled={contatos.length >= MAXIMO_CONTATOS_PLANTONISTA}
+          onClick={adicionarContato}
+        >
+          <Plus size={14} /> Adicionar contato
+        </button>
+        {erro && <p className="admin-form-erro">{erro}</p>}
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
+          <button className="primary-button" type="button" disabled={salvando} onClick={() => void aoClicarSalvar()}>
+            {salvando ? <LoaderCircle className="spin" size={16} /> : null} Salvar contatos
           </button>
         </div>
       </section>
@@ -2040,6 +2402,28 @@ export function DashboardApp() {
   const [previaPlantaoValidada, setPreviaPlantaoValidada] = useState(false);
   const [abaPreviaPlantao, setAbaPreviaPlantao] = useState<'resumo' | 'plantoes' | 'contabilidade' | 'vinculos'>('resumo');
   const [buscaVinculoPlantao, setBuscaVinculoPlantao] = useState<Record<string, string>>({});
+  // --- Administração de Plantão (Fase PLANTÃO-3B) — Grupos/participantes/contatos/rascunho ---
+  const [gruposPlantaoAdmin, setGruposPlantaoAdmin] = useState<GrupoPlantao[]>([]);
+  const [participantesPorGrupoPlantao, setParticipantesPorGrupoPlantao] = useState<Record<string, ParticipantePlantao[]>>({});
+  const [grupoPlantaoExpandido, setGrupoPlantaoExpandido] = useState<string | null>(null);
+  const [erroPlantaoAdmin, setErroPlantaoAdmin] = useState('');
+  const [modalGrupoPlantao, setModalGrupoPlantao] = useState<{ modo: 'criar' | 'editar'; inicial: GrupoPlantao } | null>(null);
+  const [buscaParticipanteNovo, setBuscaParticipanteNovo] = useState<Record<string, string>>({});
+  const [modalContatosParticipante, setModalContatosParticipante] = useState<
+    { grupoId: string; nomeExibicao: string; participante: ParticipantePlantao } | null
+  >(null);
+  const [participanteParaDesativar, setParticipanteParaDesativar] = useState<
+    { grupoId: string; login: string; nomeExibicao: string } | null
+  >(null);
+  const [processandoDesativarParticipante, setProcessandoDesativarParticipante] = useState(false);
+  // --- Rascunho de Plantão a partir da prévia validada (Fase PLANTÃO-3B) ---
+  const [grupoRascunhoEscolhido, setGrupoRascunhoEscolhido] = useState('');
+  const [competenciaRascunho, setCompetenciaRascunho] = useState('');
+  const [periodoInicioRascunho, setPeriodoInicioRascunho] = useState('');
+  const [periodoFimRascunho, setPeriodoFimRascunho] = useState('');
+  const [salvandoRascunhoPlantao, setSalvandoRascunhoPlantao] = useState(false);
+  const [erroRascunhoPlantao, setErroRascunhoPlantao] = useState('');
+  const [rascunhoPlantaoSalvoEm, setRascunhoPlantaoSalvoEm] = useState<string | null>(null);
   const [formularioUsuario, setFormularioUsuario] = useState<FormularioUsuario | null>(null);
   const [errosFormularioUsuario, setErrosFormularioUsuario] = useState<string[]>([]);
   const [novoAliasDraft, setNovoAliasDraft] = useState('');
@@ -2131,9 +2515,25 @@ export function DashboardApp() {
   const souGestorUnidade = usuarioReal !== null && perfilEfetivo(usuarioReal) === 'GESTOR_UNIDADE';
   const podeAcessarAdministracao = souAdmin || souGestorUnidade;
   const minhasUnidadesPermitidas = usuarioReal !== null ? unidadesPermitidasEfetivas(usuarioReal) : [];
-  const navegacaoVisivel = podeAcessarAdministracao
-    ? NAVEGACAO
-    : NAVEGACAO.filter((item) => item.id !== 'administracao');
+  /**
+   * Gate na identidade REAL — espelha `souGestor()` de firestore.rules
+   * (ADMIN_SISTEMA ou GESTOR_EQUIPE). Deliberadamente diferente de
+   * `podeAcessarAdministracao`: GESTOR_UNIDADE NÃO administra Plantão (ver
+   * `podeGerenciarGrupoPlantao` em firestore.rules e
+   * docs/spec/HIERARQUIA_ORGANIZACIONAL.md § 7) — só pode ver a tela se a
+   * própria equipe consultar algum grupo, nunca administrar um.
+   */
+  const podeAcessarPlantoes = usuarioReal !== null && souGestorDePlantao(usuarioReal);
+  const minhasEquipesPermitidas = usuarioReal !== null ? equipesPermitidasEfetivas(usuarioReal) : [];
+  const navegacaoVisivel = NAVEGACAO.filter((item) => {
+    if (item.id === 'administracao') {
+      return podeAcessarAdministracao;
+    }
+    if (item.id === 'plantoes') {
+      return podeAcessarPlantoes;
+    }
+    return true;
+  });
 
   // --- Derivados da tela Administração (Resumo, árvore, filtros de Usuários) ---
   const arvoreUnidadesAdmin = construirArvoreUnidades(unidadesAdmin);
@@ -2250,6 +2650,9 @@ export function DashboardApp() {
       setTipoArquivoDetectado('ESCALA_6X1');
       setResultadoPlantao(null);
       setVinculosPlantao([]);
+      setPreviaPlantaoValidada(false);
+      setGrupoRascunhoEscolhido('');
+      setRascunhoPlantaoSalvoEm(null);
       if (!modoDemo && usuarioEfetivo !== null) {
         const resposta = await fetch('/demo/Escala-SOC-Controle-Agosto.xls');
         if (!resposta.ok) {
@@ -2650,6 +3053,12 @@ export function DashboardApp() {
     setPreviaPlantaoValidada(false);
     setAbaPreviaPlantao('resumo');
     setBuscaVinculoPlantao({});
+    setGrupoRascunhoEscolhido('');
+    setCompetenciaRascunho('');
+    setPeriodoInicioRascunho('');
+    setPeriodoFimRascunho('');
+    setErroRascunhoPlantao('');
+    setRascunhoPlantaoSalvoEm(null);
     setMensagem(resultado.ok
       ? ''
       : `${resultado.erros.length} problema(s) encontrado(s) na planilha de Plantão.`);
@@ -2671,6 +3080,12 @@ export function DashboardApp() {
     }
     setPreviaPlantaoValidada(true);
     setMensagem('Prévia validada. Nenhum dado de Plantão foi publicado nesta fase.');
+    const sugestao = resultadoPlantao === null ? null : sugerirCompetenciaPlantao(resultadoPlantao.atribuicoes);
+    if (sugestao !== null) {
+      setCompetenciaRascunho((atual) => (atual === '' ? sugestao.competencia : atual));
+      setPeriodoInicioRascunho((atual) => (atual === '' ? sugestao.periodoInicio : atual));
+      setPeriodoFimRascunho((atual) => (atual === '' ? sugestao.periodoFim : atual));
+    }
   }
 
   function selecionarVinculoConciliacao(linha: LinhaConciliacao, login: string) {
@@ -3385,6 +3800,231 @@ export function DashboardApp() {
     }
   }
 
+  // --- Administração de Plantão (Fase PLANTÃO-3B) ---
+
+  function podeGerenciarEsteGrupoPlantao(grupo: GrupoPlantao): boolean {
+    return usuarioReal !== null && podeGerenciarGrupoPlantao(usuarioReal, grupo.equipeResponsavelId);
+  }
+
+  function abrirNovoGrupoPlantao() {
+    if (usuarioReal === null) {
+      return;
+    }
+    setModalGrupoPlantao({
+      modo: 'criar',
+      inicial: {
+        grupoId: '',
+        nome: '',
+        descricao: undefined,
+        equipeResponsavelId: '',
+        equipesConsulta: [],
+        timezone: 'America/Sao_Paulo',
+        ativo: true,
+        schemaVersion: 1,
+        criadoPorLogin: usuarioReal.login,
+        criadoEm: '',
+        atualizadoEm: '',
+      },
+    });
+  }
+
+  function abrirEdicaoGrupoPlantao(grupo: GrupoPlantao) {
+    setModalGrupoPlantao({ modo: 'editar', inicial: grupo });
+  }
+
+  async function salvarGrupoPlantaoDoModal(grupo: GrupoPlantao) {
+    try {
+      if (!modoDemo) {
+        await salvarGrupoPlantao(grupo);
+      }
+      setGruposPlantaoAdmin((atuais) => (atuais.some((item) => item.grupoId === grupo.grupoId)
+        ? atuais.map((item) => (item.grupoId === grupo.grupoId ? grupo : item))
+        : [...atuais, grupo]));
+      setModalGrupoPlantao(null);
+    } catch (falha) {
+      throw new Error(mensagemErroFirebase(falha, 'Não foi possível salvar o grupo de Plantão.', ambienteFirebaseAtual));
+    }
+  }
+
+  async function abrirParticipantesDoGrupo(grupoId: string) {
+    setGrupoPlantaoExpandido((atual) => (atual === grupoId ? null : grupoId));
+    if (modoDemo || participantesPorGrupoPlantao[grupoId] !== undefined) {
+      return;
+    }
+    try {
+      const participantes = await listarParticipantesPlantao(grupoId);
+      setParticipantesPorGrupoPlantao((atuais) => ({ ...atuais, [grupoId]: participantes }));
+    } catch (falha) {
+      setErroPlantaoAdmin(mensagemErroFirebase(falha, 'Não foi possível carregar os participantes deste grupo.', ambienteFirebaseAtual));
+    }
+  }
+
+  async function adicionarParticipantePlantao(grupoId: string, usuario: Usuario) {
+    if (usuarioReal === null) {
+      return;
+    }
+    const agora = new Date().toISOString();
+    const existente = (participantesPorGrupoPlantao[grupoId] ?? []).find((item) => item.login === usuario.login);
+    const participante: ParticipantePlantao = existente !== undefined
+      ? { ...existente, ativo: true, atualizadoEm: agora }
+      : {
+        grupoId,
+        login: usuario.login,
+        ativo: true,
+        ordem: (participantesPorGrupoPlantao[grupoId] ?? []).length,
+        contatos: [],
+        schemaVersion: 1,
+        criadoPorLogin: usuarioReal.login,
+        criadoEm: agora,
+        atualizadoEm: agora,
+      };
+    try {
+      if (!modoDemo) {
+        await salvarParticipantePlantao(participante);
+      }
+      setParticipantesPorGrupoPlantao((atuais) => {
+        const atuaisDoGrupo = atuais[grupoId] ?? [];
+        const proximos = atuaisDoGrupo.some((item) => item.login === participante.login)
+          ? atuaisDoGrupo.map((item) => (item.login === participante.login ? participante : item))
+          : [...atuaisDoGrupo, participante];
+        return { ...atuais, [grupoId]: proximos };
+      });
+      setBuscaParticipanteNovo((atuais) => ({ ...atuais, [grupoId]: '' }));
+    } catch (falha) {
+      setErroPlantaoAdmin(mensagemErroFirebase(falha, 'Não foi possível adicionar o participante.', ambienteFirebaseAtual));
+    }
+  }
+
+  async function confirmarDesativarParticipantePlantao() {
+    if (participanteParaDesativar === null) {
+      return;
+    }
+    const { grupoId, login } = participanteParaDesativar;
+    setProcessandoDesativarParticipante(true);
+    try {
+      if (!modoDemo) {
+        await desativarParticipantePlantao(grupoId, login);
+      }
+      setParticipantesPorGrupoPlantao((atuais) => ({
+        ...atuais,
+        [grupoId]: (atuais[grupoId] ?? []).map((item) => (item.login === login
+          ? { ...item, ativo: false, atualizadoEm: new Date().toISOString() }
+          : item)),
+      }));
+      setParticipanteParaDesativar(null);
+    } catch (falha) {
+      setErroPlantaoAdmin(mensagemErroFirebase(falha, 'Não foi possível desativar o participante.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoDesativarParticipante(false);
+    }
+  }
+
+  async function salvarContatosParticipanteDoModal(contatos: ContatoPlantonista[]) {
+    if (modalContatosParticipante === null) {
+      return;
+    }
+    const { grupoId, participante } = modalContatosParticipante;
+    const atualizado: ParticipantePlantao = {
+      ...participante,
+      contatos,
+      atualizadoEm: new Date().toISOString(),
+    };
+    if (!modoDemo) {
+      await salvarParticipantePlantao(atualizado);
+    }
+    setParticipantesPorGrupoPlantao((atuais) => ({
+      ...atuais,
+      [grupoId]: (atuais[grupoId] ?? []).map((item) => (item.login === atualizado.login ? atualizado : item)),
+    }));
+    setModalContatosParticipante(null);
+  }
+
+  /**
+   * Monta Grupo + participantes + competência + atribuições a partir da
+   * prévia validada (Fase PLANTÃO-2) e grava tudo como RASCUNHO — nunca
+   * publica (`publicarPlantao()` não existe nesta fase, ver
+   * docs/spec/PLANTOES.md). Reaproveita `participantesExistentes` para
+   * nunca apagar contatos já cadastrados ao reimportar a mesma planilha
+   * (`montarParticipantesPlantaoParaSalvar`), e `competenciaExistente` para
+   * preservar `criadoEm`/`criadoPorLogin` numa regravação idempotente.
+   */
+  async function salvarRascunhoPlantaoAcao() {
+    if (usuarioReal === null || resultadoPlantao === null) {
+      return;
+    }
+    if (grupoRascunhoEscolhido === '') {
+      setErroRascunhoPlantao('Selecione ou crie um grupo de Plantão antes de salvar.');
+      return;
+    }
+    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === grupoRascunhoEscolhido);
+    if (grupo === undefined) {
+      setErroRascunhoPlantao('Grupo de Plantão não encontrado — recarregue a tela.');
+      return;
+    }
+    if (!podeGerenciarEsteGrupoPlantao(grupo)) {
+      setErroRascunhoPlantao('Você não administra este grupo de Plantão — só quem gerencia a equipe responsável pode salvar o rascunho.');
+      return;
+    }
+    const competencia = competenciaRascunho.trim();
+    const periodoInicio = periodoInicioRascunho.trim();
+    const periodoFim = periodoFimRascunho.trim();
+    if (!/^\d{4}-\d{2}$/u.test(competencia) || periodoInicio === '' || periodoFim === '') {
+      setErroRascunhoPlantao('Informe a competência (AAAA-MM) e o período de início/fim.');
+      return;
+    }
+
+    setSalvandoRascunhoPlantao(true);
+    setErroRascunhoPlantao('');
+    try {
+      const agora = new Date().toISOString();
+      const participantesExistentes = modoDemo
+        ? (participantesPorGrupoPlantao[grupo.grupoId] ?? [])
+        : await listarParticipantesPlantao(grupo.grupoId);
+      const participantesParaSalvar = montarParticipantesPlantaoParaSalvar({
+        grupoId: grupo.grupoId,
+        vinculos: vinculosPlantao,
+        participantesExistentes,
+        loginAtual: usuarioReal.login,
+        agoraIso: agora,
+      });
+
+      const competenciaId = idCompetenciaPlantao(grupo.grupoId, competencia);
+      const competenciaExistente = modoDemo ? null : await obterCompetenciaPlantaoRascunho(grupo.grupoId, competencia);
+      const competenciaParaSalvar = montarCompetenciaPlantaoRascunho({
+        grupoId: grupo.grupoId,
+        competencia,
+        periodoInicio,
+        periodoFim,
+        resultado: resultadoPlantao,
+        loginAtual: usuarioReal.login,
+        agoraIso: agora,
+        competenciaExistente,
+      });
+      const atribuicoesParaSalvar = montarAtribuicoesPlantaoRascunho({
+        grupoId: grupo.grupoId,
+        competenciaId,
+        atribuicoes: atribuicoesPlantaoComVinculo,
+        timezone: grupo.timezone,
+        agoraIso: agora,
+      });
+
+      if (!modoDemo) {
+        for (const participante of participantesParaSalvar) {
+          await salvarParticipantePlantao(participante);
+        }
+        await salvarCompetenciaPlantaoRascunho(competenciaParaSalvar);
+        await salvarAtribuicoesPlantaoRascunho(competenciaId, atribuicoesParaSalvar);
+      }
+      setParticipantesPorGrupoPlantao((atuais) => ({ ...atuais, [grupo.grupoId]: participantesParaSalvar }));
+      setRascunhoPlantaoSalvoEm(grupo.grupoId);
+      setMensagem(`Rascunho de Plantão salvo para "${grupo.nome}" (${competencia}). Nenhum dado foi publicado.`);
+    } catch (falha) {
+      setErroRascunhoPlantao(mensagemErroFirebase(falha, 'Não foi possível salvar o rascunho de Plantão.', ambienteFirebaseAtual));
+    } finally {
+      setSalvandoRascunhoPlantao(false);
+    }
+  }
+
   // --- Administração (ADMIN_SISTEMA) ---
 
   function abrirNovaEquipe() {
@@ -3612,6 +4252,58 @@ export function DashboardApp() {
       cancelado = true;
     };
   }, [tela, podeAcessarAdministracao, souAdmin, modoDemo]);
+
+  /**
+   * Carrega os Grupos de Plantão administráveis/consultáveis (Fase
+   * PLANTÃO-3B) — na tela "Plantões" OU assim que uma planilha de Plantão é
+   * detectada na tela "Importar" (o fluxo de "salvar como rascunho" também
+   * precisa da lista de grupos para o gestor escolher/criar um). Também
+   * (re)carrega `equipesAdmin`/`unidadesAdmin` — mesmos estados da
+   * Administração, reaproveitados aqui (nunca uma segunda árvore/lista
+   * independente) para o seletor de equipe responsável do
+   * `ModalGrupoPlantao` funcionar mesmo se o usuário nunca abriu a aba
+   * Administração nesta sessão.
+   */
+  useEffect(() => {
+    const precisaCarregar = podeAcessarPlantoes
+      && (tela === 'plantoes' || tipoArquivoDetectado === 'PLANTAO');
+    if (!precisaCarregar || modoDemo || usuarioReal === null) {
+      return undefined;
+    }
+    let cancelado = false;
+    const carregarGrupos = souAdmin
+      ? listarTodosGruposPlantao()
+      : Promise.all(equipesPermitidasEfetivas(usuarioReal).map((equipeId) => listarGruposPlantaoPermitidos(equipeId)))
+        .then((listas) => {
+          const porId = new Map<string, GrupoPlantao>();
+          for (const lista of listas) {
+            for (const grupo of lista) {
+              porId.set(grupo.grupoId, grupo);
+            }
+          }
+          return [...porId.values()];
+        });
+    const carregarUsuariosParaBusca = souAdmin ? listarTodosUsuarios() : Promise.resolve<Usuario[]>([]);
+    void Promise.all([carregarGrupos, listarEquipes(), listarUnidadesOrganizacionais(), carregarUsuariosParaBusca])
+      .then(([grupos, equipes, unidades, todosUsuarios]) => {
+        if (!cancelado) {
+          setGruposPlantaoAdmin(grupos);
+          setEquipesAdmin(equipes);
+          setUnidadesAdmin(unidades);
+          if (souAdmin) {
+            setTodosUsuariosAdmin(todosUsuarios);
+          }
+        }
+      })
+      .catch((falha: unknown) => {
+        if (!cancelado) {
+          setErroPlantaoAdmin(mensagemErroFirebase(falha, 'Não foi possível carregar os Grupos de Plantão.', ambienteFirebaseAtual));
+        }
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [tela, tipoArquivoDetectado, podeAcessarPlantoes, souAdmin, modoDemo, usuarioReal]);
 
   async function encerrarSessao() {
     await sair();
@@ -3922,6 +4614,107 @@ export function DashboardApp() {
               onValidar={validarPreviaPlantao}
               onIrParaUsuarios={() => setTela('usuarios')}
             />
+          )}
+
+          {tipoArquivoDetectado === 'PLANTAO' && resultadoPlantao && previaPlantaoValidada && (
+            <article className="panel">
+              <div className="panel-title">
+                <div>
+                  <h2>Salvar como rascunho</h2>
+                  <p>
+                    Grava o grupo, os participantes vinculados, a competência e as atribuições como
+                    RASCUNHO — nunca publica (publicação não existe nesta fase).
+                  </p>
+                </div>
+              </div>
+              {!podeAcessarPlantoes && (
+                <p className="admin-form-preview">
+                  Você não administra nenhum grupo de Plantão — peça a um gestor da equipe responsável
+                  ou a um administrador do sistema.
+                </p>
+              )}
+              {podeAcessarPlantoes && (
+                <>
+                  <div className="toolbar">
+                    <label htmlFor="rascunho-plantao-grupo" className="search-control">
+                      <Radio size={16} />
+                      <select
+                        id="rascunho-plantao-grupo"
+                        value={grupoRascunhoEscolhido}
+                        onChange={(evento) => {
+                          setGrupoRascunhoEscolhido(evento.target.value);
+                          setRascunhoPlantaoSalvoEm(null);
+                          setErroRascunhoPlantao('');
+                        }}
+                      >
+                        <option value="">Selecione um grupo que você administra</option>
+                        {gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao).map((grupo) => (
+                          <option key={grupo.grupoId} value={grupo.grupoId}>{grupo.nome}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button className="secondary-button" type="button" onClick={abrirNovoGrupoPlantao}>
+                      <Plus size={16} /> Novo grupo
+                    </button>
+                  </div>
+                  {gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao).length === 0 && (
+                    <p className="admin-form-preview">
+                      Você ainda não administra nenhum grupo de Plantão — crie um novo grupo acima.
+                    </p>
+                  )}
+                  <div className="admin-form-grid">
+                    <label htmlFor="rascunho-plantao-competencia">
+                      Competência (AAAA-MM)
+                      <input
+                        id="rascunho-plantao-competencia"
+                        placeholder="2026-07"
+                        value={competenciaRascunho}
+                        onChange={(evento) => setCompetenciaRascunho(evento.target.value)}
+                      />
+                    </label>
+                    <label htmlFor="rascunho-plantao-inicio">
+                      Período — início
+                      <input
+                        id="rascunho-plantao-inicio"
+                        type="date"
+                        value={periodoInicioRascunho}
+                        onChange={(evento) => setPeriodoInicioRascunho(evento.target.value)}
+                      />
+                    </label>
+                    <label htmlFor="rascunho-plantao-fim">
+                      Período — fim
+                      <input
+                        id="rascunho-plantao-fim"
+                        type="date"
+                        value={periodoFimRascunho}
+                        onChange={(evento) => setPeriodoFimRascunho(evento.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <p className="admin-form-preview">
+                    {new Set(vinculosPlantao.map((vinculo) => vinculo.login).filter((login) => login !== null)).size}
+                    {' '}participante(s) com login confirmado serão salvos neste grupo.
+                  </p>
+                  {erroRascunhoPlantao && <p className="admin-form-erro">{erroRascunhoPlantao}</p>}
+                  {rascunhoPlantaoSalvoEm !== null && (
+                    <p className="plantao-validado-nota">
+                      <ShieldCheck size={15} /> Rascunho salvo. Veja em &ldquo;Plantões&rdquo;.
+                    </p>
+                  )}
+                  <div className="rollback-actions">
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={salvandoRascunhoPlantao || grupoRascunhoEscolhido === ''}
+                      onClick={() => void salvarRascunhoPlantaoAcao()}
+                    >
+                      {salvandoRascunhoPlantao ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}
+                      {' '}Salvar rascunho
+                    </button>
+                  </div>
+                </>
+              )}
+            </article>
           )}
 
           {tipoArquivoDetectado !== 'PLANTAO' && (
@@ -4490,6 +5283,177 @@ export function DashboardApp() {
         </section>
       )}
 
+      {tela === 'plantoes' && podeAcessarPlantoes && (
+        <section>
+          <header className="page-heading">
+            <div>
+              <p className="eyebrow">Domínio paralelo à escala 6x1 — nunca publica nesta fase</p>
+              <h1><Radio size={20} /> Plantões</h1>
+              <p>Grupos de Plantão, participantes, contatos e rascunhos de competência.</p>
+            </div>
+            <button className="primary-button" type="button" onClick={abrirNovoGrupoPlantao}>
+              <Plus size={16} /> Novo grupo
+            </button>
+          </header>
+          {erroPlantaoAdmin && <div className="alert error" role="alert">{erroPlantaoAdmin}</div>}
+          {gruposPlantaoAdmin.length === 0 && (
+            <article className="panel"><p className="empty-state">Nenhum grupo de Plantão cadastrado ainda.</p></article>
+          )}
+          {gruposPlantaoAdmin.map((grupo) => {
+            const gerencio = podeGerenciarEsteGrupoPlantao(grupo);
+            const participantesDoGrupo = participantesPorGrupoPlantao[grupo.grupoId] ?? [];
+            const expandido = grupoPlantaoExpandido === grupo.grupoId;
+            const equipeResponsavel = equipesAdmin.find((item) => item.id === grupo.equipeResponsavelId);
+            const termoBusca = buscaParticipanteNovo[grupo.grupoId] ?? '';
+            const poolBusca = souAdmin ? todosUsuariosAdmin : usuarios;
+            const resultadosBusca = termoBusca.trim() === ''
+              ? []
+              : buscarUsuariosPlantao(poolBusca, termoBusca)
+                .filter((candidato) => !participantesDoGrupo.some((item) => item.login === candidato.login && item.ativo))
+                .slice(0, 6);
+            return (
+              <article className="panel grid-panel" key={grupo.grupoId}>
+                <div className="panel-title">
+                  <div>
+                    <h2>{grupo.nome}</h2>
+                    <p>{grupo.descricao || 'Sem descrição.'}</p>
+                  </div>
+                  <div className="import-actions">
+                    <span className={`status-badge ${grupo.ativo ? 'success' : 'neutral'}`}>
+                      {grupo.ativo ? 'Ativo' : 'Inativo'}
+                    </span>
+                    {!gerencio && <span className="status-badge warning">Você só consulta este grupo</span>}
+                    {gerencio && (
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title="Editar"
+                        aria-label={`Editar grupo ${grupo.nome}`}
+                        onClick={() => abrirEdicaoGrupoPlantao(grupo)}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="import-summary plantao-resumo-grid">
+                  <div><span>Equipe responsável</span><strong>{equipeResponsavel?.nome ?? grupo.equipeResponsavelId}</strong></div>
+                  <div><span>Equipes que consultam</span><strong>{grupo.equipesConsulta.length}</strong></div>
+                  <div><span>Timezone</span><strong>{grupo.timezone}</strong></div>
+                  <div><span>Participantes ativos</span><strong>{participantesDoGrupo.filter((item) => item.ativo).length}</strong></div>
+                </div>
+                <button
+                  className="secondary-button compact-button"
+                  type="button"
+                  onClick={() => void abrirParticipantesDoGrupo(grupo.grupoId)}
+                >
+                  {expandido ? 'Ocultar participantes' : 'Ver participantes'}
+                </button>
+                {expandido && (
+                  <div className="table-scroll">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Login</th><th>Nome</th><th>Contatos</th><th>Status</th>
+                          {gerencio && <th>Ações</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {participantesDoGrupo.map((participante) => {
+                          const usuarioParticipante = usuarios.find((item) => item.login === participante.login)
+                            ?? todosUsuariosAdmin.find((item) => item.login === participante.login);
+                          const nomeExibicao = usuarioParticipante?.nome ?? participante.login;
+                          return (
+                            <tr key={participante.login}>
+                              <td><code className="login-code">{participante.login}</code></td>
+                              <td>{nomeExibicao}</td>
+                              <td>{participante.contatos.length} contato(s)</td>
+                              <td>
+                                <span className={`status-badge ${participante.ativo ? 'success' : 'neutral'}`}>
+                                  {participante.ativo ? 'Ativo' : 'Inativo'}
+                                </span>
+                              </td>
+                              {gerencio && (
+                                <td>
+                                  <div className="conciliation-actions">
+                                    <button
+                                      className="icon-button"
+                                      type="button"
+                                      title="Contatos"
+                                      aria-label={`Editar contatos de ${nomeExibicao}`}
+                                      onClick={() => setModalContatosParticipante({
+                                        grupoId: grupo.grupoId,
+                                        nomeExibicao,
+                                        participante,
+                                      })}
+                                    >
+                                      <Phone size={14} />
+                                    </button>
+                                    {participante.ativo && (
+                                      <button
+                                        className="icon-button"
+                                        type="button"
+                                        title="Desativar participante"
+                                        aria-label={`Desativar ${nomeExibicao}`}
+                                        onClick={() => setParticipanteParaDesativar({
+                                          grupoId: grupo.grupoId,
+                                          login: participante.login,
+                                          nomeExibicao,
+                                        })}
+                                      >
+                                        <UserMinus size={14} />
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                        {participantesDoGrupo.length === 0 && (
+                          <tr><td colSpan={gerencio ? 5 : 4}>Nenhum participante cadastrado ainda.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                    {gerencio && (
+                      <>
+                        <label className="plantao-busca-linha">
+                          <Search size={14} />
+                          <input
+                            value={termoBusca}
+                            onChange={(evento) => setBuscaParticipanteNovo((atuais) => ({
+                              ...atuais,
+                              [grupo.grupoId]: evento.target.value,
+                            }))}
+                            placeholder="Buscar usuário por nome ou login para adicionar…"
+                            aria-label={`Buscar usuário para adicionar ao grupo ${grupo.nome}`}
+                          />
+                        </label>
+                        {resultadosBusca.length > 0 && (
+                          <ul className="plantao-busca-resultados">
+                            {resultadosBusca.map((candidato) => (
+                              <li key={candidato.login}>
+                                <button
+                                  type="button"
+                                  className="secondary-button compact-button"
+                                  onClick={() => void adicionarParticipantePlantao(grupo.grupoId, candidato)}
+                                >
+                                  <UserPlus size={14} /> {candidato.nome} ({candidato.login})
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </section>
+      )}
+
       {tela === 'administracao' && podeAcessarAdministracao && (
         <section>
           <header className="page-heading">
@@ -4828,6 +5792,46 @@ export function DashboardApp() {
           unidadesPermitidas={souAdmin ? null : minhasUnidadesPermitidas}
           onFechar={() => setModalEquipe(null)}
           onSalvar={salvarEquipeDoModal}
+        />
+      )}
+
+      {modalGrupoPlantao && (
+        <ModalGrupoPlantao
+          modo={modalGrupoPlantao.modo}
+          inicial={modalGrupoPlantao.inicial}
+          gruposExistentes={gruposPlantaoAdmin}
+          equipesExistentes={equipesAdmin}
+          unidadesExistentes={unidadesAdmin}
+          equipesPermitidas={souAdmin ? null : minhasEquipesPermitidas}
+          onFechar={() => setModalGrupoPlantao(null)}
+          onSalvar={salvarGrupoPlantaoDoModal}
+        />
+      )}
+
+      {modalContatosParticipante && (
+        <ModalContatosParticipante
+          nomeExibicao={modalContatosParticipante.nomeExibicao}
+          contatosIniciais={modalContatosParticipante.participante.contatos}
+          onFechar={() => setModalContatosParticipante(null)}
+          onSalvar={salvarContatosParticipanteDoModal}
+        />
+      )}
+
+      {participanteParaDesativar && (
+        <ModalConfirmarComTexto
+          titulo="Desativar participante"
+          mensagem={(
+            <>
+              Confirme digitando o login <strong>{participanteParaDesativar.login}</strong> para desativar{' '}
+              {participanteParaDesativar.nomeExibicao} deste grupo de Plantão. Isto nunca exclui o histórico —
+              só marca o participante como inativo.
+            </>
+          )}
+          fraseEsperada={participanteParaDesativar.login}
+          rotuloBotaoConfirmar="Desativar participante"
+          processando={processandoDesativarParticipante}
+          onFechar={() => setParticipanteParaDesativar(null)}
+          onConfirmar={() => void confirmarDesativarParticipantePlantao()}
         />
       )}
 

@@ -2313,4 +2313,150 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { nome: 'Renomeado pelo admin' }));
     });
   });
+
+  /**
+   * Fase PLANTÃO-3B — cenários exercitados pela Administração de Plantão no
+   * Dashboard: `listarTodosGruposPlantao()` (query sem `where`, só
+   * ADMIN_SISTEMA), `equipesPermitidas` explícito de GESTOR_EQUIPE,
+   * GESTOR_UNIDADE continua fora do domínio, desativação nunca é exclusão
+   * física, e regravação idempotente do rascunho não duplica documento.
+   */
+  describe('Fase PLANTÃO-3B — administração via Dashboard', () => {
+    it('ADMIN_SISTEMA lista gruposPlantao sem where (equivalente de listarTodosGruposPlantao) mesmo com um grupo fora de sua equipesConsulta', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_OUTRO_TIME'),
+          grupoPlantao({ grupoId: 'PLANTAO_OUTRO_TIME', equipeResponsavelId: 'EQ_TIME_QUALQUER', equipesConsulta: ['EQ_TIME_QUALQUER'] }),
+        );
+      });
+      const db = autenticarComo(usuarios.admin);
+      const resultado = await assertSucceeds(getDocs(collection(db, 'gruposPlantao')));
+      expect(resultado.docs.map((item) => item.id).sort()).toEqual(['PLANTAO_OUTRO_TIME', 'PLANTAO_TESTE']);
+    });
+
+    it('quem não é ADMIN_SISTEMA não consegue listar gruposPlantao sem where quando existe um grupo fora de sua equipesConsulta', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_OUTRO_TIME'),
+          grupoPlantao({ grupoId: 'PLANTAO_OUTRO_TIME', equipeResponsavelId: 'EQ_TIME_QUALQUER', equipesConsulta: ['EQ_TIME_QUALQUER'] }),
+        );
+      });
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(getDocs(collection(db, 'gruposPlantao')));
+      // A mesma consulta, filtrada por `array-contains` na própria equipe
+      // (o que `listarGruposPlantaoPermitidos()` de fato faz), continua
+      // funcionando — só a versão SEM filtro exige ser admin.
+      const filtrada = await assertSucceeds(getDocs(
+        query(collection(db, 'gruposPlantao'), where('equipesConsulta', 'array-contains', usuarios.gestor.equipeId)),
+      ));
+      expect(filtrada.docs.map((item) => item.id)).toEqual(['PLANTAO_TESTE']);
+    });
+
+    it('GESTOR_EQUIPE com equipesPermitidas explícito administra um grupo cuja equipeResponsavelId não é sua equipeId principal', async () => {
+      const gestorMultiEquipe = {
+        login: 'debora.assis',
+        nome: 'Débora Assis',
+        email: 'debora.assis@teste.local',
+        equipeId: 'EQ_OUTRA_PRINCIPAL',
+        nivelHierarquico: 5,
+        perfil: 'GESTOR_EQUIPE' as const,
+        equipesPermitidas: ['EQ_OUTRA_PRINCIPAL', 'EQ_COSI_SOC'],
+      };
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'usuarios', gestorMultiEquipe.login), gestorMultiEquipe);
+      });
+      const db = autenticarComo(gestorMultiEquipe);
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { nome: 'Renomeado por gestor multi-equipe' }));
+    });
+
+    it('GESTOR_UNIDADE nunca administra Plantão, mesmo quando a equipe responsável é a própria equipeId dele', async () => {
+      const db = autenticarComo(usuarios.gestorUnidade);
+      await assertFails(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_DA_UNIDADE'),
+        grupoPlantao({ grupoId: 'PLANTAO_DA_UNIDADE', equipeResponsavelId: usuarios.gestorUnidade.equipeId, equipesConsulta: [usuarios.gestorUnidade.equipeId] }),
+      ));
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_DA_UNIDADE'),
+          grupoPlantao({ grupoId: 'PLANTAO_DA_UNIDADE', equipeResponsavelId: usuarios.gestorUnidade.equipeId, equipesConsulta: [usuarios.gestorUnidade.equipeId] }),
+        );
+      });
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_DA_UNIDADE'), { nome: 'Hackeado pelo gestor de unidade' }));
+    });
+
+    it('novo Grupo é negado quando equipeResponsavelId não está em equipesConsulta já na criação', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_SEM_INVARIANTE'),
+        grupoPlantao({ grupoId: 'PLANTAO_SEM_INVARIANTE', equipeResponsavelId: 'EQ_COSI_SOC', equipesConsulta: ['EQ_CODB_NOC'] }),
+      ));
+    });
+
+    it('desativar participante é sempre update (ativo:false) — delete é negado para grupo e participante, mesmo para o gestor autorizado e para o admin', async () => {
+      const gestorDb = autenticarComo(usuarios.gestor);
+      await assertSucceeds(updateDoc(
+        doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { ativo: false },
+      ));
+      await assertFails(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login)));
+      await assertFails(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+
+      const adminDb = autenticarComo(usuarios.admin);
+      await assertFails(deleteDoc(doc(adminDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+    });
+
+    it('editar equipesConsulta pelo ModalGrupoPlantao passa a autorizar uma equipe nova imediatamente, e a remover o acesso de uma equipe tirada da lista', async () => {
+      const gestorDb = autenticarComo(usuarios.gestor);
+      await assertSucceeds(updateDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE'), {
+        equipesConsulta: ['EQ_COSI_SOC', 'EQ_GEDSI_ADM'],
+      }));
+      // analistaSemPermissao é EQ_GEDSI_ADM — antes da edição acima, não conseguia consultar (ver
+      // describe 'analista não autorizado' logo abaixo); depois de incluída, passa a conseguir.
+      const analistaDb = autenticarComo(analistaSemPermissao);
+      await assertSucceeds(getDoc(doc(analistaDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+      // gestorForaEscopo é EQ_CODB_NOC — estava na lista original e foi removida acima, então perde o acesso.
+      const foraDeEscopoDb = autenticarComo(gestorForaEscopo);
+      await assertFails(getDoc(doc(foraDeEscopoDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+    });
+
+    it('marcar o grupo como inativo (ativo:false) não tira o poder de administração do gestor responsável — ele consegue reativar depois', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { ativo: false }));
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { ativo: true }));
+    });
+
+    it('regravar o mesmo Grupo/participante/atribuição com o mesmo ID atualiza o documento existente, nunca duplica', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colega.login),
+        participantePlantao(usuarios.colega.login, { contatos: [{ rotulo: 'Celular', numero: '11999990000', ativo: true }] }),
+      ));
+      await assertSucceeds(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colega.login),
+        participantePlantao(usuarios.colega.login, { contatos: [{ rotulo: 'Celular', numero: '11999990000', ativo: true }] }),
+      ));
+      const participantes = await assertSucceeds(getDocs(collection(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes')));
+      expect(participantes.docs.map((item) => item.id).sort()).toEqual([usuarios.colaborador.login, usuarios.colega.login].sort());
+
+      await assertSucceeds(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08', 'atribuicoes', '0001'),
+        atribuicaoPlantao({ duracaoMinutos: 720 }),
+      ));
+      // Achado desta fase: a MESMA query sem `where` nesta subcoleção
+      // (idêntica à de `listarAtribuicoesPlantaoRascunho()`), quando feita
+      // como `usuarios.gestor`, falha no emulador com "Property grupoId is
+      // undefined on object" — a regra depende de `resource.data.grupoId`
+      // (não de uma variável de path, diferente da subcoleção
+      // `participantes`), o que o emulador não avalia de forma confiável
+      // para `list` sem filtro fora do papel ADMIN_SISTEMA. Registrado no
+      // relatório desta fase como limitação pré-existente (Fase PLANTÃO-3A)
+      // a investigar depois — `firestore.rules` fica congelado nesta fase,
+      // então o teste aqui verifica só o que de fato se sustenta hoje.
+      const adminDb = autenticarComo(usuarios.admin);
+      const atribuicoes = await assertSucceeds(getDocs(
+        collection(adminDb, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08', 'atribuicoes'),
+      ));
+      expect(atribuicoes.docs).toHaveLength(1);
+    });
+  });
 });

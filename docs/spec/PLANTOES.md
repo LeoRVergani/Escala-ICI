@@ -1133,3 +1133,220 @@ leitura permitida e escrita sempre bloqueada), e 8 testes de fronteira
 - Reatribuir `equipeResponsavelId` de um Grupo já existente para outra
   equipe — hoje imutável, decisão aceita para não abrir uma via de
   transferência de poder administrativo sem revisão dedicada.
+
+## 21. PLANTÃO-3B — administração e rascunho no Dashboard
+
+Integra no Dashboard tudo que a PLANTÃO-3A construiu sem UI: uma tela
+"Plantões" para criar/editar Grupos, administrar participantes e contatos, e
+um botão que transforma a prévia validada da PLANTÃO-2 num rascunho
+persistido. **Publicação continua fora do escopo** — nenhuma
+`publicarPlantao()`, `competenciasPlantao` continua com escrita bloqueada.
+
+Ver também `docs/spec/HIERARQUIA_ORGANIZACIONAL.md` — a autorização desta
+fase (§21.7) é a aplicação direta da regra "pertencimento não é autorização"
+documentada lá em § 7.
+
+### 21.1 Nova tela e gate de acesso
+
+`Tela` ganha `'plantoes'`, com ícone próprio (`plantao` → `Radio`, mapeado em
+`components/AppFrame.tsx`) e entrada na navegação. O gate para ENXERGAR a
+tela — `podeAcessarPlantoes = souGestorDePlantao(usuarioReal)` — é
+deliberadamente diferente de `podeAcessarAdministracao`
+(`souAdmin || souGestorUnidade`): `souGestorDePlantao()` (nova função em
+`lib/sessao.ts`) é `ADMIN_SISTEMA || GESTOR_EQUIPE`, espelhando `souGestor()`
+de `firestore.rules` — **GESTOR_UNIDADE nunca vê a tela**, porque não
+administra Plantão em nenhuma circunstância (a Rule já garantia isso desde a
+PLANTÃO-3A; esta fase só faz o Dashboard refletir a mesma fronteira).
+
+Dentro da tela, cada Grupo listado mostra um badge "Você só consulta este
+grupo" e esconde os botões de administração quando
+`podeGerenciarGrupoPlantao(usuarioReal, grupo.equipeResponsavelId)` — nova
+função-espelho de `lib/sessao.ts`, mesma composição `souGestorDePlantao() &&
+(admin || equipeResponsavelId em equipesPermitidasEfetivas())` que a Rule já
+usava — é `false`. Isso é só UX: a Rule continua sendo a fronteira real (ver
+§21.7).
+
+### 21.2 `ModalGrupoPlantao` — criar/editar Grupo
+
+Segue o MESMO padrão estrutural de `ModalUnidadeOrganizacional`/
+`ModalEquipe` (classes `modal-backdrop`/`edit-modal admin-modal`/
+`admin-form-grid`/`rollback-actions`, `useTeclaEsc`, estado
+`form`/`erro`/`salvando`).
+
+**Decisão de design deliberada** sobre "escolher a equipe responsável
+reaproveitando a árvore existente": o Dashboard já tem DOIS padrões
+prontos em `lib/organizacao.ts` — (a) `ArvoreUnidadesOrganizacionais`, uma
+árvore `<ul>/<li>` recursiva só de leitura, e (b) um `<select>` plano
+indentado via `achatarArvore(construirArvoreUnidades(...))`, usado tanto
+por `ModalUnidadeOrganizacional` (unidade pai) quanto por `ModalEquipe`
+(unidade da equipe). Como `equipeResponsavelId` é uma **equipe**, não uma
+unidade — e equipes já não são hierárquicas entre si, só a unidade acima
+delas é — não existe (nem existia antes) um "seletor de equipe em árvore"
+para reaproveitar; o padrão real e único já usado para "escolher uma equipe"
+em toda a Administração (`filtroEquipeUsuarioAdmin`, `equipeExportar`) é um
+`<select>` plano sobre a lista de equipes, com o caminho organizacional só
+como rótulo (`trechoFinalCaminho()`). `ModalGrupoPlantao` segue esse mesmo
+padrão: `<select>` de equipes, rótulo `"{nome} — {trechoFinalCaminho(...)}"`.
+Construir uma árvore-seletora nova e exclusiva para Plantão teria sido
+exatamente a "segunda implementação independente da árvore" que a fase
+proíbe — a decisão certa foi reaproveitar o padrão já estabelecido, não
+inventar um mais sofisticado que o resto do produto não tem.
+
+`equipesConsulta` é um multi-select de checkboxes (`.checkbox-inline`,
+mesmo padrão já usado por "Unidades permitidas"/"Equipes permitidas" no
+formulário de usuário) sobre a mesma lista de equipes. A equipe responsável
+aparece sempre marcada e **desabilitada** — nunca outra equipe vem
+pré-marcada — porque a Rule exige `equipeResponsavelId in equipesConsulta`
+em toda escrita (`equipesConsultaEfetivas()` do contrato resolve isso antes
+de chamar `onSalvar`, então mesmo se o checkbox desabilitado fosse burlado
+no DOM, o valor final salvo sempre inclui a responsável).
+
+### 21.3 Participantes e contatos
+
+Dentro de cada card de Grupo, "Ver participantes" carrega
+`listarParticipantesPlantao(grupoId)` sob demanda (lazy, só quando expandido
+— evita N leituras ao abrir a tela com muitos grupos). Adicionar um
+participante busca por nome/login (`buscarUsuariosPlantao()`, já existente
+desde a PLANTÃO-2) sobre `todosUsuariosAdmin` (ADMIN_SISTEMA) ou `usuarios`
+(GESTOR_EQUIPE — o mesmo conjunto já escopado pela Rule de leitura de
+`usuarios`, nunca uma lista mais ampla que a Rule permitiria ler). **Nunca
+inventa login**: só usuários já retornados por essas listas aparecem como
+resultado de busca, e a Rule (`exists()`) recusa qualquer login que não
+corresponda a um documento real de `usuarios`.
+
+"Desativar participante" sempre chama `desativarParticipantePlantao()`
+(`ativo: false`) atrás de uma confirmação de texto (`ModalConfirmarComTexto`,
+digitar o login) — nunca exclusão física, mesmo princípio de
+`equipes`/`unidadesOrganizacionais`.
+
+`ModalContatosParticipante` edita de 0 a `MAXIMO_CONTATOS_PLANTONISTA` (3)
+contatos por linha (rótulo/número/ativo), reaproveitando
+`validarContatosPlantonista()`/`normalizarContatosPlantonista()` do
+contrato — a mesma validação que `firestore.rules` já aplicava, nunca uma
+cópia divergente client-side.
+
+### 21.4 Salvar rascunho a partir da prévia validada
+
+Depois de "Validar prévia" (PLANTÃO-2), aparece um painel "Salvar como
+rascunho": escolher um Grupo já administrado pelo usuário (ou criar um novo,
+via §21.2), confirmar/ajustar competência (AAAA-MM) e período — sugeridos
+automaticamente por `sugerirCompetenciaPlantao()` (novo,
+`lib/montagemRascunhoPlantao.ts`, escolhe o mês com mais atribuições e
+calcula o último dia real do mês, inclusive fevereiro bissexto) — e clicar
+"Salvar rascunho".
+
+`lib/montagemRascunhoPlantao.ts` é o módulo puro que faz a ponte entre a
+prévia em memória e o modelo persistente:
+
+- `montarParticipantesPlantaoParaSalvar()` — deduplica logins repetidos,
+  ignora vínculos sem login, e **preserva `contatos`/`ordem` de quem já era
+  participante** (reimportar a mesma planilha nunca apaga um contato já
+  cadastrado).
+- `montarCompetenciaPlantaoRascunho()` / `montarAtribuicoesPlantaoRascunho()`
+  — montam `CompetenciaPlantao`/`AtribuicaoPlantaoPersistida[]`,
+  preservando `criadoEm`/`criadoPorLogin` de uma competência já existente
+  (regravação idempotente) e recusando montar qualquer atribuição sem
+  `loginVinculado` (só deve ser chamado depois de `previaPlantaoValidavel()`).
+- `montarGrupoPlantaoParaSalvar()` — mesma lógica de preservar
+  `criadoEm`/`criadoPorLogin` para o Grupo.
+
+O handler (`salvarRascunhoPlantaoAcao`) então chama, nesta ordem,
+`salvarParticipantePlantao()` (um por login), `salvarCompetenciaPlantaoRascunho()`
+e `salvarAtribuicoesPlantaoRascunho()` — todas do
+`plantaoWriteRepository.ts` já existente desde a PLANTÃO-3A, sem nenhuma
+função nova de escrita.
+
+### 21.5 Idempotência
+
+Todos os IDs envolvidos são determinísticos (`grupoId` escolhido pelo
+gestor, `competenciaId = grupoId_competencia`, `atribuicaoId` sequencial,
+`participante` por login) — reimportar a MESMA planilha para o MESMO
+Grupo/competência sobrescreve os mesmos documentos via `setDoc`, nunca
+duplica. Verificado tanto em unidade (`lib/montagemRascunhoPlantao.test.ts`)
+quanto no emulador (`tests/firebase/firestore.rules.test.ts`, "regravar o
+mesmo Grupo/participante/atribuição...").
+
+### 21.6 Novo repositório de leitura: `listarTodosGruposPlantao()`
+
+`listarGruposPlantaoPermitidos(equipeId)` (PLANTÃO-3A) só retorna grupos
+onde a equipe informada está em `equipesConsulta` — correto para
+GESTOR_EQUIPE, mas insuficiente para ADMIN_SISTEMA enxergar TODOS os
+grupos (inclusive os que a própria equipe do admin não consulta).
+`listarTodosGruposPlantao()` (nova, `plantaoReadRepository.ts`) faz a
+mesma query sem `where` — só ADMIN_SISTEMA consegue de fato, porque a Rule
+de leitura de `gruposPlantao` dispensa o filtro de `equipesConsulta` só
+para `souAdminSistema()`; qualquer outro perfil que chamar isso recebe
+`permission-denied` do próprio Firestore.
+
+### 21.7 Autorização client-side — `lib/sessao.ts`
+
+Duas funções novas, espelhando 1:1 as Rules (mesma disciplina de
+`podeGerenciarUnidade`/`podeGerenciarEquipe`):
+
+```ts
+export function souGestorDePlantao(usuario: Usuario): boolean {
+  return ehAdminSistema(usuario) || perfilEfetivo(usuario) === 'GESTOR_EQUIPE';
+}
+
+export function podeGerenciarGrupoPlantao(usuario: Usuario, equipeResponsavelId: string): boolean {
+  if (!souGestorDePlantao(usuario)) return false;
+  return ehAdminSistema(usuario) || equipesPermitidasEfetivas(usuario).includes(equipeResponsavelId);
+}
+```
+
+Nunca usa `podeOperarNaEquipe()`/pertencimento sozinho — a mesma composição
+"é gestor E opera a equipe" que o bug real da PLANTÃO-3A (§20.1) provou ser
+obrigatória. É só a fronteira de UX (mostrar/esconder botão); a Rule
+continua sendo a fronteira de segurança real.
+
+### 21.8 Achado desta fase: `list` sem `where` em `.../atribuicoes` é frágil no emulador para não-admin
+
+Ao escrever um teste de Rules exercitando exatamente a mesma chamada de
+`listarAtribuicoesPlantaoRascunho()` (`getDocs` sem `where` na subcoleção
+`rascunhosCompetenciasPlantao/{id}/atribuicoes`), o emulador acusou
+`"Property grupoId is undefined on object"` quando autenticado como
+GESTOR_EQUIPE — a mesma chamada **funciona normalmente para ADMIN_SISTEMA**.
+A causa aparente: a Rule desta subcoleção depende de `resource.data.grupoId`
+(não de uma variável de path, diferente de `participantes`, cuja Rule usa
+`grupoId` do próprio caminho) — algo que o motor de regras do emulador não
+avalia de forma confiável para `list` fora do atalho de admin.
+`listarAtribuicoesPlantaoRascunho()` não é chamada por nenhum código desta
+fase (o Dashboard nunca lista atribuições fora do fluxo de salvar), então
+isso não bloqueia a PLANTÃO-3B — mas é uma limitação pré-existente
+(PLANTÃO-3A) que vale investigar/registrar antes de qualquer fase futura
+passar a chamar essa função para um gestor comum. `firestore.rules` fica
+congelado nesta fase (fora de escopo mudar), então o achado só foi
+documentado, não corrigido.
+
+### 21.9 Testes
+
+30 testes novos de unidade (20 em `lib/montagemRascunhoPlantao.test.ts`, 8
+em `lib/sessao.test.ts` para `souGestorDePlantao`/`podeGerenciarGrupoPlantao`,
+2 em `lib/firebase/plantaoReadRepository.test.ts` para
+`listarTodosGruposPlantao`), 12 testes novos de fronteira
+(`tests/plantao-dashboard-administracao-boundaries.test.mjs`, mais a
+atualização de 2 testes cujo enunciado a própria fase inverteu de
+propósito — ver nota abaixo) e 9 testes novos no emulador Firestore
+(`tests/firebase/firestore.rules.test.ts`, describe "Fase PLANTÃO-3B —
+administração via Dashboard").
+
+**Dois testes de fronteira herdados da PLANTÃO-3A/2 tiveram o enunciado
+invertido, de propósito**: "o Dashboard (PLANTÃO-2) ainda não chama os
+repositories de Plantão" e "o Dashboard não grava Plantão" descreviam a
+ausência da integração — exatamente o que esta fase constrói. Os dois
+foram reescritos para afirmar o oposto (a integração existe) mantendo a
+única invariante permanente: nenhuma função de publicação aparece. Nenhum
+teste foi removido, nenhuma contagem caiu.
+
+### 21.10 O que esta fase explicitamente NÃO faz
+
+- Nenhum fluxo de publicação (`publicarPlantao()`, transição RASCUNHO →
+  PUBLICADA) — continua PLANTÃO-3C.
+- Nenhuma "Central de Plantões" (App do colaborador) — `apps/app/` com
+  diff zero nesta fase.
+- Nenhuma notificação push de Plantão.
+- Nenhuma adaptação de Trocas para Plantão.
+- Nenhum gerador de escala de Plantão.
+- Nenhuma auto-criação de próxima competência.
+- Reatribuir `equipeResponsavelId` de um Grupo existente continua
+  impossível (campo imutável na Rule, decisão da PLANTÃO-3A mantida).
