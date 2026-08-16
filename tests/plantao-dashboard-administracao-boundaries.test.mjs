@@ -45,13 +45,22 @@ test('4. Equipe (lib/modelos.ts) nunca ganha um array inverso de ACL de Plantão
   }
 });
 
-test('5. o seletor de equipe responsável do ModalGrupoPlantao reaproveita lib/organizacao.ts, nunca uma segunda árvore', async () => {
+/**
+ * 5. Fase UI-ORG-1: o seletor de equipe responsável/equipesConsulta do
+ * ModalGrupoPlantao passou a ser o `OrganizationTeamPicker` reutilizável
+ * (antes, um `<select>` plano com `trechoFinalCaminho()` — ver Fase
+ * PLANTÃO-3B). Continua reaproveitando `lib/organizacao.ts`
+ * (`construirArvoreOrganizacional`), só que agora indiretamente via o
+ * componente compartilhado — nunca uma segunda árvore/seletor próprio.
+ */
+test('5. o seletor de equipe responsável do ModalGrupoPlantao reaproveita OrganizationTeamPicker/lib/organizacao.ts, nunca uma segunda árvore', async () => {
   const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
   const inicio = dashboard.indexOf('function ModalGrupoPlantao');
   const fim = dashboard.indexOf('\nfunction ModalContatosParticipante');
   assert.ok(inicio > 0 && fim > inicio, 'ModalGrupoPlantao precisa existir antes de ModalContatosParticipante');
   const corpo = dashboard.slice(inicio, fim);
-  assert.match(corpo, /trechoFinalCaminho\(/u, 'precisa reaproveitar trechoFinalCaminho() para mostrar o caminho da equipe');
+  assert.match(corpo, /OrganizationTeamPicker/u, 'precisa reaproveitar o OrganizationTeamPicker compartilhado');
+  assert.match(corpo, /construirArvoreOrganizacional\(/u, 'precisa montar a árvore via lib/organizacao.ts, nunca uma própria');
   assert.match(corpo, /equipesConsultaEfetivas\(/u, 'precisa reaproveitar equipesConsultaEfetivas() do contrato, nunca recalcular a regra na mão');
   assert.doesNotMatch(corpo, /\.parentId\s*===/u, 'não pode reimplementar travessia de parentId dentro do modal');
   assert.doesNotMatch(corpo, /function construirArvore/u, 'não pode declarar uma segunda função de montagem de árvore');

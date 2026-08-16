@@ -178,19 +178,27 @@ import {
 } from '@/lib/sessao';
 import {
   achatarArvore,
+  achatarArvoreOrganizacional,
   calcularResumoOrganizacional,
   caminhoCurto,
   caminhoLegivel,
+  chaveDoNoOrganizacional,
+  construirArvoreOrganizacional,
   construirArvoreUnidades,
   ehUsuarioTecnicoOuFake,
   formariaCiclo,
   gestoresParaSimulacao,
-  type NoArvoreUnidade,
+  type NoArvoreOrganizacional,
+  raizesComEquipesSemUnidade,
   rotuloGestorParaSimulacao,
   rotuloOpcaoUnidade,
   trechoFinalCaminho,
 } from '@/lib/organizacao';
+import { OrganizationBreadcrumb } from '@/components/organizacao/OrganizationBreadcrumb';
+import { OrganizationTeamPicker } from '@/components/organizacao/OrganizationTeamPicker';
+import { OrganizationTree } from '@/components/organizacao/OrganizationTree';
 import { formatarDataHoraSafe } from '@/lib/dataSegura';
+import { useTeclaEsc } from '@/lib/hooks/useTeclaEsc';
 import {
   construirIndiceAlertasGrade,
   detectarDescansoInsuficiente,
@@ -617,73 +625,6 @@ interface CelulaEditando {
 }
 
 /**
- * Árvore simples (Parte 4 da correção UX/UI) — `<ul>`/`<li>` aninhados a
- * partir de `construirArvoreUnidades()` (lib/organizacao.ts), sem nenhuma
- * biblioteca de árvore. `podeEditar` decide, nó a nó, se o botão de editar
- * aparece (admin sempre; GESTOR_UNIDADE só dentro de `unidadesPermitidas`).
- */
-function ArvoreUnidadesOrganizacionais({
-  nos,
-  podeEditar,
-  aoEditar,
-}: {
-  nos: NoArvoreUnidade[];
-  podeEditar: (unidadeId: string) => boolean;
-  aoEditar: (unidade: UnidadeOrganizacional) => void;
-}) {
-  if (nos.length === 0) {
-    return <p className="empty-inline">Nenhuma unidade organizacional cadastrada ainda.</p>;
-  }
-  return (
-    <ul className="org-tree">
-      {nos.map((no) => (
-        <li key={no.unidade.unidadeId}>
-          <div className="org-tree-node">
-            <div className="org-tree-node-info">
-              <strong>{no.unidade.nome}</strong>
-              <small>{no.unidade.sigla}</small>
-              <small>{no.unidade.tipo}</small>
-              <span className={`status-badge ${no.unidade.ativa ? 'success' : 'neutral'}`}>
-                {no.unidade.ativa ? 'Ativa' : 'Inativa'}
-              </span>
-            </div>
-            <div className="org-tree-node-actions">
-              {podeEditar(no.unidade.unidadeId) && (
-                <button
-                  className="icon-button"
-                  type="button"
-                  title="Editar"
-                  aria-label={`Editar unidade ${no.unidade.nome}`}
-                  onClick={() => aoEditar(no.unidade)}
-                >
-                  <Pencil size={14} />
-                </button>
-              )}
-            </div>
-          </div>
-          {no.filhos.length > 0 && (
-            <ArvoreUnidadesOrganizacionais nos={no.filhos} podeEditar={podeEditar} aoEditar={aoEditar} />
-          )}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** Fecha qualquer modal ao apertar Esc — usado pelos modais novos desta correção de UX. */
-function useTeclaEsc(aoFechar: () => void) {
-  useEffect(() => {
-    function aoTeclar(evento: KeyboardEvent) {
-      if (evento.key === 'Escape') {
-        aoFechar();
-      }
-    }
-    window.addEventListener('keydown', aoTeclar);
-    return () => window.removeEventListener('keydown', aoTeclar);
-  }, [aoFechar]);
-}
-
-/**
  * Modal de criação/edição de unidade organizacional (Parte 1-2 da correção
  * de UX) — substitui o formulário fixo no rodapé do card. Validação (ID/
  * nome/sigla obrigatórios, duplicidade, ciclo, escopo de GESTOR_UNIDADE)
@@ -1065,16 +1006,15 @@ function ModalGrupoPlantao({
   const [form, setForm] = useState(inicial);
   const [erro, setErro] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [pickerEquipeResponsavelAberto, setPickerEquipeResponsavelAberto] = useState(false);
+  const [pickerEquipesConsultaAberto, setPickerEquipesConsultaAberto] = useState(false);
   useTeclaEsc(onFechar);
 
-  const opcoesEquipeResponsavel = equipesExistentes
+  const equipesParaOPicker = equipesExistentes
     .filter((equipe) => equipesPermitidas === null || equipesPermitidas.includes(equipe.id));
-
-  function rotuloEquipePlantao(equipe: Equipe): string {
-    return equipe.caminhoUnidade && equipe.caminhoUnidade.length > 0
-      ? `${equipe.nome} — ${trechoFinalCaminho(equipe.caminhoUnidade, unidadesExistentes, 2)}`
-      : equipe.nome;
-  }
+  const arvoreParaOPicker = construirArvoreOrganizacional(unidadesExistentes, equipesParaOPicker);
+  const raizesParaOPicker = raizesComEquipesSemUnidade(arvoreParaOPicker);
+  const equipeResponsavelAtual = equipesExistentes.find((equipe) => equipe.id === form.equipeResponsavelId);
 
   function alternarEquipeConsulta(equipeId: string) {
     setForm((atual) => ({
@@ -1110,6 +1050,7 @@ function ModalGrupoPlantao({
   }
 
   return (
+    <>
     <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
       <section
         className="edit-modal admin-modal"
@@ -1156,19 +1097,26 @@ function ModalGrupoPlantao({
               onChange={(evento) => setForm((atual) => ({ ...atual, descricao: evento.target.value || undefined }))}
             />
           </label>
-          <label htmlFor="grupo-plantao-equipe">
-            Equipe responsável
-            <select
-              id="grupo-plantao-equipe"
-              value={form.equipeResponsavelId}
-              onChange={(evento) => setForm((atual) => ({ ...atual, equipeResponsavelId: evento.target.value }))}
-            >
-              <option value="">Selecione uma equipe</option>
-              {opcoesEquipeResponsavel.map((equipe) => (
-                <option key={equipe.id} value={equipe.id}>{rotuloEquipePlantao(equipe)}</option>
-              ))}
-            </select>
-          </label>
+          <div className="admin-form-full">
+            <span className="organization-picker-label">Equipe responsável</span>
+            {equipeResponsavelAtual ? (
+              <div className="organization-picker-valor">
+                <div>
+                  <strong>{equipeResponsavelAtual.nome}</strong>
+                  {equipeResponsavelAtual.caminhoUnidade && (
+                    <OrganizationBreadcrumb caminho={equipeResponsavelAtual.caminhoUnidade} unidades={unidadesExistentes} />
+                  )}
+                </div>
+                <button type="button" className="secondary-button compact-button" onClick={() => setPickerEquipeResponsavelAberto(true)}>
+                  Alterar
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="secondary-button" onClick={() => setPickerEquipeResponsavelAberto(true)}>
+                Selecionar equipe responsável
+              </button>
+            )}
+          </div>
           <label htmlFor="grupo-plantao-timezone">
             Timezone
             <input
@@ -1191,25 +1139,48 @@ function ModalGrupoPlantao({
             <legend>Equipes autorizadas a consultar</legend>
             <p className="admin-form-preview">
               Consultar é só visualizar o Plantão (participantes, atribuições) — nunca administra nada.
-              Só quem gerencia a equipe responsável (marcada abaixo, sempre incluída) administra este grupo.
+              Só quem gerencia a equipe responsável (sempre incluída abaixo) administra este grupo.
             </p>
-            {equipesExistentes.length === 0 && (
-              <small className="empty-inline">Nenhuma equipe cadastrada ainda.</small>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={form.equipeResponsavelId === ''}
+              onClick={() => setPickerEquipesConsultaAberto(true)}
+            >
+              Selecionar equipes que consultam
+            </button>
+            {form.equipeResponsavelId === '' && (
+              <small className="empty-inline">Escolha a equipe responsável antes de selecionar quem consulta.</small>
             )}
-            {equipesExistentes.map((equipe) => {
-              const ehResponsavel = form.equipeResponsavelId !== '' && equipe.id === form.equipeResponsavelId;
-              return (
-                <label key={equipe.id} className="checkbox-inline">
-                  <input
-                    type="checkbox"
-                    checked={ehResponsavel || form.equipesConsulta.includes(equipe.id)}
-                    disabled={ehResponsavel}
-                    onChange={() => alternarEquipeConsulta(equipe.id)}
-                  />
-                  {rotuloEquipePlantao(equipe)}{ehResponsavel ? ' (responsável — sempre incluída)' : ''}
-                </label>
-              );
-            })}
+            {form.equipesConsulta.length > 0 && (
+              <ul className="organization-team-picker-resumo">
+                {form.equipesConsulta.map((equipeId) => {
+                  const equipe = equipesExistentes.find((item) => item.id === equipeId);
+                  const ehResponsavel = equipeId === form.equipeResponsavelId;
+                  return (
+                    <li key={equipeId}>
+                      <div>
+                        <strong>{equipe?.nome ?? equipeId}</strong>
+                        {equipe?.caminhoUnidade && <OrganizationBreadcrumb caminho={equipe.caminhoUnidade} unidades={unidadesExistentes} />}
+                      </div>
+                      {ehResponsavel ? (
+                        <span className="status-badge neutral">responsável — sempre incluída</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="icon-button"
+                          title="Remover"
+                          aria-label={`Remover ${equipe?.nome ?? equipeId} de equipes que consultam`}
+                          onClick={() => alternarEquipeConsulta(equipeId)}
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </fieldset>
         </div>
         {erro && <p className="admin-form-erro">{erro}</p>}
@@ -1221,6 +1192,36 @@ function ModalGrupoPlantao({
         </div>
       </section>
     </div>
+    {pickerEquipeResponsavelAberto && (
+      <OrganizationTeamPicker
+        modo="single"
+        titulo="Selecionar equipe responsável"
+        descricao="A equipe responsável administra este grupo de Plantão e é sempre incluída entre as equipes que consultam."
+        raizes={raizesParaOPicker}
+        valor={form.equipeResponsavelId || null}
+        onFechar={() => setPickerEquipeResponsavelAberto(false)}
+        onConfirmar={(equipeId) => {
+          setForm((atual) => ({ ...atual, equipeResponsavelId: equipeId }));
+          setPickerEquipeResponsavelAberto(false);
+        }}
+      />
+    )}
+    {pickerEquipesConsultaAberto && (
+      <OrganizationTeamPicker
+        modo="multiple"
+        titulo="Selecionar equipes que consultam"
+        descricao="Consultar é só visualizar o Plantão — nunca administra participantes, contatos ou rascunhos."
+        raizes={raizesParaOPicker}
+        valores={form.equipesConsulta}
+        equipeTravadaId={form.equipeResponsavelId || undefined}
+        onFechar={() => setPickerEquipesConsultaAberto(false)}
+        onConfirmar={(equipeIds) => {
+          setForm((atual) => ({ ...atual, equipesConsulta: equipeIds }));
+          setPickerEquipesConsultaAberto(false);
+        }}
+      />
+    )}
+    </>
   );
 }
 
@@ -2463,6 +2464,9 @@ export function DashboardApp() {
    */
   const [modalUnidade, setModalUnidade] = useState<{ modo: 'criar' | 'editar'; inicial: UnidadeOrganizacional } | null>(null);
   const [modalEquipe, setModalEquipe] = useState<{ modo: 'criar' | 'editar'; inicial: Equipe } | null>(null);
+  // --- Árvore organizacional moderna (Fase UI-ORG-1) ---
+  const [chaveNoOrganizacionalSelecionada, setChaveNoOrganizacionalSelecionada] = useState<string | null>(null);
+  const [buscaArvoreOrganizacional, setBuscaArvoreOrganizacional] = useState('');
   // --- Usuários (Administração): busca + filtros, ver `usuariosAdminFiltrados` ---
   const [buscaUsuarioAdmin, setBuscaUsuarioAdmin] = useState('');
   const [filtroEquipeUsuarioAdmin, setFiltroEquipeUsuarioAdmin] = useState('');
@@ -2539,6 +2543,19 @@ export function DashboardApp() {
   const arvoreUnidadesAdmin = construirArvoreUnidades(unidadesAdmin);
   const unidadesEmArvoreParaSelect = achatarArvore(arvoreUnidadesAdmin);
   const resumoOrganizacional = calcularResumoOrganizacional(unidadesAdmin, equipesAdmin, todosUsuariosAdmin);
+  /**
+   * Árvore mista Unidades+Equipes (Fase UI-ORG-1) — mesma fundação de
+   * `lib/organizacao.ts` usada pelo `OrganizationTeamPicker` em
+   * `ModalGrupoPlantao`, nunca uma segunda árvore independente.
+   */
+  const arvoreOrganizacionalAdmin = construirArvoreOrganizacional(unidadesAdmin, equipesAdmin);
+  const equipeSemUnidadeSelecionada = arvoreOrganizacionalAdmin.equipesSemUnidade
+    .find((item) => `equipe:${item.id}` === chaveNoOrganizacionalSelecionada);
+  const noOrganizacionalSelecionado: NoArvoreOrganizacional | null = achatarArvoreOrganizacional(arvoreOrganizacionalAdmin.raizes)
+    .find((no) => chaveDoNoOrganizacional(no) === chaveNoOrganizacionalSelecionada)
+    ?? (equipeSemUnidadeSelecionada
+      ? { chave: `equipe:${equipeSemUnidadeSelecionada.id}`, tipo: 'equipe', equipe: equipeSemUnidadeSelecionada, profundidade: 0 }
+      : null);
   const usuariosAdminFiltrados = todosUsuariosAdmin.filter((item) => {
     const termo = buscaUsuarioAdmin.trim().toLowerCase();
     const bateBusca = termo === ''
@@ -5494,40 +5511,103 @@ export function DashboardApp() {
                 <Plus size={16} /> Nova unidade
               </button>
             </div>
-            <ArvoreUnidadesOrganizacionais
-              nos={arvoreUnidadesAdmin}
-              podeEditar={(unidadeId) => souAdmin || minhasUnidadesPermitidas.includes(unidadeId)}
-              aoEditar={abrirEdicaoUnidade}
-            />
-            <div className="table-scroll">
-              <table className="data-table">
-                <thead><tr><th>ID</th><th>Nome</th><th>Tipo</th><th>Caminho</th><th>Status</th><th></th></tr></thead>
-                <tbody>
-                  {unidadesAdmin.map((item) => (
-                    <tr key={item.unidadeId}>
-                      <td><code className="login-code">{item.unidadeId}</code></td>
-                      <td>{item.nome}</td>
-                      <td>{item.tipo}</td>
-                      <td title={caminhoLegivel(item.caminho, unidadesAdmin)}>{caminhoCurto(item.caminho, unidadesAdmin, 2)}</td>
-                      <td><span className={`status-badge ${item.ativa ? 'success' : 'neutral'}`}>{item.ativa ? 'Ativa' : 'Inativa'}</span></td>
-                      <td>
-                        {(souAdmin || minhasUnidadesPermitidas.includes(item.unidadeId)) && (
-                          <button
-                            className="icon-button"
-                            type="button"
-                            title="Editar"
-                            aria-label={`Editar unidade ${item.nome}`}
-                            onClick={() => abrirEdicaoUnidade(item)}
-                          >
-                            <Pencil size={15} />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {arvoreOrganizacionalAdmin.unidadesInalcancaveis.length > 0 && (
+              <div className="alert warning" role="alert">
+                {arvoreOrganizacionalAdmin.unidadesInalcancaveis.length} unidade(s) não aparecem na árvore abaixo —
+                possível ciclo ou referência inválida de <code>parentId</code>:{' '}
+                {arvoreOrganizacionalAdmin.unidadesInalcancaveis.map((item) => item.unidadeId).join(', ')}.
+                Nada foi corrigido automaticamente.
+              </div>
+            )}
+            <div className="organization-layout">
+              <OrganizationTree
+                raizes={arvoreOrganizacionalAdmin.raizes}
+                labelAria="Estrutura organizacional"
+                termoBusca={buscaArvoreOrganizacional}
+                onMudarBusca={setBuscaArvoreOrganizacional}
+                chaveSelecionada={chaveNoOrganizacionalSelecionada}
+                onSelecionarNo={(no) => setChaveNoOrganizacionalSelecionada(chaveDoNoOrganizacional(no))}
+                mensagemVazia="Nenhuma unidade organizacional cadastrada ainda."
+                renderTrilha={(no) => (no.tipo === 'unidade' ? (
+                  <span className={`status-badge ${no.unidade.ativa ? 'success' : 'neutral'}`}>
+                    {no.unidade.ativa ? 'Ativa' : 'Inativa'}
+                  </span>
+                ) : null)}
+              />
+              <div className="organization-detail-panel">
+                {noOrganizacionalSelecionado === null && (
+                  <p className="empty-inline">Selecione um item da árvore para ver os detalhes.</p>
+                )}
+                {noOrganizacionalSelecionado?.tipo === 'unidade' && (() => {
+                  const item = noOrganizacionalSelecionado.unidade;
+                  const pai = item.parentId !== null ? unidadesAdmin.find((u) => u.unidadeId === item.parentId) : undefined;
+                  const unidadesFilhas = noOrganizacionalSelecionado.filhos.filter((f) => f.tipo === 'unidade').length;
+                  const equipesFilhas = noOrganizacionalSelecionado.filhos.filter((f) => f.tipo === 'equipe').length;
+                  const podeEditar = souAdmin || minhasUnidadesPermitidas.includes(item.unidadeId);
+                  return (
+                    <>
+                      <div className="organization-detail-header">
+                        <h3>{item.nome}</h3>
+                        <span className={`status-badge ${item.ativa ? 'success' : 'neutral'}`}>{item.ativa ? 'Ativa' : 'Inativa'}</span>
+                      </div>
+                      <p className="organization-detail-tipo">{item.tipo} · <code>{item.sigla}</code></p>
+                      <OrganizationBreadcrumb caminho={item.caminho} unidades={unidadesAdmin} />
+                      <dl className="organization-detail-lista">
+                        <div><dt>Unidade pai</dt><dd>{pai ? pai.nome : '— (raiz)'}</dd></div>
+                        <div><dt>Unidades filhas</dt><dd>{unidadesFilhas}</dd></div>
+                        <div><dt>Equipes associadas</dt><dd>{equipesFilhas}</dd></div>
+                        <div><dt>Identificador</dt><dd><code className="login-code">{item.unidadeId}</code></dd></div>
+                      </dl>
+                      {podeEditar && (
+                        <button className="secondary-button" type="button" onClick={() => abrirEdicaoUnidade(item)}>
+                          <Pencil size={14} /> Editar unidade
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
+                {noOrganizacionalSelecionado?.tipo === 'equipe' && (() => {
+                  const item = noOrganizacionalSelecionado.equipe;
+                  const podeEditar = souAdmin || (item.unidadeId !== undefined && minhasUnidadesPermitidas.includes(item.unidadeId));
+                  return (
+                    <>
+                      <div className="organization-detail-header">
+                        <h3>{item.nome}</h3>
+                        <span className={`status-badge ${item.ativa ? 'success' : 'neutral'}`}>{item.ativa ? 'Ativa' : 'Inativa'}</span>
+                      </div>
+                      <p className="organization-detail-tipo">Equipe · <code>{item.sigla}</code></p>
+                      {item.caminhoUnidade && <OrganizationBreadcrumb caminho={item.caminhoUnidade} unidades={unidadesAdmin} />}
+                      <dl className="organization-detail-lista">
+                        <div><dt>Identificador</dt><dd><code className="login-code">{item.id}</code></dd></div>
+                      </dl>
+                      {podeEditar && (
+                        <button className="secondary-button" type="button" onClick={() => abrirEdicaoEquipe(item)}>
+                          <Pencil size={14} /> Editar equipe
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
             </div>
+            {arvoreOrganizacionalAdmin.equipesSemUnidade.length > 0 && (
+              <div className="organization-sem-unidade">
+                <h3>Equipes sem unidade associada</h3>
+                <ul>
+                  {arvoreOrganizacionalAdmin.equipesSemUnidade.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        className="organization-tree-row-link"
+                        onClick={() => setChaveNoOrganizacionalSelecionada(`equipe:${item.id}`)}
+                      >
+                        {item.nome} <code>{item.sigla}</code>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </article>
 
           <article className="panel grid-panel">

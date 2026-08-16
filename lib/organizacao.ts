@@ -1,4 +1,5 @@
 import type { Equipe, PerfilUsuario, UnidadeOrganizacional, Usuario } from './modelos';
+import { normalizarNome } from './nomes';
 import { equipesPermitidasEfetivas, perfilEfetivo, unidadesPermitidasEfetivas } from './sessao';
 
 /**
@@ -17,9 +18,14 @@ export function rotuloCompacto(unidade: Pick<UnidadeOrganizacional, 'nome' | 'si
   return unidade.sigla || unidade.nome;
 }
 
-function rotuloDoId(id: string, todasUnidades: UnidadeOrganizacional[]): string {
+function rotuloDoId(id: string, todasUnidades: readonly UnidadeOrganizacional[]): string {
   const unidade = todasUnidades.find((item) => item.unidadeId === id);
   return unidade ? rotuloCompacto(unidade) : id;
+}
+
+/** Versão pública de `rotuloDoId` — usada por `OrganizationBreadcrumb` (Fase UI-ORG-1) para resolver cada segmento de um `caminho` sem duplicar a busca por unidade. */
+export function rotuloUnidadePorId(id: string, todasUnidades: readonly UnidadeOrganizacional[]): string {
+  return rotuloDoId(id, todasUnidades);
 }
 
 /** Caminho completo e legível — usado em tooltip/`title` (texto secundário). */
@@ -73,7 +79,7 @@ export interface NoArvoreUnidade {
  * apontando pra algo que o GESTOR_UNIDADE não tem permissão de ver) vira
  * raiz da árvore em vez de desaparecer silenciosamente.
  */
-export function construirArvoreUnidades(unidades: UnidadeOrganizacional[]): NoArvoreUnidade[] {
+export function construirArvoreUnidades(unidades: readonly UnidadeOrganizacional[]): NoArvoreUnidade[] {
   const idsConhecidos = new Set(unidades.map((unidade) => unidade.unidadeId));
   const filhosPorPai = new Map<string | null, UnidadeOrganizacional[]>();
   for (const unidade of unidades) {
@@ -109,6 +115,193 @@ export function achatarArvore(nos: NoArvoreUnidade[]): NoArvoreUnidade[] {
  */
 export function unidadesOrdenadasEmArvore(unidades: UnidadeOrganizacional[]): NoArvoreUnidade[] {
   return achatarArvore(construirArvoreUnidades(unidades));
+}
+
+// ---------------------------------------------------------------------------
+// Árvore organizacional mista (Unidades + Equipes) — Fase UI-ORG-1.
+//
+// Fundação ÚNICA reutilizada tanto pela Administração (visualização/edição
+// de Unidades) quanto pelo `OrganizationTeamPicker` (seleção de Equipes para
+// `GrupoPlantao.equipeResponsavelId`/`equipesConsulta`) — nunca duas
+// implementações de árvore independentes. Reaproveita `construirArvoreUnidades()`
+// para o esqueleto de Unidades (nunca recalcula `parentId` de outra forma) e
+// só enxerta as Equipes como folhas do nível correspondente.
+// ---------------------------------------------------------------------------
+
+export type NoArvoreOrganizacional =
+  | { chave: string; tipo: 'unidade'; unidade: UnidadeOrganizacional; profundidade: number; filhos: NoArvoreOrganizacional[] }
+  | { chave: string; tipo: 'equipe'; equipe: Equipe; profundidade: number };
+
+export interface ArvoreOrganizacional {
+  raizes: NoArvoreOrganizacional[];
+  /** Equipes sem `unidadeId` (ou apontando para uma unidade fora do conjunto carregado) — nunca inventa um parent para elas. */
+  equipesSemUnidade: Equipe[];
+  /**
+   * Unidades presentes em `unidades` mas inalcançáveis a partir de nenhuma
+   * raiz — sintoma de ciclo entre IDs já existentes (ver `formariaCiclo()`,
+   * que só previne ciclo NOVO no cliente; um ciclo já gravado direto no
+   * Firestore não é corrigido aqui, só sinalizado). Vazio no caso comum.
+   */
+  unidadesInalcancaveis: UnidadeOrganizacional[];
+}
+
+/** `unidade:{id}` / `equipe:{id}` — chave estável de nó, usada por estado de expansão/seleção da UI. */
+export function chaveDoNoOrganizacional(no: NoArvoreOrganizacional): string {
+  return no.tipo === 'unidade' ? `unidade:${no.unidade.unidadeId}` : `equipe:${no.equipe.id}`;
+}
+
+function ordenarNos(nos: NoArvoreOrganizacional[]): NoArvoreOrganizacional[] {
+  return nos.slice().sort((a, b) => {
+    const nomeA = a.tipo === 'unidade' ? a.unidade.nome : a.equipe.nome;
+    const nomeB = b.tipo === 'unidade' ? b.unidade.nome : b.equipe.nome;
+    return nomeA.localeCompare(nomeB);
+  });
+}
+
+export function construirArvoreOrganizacional(
+  unidades: readonly UnidadeOrganizacional[],
+  equipes: readonly Equipe[],
+): ArvoreOrganizacional {
+  const arvoreUnidades = construirArvoreUnidades(unidades);
+  const idsConhecidos = new Set(unidades.map((item) => item.unidadeId));
+  const equipesPorUnidade = new Map<string, Equipe[]>();
+  const equipesSemUnidade: Equipe[] = [];
+  for (const equipe of equipes) {
+    if (equipe.unidadeId !== undefined && idsConhecidos.has(equipe.unidadeId)) {
+      const lista = equipesPorUnidade.get(equipe.unidadeId) ?? [];
+      lista.push(equipe);
+      equipesPorUnidade.set(equipe.unidadeId, lista);
+    } else {
+      equipesSemUnidade.push(equipe);
+    }
+  }
+  equipesSemUnidade.sort((a, b) => a.nome.localeCompare(b.nome));
+
+  function converter(nos: NoArvoreUnidade[]): NoArvoreOrganizacional[] {
+    return ordenarNos(nos.flatMap((no): NoArvoreOrganizacional[] => {
+      const noUnidade: NoArvoreOrganizacional = {
+        chave: `unidade:${no.unidade.unidadeId}`,
+        tipo: 'unidade',
+        unidade: no.unidade,
+        profundidade: no.profundidade,
+        filhos: ordenarNos([
+          ...converter(no.filhos),
+          ...(equipesPorUnidade.get(no.unidade.unidadeId) ?? []).map((equipe): NoArvoreOrganizacional => ({
+            chave: `equipe:${equipe.id}`,
+            tipo: 'equipe',
+            equipe,
+            profundidade: no.profundidade + 1,
+          })),
+        ]),
+      };
+      return [noUnidade];
+    }));
+  }
+
+  const raizes = converter(arvoreUnidades);
+
+  const alcancaveis = new Set(achatarArvore(arvoreUnidades).map((no) => no.unidade.unidadeId));
+  const unidadesInalcancaveis = unidades.filter((item) => !alcancaveis.has(item.unidadeId));
+
+  return { raizes, equipesSemUnidade, unidadesInalcancaveis };
+}
+
+/**
+ * Para o `OrganizationTeamPicker` (Fase UI-ORG-1): equipes sem `unidadeId`
+ * continuam SELECIONÁVEIS, mesmo sem aparecer dentro da hierarquia de
+ * Unidades — anexadas como raízes soltas (profundidade 0), nunca com um
+ * `parentId` inventado. A Administração NÃO usa isto (mostra
+ * `equipesSemUnidade` à parte, fora da árvore principal) — só o picker
+ * precisa de uma lista "achatada o bastante para toda equipe válida
+ * aparecer selecionável".
+ */
+export function raizesComEquipesSemUnidade(arvore: ArvoreOrganizacional): NoArvoreOrganizacional[] {
+  return [
+    ...arvore.raizes,
+    ...arvore.equipesSemUnidade.map((equipe): NoArvoreOrganizacional => ({
+      chave: `equipe:${equipe.id}`,
+      tipo: 'equipe',
+      equipe,
+      profundidade: 0,
+    })),
+  ];
+}
+
+/** Pré-ordem, TODOS os nós (unidade + equipe), ignorando qualquer estado de expansão da UI — usado para busca/índice. */
+export function achatarArvoreOrganizacional(nos: readonly NoArvoreOrganizacional[]): NoArvoreOrganizacional[] {
+  return nos.flatMap((no) => (no.tipo === 'unidade' ? [no, ...achatarArvoreOrganizacional(no.filhos)] : [no]));
+}
+
+/**
+ * Só os nós VISÍVEIS respeitando quais unidades estão expandidas
+ * (`chavesExpandidas`) — pura, sem estado próprio; o componente de árvore
+ * guarda o `Set` de expansão e chama isto a cada render para saber o que
+ * desenhar/para onde a navegação por teclado deve se mover.
+ */
+export function nosVisiveisNaArvoreOrganizacional(
+  nos: readonly NoArvoreOrganizacional[],
+  chavesExpandidas: ReadonlySet<string>,
+): NoArvoreOrganizacional[] {
+  return nos.flatMap((no) => {
+    if (no.tipo !== 'unidade') {
+      return [no];
+    }
+    const expandido = chavesExpandidas.has(no.chave);
+    return expandido
+      ? [no, ...nosVisiveisNaArvoreOrganizacional(no.filhos, chavesExpandidas)]
+      : [no];
+  });
+}
+
+export interface BuscaArvoreOrganizacional {
+  /** Chaves dos nós (unidade OU equipe) cujo nome/sigla bate com o termo. */
+  chavesEncontradas: Set<string>;
+  /** Chaves de UNIDADE que precisam estar expandidas para revelar algum resultado — inclui ancestrais de equipes encontradas. */
+  chavesParaExpandir: Set<string>;
+}
+
+function bateComTermo(nomeOuSigla: readonly string[], chave: string): boolean {
+  return nomeOuSigla.some((texto) => normalizarNome(texto).includes(chave));
+}
+
+/**
+ * Busca por nome/sigla (acento/caixa insensível, via `normalizarNome()` —
+ * mesma função já usada por `lib/conciliacaoPlantoes.ts`, nunca uma segunda
+ * normalização de texto). Termo vazio não altera nada (retorna conjuntos
+ * vazios — a árvore volta ao estado de expansão manual do usuário).
+ */
+export function buscarNaArvoreOrganizacional(
+  raizes: readonly NoArvoreOrganizacional[],
+  termo: string,
+): BuscaArvoreOrganizacional {
+  const chave = normalizarNome(termo);
+  const chavesEncontradas = new Set<string>();
+  const chavesParaExpandir = new Set<string>();
+  if (chave === '') {
+    return { chavesEncontradas, chavesParaExpandir };
+  }
+
+  function visitar(nos: readonly NoArvoreOrganizacional[], ancestrais: readonly string[]): boolean {
+    let algumFilhoBateu = false;
+    for (const no of nos) {
+      const rotulos = no.tipo === 'unidade' ? [no.unidade.nome, no.unidade.sigla] : [no.equipe.nome, no.equipe.sigla];
+      const proprioBate = bateComTermo(rotulos, chave);
+      const filhoBate = no.tipo === 'unidade' ? visitar(no.filhos, [...ancestrais, no.chave]) : false;
+      if (proprioBate) {
+        chavesEncontradas.add(no.chave);
+      }
+      if (proprioBate || filhoBate) {
+        for (const ancestral of ancestrais) {
+          chavesParaExpandir.add(ancestral);
+        }
+        algumFilhoBateu = true;
+      }
+    }
+    return algumFilhoBateu;
+  }
+
+  visitar(raizes, []);
+  return { chavesEncontradas, chavesParaExpandir };
 }
 
 /**

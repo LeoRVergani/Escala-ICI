@@ -4029,10 +4029,9 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
  * Correção UX/UI — Administração com Unidades Organizacionais.
  *
  * `.legacy-panel` dá ao `<details>` do card "Setores (legado)" a mesma
- * aparência de `.panel` (recolhido por padrão — ver DashboardApp.tsx), e
- * `.org-tree*` é a árvore simples de unidades organizacionais (Parte 4),
- * puramente `<ul>`/`<li>` aninhados com indentação por borda, sem
- * biblioteca de árvore.
+ * aparência de `.panel` (recolhido por padrão — ver DashboardApp.tsx). A
+ * árvore de Unidades em si (antigo `.org-tree*`, cards grandes) foi
+ * substituída na Fase UI-ORG-1 por `.organization-tree*`, mais abaixo.
  * ================================================================ */
 
 .legacy-panel {
@@ -4073,23 +4072,198 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
   font-weight: 600;
 }
 
-.org-tree { list-style: none; margin: 0; padding: 0; }
-.org-tree .org-tree { margin-top: 6px; padding-left: 18px; border-left: 1px dashed var(--border-strong); }
-.org-tree-node {
+/* ================================================================
+ * Fase UI-ORG-1 — árvore organizacional moderna (`OrganizationTree`) e
+ * seletor reutilizável de equipes (`OrganizationTeamPicker`).
+ *
+ * `.organization-layout` é o grid de duas colunas (árvore + detalhe) da
+ * Administração no desktop; vira uma coluna só a partir de 960px (mesmo
+ * princípio de nunca colocar árvore+detalhe lado a lado no mobile, seção 22
+ * da fase). `.organization-tree-row` é a linha compacta que substitui
+ * `.org-tree-node` (removido) — bem mais baixa que um card, sem borda
+ * própria por linha (só no hover/seleção/foco), para caber muitas linhas
+ * sem "explodir" a altura da árvore.
+ * ================================================================ */
+
+.organization-tree-container { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+.organization-tree-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+}
+.organization-tree-search input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  min-width: 0;
+  width: 100%;
+  font-size: 13px;
+}
+
+.organization-tree {
+  display: flex;
+  flex-direction: column;
+  max-height: 480px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 4px;
+}
+
+.organization-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  border-radius: 7px;
+  cursor: pointer;
+  color: var(--text);
+  outline: none;
+}
+.organization-tree-row:hover { background: var(--surface-muted); }
+.organization-tree-row:focus-visible { box-shadow: inset 0 0 0 2px var(--primary); }
+.organization-tree-row.is-selected {
+  background: var(--primary-soft);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+.organization-tree-row.is-found .organization-tree-nome mark {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+.organization-tree-row.is-nao-selecionavel { cursor: default; }
+.organization-tree-row-equipe { color: var(--muted); }
+.organization-tree-row-equipe .organization-tree-nome { color: var(--text); }
+
+.organization-tree-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.organization-tree-chevron:hover { background: var(--surface-muted); color: var(--text); }
+.organization-tree-chevron svg { transition: transform 0.12s ease; }
+.organization-tree-chevron svg.is-expanded { transform: rotate(90deg); }
+.organization-tree-chevron-spacer { width: 22px; height: 22px; flex: 0 0 auto; }
+
+.organization-tree-icon { color: var(--muted); flex: 0 0 auto; }
+.organization-tree-nome { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.organization-tree-sigla { font-size: 10.5px; color: var(--muted); flex: 0 0 auto; }
+.organization-tree-trilha { margin-left: auto; flex: 0 0 auto; display: flex; align-items: center; }
+
+.organization-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+  margin-top: var(--space-4);
+}
+@media (max-width: 960px) {
+  .organization-layout { grid-template-columns: 1fr; }
+}
+
+.organization-detail-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: var(--space-4);
+  min-height: 120px;
+}
+.organization-detail-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.organization-detail-header h3 { margin: 0; font-size: 15px; }
+.organization-detail-tipo { margin: 4px 0 10px; color: var(--muted); font-size: 12px; }
+.organization-detail-lista { margin: 12px 0; display: grid; gap: 8px; }
+.organization-detail-lista > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 12.5px; }
+.organization-detail-lista dt { color: var(--muted); }
+.organization-detail-lista dd { margin: 0; font-weight: 600; text-align: right; }
+
+.organization-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 11.5px;
+  margin-top: 4px;
+}
+.organization-breadcrumb-item { display: inline-flex; align-items: center; gap: 3px; }
+
+.organization-sem-unidade { margin-top: var(--space-4); }
+.organization-sem-unidade h3 { font-size: 13px; margin: 0 0 8px; color: var(--muted); }
+.organization-sem-unidade ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.organization-tree-row-link {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.organization-tree-row-link:hover { border-color: var(--border-strong); background: var(--surface-muted); }
+
+/* Seletor de equipe no formulário de Grupo (`ModalGrupoPlantao`) — mesma
+ * disciplina de rótulo de `.admin-form-grid label`, só que o "campo" é um
+ * botão/valor em vez de input/select. */
+.organization-picker-label { display: block; font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.organization-picker-valor {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface-muted);
+}
+.organization-picker-valor strong { font-size: 13px; }
+
+.organization-team-picker { width: min(560px, 100%); }
+.organization-team-picker .organization-tree { max-height: 360px; }
+.organization-team-picker-checkbox { margin: 0; }
+.organization-team-picker-marca { color: var(--primary); }
+
+.organization-team-picker-resumo {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.organization-team-picker-resumo li {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 7px 10px;
-  margin: 3px 0;
   border: 1px solid var(--border);
   border-radius: 8px;
+  padding: 8px 10px;
   background: var(--surface);
 }
-.org-tree-node-info { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex-wrap: wrap; }
-.org-tree-node-info strong { font-size: 12.5px; }
-.org-tree-node-info small { color: var(--muted); font-size: 10.5px; }
-.org-tree-node-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.organization-team-picker-resumo li strong { font-size: 12.5px; }
+
+@media (max-width: 640px) {
+  .organization-team-picker { width: 100%; }
+  .organization-team-picker .organization-tree { max-height: 50vh; }
+}
 
 /* ================================================================
  * Correção UX/UI — edição em modal, formulários e limpeza visual.

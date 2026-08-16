@@ -461,31 +461,26 @@ terceiro conceito — administração vem do modelo organizacional, § 9).
 
 ---
 
-## 12. Componente futuro de seleção organizacional (decisão adiada, não implementar agora)
+## 12. Componente de seleção organizacional — implementado na Fase UI-ORG-1
 
-Quando a UI de configuração de Plantões existir (fase futura — ver
-`docs/spec/PLANTOES.md`), ela deverá **reutilizar a árvore organizacional
-já existente** (`construirArvoreUnidades()`/`unidadesOrdenadasEmArvore()`,
-`lib/organizacao.ts`) para selecionar equipe responsável e equipes
-autorizadas a consultar — nunca uma segunda estrutura de seleção paralela.
+Esta seção previa um componente futuro (decisão adiada); a Fase UI-ORG-1
+o implementou. Mantido aqui como registro histórico da previsão, agora
+cumprida — ver `CHECKPOINT-FASE-UI-ORG-1-ARVORE-PICKER.md` e
+`docs/spec/PLANTOES.md` § 22 para o detalhamento completo.
 
-Se a árvore crescer além de um punhado de nós, **não usar um `<select>`
-plano gigante** (mesma lição já registrada para a busca de usuário do
-preview de Plantão, `docs/spec/PLANTOES.md` § 17). UX prevista, a
-detalhar quando a fase de implementação chegar:
+`components/organizacao/OrganizationTeamPicker.tsx` (modo `single`/
+`multiple`) reaproveita a árvore organizacional já existente — agora via
+`construirArvoreOrganizacional()` (`lib/organizacao.ts`), que por sua vez
+reaproveita `construirArvoreUnidades()` internamente, nunca uma segunda
+estrutura de seleção paralela — exatamente como esta seção previa. A UX
+prevista (busca + árvore expansível + breadcrumb) foi implementada como
+descrito, em `components/organizacao/OrganizationTree.tsx` +
+`OrganizationBreadcrumb.tsx`.
 
-```
-busca por nome/sigla
-    +
-árvore expansível
-    +
-breadcrumb/caminho organizacional (ex.: "ICI > ... > unidade > equipe")
-```
-
-Reduz ambiguidade entre equipes/unidades de nomes parecidos (já existe
-precedente parcial: `rotuloOpcaoUnidade()`,
-`caminhoCurto()`/`caminhoLegivel()`, `lib/organizacao.ts`, usados hoje nos
-selects de Administração). Não implementar componente novo nesta fase.
+Reduz ambiguidade entre equipes/unidades de nomes parecidos, reaproveitando
+`rotuloUnidadePorId()` (extraída de `rotuloDoId()`, antes privada) —
+`caminhoCurto()`/`caminhoLegivel()` continuam servindo os usos pré-UI-ORG-1
+(tabelas/selects planos da Administração) sem mudança.
 
 ---
 

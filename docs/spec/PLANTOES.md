@@ -1350,3 +1350,35 @@ teste foi removido, nenhuma contagem caiu.
 - Nenhuma auto-criação de próxima competência.
 - Reatribuir `equipeResponsavelId` de um Grupo existente continua
   impossível (campo imutável na Rule, decisão da PLANTÃO-3A mantida).
+
+## 22. UI-ORG-1 — árvore organizacional moderna + `OrganizationTeamPicker`
+
+Fase de UI/UX pura (sem mudança de schema/Rules/repositórios/payload):
+substitui a árvore de Unidades da Administração (cards grandes, uma linha
+por card) por `components/organizacao/OrganizationTree.tsx` — linhas
+compactas, expand/collapse, busca, navegação por teclado, `role="tree"` —
+e introduz `OrganizationTeamPicker` (modo `single`/`multiple`) como o
+seletor de equipe reutilizável, usado por `ModalGrupoPlantao` (PLANTÃO-3B)
+no lugar do `<select>` plano original.
+
+Fundação única em `lib/organizacao.ts`: `construirArvoreOrganizacional()`
+monta uma árvore mista Unidades+Equipes reaproveitando
+`construirArvoreUnidades()` (nunca uma segunda travessia de `parentId`) e
+enxertando Equipes como folhas da unidade correspondente;
+`buscarNaArvoreOrganizacional()`, `nosVisiveisNaArvoreOrganizacional()` e
+`raizesComEquipesSemUnidade()` completam a mesma fundação. Tanto a
+Administração (`OrganizationTree` com todo nó — Unidade e Equipe —
+navegável, só Unidade editável ali) quanto o picker (`ehNoSelecionavel = (no)
+=> no.tipo === 'equipe'`, só Equipe é marcável) consomem exatamente as
+mesmas funções — nenhuma árvore paralela.
+
+`GrupoPlantao.equipeResponsavelId`/`equipesConsulta` continuam exatamente
+os mesmos campos persistidos (nenhuma mudança de payload/Rules) — o picker
+só troca COMO o gestor escolhe o valor, nunca O QUE é salvo. A equipe
+responsável continua sempre incluída e travada (não removível) em
+`equipesConsulta`, resolvido por `equipesConsultaEfetivas()` do contrato
+antes de qualquer `onSalvar`, como já era desde a PLANTÃO-3B.
+
+Ver `CHECKPOINT-FASE-UI-ORG-1-ARVORE-PICKER.md` para o detalhamento
+completo (decisões de design, acessibilidade, testes, limitação conhecida
+de cobertura de testes de componente).

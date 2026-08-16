@@ -3,17 +3,25 @@ import { describe, expect, it } from 'vitest';
 import type { Equipe, UnidadeOrganizacional, Usuario } from './modelos';
 import {
   achatarArvore,
+  achatarArvoreOrganizacional,
+  buscarNaArvoreOrganizacional,
   caminhoCurto,
   calcularResumoOrganizacional,
   caminhoLegivel,
+  chaveDoNoOrganizacional,
+  construirArvoreOrganizacional,
   construirArvoreUnidades,
   ehUsuarioTecnicoOuFake,
   formariaCiclo,
   gestoresParaSimulacao,
+  nosVisiveisNaArvoreOrganizacional,
+  raizesComEquipesSemUnidade,
   rotuloCompacto,
   rotuloGestorParaSimulacao,
   rotuloOpcaoUnidade,
+  rotuloUnidadePorId,
   trechoFinalCaminho,
+  type NoArvoreOrganizacional,
 } from './organizacao';
 
 function unidade(sobrescritas: Partial<UnidadeOrganizacional> = {}): UnidadeOrganizacional {
@@ -283,5 +291,180 @@ describe('gestoresParaSimulacao', () => {
       usuarioBase({ login: 'wanessa.lima', nome: 'Wanessa Lima', email: 'wanessa.lima@empresa.com', perfil: 'SUPERVISOR_EQUIPE' }),
     ];
     expect(gestoresParaSimulacao(usuarios).map((u) => u.login).sort()).toEqual(['marina.azevedo', 'wanessa.lima']);
+  });
+});
+
+describe('construirArvoreOrganizacional', () => {
+  const socNaCosi = equipeBase({ id: 'EQ_SOC', nome: 'SOC', unidadeId: 'COSI', caminhoUnidade: cosi.caminho });
+  const plantaoNaCosi = equipeBase({ id: 'EQ_PLANTAO_COSI', nome: 'Plantão COSI', unidadeId: 'COSI', caminhoUnidade: cosi.caminho });
+  const nocNaSupervisorTi = equipeBase({ id: 'EQ_NOC', nome: 'NOC', unidadeId: 'SUPERVISOR_TI', caminhoUnidade: supervisorTi.caminho });
+  const semUnidade = equipeBase({ id: 'EQ_LEGADA', nome: 'Legada' });
+  const unidadeInexistente = equipeBase({ id: 'EQ_ORFA', nome: 'Órfã', unidadeId: 'NAO_EXISTE' });
+
+  it('árvore com 1 nível: uma única unidade raiz, sem equipes', () => {
+    const arvore = construirArvoreOrganizacional([diretoria], []);
+    expect(arvore.raizes).toHaveLength(1);
+    expect(arvore.raizes[0]).toMatchObject({ tipo: 'unidade', profundidade: 0 });
+    expect(arvore.equipesSemUnidade).toEqual([]);
+    expect(arvore.unidadesInalcancaveis).toEqual([]);
+  });
+
+  it('árvore com múltiplos níveis: profundidade cresce a cada geração', () => {
+    const arvore = construirArvoreOrganizacional(todasUnidades, []);
+    const achatada = achatarArvoreOrganizacional(arvore.raizes);
+    const porId = new Map(achatada.filter((no) => no.tipo === 'unidade').map((no) => [no.tipo === 'unidade' ? no.unidade.unidadeId : '', no]));
+    expect(porId.get('DIRETOR_PRESIDENTE')?.profundidade).toBe(0);
+    expect(porId.get('DIR_INFRA_SEGURANCA')?.profundidade).toBe(1);
+    expect(porId.get('GEDSI')?.profundidade).toBe(2);
+    expect(porId.get('SUPERVISOR_TI')?.profundidade).toBe(4);
+  });
+
+  it('equipe vinculada aparece como filha da unidade correta, com profundidade = unidade + 1', () => {
+    const arvore = construirArvoreOrganizacional(todasUnidades, [socNaCosi]);
+    const cosiNo = achatarArvoreOrganizacional(arvore.raizes)
+      .find((no) => no.tipo === 'unidade' && no.unidade.unidadeId === 'COSI');
+    expect(cosiNo?.tipo).toBe('unidade');
+    if (cosiNo?.tipo === 'unidade') {
+      expect(cosiNo.filhos).toHaveLength(1);
+      expect(cosiNo.filhos[0]).toMatchObject({ tipo: 'equipe', profundidade: cosiNo.profundidade + 1 });
+    }
+  });
+
+  it('ordenação preservada: equipes e sub-unidades da mesma unidade aparecem juntas, por nome', () => {
+    const arvore = construirArvoreOrganizacional(todasUnidades, [socNaCosi, plantaoNaCosi]);
+    const cosiNo = achatarArvoreOrganizacional(arvore.raizes)
+      .find((no) => no.tipo === 'unidade' && no.unidade.unidadeId === 'COSI');
+    expect(cosiNo?.tipo === 'unidade' ? cosiNo.filhos.map((no) => (no.tipo === 'equipe' ? no.equipe.nome : '')) : [])
+      .toEqual(['Plantão COSI', 'SOC']);
+  });
+
+  it('equipe sem unidade (ou apontando para unidade inexistente) nunca inventa parent — vai para equipesSemUnidade', () => {
+    const arvore = construirArvoreOrganizacional(todasUnidades, [semUnidade, unidadeInexistente]);
+    expect(arvore.equipesSemUnidade.map((e) => e.id).sort()).toEqual(['EQ_LEGADA', 'EQ_ORFA']);
+    expect(achatarArvoreOrganizacional(arvore.raizes).some((no) => no.tipo === 'equipe')).toBe(false);
+  });
+
+  it('equipe em unidade profunda (SUPERVISOR_TI) é encontrada corretamente', () => {
+    const arvore = construirArvoreOrganizacional(todasUnidades, [nocNaSupervisorTi]);
+    const no = achatarArvoreOrganizacional(arvore.raizes).find((item) => item.tipo === 'equipe');
+    expect(no?.tipo === 'equipe' ? no.equipe.id : null).toBe('EQ_NOC');
+  });
+
+  it('unidade inalcançável (ciclo entre IDs já existentes) é sinalizada, nunca corrigida', () => {
+    const a = unidade({ unidadeId: 'CICLO_A', nome: 'Ciclo A', parentId: 'CICLO_B', caminho: ['CICLO_A'] });
+    const b = unidade({ unidadeId: 'CICLO_B', nome: 'Ciclo B', parentId: 'CICLO_A', caminho: ['CICLO_B'] });
+    const arvore = construirArvoreOrganizacional([a, b], []);
+    expect(arvore.raizes).toEqual([]);
+    expect(arvore.unidadesInalcancaveis.map((item) => item.unidadeId).sort()).toEqual(['CICLO_A', 'CICLO_B']);
+  });
+
+  it('nó desconhecido (equipe referenciando unidade fora do conjunto) não quebra o renderer — vira equipesSemUnidade', () => {
+    expect(() => construirArvoreOrganizacional(todasUnidades, [unidadeInexistente])).not.toThrow();
+  });
+});
+
+describe('nosVisiveisNaArvoreOrganizacional', () => {
+  it('sem nenhuma chave expandida, só as raízes aparecem', () => {
+    const arvore = construirArvoreOrganizacional(todasUnidades, []);
+    const visiveis = nosVisiveisNaArvoreOrganizacional(arvore.raizes, new Set());
+    expect(visiveis).toHaveLength(1);
+    expect(visiveis[0]).toMatchObject({ tipo: 'unidade', profundidade: 0 });
+  });
+
+  it('expandir uma unidade revela só os filhos diretos, não os netos', () => {
+    const arvore = construirArvoreOrganizacional(todasUnidades, []);
+    const visiveis = nosVisiveisNaArvoreOrganizacional(arvore.raizes, new Set(['unidade:DIRETOR_PRESIDENTE']));
+    const ids = visiveis.map((no) => (no.tipo === 'unidade' ? no.unidade.unidadeId : ''));
+    expect(ids).toEqual(['DIRETOR_PRESIDENTE', 'DIR_INFRA_SEGURANCA']);
+  });
+
+  it('equipe (folha) nunca é tratada como expansível', () => {
+    const socNaCosi = equipeBase({ id: 'EQ_SOC', nome: 'SOC', unidadeId: 'COSI', caminhoUnidade: cosi.caminho });
+    const arvore = construirArvoreOrganizacional(todasUnidades, [socNaCosi]);
+    const chaves = new Set(['unidade:DIRETOR_PRESIDENTE', 'unidade:DIR_INFRA_SEGURANCA', 'unidade:GEDSI', 'unidade:COSI', 'equipe:EQ_SOC']);
+    const visiveis = nosVisiveisNaArvoreOrganizacional(arvore.raizes, chaves);
+    expect(visiveis.some((no) => no.tipo === 'equipe')).toBe(true);
+  });
+});
+
+describe('buscarNaArvoreOrganizacional', () => {
+  const socNaCosi = equipeBase({ id: 'EQ_SOC', nome: 'SOC', unidadeId: 'COSI', caminhoUnidade: cosi.caminho });
+  const arvore = construirArvoreOrganizacional(todasUnidades, [socNaCosi]);
+
+  it('termo vazio não encontra nada e não força expansão', () => {
+    const resultado = buscarNaArvoreOrganizacional(arvore.raizes, '');
+    expect(resultado.chavesEncontradas.size).toBe(0);
+    expect(resultado.chavesParaExpandir.size).toBe(0);
+  });
+
+  it('busca por nome de unidade, acento/caixa insensível', () => {
+    const resultado = buscarNaArvoreOrganizacional(arvore.raizes, 'gerencia de data center');
+    expect(resultado.chavesEncontradas.has('unidade:GEDSI')).toBe(true);
+  });
+
+  it('busca por sigla', () => {
+    const resultado = buscarNaArvoreOrganizacional(arvore.raizes, 'codb');
+    expect(resultado.chavesEncontradas.has('unidade:CODB')).toBe(true);
+  });
+
+  it('busca encontra equipe profunda e preserva os ancestrais necessários para expandir', () => {
+    const resultado = buscarNaArvoreOrganizacional(arvore.raizes, 'soc');
+    expect(resultado.chavesEncontradas.has('equipe:EQ_SOC')).toBe(true);
+    expect(resultado.chavesParaExpandir).toEqual(new Set([
+      'unidade:DIRETOR_PRESIDENTE',
+      'unidade:DIR_INFRA_SEGURANCA',
+      'unidade:GEDSI',
+      'unidade:COSI',
+    ]));
+  });
+
+  it('busca sem correspondência retorna conjuntos vazios', () => {
+    const resultado = buscarNaArvoreOrganizacional(arvore.raizes, 'inexistente-zzz');
+    expect(resultado.chavesEncontradas.size).toBe(0);
+    expect(resultado.chavesParaExpandir.size).toBe(0);
+  });
+});
+
+describe('achatarArvoreOrganizacional / chaveDoNoOrganizacional', () => {
+  it('achata em pré-ordem (pai antes dos filhos), incluindo equipes', () => {
+    const socNaCosi = equipeBase({ id: 'EQ_SOC', nome: 'SOC', unidadeId: 'COSI', caminhoUnidade: cosi.caminho });
+    const arvore = construirArvoreOrganizacional(todasUnidades, [socNaCosi]);
+    const chaves = achatarArvoreOrganizacional(arvore.raizes).map(chaveDoNoOrganizacional);
+    expect(chaves.indexOf('unidade:GEDSI')).toBeLessThan(chaves.indexOf('unidade:COSI'));
+    expect(chaves.indexOf('unidade:COSI')).toBeLessThan(chaves.indexOf('equipe:EQ_SOC'));
+  });
+
+  it('chaveDoNoOrganizacional distingue unidade e equipe com o mesmo id textual', () => {
+    const noUnidade: NoArvoreOrganizacional = { chave: 'unidade:X', tipo: 'unidade', unidade: cosi, profundidade: 0, filhos: [] };
+    const noEquipe: NoArvoreOrganizacional = { chave: 'equipe:X', tipo: 'equipe', equipe: equipeBase({ id: 'X' }), profundidade: 0 };
+    expect(chaveDoNoOrganizacional(noUnidade)).toBe('unidade:COSI');
+    expect(chaveDoNoOrganizacional(noEquipe)).toBe('equipe:X');
+  });
+});
+
+describe('rotuloUnidadePorId', () => {
+  it('resolve pelo id, com o mesmo rótulo compacto de rotuloCompacto()', () => {
+    expect(rotuloUnidadePorId('COSI', todasUnidades)).toBe('COSI');
+    expect(rotuloUnidadePorId('GEDSI', todasUnidades)).toBe('GEDSI');
+  });
+
+  it('retorna o próprio id quando a unidade não é encontrada', () => {
+    expect(rotuloUnidadePorId('INEXISTENTE', todasUnidades)).toBe('INEXISTENTE');
+  });
+});
+
+describe('raizesComEquipesSemUnidade', () => {
+  it('anexa equipes sem unidade como raízes soltas, profundidade 0, sem inventar parent', () => {
+    const semUnidade = equipeBase({ id: 'EQ_LEGADA', nome: 'Legada' });
+    const arvore = construirArvoreOrganizacional([diretoria], [semUnidade]);
+    const raizes = raizesComEquipesSemUnidade(arvore);
+    const equipeSolta = raizes.find((no) => no.tipo === 'equipe');
+    expect(equipeSolta).toMatchObject({ tipo: 'equipe', profundidade: 0 });
+    expect(raizes).toHaveLength(2); // 1 unidade raiz + 1 equipe solta
+  });
+
+  it('sem nenhuma equipe sem unidade, devolve exatamente as mesmas raízes', () => {
+    const arvore = construirArvoreOrganizacional([diretoria], []);
+    expect(raizesComEquipesSemUnidade(arvore)).toEqual(arvore.raizes);
   });
 });
