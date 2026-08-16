@@ -990,6 +990,8 @@ function ModalGrupoPlantao({
   equipesExistentes,
   unidadesExistentes,
   equipesPermitidas,
+  carregandoEquipes = false,
+  erroEquipes = null,
   onFechar,
   onSalvar,
 }: {
@@ -1000,6 +1002,10 @@ function ModalGrupoPlantao({
   unidadesExistentes: UnidadeOrganizacional[];
   /** `null` = sem restrição (ADMIN_SISTEMA); não-null = só estas equipes podem ser "responsável" (GESTOR_EQUIPE). */
   equipesPermitidas: string[] | null;
+  /** `true` enquanto `equipesExistentes`/`unidadesExistentes` ainda carregam — nunca confundir com "nenhuma equipe". */
+  carregandoEquipes?: boolean;
+  /** Falha ao carregar equipes/unidades — nunca confundir com "nenhuma equipe". */
+  erroEquipes?: string | null;
   onFechar: () => void;
   onSalvar: (grupo: GrupoPlantao) => Promise<void>;
 }) {
@@ -1009,6 +1015,22 @@ function ModalGrupoPlantao({
   const [pickerEquipeResponsavelAberto, setPickerEquipeResponsavelAberto] = useState(false);
   const [pickerEquipesConsultaAberto, setPickerEquipesConsultaAberto] = useState(false);
   useTeclaEsc(onFechar);
+  /**
+   * Foco devolvido ao botão que abriu o picker, ao fechar (confirmando ou
+   * cancelando) — nenhum dos dois botões (Selecionar/Alterar) fica
+   * renderizado ao mesmo tempo que o outro, então uma única ref cobre os
+   * dois casos de "equipe responsável".
+   */
+  const botaoEquipeResponsavelRef = useRef<HTMLButtonElement>(null);
+  const botaoEquipesConsultaRef = useRef<HTMLButtonElement>(null);
+  function fecharPickerEquipeResponsavel() {
+    setPickerEquipeResponsavelAberto(false);
+    botaoEquipeResponsavelRef.current?.focus();
+  }
+  function fecharPickerEquipesConsulta() {
+    setPickerEquipesConsultaAberto(false);
+    botaoEquipesConsultaRef.current?.focus();
+  }
 
   const equipesParaOPicker = equipesExistentes
     .filter((equipe) => equipesPermitidas === null || equipesPermitidas.includes(equipe.id));
@@ -1069,7 +1091,7 @@ function ModalGrupoPlantao({
         </div>
         <div className="admin-form-grid">
           <label htmlFor="grupo-plantao-id">
-            Identificador
+            Identificador técnico
             <input
               id="grupo-plantao-id"
               autoFocus
@@ -1078,7 +1100,10 @@ function ModalGrupoPlantao({
               disabled={modo === 'editar'}
               onChange={(evento) => setForm((atual) => ({ ...atual, grupoId: evento.target.value }))}
             />
-            {modo === 'editar' && <small>O identificador não pode ser alterado.</small>}
+            <small>
+              Usado internamente pelo sistema.
+              {modo === 'editar' && ' Não pode ser alterado depois de criado.'}
+            </small>
           </label>
           <label htmlFor="grupo-plantao-nome">
             Nome
@@ -1107,12 +1132,22 @@ function ModalGrupoPlantao({
                     <OrganizationBreadcrumb caminho={equipeResponsavelAtual.caminhoUnidade} unidades={unidadesExistentes} />
                   )}
                 </div>
-                <button type="button" className="secondary-button compact-button" onClick={() => setPickerEquipeResponsavelAberto(true)}>
+                <button
+                  ref={botaoEquipeResponsavelRef}
+                  type="button"
+                  className="secondary-button compact-button"
+                  onClick={() => setPickerEquipeResponsavelAberto(true)}
+                >
                   Alterar
                 </button>
               </div>
             ) : (
-              <button type="button" className="secondary-button" onClick={() => setPickerEquipeResponsavelAberto(true)}>
+              <button
+                ref={botaoEquipeResponsavelRef}
+                type="button"
+                className="secondary-button"
+                onClick={() => setPickerEquipeResponsavelAberto(true)}
+              >
                 Selecionar equipe responsável
               </button>
             )}
@@ -1126,14 +1161,17 @@ function ModalGrupoPlantao({
               onChange={(evento) => setForm((atual) => ({ ...atual, timezone: evento.target.value }))}
             />
           </label>
-          <label className="checkbox-row admin-form-active" htmlFor="grupo-plantao-ativo">
-            <input
-              id="grupo-plantao-ativo"
-              type="checkbox"
-              checked={form.ativo}
-              onChange={(evento) => setForm((atual) => ({ ...atual, ativo: evento.target.checked }))}
-            />
-            <span>Ativo</span>
+          <label htmlFor="grupo-plantao-ativo">
+            Status
+            <span className="checkbox-row admin-form-status-checkbox">
+              <input
+                id="grupo-plantao-ativo"
+                type="checkbox"
+                checked={form.ativo}
+                onChange={(evento) => setForm((atual) => ({ ...atual, ativo: evento.target.checked }))}
+              />
+              <span>Ativo</span>
+            </span>
           </label>
           <fieldset className="admin-form-full">
             <legend>Equipes autorizadas a consultar</legend>
@@ -1142,6 +1180,7 @@ function ModalGrupoPlantao({
               Só quem gerencia a equipe responsável (sempre incluída abaixo) administra este grupo.
             </p>
             <button
+              ref={botaoEquipesConsultaRef}
               type="button"
               className="secondary-button"
               disabled={form.equipeResponsavelId === ''}
@@ -1198,11 +1237,13 @@ function ModalGrupoPlantao({
         titulo="Selecionar equipe responsável"
         descricao="A equipe responsável administra este grupo de Plantão e é sempre incluída entre as equipes que consultam."
         raizes={raizesParaOPicker}
+        carregando={carregandoEquipes}
+        erro={erroEquipes}
         valor={form.equipeResponsavelId || null}
-        onFechar={() => setPickerEquipeResponsavelAberto(false)}
+        onFechar={fecharPickerEquipeResponsavel}
         onConfirmar={(equipeId) => {
           setForm((atual) => ({ ...atual, equipeResponsavelId: equipeId }));
-          setPickerEquipeResponsavelAberto(false);
+          fecharPickerEquipeResponsavel();
         }}
       />
     )}
@@ -1212,12 +1253,14 @@ function ModalGrupoPlantao({
         titulo="Selecionar equipes que consultam"
         descricao="Consultar é só visualizar o Plantão — nunca administra participantes, contatos ou rascunhos."
         raizes={raizesParaOPicker}
+        carregando={carregandoEquipes}
+        erro={erroEquipes}
         valores={form.equipesConsulta}
         equipeTravadaId={form.equipeResponsavelId || undefined}
-        onFechar={() => setPickerEquipesConsultaAberto(false)}
+        onFechar={fecharPickerEquipesConsulta}
         onConfirmar={(equipeIds) => {
           setForm((atual) => ({ ...atual, equipesConsulta: equipeIds }));
-          setPickerEquipesConsultaAberto(false);
+          fecharPickerEquipesConsulta();
         }}
       />
     )}
@@ -2117,7 +2160,7 @@ function PreviewPlantao({
         </div>
         {validada && (
           <p className="plantao-validado-nota">
-            <ShieldCheck size={15} /> Prévia validada. Nenhum dado de Plantão foi publicado nesta fase.
+            <ShieldCheck size={15} /> Prévia validada. Nenhum dado de Plantão foi publicado.
           </p>
         )}
       </article>
@@ -2408,6 +2451,17 @@ export function DashboardApp() {
   const [participantesPorGrupoPlantao, setParticipantesPorGrupoPlantao] = useState<Record<string, ParticipantePlantao[]>>({});
   const [grupoPlantaoExpandido, setGrupoPlantaoExpandido] = useState<string | null>(null);
   const [erroPlantaoAdmin, setErroPlantaoAdmin] = useState('');
+  /**
+   * Carregamento de `equipesAdmin`/`unidadesAdmin` para o `OrganizationTeamPicker`
+   * (Fase UI-ORG-1A) — inicia `true` e só vira `false` dentro do `.then()`
+   * do efeito de carregamento (nunca `setState` síncrono no corpo do
+   * efeito, para não disparar o aviso de cascata de render). A exibição
+   * real (`carregandoEquipesPlantaoParaExibir`, mais abaixo) combina isto
+   * com `podeAcessarPlantoes`/`modoDemo`, para nunca mostrar "carregando"
+   * eternamente numa tela onde o efeito nem chega a rodar.
+   */
+  const [carregandoEquipesPlantao, setCarregandoEquipesPlantao] = useState(true);
+  const [erroEquipesPlantao, setErroEquipesPlantao] = useState('');
   const [modalGrupoPlantao, setModalGrupoPlantao] = useState<{ modo: 'criar' | 'editar'; inicial: GrupoPlantao } | null>(null);
   const [buscaParticipanteNovo, setBuscaParticipanteNovo] = useState<Record<string, string>>({});
   const [modalContatosParticipante, setModalContatosParticipante] = useState<
@@ -2528,6 +2582,7 @@ export function DashboardApp() {
    * própria equipe consultar algum grupo, nunca administrar um.
    */
   const podeAcessarPlantoes = usuarioReal !== null && souGestorDePlantao(usuarioReal);
+  const carregandoEquipesPlantaoParaExibir = carregandoEquipesPlantao && podeAcessarPlantoes && !modoDemo;
   const minhasEquipesPermitidas = usuarioReal !== null ? equipesPermitidasEfetivas(usuarioReal) : [];
   const navegacaoVisivel = NAVEGACAO.filter((item) => {
     if (item.id === 'administracao') {
@@ -3096,7 +3151,7 @@ export function DashboardApp() {
       return;
     }
     setPreviaPlantaoValidada(true);
-    setMensagem('Prévia validada. Nenhum dado de Plantão foi publicado nesta fase.');
+    setMensagem('Prévia validada. Nenhum dado de Plantão foi publicado.');
     const sugestao = resultadoPlantao === null ? null : sugerirCompetenciaPlantao(resultadoPlantao.atribuicoes);
     if (sugestao !== null) {
       setCompetenciaRascunho((atual) => (atual === '' ? sugestao.competencia : atual));
@@ -4301,21 +4356,36 @@ export function DashboardApp() {
           return [...porId.values()];
         });
     const carregarUsuariosParaBusca = souAdmin ? listarTodosUsuarios() : Promise.resolve<Usuario[]>([]);
-    void Promise.all([carregarGrupos, listarEquipes(), listarUnidadesOrganizacionais(), carregarUsuariosParaBusca])
+    /**
+     * `allSettled`, nunca `all` (Fase UI-ORG-1A): um erro de permissão só em
+     * `carregarGrupos` (ex.: Rules de Plantão ainda não deployadas em
+     * staging) não pode impedir `equipesAdmin`/`unidadesAdmin` de carregar
+     * — cada leitura tem seu próprio resultado/erro, nunca um único
+     * `catch` genérico mascarando qual delas falhou como se fosse "nenhuma
+     * equipe cadastrada".
+     */
+    void Promise.allSettled([carregarGrupos, listarEquipes(), listarUnidadesOrganizacionais(), carregarUsuariosParaBusca])
       .then(([grupos, equipes, unidades, todosUsuarios]) => {
-        if (!cancelado) {
-          setGruposPlantaoAdmin(grupos);
-          setEquipesAdmin(equipes);
-          setUnidadesAdmin(unidades);
-          if (souAdmin) {
-            setTodosUsuariosAdmin(todosUsuarios);
-          }
+        if (cancelado) {
+          return;
         }
-      })
-      .catch((falha: unknown) => {
-        if (!cancelado) {
-          setErroPlantaoAdmin(mensagemErroFirebase(falha, 'Não foi possível carregar os Grupos de Plantão.', ambienteFirebaseAtual));
+        if (grupos.status === 'fulfilled') {
+          setGruposPlantaoAdmin(grupos.value);
+        } else {
+          setErroPlantaoAdmin(mensagemErroFirebase(grupos.reason, 'Não foi possível carregar os Grupos de Plantão.', ambienteFirebaseAtual));
         }
+        if (equipes.status === 'fulfilled') {
+          setEquipesAdmin(equipes.value);
+        } else {
+          setErroEquipesPlantao(mensagemErroFirebase(equipes.reason, 'Não foi possível carregar as equipes.', ambienteFirebaseAtual));
+        }
+        if (unidades.status === 'fulfilled') {
+          setUnidadesAdmin(unidades.value);
+        }
+        if (souAdmin && todosUsuarios.status === 'fulfilled') {
+          setTodosUsuariosAdmin(todosUsuarios.value);
+        }
+        setCarregandoEquipesPlantao(false);
       });
     return () => {
       cancelado = true;
@@ -4640,7 +4710,7 @@ export function DashboardApp() {
                   <h2>Salvar como rascunho</h2>
                   <p>
                     Grava o grupo, os participantes vinculados, a competência e as atribuições como
-                    RASCUNHO — nunca publica (publicação não existe nesta fase).
+                    RASCUNHO — a publicação ainda não está disponível.
                   </p>
                 </div>
               </div>
@@ -5304,7 +5374,7 @@ export function DashboardApp() {
         <section>
           <header className="page-heading">
             <div>
-              <p className="eyebrow">Domínio paralelo à escala 6x1 — nunca publica nesta fase</p>
+              <p className="eyebrow">Escalas de sobreaviso</p>
               <h1><Radio size={20} /> Plantões</h1>
               <p>Grupos de Plantão, participantes, contatos e rascunhos de competência.</p>
             </div>
@@ -5313,8 +5383,12 @@ export function DashboardApp() {
             </button>
           </header>
           {erroPlantaoAdmin && <div className="alert error" role="alert">{erroPlantaoAdmin}</div>}
-          {gruposPlantaoAdmin.length === 0 && (
-            <article className="panel"><p className="empty-state">Nenhum grupo de Plantão cadastrado ainda.</p></article>
+          {gruposPlantaoAdmin.length === 0 && !erroPlantaoAdmin && (
+            <article className="panel organization-empty-state">
+              <Radio size={28} aria-hidden="true" />
+              <h2>Nenhum grupo de Plantão ainda</h2>
+              <p>Crie um grupo para organizar participantes, contatos e o rascunho da competência — use o botão &ldquo;Novo grupo&rdquo; acima.</p>
+            </article>
           )}
           {gruposPlantaoAdmin.map((grupo) => {
             const gerencio = podeGerenciarEsteGrupoPlantao(grupo);
@@ -5883,6 +5957,8 @@ export function DashboardApp() {
           equipesExistentes={equipesAdmin}
           unidadesExistentes={unidadesAdmin}
           equipesPermitidas={souAdmin ? null : minhasEquipesPermitidas}
+          carregandoEquipes={carregandoEquipesPlantaoParaExibir}
+          erroEquipes={erroEquipesPlantao || null}
           onFechar={() => setModalGrupoPlantao(null)}
           onSalvar={salvarGrupoPlantaoDoModal}
         />

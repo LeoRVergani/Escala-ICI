@@ -4,7 +4,7 @@ import { Check, X } from 'lucide-react';
 import { useState } from 'react';
 
 import { useTeclaEsc } from '@/lib/hooks/useTeclaEsc';
-import type { NoArvoreOrganizacional } from '@/lib/organizacao';
+import { alternarSelecaoMultipla, type NoArvoreOrganizacional } from '@/lib/organizacao';
 import { OrganizationTree } from './OrganizationTree';
 
 /**
@@ -17,6 +17,12 @@ import { OrganizationTree } from './OrganizationTree';
  * `equipeId`(s) escolhido(s) via `onConfirmar`; quem persiste é sempre o
  * formulário chamador (`ModalGrupoPlantao`), exatamente como antes desta
  * fase — o payload de `GrupoPlantao` não muda.
+ *
+ * Acessibilidade (Fase UI-ORG-1A): modo `multiple` passa
+ * `modoSelecao="multipla"` para `OrganizationTree`, que troca `aria-selected`
+ * por `aria-checked` (semântica de árvore com checkbox) e marca o container
+ * com `aria-multiselectable="true"`. O checkbox visual e o estado ARIA
+ * nunca divergem — os dois lêem do mesmo `rascunhoMultiple`.
  */
 
 interface PropsBase {
@@ -24,6 +30,10 @@ interface PropsBase {
   descricao?: string;
   raizes: NoArvoreOrganizacional[];
   onFechar: () => void;
+  /** `true` enquanto as equipes/unidades de origem ainda carregam — nunca confundir com "nenhuma equipe". */
+  carregando?: boolean;
+  /** Mensagem de falha ao carregar — nunca confundir com "nenhuma equipe". */
+  erro?: string | null;
 }
 
 interface PropsSingle extends PropsBase {
@@ -43,7 +53,7 @@ interface PropsMultiple extends PropsBase {
 export type OrganizationTeamPickerProps = PropsSingle | PropsMultiple;
 
 export function OrganizationTeamPicker(props: OrganizationTeamPickerProps) {
-  const { titulo, descricao, raizes, onFechar } = props;
+  const { titulo, descricao, raizes, onFechar, carregando = false, erro = null } = props;
   useTeclaEsc(onFechar);
   const [termoBusca, setTermoBusca] = useState('');
   const [rascunhoSingle, setRascunhoSingle] = useState<string | null>(
@@ -61,18 +71,7 @@ export function OrganizationTeamPicker(props: OrganizationTeamPickerProps) {
     if (props.modo !== 'multiple') {
       return;
     }
-    const travada = equipeId === props.equipeTravadaId;
-    setRascunhoMultiple((atuais) => {
-      if (atuais.has(equipeId)) {
-        if (travada) {
-          return atuais;
-        }
-        const proximo = new Set(atuais);
-        proximo.delete(equipeId);
-        return proximo;
-      }
-      return new Set(atuais).add(equipeId);
-    });
+    setRascunhoMultiple((atuais) => alternarSelecaoMultipla(atuais, equipeId, props.equipeTravadaId));
   }
 
   function aoSelecionarNo(no: NoArvoreOrganizacional) {
@@ -121,10 +120,15 @@ export function OrganizationTeamPicker(props: OrganizationTeamPickerProps) {
           labelAria={titulo}
           termoBusca={termoBusca}
           onMudarBusca={setTermoBusca}
+          carregando={carregando}
+          erro={erro}
+          autoFocarBusca
           chaveSelecionada={props.modo === 'single' && rascunhoSingle !== null ? `equipe:${rascunhoSingle}` : null}
           onSelecionarNo={aoSelecionarNo}
           ehNoSelecionavel={(no) => no.tipo === 'equipe'}
-          mensagemVazia="Nenhuma equipe cadastrada ainda."
+          mensagemVazia="Nenhuma equipe cadastrada."
+          modoSelecao={props.modo === 'multiple' ? 'multipla' : 'unica'}
+          chavesSelecionadas={props.modo === 'multiple' ? new Set([...rascunhoMultiple].map((id) => `equipe:${id}`)) : undefined}
           renderTrilha={(no) => {
             if (no.tipo !== 'equipe') {
               return null;

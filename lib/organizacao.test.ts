@@ -4,11 +4,13 @@ import type { Equipe, UnidadeOrganizacional, Usuario } from './modelos';
 import {
   achatarArvore,
   achatarArvoreOrganizacional,
+  alternarSelecaoMultipla,
   buscarNaArvoreOrganizacional,
   caminhoCurto,
   calcularResumoOrganizacional,
   caminhoLegivel,
   chaveDoNoOrganizacional,
+  chaveFocavelNaArvore,
   construirArvoreOrganizacional,
   construirArvoreUnidades,
   ehUsuarioTecnicoOuFake,
@@ -466,5 +468,60 @@ describe('raizesComEquipesSemUnidade', () => {
   it('sem nenhuma equipe sem unidade, devolve exatamente as mesmas raízes', () => {
     const arvore = construirArvoreOrganizacional([diretoria], []);
     expect(raizesComEquipesSemUnidade(arvore)).toEqual(arvore.raizes);
+  });
+});
+
+describe('chaveFocavelNaArvore — roving tabindex (Fase UI-ORG-1A)', () => {
+  const socNaCosi = equipeBase({ id: 'EQ_SOC', nome: 'SOC', unidadeId: 'COSI', caminhoUnidade: cosi.caminho });
+  const arvore = construirArvoreOrganizacional(todasUnidades, [socNaCosi]);
+  const visiveisRaiz = nosVisiveisNaArvoreOrganizacional(arvore.raizes, new Set());
+
+  it('mantém a chave com foco quando ela está entre os nós visíveis', () => {
+    const chave = chaveDoNoOrganizacional(visiveisRaiz[0]);
+    expect(chaveFocavelNaArvore(visiveisRaiz, chave)).toBe(chave);
+  });
+
+  it('cai para o primeiro nó visível quando a chave com foco não está mais visível (ancestral recolhido)', () => {
+    // 'equipe:EQ_SOC' só fica visível com GEDSI/COSI expandidos — aqui nada está expandido.
+    expect(chaveFocavelNaArvore(visiveisRaiz, 'equipe:EQ_SOC')).toBe(chaveDoNoOrganizacional(visiveisRaiz[0]));
+  });
+
+  it('sem foco anterior (null), usa o primeiro nó visível', () => {
+    expect(chaveFocavelNaArvore(visiveisRaiz, null)).toBe(chaveDoNoOrganizacional(visiveisRaiz[0]));
+  });
+
+  it('lista visível vazia devolve null (nunca lança)', () => {
+    expect(chaveFocavelNaArvore([], 'qualquer')).toBeNull();
+    expect(chaveFocavelNaArvore([], null)).toBeNull();
+  });
+});
+
+describe('alternarSelecaoMultipla — seleção do OrganizationTeamPicker (Fase UI-ORG-1A)', () => {
+  it('adiciona uma equipe ainda não selecionada', () => {
+    const resultado = alternarSelecaoMultipla(new Set(['EQ_A']), 'EQ_B');
+    expect([...resultado].sort()).toEqual(['EQ_A', 'EQ_B']);
+  });
+
+  it('remove uma equipe já selecionada (toggle)', () => {
+    const resultado = alternarSelecaoMultipla(new Set(['EQ_A', 'EQ_B']), 'EQ_B');
+    expect([...resultado]).toEqual(['EQ_A']);
+  });
+
+  it('nunca remove a equipe travada (responsável) — devolve o mesmo conteúdo', () => {
+    const atuais = new Set(['EQ_RESPONSAVEL', 'EQ_OUTRA']);
+    const resultado = alternarSelecaoMultipla(atuais, 'EQ_RESPONSAVEL', 'EQ_RESPONSAVEL');
+    expect([...resultado].sort()).toEqual(['EQ_OUTRA', 'EQ_RESPONSAVEL']);
+  });
+
+  it('sem equipeTravadaId informado, qualquer equipe pode ser removida', () => {
+    const resultado = alternarSelecaoMultipla(new Set(['EQ_A']), 'EQ_A', undefined);
+    expect(resultado.size).toBe(0);
+  });
+
+  it('não muta o Set original (imutabilidade)', () => {
+    const original = new Set(['EQ_A']);
+    const resultado = alternarSelecaoMultipla(original, 'EQ_B');
+    expect(original.has('EQ_B')).toBe(false);
+    expect(resultado).not.toBe(original);
   });
 });

@@ -4265,6 +4265,35 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
   .organization-team-picker .organization-tree { max-height: 50vh; }
 }
 
+/* Estados de carregando/erro dentro de `OrganizationTree` (Fase UI-ORG-1A)
+ * — nunca reaproveitar `.empty-inline` para eles (semanticamente
+ * diferente: "vazio" não é o mesmo que "carregando" ou "erro"). */
+.organization-tree-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.organization-tree-status-erro { color: var(--danger); }
+
+/* Empty state da tela Plantões (Fase UI-ORG-1A) — reaproveita `.panel`
+ * (borda/fundo já vêm dele) só com conteúdo centralizado por cima; nunca
+ * duplica o CTA "Novo grupo" já presente no cabeçalho da tela, logo acima. */
+.organization-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 48px var(--space-5);
+  color: var(--muted);
+}
+.organization-empty-state svg { color: var(--border-strong); }
+.organization-empty-state h2 { margin: 4px 0 0; font-size: 15px; color: var(--text); }
+.organization-empty-state p { margin: 0; max-width: 420px; font-size: 12.5px; }
+
 /* ================================================================
  * Correção UX/UI — edição em modal, formulários e limpeza visual.
  *
@@ -4290,6 +4319,15 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
 }
 .checkbox-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary); flex: 0 0 auto; }
 .checkbox-row span { font-size: 12px; font-weight: 600; color: var(--text); }
+
+/* Fase UI-ORG-1A — o campo "Status" de ModalGrupoPlantao usa um `label`
+ * comum de `.admin-form-grid` (texto acima, igual a todo campo vizinho,
+ * como "Timezone") em vez de `.admin-form-active` (que alinha ao rodapé da
+ * célula, sem rótulo próprio, e por isso lia como um checkbox solto ao lado
+ * de Timezone). Só a altura do `.checkbox-row` interno precisa bater com a
+ * altura de 40px dos inputs ao lado — nada na estrutura de `.checkbox-row`
+ * muda para os demais usos (ex.: `ModalContatosParticipante`). */
+.admin-form-status-checkbox { min-height: 40px; }
 
 fieldset.checkbox-card-list {
   border: 0;

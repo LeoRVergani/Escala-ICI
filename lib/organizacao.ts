@@ -305,6 +305,49 @@ export function buscarNaArvoreOrganizacional(
 }
 
 /**
+ * Fase UI-ORG-1A — roving tabindex de `OrganizationTree`: qual chave deve
+ * ter `tabIndex=0` agora. Se a chave com foco lógico ainda está entre os
+ * nós VISÍVEIS (respeitando expand/collapse), ela continua sendo a
+ * focável; senão (o ancestral que a revelava foi recolhido, por exemplo),
+ * cai para o primeiro nó visível — nunca deixa a árvore inteira sem
+ * nenhum item alcançável via Tab (o bug que uma versão anterior tinha:
+ * comparar só com `null` em vez de "está realmente visível?").
+ */
+export function chaveFocavelNaArvore(
+  visiveis: readonly NoArvoreOrganizacional[],
+  chaveComFoco: string | null,
+): string | null {
+  if (chaveComFoco !== null && visiveis.some((no) => chaveDoNoOrganizacional(no) === chaveComFoco)) {
+    return chaveComFoco;
+  }
+  return visiveis[0] ? chaveDoNoOrganizacional(visiveis[0]) : null;
+}
+
+/**
+ * Fase UI-ORG-1A — alterna uma equipe no conjunto de seleção múltipla do
+ * `OrganizationTeamPicker`. Nunca remove `equipeTravadaId` (a equipe
+ * responsável, sempre incluída em `equipesConsulta` pela invariante de
+ * `equipesConsultaEfetivas()`) — chamar com o próprio ID travado devolve o
+ * mesmo conjunto (novo objeto, mesmo conteúdo), sem exceção nem efeito
+ * colateral.
+ */
+export function alternarSelecaoMultipla(
+  atuais: ReadonlySet<string>,
+  equipeId: string,
+  equipeTravadaId?: string,
+): Set<string> {
+  if (atuais.has(equipeId)) {
+    if (equipeId === equipeTravadaId) {
+      return new Set(atuais);
+    }
+    const proximo = new Set(atuais);
+    proximo.delete(equipeId);
+    return proximo;
+  }
+  return new Set(atuais).add(equipeId);
+}
+
+/**
  * `novoParentId === unidadeId` é o ciclo trivial (auto-referência). Além
  * disso, percorre a cadeia de `parentId` a partir de `novoParentId`: se em
  * algum ponto ela chegar em `unidadeId`, colocar `unidadeId` como pai de

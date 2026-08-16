@@ -110,3 +110,26 @@ test('11. firestore.rules e o modelo de Plantão continuam com diff zero nesta f
   assert.doesNotMatch(rules, /organization|OrganizationTree|OrganizationTeamPicker/iu, 'Rules não deve mencionar nada desta fase de UI');
   assert.doesNotMatch(modeloPlantao, /organization|OrganizationTree|OrganizationTeamPicker/iu, 'o modelo de domínio não deve mencionar nada desta fase de UI');
 });
+
+/**
+ * 12. Fase UI-ORG-1A: a microfase de acessibilidade explicitamente NÃO
+ * introduz infraestrutura de teste de componente (jsdom/testing-library) —
+ * a ausência é dívida técnica conhecida e registrada, não corrigida aqui.
+ * Este teste protege essa decisão contra reintrodução acidental futura sem
+ * uma decisão explícita equivalente.
+ */
+test('12. nenhuma dependência de testing-library/jsdom foi adicionada ao package.json', async () => {
+  const pkg = JSON.parse(await ler('package.json'));
+  const todasDependencias = { ...pkg.dependencies, ...pkg.devDependencies };
+  for (const proibido of ['@testing-library/react', '@testing-library/user-event', '@testing-library/dom', 'jsdom']) {
+    assert.ok(!(proibido in todasDependencias), `${proibido} não deveria estar em package.json nesta fase`);
+  }
+});
+
+test('13. as funções de escrita de Plantão continuam com diff zero nesta fase — só a UI que as chama mudou', async () => {
+  const writeRepo = await ler('lib/firebase/plantaoWriteRepository.ts');
+  for (const esperado of ['export async function salvarGrupoPlantao', 'export async function salvarParticipantePlantao', 'export async function salvarCompetenciaPlantaoRascunho', 'export async function salvarAtribuicoesPlantaoRascunho']) {
+    assert.match(writeRepo, new RegExp(esperado.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'), esperado);
+  }
+  assert.doesNotMatch(writeRepo, /function publicar/iu, 'nenhuma função de publicação pode existir nesta fase');
+});
