@@ -1,12 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import type { AtribuicaoPlantaoBruta, CompetenciaPlantao, GrupoPlantao, ParticipantePlantao } from '@escala-ici/contrato';
 
-import { aplicarVinculosNasAtribuicoes, type AtribuicaoPlantaoComVinculo, type VinculoPlantao } from './conciliacaoPlantoes';
+import type { Usuario } from './modelos';
+
+import {
+  aplicarVinculosNasAtribuicoes,
+  vinculosDeParticipantesGrupoPlantao,
+  type AtribuicaoPlantaoComVinculo,
+  type VinculoPlantao,
+} from './conciliacaoPlantoes';
 import {
   adicionarAtribuicaoEditavel,
+  agruparAtribuicoesPorDia,
+  conferirEscalaAtualPlantao,
   criarAtribuicoesEditaveis,
+  duracaoPlantaoAtipica,
   editarAtribuicaoEditavel,
   excluirAtribuicaoEditavel,
+  resumirPorPessoa,
 } from './editorPlantao';
 import {
   competenciaDoDia,
@@ -16,6 +27,7 @@ import {
   montarParticipantesPlantaoParaSalvar,
   periodoDaCompetencia,
   sugerirCompetenciaPlantao,
+  validarNovoPlantaoEmBranco,
 } from './montagemRascunhoPlantao';
 
 function atribuicaoBruta(overrides: Partial<AtribuicaoPlantaoBruta> = {}): AtribuicaoPlantaoBruta {
@@ -78,6 +90,21 @@ describe('periodoDaCompetencia — janela 26→25 (Fase ESCALAS-UX-1A)', () => {
   it('competência malformada devolve null', () => {
     expect(periodoDaCompetencia('2026-8')).toBeNull();
     expect(periodoDaCompetencia('não-é-competencia')).toBeNull();
+  });
+});
+
+describe('validarNovoPlantaoEmBranco — Fase ESCALAS-UX-1B ("+ Nova escala" → Plantão → Criar escala vazia)', () => {
+  it('grupo vazio bloqueia', () => {
+    expect(validarNovoPlantaoEmBranco({ grupoId: '', competencia: '2026-08' }).length).toBeGreaterThan(0);
+  });
+
+  it('competência vazia/malformada bloqueia', () => {
+    expect(validarNovoPlantaoEmBranco({ grupoId: 'PLANTAO_SEGURANCA', competencia: '' }).length).toBeGreaterThan(0);
+    expect(validarNovoPlantaoEmBranco({ grupoId: 'PLANTAO_SEGURANCA', competencia: '2026-8' }).length).toBeGreaterThan(0);
+  });
+
+  it('grupo + competência válidos (janela 26→25) não bloqueiam — nenhum outro campo é exigido (timezone/ACL/participantes vêm do Grupo)', () => {
+    expect(validarNovoPlantaoEmBranco({ grupoId: 'PLANTAO_SEGURANCA', competencia: '2026-08' })).toEqual([]);
   });
 });
 
@@ -194,6 +221,7 @@ describe('montarCompetenciaPlantaoRascunho', () => {
       periodoInicio: '2026-07-01',
       periodoFim: '2026-07-31',
       resultado: resultadoBase,
+      origem: 'IMPORTADO',
       loginAtual: 'gestor1',
       agoraIso: '2026-08-01T00:00:00.000Z',
       competenciaExistente: null,
@@ -212,6 +240,7 @@ describe('montarCompetenciaPlantaoRascunho', () => {
       periodoInicio: '2026-07-01',
       periodoFim: '2026-07-31',
       resultado: { ...resultadoBase, totaisInformados: null },
+      origem: 'IMPORTADO',
       loginAtual: 'gestor1',
       agoraIso: '2026-08-01T00:00:00.000Z',
       competenciaExistente: null,
@@ -226,6 +255,7 @@ describe('montarCompetenciaPlantaoRascunho', () => {
       periodoInicio: '2026-07-01',
       periodoFim: '2026-07-31',
       resultado: resultadoBase,
+      origem: 'IMPORTADO',
       loginAtual: 'gestor1',
       agoraIso: '2026-08-01T00:00:00.000Z',
       competenciaExistente: null,
@@ -257,6 +287,7 @@ describe('montarCompetenciaPlantaoRascunho', () => {
       periodoInicio: '2026-07-01',
       periodoFim: '2026-07-31',
       resultado: resultadoBase,
+      origem: 'IMPORTADO',
       loginAtual: 'gestor-novo',
       agoraIso: '2026-08-01T00:00:00.000Z',
       competenciaExistente: existente,
@@ -283,6 +314,7 @@ describe('montarAtribuicoesPlantaoRascunho', () => {
       competenciaId: 'PLANTAO_SEGURANCA_2026-07',
       atribuicoes: [comVinculo({ loginVinculado: null, statusVinculo: 'PENDENTE' })],
       timezone: 'America/Sao_Paulo',
+      origem: 'IMPORTADO',
       agoraIso: '2026-08-01T00:00:00.000Z',
     })).toThrow(/login vinculado/);
   });
@@ -293,6 +325,7 @@ describe('montarAtribuicoesPlantaoRascunho', () => {
       competenciaId: 'PLANTAO_SEGURANCA_2026-07',
       atribuicoes: [comVinculo(), comVinculo(), comVinculo()],
       timezone: 'America/Sao_Paulo',
+      origem: 'IMPORTADO',
       agoraIso: '2026-08-01T00:00:00.000Z',
     });
     expect(resultado.map((item) => item.atribuicaoId)).toEqual(['0001', '0002', '0003']);
@@ -304,6 +337,7 @@ describe('montarAtribuicoesPlantaoRascunho', () => {
       competenciaId: 'PLANTAO_SEGURANCA_2026-07',
       atribuicoes: [comVinculo({ inicio: { data: '2026-07-25', hora: '19:00' }, fim: { data: '2026-07-26', hora: '07:00' } })],
       timezone: 'America/Sao_Paulo',
+      origem: 'IMPORTADO',
       agoraIso: '2026-08-01T00:00:00.000Z',
     });
     expect(resultado?.inicio).toBe('2026-07-25T22:00:00.000Z');
@@ -316,6 +350,7 @@ describe('montarAtribuicoesPlantaoRascunho', () => {
       competenciaId: 'PLANTAO_SEGURANCA_2026-07',
       atribuicoes: [comVinculo({ loginVinculado: 'blima', duracaoMinutos: 300 })],
       timezone: 'America/Sao_Paulo',
+      origem: 'IMPORTADO',
       agoraIso: '2026-08-01T00:00:00.000Z',
     });
     expect(resultado).toMatchObject({
@@ -326,6 +361,37 @@ describe('montarAtribuicoesPlantaoRascunho', () => {
       revisao: 0,
       schemaVersion: 1,
     });
+  });
+
+  it('Fase ESCALAS-UX-1B — origem MANUAL é honrada, nunca hardcoded para IMPORTADO', () => {
+    const [resultado] = montarAtribuicoesPlantaoRascunho({
+      grupoId: 'PLANTAO_SEGURANCA',
+      competenciaId: 'PLANTAO_SEGURANCA_2026-08',
+      atribuicoes: [comVinculo()],
+      timezone: 'America/Sao_Paulo',
+      origem: 'MANUAL',
+      agoraIso: '2026-08-01T00:00:00.000Z',
+    });
+    expect(resultado?.origem).toBe('MANUAL');
+  });
+});
+
+describe('montarCompetenciaPlantaoRascunho — Fase ESCALAS-UX-1B (origem MANUAL, escala criada vazia)', () => {
+  it('origem MANUAL é honrada, nunca hardcoded para IMPORTADO', () => {
+    const competencia = montarCompetenciaPlantaoRascunho({
+      grupoId: 'PLANTAO_SEGURANCA',
+      competencia: '2026-08',
+      periodoInicio: '2026-07-26',
+      periodoFim: '2026-08-25',
+      resultado: { totalBrutoCalculado: { quantidade: 0, minutos: 0 }, totaisInformados: null },
+      origem: 'MANUAL',
+      loginAtual: 'gestor1',
+      agoraIso: '2026-08-01T00:00:00.000Z',
+      competenciaExistente: null,
+    });
+    expect(competencia.origem).toBe('MANUAL');
+    expect(competencia.totalBruto).toEqual({ quantidade: 0, minutos: 0 });
+    expect(competencia.totaisInformadosOrigem).toBeNull();
   });
 });
 
@@ -354,6 +420,7 @@ describe('CRÍTICO — o payload do rascunho reflete a working copy EDITADA, nun
       competenciaId: 'PLANTAO_SEGURANCA_2026-08',
       atribuicoes: comVinculo,
       timezone: 'America/Sao_Paulo',
+      origem: 'IMPORTADO',
       agoraIso: '2026-08-01T00:00:00.000Z',
     });
 
@@ -373,6 +440,7 @@ describe('CRÍTICO — o payload do rascunho reflete a working copy EDITADA, nun
       competenciaId: 'PLANTAO_SEGURANCA_2026-08',
       atribuicoes: comVinculo,
       timezone: 'America/Sao_Paulo',
+      origem: 'IMPORTADO',
       agoraIso: '2026-08-01T00:00:00.000Z',
     });
 
@@ -395,6 +463,7 @@ describe('CRÍTICO — o payload do rascunho reflete a working copy EDITADA, nun
       competenciaId: 'PLANTAO_SEGURANCA_2026-08',
       atribuicoes: comVinculo,
       timezone: 'America/Sao_Paulo',
+      origem: 'IMPORTADO',
       agoraIso: '2026-08-01T00:00:00.000Z',
     });
 
@@ -465,5 +534,170 @@ describe('montarGrupoPlantaoParaSalvar', () => {
     expect(grupo.criadoPorLogin).toBe('gestor-original');
     expect(grupo.criadoEm).toBe('2026-01-01T00:00:00.000Z');
     expect(grupo.atualizadoEm).toBe('2026-08-01T00:00:00.000Z');
+  });
+});
+
+describe('CRÍTICO — unificação do Editor: IMPORTADO e MANUAL usam a MESMA working copy/helpers/payload (Fase ESCALAS-UX-1B)', () => {
+  function usuario(overrides: Partial<Usuario> & { login: string; nome: string }): Usuario {
+    return {
+      email: `${overrides.login}@empresa.com`,
+      cargo: 'Analista',
+      equipeId: 'EQ_COSI',
+      gestorUid: null,
+      nivelHierarquico: 6,
+      turnoPadrao: 'M',
+      ativo: true,
+      ...overrides,
+    };
+  }
+
+  const USUARIOS = [usuario({ login: 'acosta', nome: 'Ana Costa' }), usuario({ login: 'blima', nome: 'Bruno Lima' })];
+
+  function participantePlantao(overrides: Partial<ParticipantePlantao> & { login: string }): ParticipantePlantao {
+    return {
+      grupoId: 'PLANTAO_SEGURANCA',
+      ativo: true,
+      contatos: [],
+      schemaVersion: 1,
+      criadoPorLogin: 'gestor1',
+      criadoEm: '2026-08-01T00:00:00.000Z',
+      atualizadoEm: '2026-08-01T00:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  it('working copy IMPORTADO (a partir de atribuições brutas) e MANUAL (criada vazia, populada via adicionarAtribuicaoEditavel) produzem a MESMA forma final, agrupamento por dia, resumo por pessoa e conferência', () => {
+    // --- Caminho IMPORTADO ---
+    const brutas: AtribuicaoPlantaoBruta[] = [
+      { plantonistaNomeOriginal: 'Ana Costa', inicio: { data: '2026-08-01', hora: '19:00' }, fim: { data: '2026-08-02', hora: '07:00' }, duracaoMinutos: 720, linhaOrigem: 2, abaOrigem: 'PlantaoCOSI' },
+    ];
+    const editaveisImportado = criarAtribuicoesEditaveis(brutas);
+
+    // --- Caminho MANUAL: começa vazio (nova escala vazia), depois recebe a MESMA atribuição via o mesmo helper de edição ---
+    let editaveisManual = criarAtribuicoesEditaveis([]);
+    expect(editaveisManual).toEqual([]); // item 1/2 do § 46 — working copy de uma escala nova começa com 0 atribuições
+    editaveisManual = adicionarAtribuicaoEditavel(editaveisManual, {
+      plantonistaNomeOriginal: 'Ana Costa',
+      inicio: { data: '2026-08-01', hora: '19:00' },
+      fim: { data: '2026-08-02', hora: '07:00' },
+      abaOrigem: '',
+    });
+
+    // Ambas passam pelos MESMOS helpers puros — mesmo conteúdo de negócio
+    // (nome/início/fim/duração). `idLocal`/`origemImportacao`/`linhaOrigem`/
+    // `abaOrigem` legitimamente diferem por proveniência (MANUAL nunca tem
+    // uma linha/aba real de planilha) — não fazem parte da comparação.
+    const camposDeNegocio = ({ plantonistaNomeOriginal, inicio, fim, duracaoMinutos }: (typeof editaveisImportado)[number]) =>
+      ({ plantonistaNomeOriginal, inicio, fim, duracaoMinutos });
+    expect(editaveisManual.map(camposDeNegocio)).toEqual(editaveisImportado.map(camposDeNegocio));
+
+    for (const [editaveis, rotulo] of [[editaveisImportado, 'IMPORTADO'], [editaveisManual, 'MANUAL']] as const) {
+      expect(agruparAtribuicoesPorDia(editaveis).get('2026-08-01')?.length, rotulo).toBe(1);
+      expect(resumirPorPessoa(editaveis).find((p) => p.nomeOriginal === 'Ana Costa')?.quantidade, rotulo).toBe(1);
+      expect(conferirEscalaAtualPlantao(editaveis, duracaoPlantaoAtipica).quantidadePessoas, rotulo).toBe(1);
+    }
+  });
+
+  it('payload final (montarAtribuicoesPlantaoRascunho) usa o LOGIN real do participante do Grupo — nunca um nome de planilha — para origem MANUAL', () => {
+    const participantesAtivos: ParticipantePlantao[] = [
+      participantePlantao({ login: 'acosta' }),
+      participantePlantao({ login: 'blima' }),
+    ];
+    const vinculosIniciais = vinculosDeParticipantesGrupoPlantao(participantesAtivos, USUARIOS);
+    expect(vinculosIniciais.every((v) => v.status === 'VINCULADO')).toBe(true); // nenhuma conciliação nome→login pendente
+
+    let editaveis = criarAtribuicoesEditaveis([]);
+    editaveis = adicionarAtribuicaoEditavel(editaveis, {
+      plantonistaNomeOriginal: 'Ana Costa',
+      inicio: { data: '2026-08-01', hora: '19:00' },
+      fim: { data: '2026-08-02', hora: '07:00' },
+      abaOrigem: '',
+    });
+
+    const comVinculo = aplicarVinculosNasAtribuicoes(editaveis, vinculosIniciais);
+    const payload = montarAtribuicoesPlantaoRascunho({
+      grupoId: 'PLANTAO_SEGURANCA',
+      competenciaId: 'PLANTAO_SEGURANCA_2026-08',
+      atribuicoes: comVinculo,
+      timezone: 'America/Sao_Paulo',
+      origem: 'MANUAL',
+      agoraIso: '2026-08-01T00:00:00.000Z',
+    });
+
+    expect(payload).toHaveLength(1);
+    expect(payload[0]?.plantonistaLogin).toBe('acosta');
+    expect(payload[0]?.origem).toBe('MANUAL');
+  });
+
+  it('idempotência (§ 49): criar 3 atribuições MANUAIS, montar payload, editar 1, montar payload de novo — resultado final tem 3 atribuições, nunca 6', () => {
+    const vinculosIniciais = vinculosDeParticipantesGrupoPlantao(
+      [participantePlantao({ login: 'acosta' })],
+      USUARIOS,
+    );
+
+    let editaveis = criarAtribuicoesEditaveis([]);
+    for (let dia = 1; dia <= 3; dia += 1) {
+      editaveis = adicionarAtribuicaoEditavel(editaveis, {
+        plantonistaNomeOriginal: 'Ana Costa',
+        inicio: { data: `2026-08-0${dia}`, hora: '19:00' },
+        fim: { data: `2026-08-0${dia + 1}`, hora: '07:00' },
+        abaOrigem: '',
+      });
+    }
+
+    function montarPayload(atuais: typeof editaveis) {
+      return montarAtribuicoesPlantaoRascunho({
+        grupoId: 'PLANTAO_SEGURANCA',
+        competenciaId: 'PLANTAO_SEGURANCA_2026-08',
+        atribuicoes: aplicarVinculosNasAtribuicoes(atuais, vinculosIniciais),
+        timezone: 'America/Sao_Paulo',
+        origem: 'MANUAL',
+        agoraIso: '2026-08-01T00:00:00.000Z',
+      });
+    }
+
+    const primeiroSalvamento = montarPayload(editaveis);
+    expect(primeiroSalvamento).toHaveLength(3);
+    expect(primeiroSalvamento.map((item) => item.atribuicaoId)).toEqual(['0001', '0002', '0003']);
+
+    editaveis = editarAtribuicaoEditavel(editaveis, editaveis[0]?.idLocal ?? '', {
+      plantonistaNomeOriginal: 'Ana Costa',
+      inicio: { data: '2026-08-01', hora: '20:00' },
+      fim: { data: '2026-08-02', hora: '08:00' },
+    });
+    const segundoSalvamento = montarPayload(editaveis);
+    expect(segundoSalvamento).toHaveLength(3);
+    expect(segundoSalvamento.map((item) => item.atribuicaoId)).toEqual(['0001', '0002', '0003']);
+  });
+
+  it('excluir uma atribuição MANUAL antes de salvar reduz o payload — nunca deixa um "fantasma" da atribuição excluída', () => {
+    const vinculosIniciais = vinculosDeParticipantesGrupoPlantao(
+      [participantePlantao({ login: 'acosta' })],
+      USUARIOS,
+    );
+    let editaveis = criarAtribuicoesEditaveis([]);
+    editaveis = adicionarAtribuicaoEditavel(editaveis, {
+      plantonistaNomeOriginal: 'Ana Costa',
+      inicio: { data: '2026-08-01', hora: '19:00' },
+      fim: { data: '2026-08-02', hora: '07:00' },
+      abaOrigem: '',
+    });
+    editaveis = adicionarAtribuicaoEditavel(editaveis, {
+      plantonistaNomeOriginal: 'Ana Costa',
+      inicio: { data: '2026-08-03', hora: '19:00' },
+      fim: { data: '2026-08-04', hora: '07:00' },
+      abaOrigem: '',
+    });
+    editaveis = excluirAtribuicaoEditavel(editaveis, editaveis[0]?.idLocal ?? '');
+
+    const payload = montarAtribuicoesPlantaoRascunho({
+      grupoId: 'PLANTAO_SEGURANCA',
+      competenciaId: 'PLANTAO_SEGURANCA_2026-08',
+      atribuicoes: aplicarVinculosNasAtribuicoes(editaveis, vinculosIniciais),
+      timezone: 'America/Sao_Paulo',
+      origem: 'MANUAL',
+      agoraIso: '2026-08-01T00:00:00.000Z',
+    });
+    expect(payload).toHaveLength(1);
   });
 });

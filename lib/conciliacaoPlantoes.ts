@@ -1,4 +1,4 @@
-import type { AtribuicaoPlantaoBruta, ResultadoParsePlantao } from '@escala-ici/contrato';
+import type { AtribuicaoPlantaoBruta, ParticipantePlantao, ResultadoParsePlantao } from '@escala-ici/contrato';
 
 import { normalizarNome } from './nomes';
 import type { Usuario } from './modelos';
@@ -93,6 +93,68 @@ export function consolidarParticipantesPlantao(
   }
 
   return [...porChave.values()];
+}
+
+/**
+ * Fase ESCALAS-UX-1B — nome de exibição de um participante do GRUPO (não da
+ * planilha): um `ParticipantePlantao` só tem `login`, nunca um nome próprio
+ * (identidade é sempre `login`, nunca nome — mesma convenção do resto do
+ * sistema). Cai no próprio login quando o usuário não é encontrado (usuário
+ * desativado/removido, mas o participante do grupo ainda existe) — nunca
+ * lança, nunca inventa um nome.
+ */
+export function nomeParticipantePlantao(participante: ParticipantePlantao, usuarios: readonly Usuario[]): string {
+  return usuarios.find((usuario) => usuario.login === participante.login)?.nome ?? participante.login;
+}
+
+/**
+ * Fase ESCALAS-UX-1B — equivalente a `consolidarParticipantesPlantao()` para
+ * uma escala criada MANUALMENTE (sem planilha): a lista de participantes
+ * vem dos participantes ATIVOS do Grupo de Plantão, nunca da contabilidade
+ * de uma fonte que não existe. `atribuicoes` é a working copy atual (para
+ * contar quantas atribuições cada pessoa já tem); nunca `apareceNaContabilidade`
+ * (não existe contabilidade declarada numa escala manual).
+ */
+export function consolidarParticipantesGrupoPlantao(
+  participantesAtivos: readonly ParticipantePlantao[],
+  usuarios: readonly Usuario[],
+  atribuicoes: readonly AtribuicaoPlantaoBruta[],
+): ParticipanteConsolidadoPlantao[] {
+  const contagemPorChave = new Map<string, number>();
+  for (const atribuicao of atribuicoes) {
+    const chave = normalizarNome(atribuicao.plantonistaNomeOriginal);
+    contagemPorChave.set(chave, (contagemPorChave.get(chave) ?? 0) + 1);
+  }
+  return participantesAtivos.map((participante) => {
+    const nomeOriginal = nomeParticipantePlantao(participante, usuarios);
+    return {
+      nomeOriginal,
+      quantidadeAtribuicoes: contagemPorChave.get(normalizarNome(nomeOriginal)) ?? 0,
+      apareceNaContabilidade: false,
+      quantidadeInformada: null,
+      minutosInformados: null,
+    };
+  });
+}
+
+/**
+ * Fase ESCALAS-UX-1B — vínculos já resolvidos para uma escala manual: cada
+ * participante ATIVO do grupo é uma pessoa real e conhecida (identidade por
+ * `login`, não por nome de planilha), então NENHUMA conciliação nome→login
+ * é necessária — todo vínculo nasce `VINCULADO`. `previaPlantaoValidavel()`
+ * já retorna `true` para esta lista sem nenhuma mudança de lógica, desde
+ * que haja ao menos um participante ativo.
+ */
+export function vinculosDeParticipantesGrupoPlantao(
+  participantesAtivos: readonly ParticipantePlantao[],
+  usuarios: readonly Usuario[],
+): VinculoPlantao[] {
+  return participantesAtivos.map((participante) => ({
+    participanteNomeOriginal: nomeParticipantePlantao(participante, usuarios),
+    login: participante.login,
+    status: 'VINCULADO',
+    sugestao: null,
+  }));
 }
 
 function candidatosPorNome(nomeOriginal: string, usuarios: readonly Usuario[]): Usuario[] {

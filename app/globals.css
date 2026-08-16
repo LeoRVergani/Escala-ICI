@@ -4863,3 +4863,67 @@ fieldset.checkbox-card-list > legend {
 [data-identidade="5"] { --plantao-id-bg: var(--plantao-id-5-bg); --plantao-id-border: var(--plantao-id-5-border); --plantao-id-text: var(--plantao-id-5-text); }
 [data-identidade="6"] { --plantao-id-bg: var(--plantao-id-6-bg); --plantao-id-border: var(--plantao-id-6-border); --plantao-id-text: var(--plantao-id-6-text); }
 [data-identidade="7"] { --plantao-id-bg: var(--plantao-id-7-bg); --plantao-id-border: var(--plantao-id-7-border); --plantao-id-text: var(--plantao-id-7-text); }
+
+/*
+ * Fase ESCALAS-UX-1B — as classes abaixo já existiam no JSX desde a
+ * ESCALAS-UX-1A (aba Calendário/Contabilidade do Editor), mas nunca
+ * ganharam regra própria (herdavam só o espaçamento genérico de `.panel`)
+ * — ficavam funcionais, mas visualmente soltas. Corrigido aqui porque a
+ * origem MANUAL (nova nesta fase) usa exatamente os mesmos painéis, e um
+ * Editor cuja PRIMEIRA experiência (calendário vazio) parece quebrada
+ * seria pior do que nunca tê-lo simplificado — nenhuma classe nova além
+ * destas, nenhum sistema visual paralelo (§ 42 desta fase).
+ */
+.plantao-editor-calendario { display: flex; flex-direction: column; gap: var(--space-4); }
+.plantao-estado-edicao { margin: 0; font-size: 11.5px; font-weight: 700; }
+.plantao-estado-edicao.sujo { color: var(--warning); }
+.plantao-estado-edicao.limpo { color: var(--muted); }
+.plantao-vinculo-pendente-banner { justify-content: flex-start; flex-wrap: wrap; }
+.plantao-alertas-clicaveis .alert-item-button { font-size: 12px; }
+.plantao-resumo-por-pessoa h3 { margin: 0 0 var(--space-2); font-size: 13px; }
+.plantao-resumo-por-pessoa ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.plantao-resumo-por-pessoa li {
+  display: flex; justify-content: space-between; gap: var(--space-2);
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px;
+  background: var(--surface-muted); font-size: 12.5px;
+}
+.plantao-resumo-por-pessoa li > span:last-child { color: var(--muted); white-space: nowrap; }
+.plantao-conferencia-escala-atual { margin-bottom: var(--space-4); }
+.plantao-conferencia-escala-atual h3 { margin: 0 0 4px; font-size: 13px; }
+.plantao-conferencia-escala-atual p { margin: 0 0 var(--space-2); color: var(--muted); font-size: 11.5px; }
+.plantao-resumo-conteudo { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/*
+ * Fase ESCALAS-UX-1B — "+ Nova escala": dois cards de tipo (etapa 1) e o
+ * resumo compacto do Grupo escolhido (etapa 2, Plantão). Mesma paleta/
+ * espaçamento do resto do modal (`.admin-modal`), sem paleta nova.
+ */
+.nova-escala-tipos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.nova-escala-tipo-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  padding: var(--space-4); border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); cursor: pointer; text-align: left; color: var(--text);
+}
+.nova-escala-tipo-card:hover:not(:disabled) { border-color: var(--primary-bright); background: var(--primary-soft); }
+.nova-escala-tipo-card:disabled { opacity: 0.5; cursor: not-allowed; }
+.nova-escala-tipo-card > svg { color: var(--primary-bright); }
+.nova-escala-tipo-card > strong { font-size: 14px; }
+.nova-escala-tipo-card > span { font-size: 11.5px; color: var(--muted); }
+@media (max-width: 560px) {
+  .nova-escala-tipos { grid-template-columns: 1fr; }
+}
+.nova-escala-grupo-resumo {
+  display: flex; flex-direction: column; gap: 2px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted);
+  font-size: 12px; margin-top: -8px;
+}
+.nova-escala-grupo-resumo > strong { font-size: 13px; }
+.nova-escala-grupo-resumo > span { color: var(--muted); }
+.nova-escala-como-comecar-titulo { margin: var(--space-2) 0 0; font-weight: 700; font-size: 12.5px; }
+
+/* Aviso inline genérico (ex.: "já existe um rascunho") — badge + ação, nunca sobrescreve silenciosamente. */
+.warning-panel-inline {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border));
+  border-radius: 8px; background: var(--warning-soft);
+}

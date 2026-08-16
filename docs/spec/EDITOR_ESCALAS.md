@@ -1,4 +1,4 @@
-# Especificação — Editor de Escalas (conceito compartilhado, Fase ESCALAS-UX-1A)
+# Especificação — Editor de Escalas (conceito compartilhado, Fases ESCALAS-UX-1A/1B)
 
 ## Por que este documento existe
 
@@ -23,6 +23,17 @@ conceito de forma independente de qual escala está sendo editada.
 
 > **Importação nunca é um destino. Importação é apenas uma forma de
 > preencher o Editor de Escala.**
+
+Fase ESCALAS-UX-1B adiciona o princípio complementar, com o mesmo peso
+permanente dos três acima:
+
+> **Uma escala vazia também não possui editor próprio. Ela apenas inicia
+> o mesmo Editor de Escala sem atribuições.**
+
+Ou seja: "+ Nova escala" → "Criar escala vazia" não é uma segunda porta
+de entrada com sua própria tela de montagem — é só uma segunda forma de
+chegar à MESMA working copy, começando com `[]` em vez de vir de um
+parser. Ver § 8 abaixo ("Origens suportadas pelo mesmo Editor").
 
 Estes três princípios são permanentes — valem para qualquer fase futura
 que toque o Editor (ESCALAS-UX-1B, PLANTÃO-3C, ou qualquer evolução da
@@ -117,18 +128,64 @@ uma decisão de fase própria antes de entrar no Editor:
   quando existir, será uma etapa POSTERIOR ao rascunho, nunca parte da
   edição em memória.
 
-## 7. Onde isso vive hoje (Fase ESCALAS-UX-1A, Plantão)
+## 8. Origens suportadas pelo mesmo Editor
+
+Fase ESCALAS-UX-1B formaliza a `origem` (`OrigemPlantao`, já existente
+no contrato persistido desde a PLANTÃO-3A) como o único diferencial
+entre as portas de entrada do Editor — nunca um segundo pipeline:
+
+| Origem | Como a working copy nasce | `resultadoPlantao` (fonte congelada) |
+| --- | --- | --- |
+| `IMPORTADO` | `criarAtribuicoesEditaveis(resultado.atribuicoes)` a partir do parser | preenchido — alimenta a "Conferência da fonte" |
+| `MANUAL` | `criarAtribuicoesEditaveis([])` — "+ Nova escala" → Plantão → Grupo + competência → Criar escala vazia | `null` — nunca uma `ResultadoParsePlantao` XLS fingida com 0/0/0 |
+| `GERADO` (futuro) | reservado para um gerador determinístico (ver PLANTOES.md § 12/§ 15) | a decidir na fase que implementar |
+
+Depois que a working copy existe, o restante do Editor — calendário,
+lista, modal de edição, "Resumo do editor", "Conferência da escala
+atual", dirty state, "Salvar rascunho" — é **idêntico**, independente da
+origem. A única diferença visível é o painel "Fonte original"/
+"Conferência da fonte": para `IMPORTADO` mostra as três camadas de
+verdade da planilha (§ 5 acima); para `MANUAL` mostra apenas "Escala
+criada manualmente" — nunca um XLS fingido, nunca `0 intervalos
+importados` como se fosse um fato da fonte.
+
+Para `MANUAL`, os vínculos (nome↔login) nascem TODOS já resolvidos: um
+participante do Grupo é identificado por `login` desde o início (nunca
+um nome de planilha a conciliar), então `vinculosDeParticipantesGrupoPlantao()`
+(`lib/conciliacaoPlantoes.ts`) monta a lista já `VINCULADO` — a mesma
+função `previaPlantaoValidavel()` que hoje decide se "Salvar rascunho"
+libera para `IMPORTADO` decide, sem nenhuma mudança de lógica, também
+para `MANUAL`.
+
+Registrado para uma fase futura, ainda NÃO implementado: **`COPIADO`**
+— copiar a escala de uma competência anterior como ponto de partida
+(mencionado como possibilidade em PLANTOES.md § 12, adiado
+explicitamente para ESCALAS-UX-1C). Quando existir, deve seguir a MESMA
+regra: nasce como uma working copy comum via `criarAtribuicoesEditaveis()`
+(populada a partir da competência anterior), nunca um quarto pipeline.
+
+## 9. Onde isso vive hoje
 
 - `lib/editorPlantao.ts` — working copy pura (tipos + funções, sem
-  React, sem Firestore).
+  React, sem Firestore) — igual para `IMPORTADO` e `MANUAL`.
+- `lib/conciliacaoPlantoes.ts` — além da conciliação nome→login da
+  planilha (`IMPORTADO`), ganhou na Fase ESCALAS-UX-1B
+  `consolidarParticipantesGrupoPlantao()`/`vinculosDeParticipantesGrupoPlantao()`/
+  `nomeParticipantePlantao()` — os equivalentes para `MANUAL` (participantes
+  do Grupo, não da planilha).
+- `lib/montagemRascunhoPlantao.ts` — `montarCompetenciaPlantaoRascunho()`/
+  `montarAtribuicoesPlantaoRascunho()` recebem `origem` como parâmetro
+  (Fase ESCALAS-UX-1B — antes hardcoded para `'IMPORTADO'`) e
+  `validarNovoPlantaoEmBranco()` (novo) valida só Grupo + competência.
 - `components/plantao/PlantaoCalendario.tsx` — visão de calendário.
 - `components/plantao/ModalEditarAtribuicaoPlantao.tsx` — modal único
   de criar/editar.
-- `apps/dashboard/src/DashboardApp.tsx` (`PreviewPlantao`) — orquestra
-  a working copy, a conferência dupla e o rascunho; nenhuma lógica de
-  domínio nova mora aqui além do fiação de estado/props.
+- `apps/dashboard/src/DashboardApp.tsx` (`PreviewPlantao`,
+  `ModalNovaEscala`) — orquestra a working copy, a conferência dupla e o
+  rascunho, e (Fase ESCALAS-UX-1B) o fluxo "+ Nova escala"; nenhuma
+  lógica de domínio nova mora aqui além da fiação de estado/props.
 
-A escala 6x1 não foi tocada nesta fase — este documento descreve o
+A escala 6x1 não foi tocada nestas fases — este documento descreve o
 conceito para que uma fase futura que precise dar ao 6x1 um Editor
 equivalente (célula a célula, já existe de forma mais simples via
 `celulaEditando`) tenha uma referência de vocabulário e princípios, não

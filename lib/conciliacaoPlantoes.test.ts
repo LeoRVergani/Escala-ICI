@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
+import type { ParticipantePlantao } from '@escala-ici/contrato';
+
 import {
   aplicarVinculosNasAtribuicoes,
   buscarUsuariosPlantao,
   confirmarVinculoPlantao,
+  consolidarParticipantesGrupoPlantao,
   consolidarParticipantesPlantao,
   contarPendenciasVinculoPlantao,
   desfazerVinculoPlantao,
   iniciarVinculosPlantao,
+  nomeParticipantePlantao,
   previaPlantaoValidavel,
+  vinculosDeParticipantesGrupoPlantao,
   type VinculoPlantao,
 } from './conciliacaoPlantoes';
 import type { Usuario } from './modelos';
@@ -249,5 +254,89 @@ describe('buscarUsuariosPlantao', () => {
 
   it('termo vazio retorna todos os usuários', () => {
     expect(buscarUsuariosPlantao(USUARIOS_TESTE, '')).toHaveLength(USUARIOS_TESTE.length);
+  });
+});
+
+function participantePlantao(overrides: Partial<ParticipantePlantao> & { login: string }): ParticipantePlantao {
+  return {
+    grupoId: 'PLANTAO_SEGURANCA',
+    ativo: true,
+    contatos: [],
+    schemaVersion: 1,
+    criadoPorLogin: 'gestor1',
+    criadoEm: '2026-08-01T00:00:00.000Z',
+    atualizadoEm: '2026-08-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+describe('nomeParticipantePlantao — Fase ESCALAS-UX-1B', () => {
+  it('resolve o nome do usuário cadastrado pelo login', () => {
+    expect(nomeParticipantePlantao(participantePlantao({ login: 'acosta' }), USUARIOS_TESTE)).toBe('Ana Costa');
+  });
+
+  it('cai no próprio login quando o usuário não é encontrado (nunca lança, nunca inventa nome)', () => {
+    expect(nomeParticipantePlantao(participantePlantao({ login: 'usuario-removido' }), USUARIOS_TESTE)).toBe('usuario-removido');
+  });
+});
+
+describe('consolidarParticipantesGrupoPlantao — Fase ESCALAS-UX-1B (escala manual, sem XLS)', () => {
+  const PARTICIPANTES_ATIVOS: ParticipantePlantao[] = [
+    participantePlantao({ login: 'acosta' }),
+    participantePlantao({ login: 'blima' }),
+  ];
+
+  it('consolida a partir dos participantes ATIVOS do grupo, nunca da contabilidade (que não existe)', () => {
+    const participantes = consolidarParticipantesGrupoPlantao(PARTICIPANTES_ATIVOS, USUARIOS_TESTE, []);
+    expect(participantes.map((p) => p.nomeOriginal).sort()).toEqual(['Ana Costa', 'Bruno Lima']);
+    expect(participantes.every((p) => !p.apareceNaContabilidade)).toBe(true);
+    expect(participantes.every((p) => p.quantidadeInformada === null)).toBe(true);
+  });
+
+  it('participante sem nenhuma atribuição ainda continua visível como 0 plantões (não é descartado)', () => {
+    const participantes = consolidarParticipantesGrupoPlantao(PARTICIPANTES_ATIVOS, USUARIOS_TESTE, []);
+    expect(participantes.every((p) => p.quantidadeAtribuicoes === 0)).toBe(true);
+  });
+
+  it('conta atribuições da working copy atual por pessoa', () => {
+    const atribuicoes = [
+      { plantonistaNomeOriginal: 'Ana Costa', inicio: { data: '2026-08-01', hora: '19:00' }, fim: { data: '2026-08-02', hora: '07:00' }, duracaoMinutos: 720, linhaOrigem: -1, abaOrigem: '' },
+    ];
+    const participantes = consolidarParticipantesGrupoPlantao(PARTICIPANTES_ATIVOS, USUARIOS_TESTE, atribuicoes);
+    expect(participantes.find((p) => p.nomeOriginal === 'Ana Costa')?.quantidadeAtribuicoes).toBe(1);
+    expect(participantes.find((p) => p.nomeOriginal === 'Bruno Lima')?.quantidadeAtribuicoes).toBe(0);
+  });
+
+  it('participantes inativos não entram na consolidação (o chamador filtra por ativo antes)', () => {
+    const comInativo = [...PARTICIPANTES_ATIVOS, participantePlantao({ login: 'cnunes', ativo: false })];
+    const participantes = consolidarParticipantesGrupoPlantao(
+      comInativo.filter((p) => p.ativo),
+      USUARIOS_TESTE,
+      [],
+    );
+    expect(participantes).toHaveLength(2);
+  });
+});
+
+describe('vinculosDeParticipantesGrupoPlantao — Fase ESCALAS-UX-1B', () => {
+  it('todo participante ativo do grupo nasce VINCULADO — nenhuma conciliação nome→login necessária', () => {
+    const vinculos = vinculosDeParticipantesGrupoPlantao(
+      [participantePlantao({ login: 'acosta' }), participantePlantao({ login: 'blima' })],
+      USUARIOS_TESTE,
+    );
+    expect(vinculos.every((v) => v.status === 'VINCULADO')).toBe(true);
+    expect(vinculos.every((v) => v.sugestao === null)).toBe(true);
+    expect(vinculos.map((v) => v.login).sort()).toEqual(['acosta', 'blima']);
+  });
+
+  it('previaPlantaoValidavel já retorna true para essa lista, sem nenhuma mudança de lógica', () => {
+    const vinculos = vinculosDeParticipantesGrupoPlantao([participantePlantao({ login: 'acosta' })], USUARIOS_TESTE);
+    expect(previaPlantaoValidavel(vinculos)).toBe(true);
+  });
+
+  it('grupo sem nenhum participante ativo produz lista vazia — previaPlantaoValidavel corretamente fica false', () => {
+    const vinculos = vinculosDeParticipantesGrupoPlantao([], USUARIOS_TESTE);
+    expect(vinculos).toEqual([]);
+    expect(previaPlantaoValidavel(vinculos)).toBe(false);
   });
 });

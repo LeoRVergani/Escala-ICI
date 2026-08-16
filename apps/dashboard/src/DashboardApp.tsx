@@ -6,6 +6,7 @@ import {
   conferirContabilidadePlantao,
   dataIsoLocal,
   equipesConsultaEfetivas,
+  formatarData,
   formatarMinutos,
   idCompetenciaPlantao,
   MAXIMO_CONTATOS_PLANTONISTA,
@@ -13,6 +14,7 @@ import {
   parsePlanilhaEscala,
   validarContatosPlantonista,
   validarGrupoPlantao,
+  type CompetenciaPlantao,
   type ConferenciaContabilPlantao,
   type ContatoPlantonista,
   type Dia,
@@ -20,6 +22,7 @@ import {
   type ErroImportacao,
   type ErroImportacaoPlantao,
   type GrupoPlantao,
+  type OrigemPlantao,
   type ParticipantePlantao,
   type ResultadoParse,
   type ResultadoParsePlantao,
@@ -78,11 +81,13 @@ import {
   aplicarVinculosNasAtribuicoes,
   buscarUsuariosPlantao,
   confirmarVinculoPlantao,
+  consolidarParticipantesGrupoPlantao,
   consolidarParticipantesPlantao,
   contarPendenciasVinculoPlantao,
   desfazerVinculoPlantao,
   iniciarVinculosPlantao,
   previaPlantaoValidavel,
+  vinculosDeParticipantesGrupoPlantao,
   type AtribuicaoPlantaoComVinculo,
   type ParticipanteConsolidadoPlantao,
   type StatusVinculoPlantao,
@@ -139,7 +144,9 @@ import {
   montarAtribuicoesPlantaoRascunho,
   montarCompetenciaPlantaoRascunho,
   montarParticipantesPlantaoParaSalvar,
+  periodoDaCompetencia,
   sugerirCompetenciaPlantao,
+  validarNovoPlantaoEmBranco,
 } from '@/lib/montagemRascunhoPlantao';
 import {
   adicionarAtribuicaoEditavel,
@@ -2106,10 +2113,178 @@ function ModalLembretesAtribuidos({
   );
 }
 
+/**
+ * Fase ESCALAS-UX-1B — "+ Nova escala". Duas etapas num único modal (nunca
+ * dois diálogos separados, para caber na "regra dos três passos" do § 43
+ * da fase: 1. escolha o tipo, 2. escolha grupo/competência, 3. o Editor em
+ * si). Etapa `'tipo'`: Escala de jornada (roteia para "Importar", fluxo 6x1
+ * já existente, sem nenhum código novo de 6x1) ou Plantão (avança para a
+ * etapa `'plantao'`). Etapa `'plantao'`: Grupo (só os que o usuário
+ * administra) + Competência (AAAA-MM, janela 26→25) + "Como começar?"
+ * (Criar escala vazia ou Importar planilha — as duas terminam no MESMO
+ * Editor). Nunca pede timezone/ACL/contatos aqui — isso é configuração do
+ * Grupo, não da escala mensal (§ 9/§ 11 da fase).
+ */
+function ModalNovaEscala({
+  etapa,
+  onFechar,
+  onEscolherJornada,
+  onEscolherPlantao,
+  podeAcessarPlantoes,
+  gruposDisponiveis,
+  equipes,
+  participantesPorGrupo,
+  grupoId,
+  onMudarGrupo,
+  competencia,
+  onMudarCompetencia,
+  erro,
+  criando,
+  rascunhoExistente,
+  onAbrirRascunhoExistente,
+  onImportarPlanilha,
+  onCriarVazia,
+}: {
+  etapa: 'tipo' | 'plantao';
+  onFechar: () => void;
+  onEscolherJornada: () => void;
+  onEscolherPlantao: () => void;
+  podeAcessarPlantoes: boolean;
+  gruposDisponiveis: GrupoPlantao[];
+  equipes: Equipe[];
+  participantesPorGrupo: Record<string, ParticipantePlantao[]>;
+  grupoId: string;
+  onMudarGrupo: (grupoId: string) => void;
+  competencia: string;
+  onMudarCompetencia: (competencia: string) => void;
+  erro: string;
+  criando: boolean;
+  rascunhoExistente: CompetenciaPlantao | null;
+  onAbrirRascunhoExistente: () => void;
+  onImportarPlanilha: () => void;
+  onCriarVazia: () => void;
+}) {
+  useTeclaEsc(onFechar);
+  const grupoEscolhido = gruposDisponiveis.find((item) => item.grupoId === grupoId) ?? null;
+  const equipeResponsavelNome = grupoEscolhido === null
+    ? ''
+    : (equipes.find((item) => item.id === grupoEscolhido.equipeResponsavelId)?.nome ?? grupoEscolhido.equipeResponsavelId);
+  const participantesAtivos = grupoEscolhido === null
+    ? []
+    : (participantesPorGrupo[grupoEscolhido.grupoId] ?? []).filter((item) => item.ativo);
+  const competenciaNormalizada = competencia.trim();
+  const periodoPreview = /^\d{4}-\d{2}$/u.test(competenciaNormalizada) ? periodoDaCompetencia(competenciaNormalizada) : null;
+  const podeCriar = grupoEscolhido !== null && periodoPreview !== null && !criando;
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal admin-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="nova-escala-modal-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <h2 id="nova-escala-modal-title">{etapa === 'tipo' ? 'O que você quer criar?' : 'Novo Plantão'}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+
+        {etapa === 'tipo' && (
+          <div className="nova-escala-tipos">
+            <button type="button" className="nova-escala-tipo-card" onClick={onEscolherJornada}>
+              <CalendarDays size={22} />
+              <strong>Escala de jornada</strong>
+              <span>Turnos 6x1 por colaborador — usa a importação e a grade já existentes.</span>
+            </button>
+            <button
+              type="button"
+              className="nova-escala-tipo-card"
+              onClick={onEscolherPlantao}
+              disabled={!podeAcessarPlantoes}
+            >
+              <Radio size={22} />
+              <strong>Plantão</strong>
+              <span>Intervalos de plantão por grupo — crie uma escala vazia ou importe uma planilha.</span>
+            </button>
+            {!podeAcessarPlantoes && (
+              <p className="admin-form-preview">Você não administra nenhum Grupo de Plantão.</p>
+            )}
+          </div>
+        )}
+
+        {etapa === 'plantao' && (
+          <>
+            <label htmlFor="nova-escala-grupo">
+              Grupo de Plantão
+              <select id="nova-escala-grupo" value={grupoId} onChange={(evento) => onMudarGrupo(evento.target.value)}>
+                <option value="">Selecione um grupo que você administra</option>
+                {gruposDisponiveis.map((grupo) => <option key={grupo.grupoId} value={grupo.grupoId}>{grupo.nome}</option>)}
+              </select>
+            </label>
+            {grupoEscolhido !== null && (
+              <div className="nova-escala-grupo-resumo">
+                <strong>{grupoEscolhido.nome}</strong>
+                <span>Equipe responsável: {equipeResponsavelNome}</span>
+                <span>Participantes ativos: {participantesAtivos.length}</span>
+              </div>
+            )}
+            <label htmlFor="nova-escala-competencia">
+              Competência (AAAA-MM)
+              <input
+                id="nova-escala-competencia"
+                placeholder="2026-08"
+                value={competencia}
+                onChange={(evento) => onMudarCompetencia(evento.target.value)}
+              />
+            </label>
+            {periodoPreview !== null && (
+              <p className="admin-form-preview">
+                {formatarData(periodoPreview.periodoInicio, { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                {' → '}
+                {formatarData(periodoPreview.periodoFim, { day: '2-digit', month: '2-digit', year: 'numeric' })}
+              </p>
+            )}
+            {rascunhoExistente !== null && (
+              <div className="warning-panel-inline">
+                <span className="status-badge warning">Já existe um rascunho para este Plantão e competência.</span>
+                <button className="secondary-button compact-button" type="button" onClick={onAbrirRascunhoExistente}>
+                  Abrir rascunho existente
+                </button>
+              </div>
+            )}
+            {erro !== '' && <p className="admin-form-erro">{erro}</p>}
+            <p className="nova-escala-como-comecar-titulo">Como começar?</p>
+            <div className="rollback-actions">
+              <button className="secondary-button" type="button" onClick={onImportarPlanilha}>
+                <UploadCloud size={16} /> Importar planilha
+              </button>
+              <button className="primary-button" type="button" disabled={!podeCriar} onClick={onCriarVazia}>
+                {criando ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} Criar escala vazia
+              </button>
+            </div>
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
 type AbaPreviaPlantao = 'calendario' | 'resumo' | 'plantoes' | 'contabilidade' | 'vinculos';
 
 interface PreviewPlantaoProps {
-  resultado: ResultadoParsePlantao;
+  /**
+   * Fase ESCALAS-UX-1B — `null` para origem MANUAL (escala criada vazia,
+   * sem nenhuma planilha): nunca uma `ResultadoParsePlantao` XLS fingida
+   * com números 0/0/0. Todo o painel de "Fonte original"/divergências só
+   * renderiza quando `resultado !== null`.
+   */
+  resultado: ResultadoParsePlantao | null;
+  origem: OrigemPlantao;
   nomeArquivo: string;
   participantes: ParticipanteConsolidadoPlantao[];
   atribuicoes: AtribuicaoPlantaoComVinculo[];
@@ -2121,8 +2296,8 @@ interface PreviewPlantaoProps {
   onMudarBusca: (participanteNomeOriginal: string, termo: string) => void;
   onConfirmarVinculo: (participanteNomeOriginal: string, usuario: Usuario) => void;
   onDesfazerVinculo: (participanteNomeOriginal: string) => void;
-  /** Fase PLANTÃO-3B.1 — as três camadas de verdade + divergências entre elas, nunca uma reconciliação. */
-  conferencia: ConferenciaContabilPlantao;
+  /** Fase PLANTÃO-3B.1 — as três camadas de verdade + divergências entre elas, nunca uma reconciliação. `null` junto com `resultado`. */
+  conferencia: ConferenciaContabilPlantao | null;
   pendencias: number;
   podeValidar: boolean;
   validada: boolean;
@@ -2155,6 +2330,7 @@ interface PreviewPlantaoProps {
  */
 function PreviewPlantao({
   resultado,
+  origem,
   nomeArquivo,
   participantes,
   atribuicoes,
@@ -2197,34 +2373,40 @@ function PreviewPlantao({
       <article className="panel plantao-resumo-panel">
         <div className="panel-title">
           <div>
-            <p className="eyebrow">Planilha de Plantão detectada</p>
-            <h2>{nomeArquivo}</h2>
-            <p>Aba de origem: {resultado.abaOrigem}</p>
+            <p className="eyebrow">{origem === 'MANUAL' ? 'Escala de Plantão' : 'Planilha de Plantão detectada'}</p>
+            <h2>{origem === 'MANUAL' ? 'Escala criada manualmente' : nomeArquivo}</h2>
+            {resultado !== null && <p>Aba de origem: {resultado.abaOrigem}</p>}
           </div>
-          <span className={`status-badge ${resultado.ok ? 'success' : 'danger'}`}>
-            {resultado.ok ? 'Sem erros estruturais' : `${resultado.erros.length} erro(s)`}
-          </span>
+          {resultado !== null && (
+            <span className={`status-badge ${resultado.ok ? 'success' : 'danger'}`}>
+              {resultado.ok ? 'Sem erros estruturais' : `${resultado.erros.length} erro(s)`}
+            </span>
+          )}
         </div>
-        <div className="import-summary plantao-resumo-grid">
-          <div><span>Intervalos encontrados</span><strong>{conferencia.bruto.quantidade}</strong></div>
-          <div><span>Duração literal dos intervalos</span><strong>{formatarMinutos(conferencia.bruto.minutos)}</strong></div>
-          <div>
-            <span>Contabilidade por plantonista</span>
-            <strong>
-              {resultado.contabilidadeInformada.length > 0
-                ? `${conferencia.somaContabilidadeInformada.quantidade} plantões · ${formatarMinutos(conferencia.somaContabilidadeInformada.minutos)}`
-                : 'Não informada na fonte'}
-            </strong>
+        {resultado !== null && conferencia !== null ? (
+          <div className="import-summary plantao-resumo-grid">
+            <div><span>Intervalos encontrados</span><strong>{conferencia.bruto.quantidade}</strong></div>
+            <div><span>Duração literal dos intervalos</span><strong>{formatarMinutos(conferencia.bruto.minutos)}</strong></div>
+            <div>
+              <span>Contabilidade por plantonista</span>
+              <strong>
+                {resultado.contabilidadeInformada.length > 0
+                  ? `${conferencia.somaContabilidadeInformada.quantidade} plantões · ${formatarMinutos(conferencia.somaContabilidadeInformada.minutos)}`
+                  : 'Não informada na fonte'}
+              </strong>
+            </div>
+            <div>
+              <span>Total declarado na planilha</span>
+              <strong>
+                {conferencia.declarado
+                  ? `${conferencia.declarado.totalPlantoesInformado} plantões · ${formatarMinutos(conferencia.declarado.totalMinutosInformado)}`
+                  : 'Não informado na fonte'}
+              </strong>
+            </div>
           </div>
-          <div>
-            <span>Total declarado na planilha</span>
-            <strong>
-              {conferencia.declarado
-                ? `${conferencia.declarado.totalPlantoesInformado} plantões · ${formatarMinutos(conferencia.declarado.totalMinutosInformado)}`
-                : 'Não informado na fonte'}
-            </strong>
-          </div>
-        </div>
+        ) : (
+          <p>Escala criada manualmente. Não há planilha de origem para conferir aqui — ver &ldquo;Escala atual&rdquo; na aba Contabilidade.</p>
+        )}
         <div className="import-actions">
           <span className={`status-badge ${pendencias === 0 ? 'success' : 'warning'}`}>
             {pendencias === 0 ? 'Todos os participantes vinculados' : `${pendencias} vínculo(s) pendente(s)`}
@@ -2245,7 +2427,7 @@ function PreviewPlantao({
         )}
       </article>
 
-      {conferencia.divergencias.length > 0 && (
+      {conferencia !== null && conferencia.divergencias.length > 0 && (
         conferencia.divergencias.some((divergencia) => divergencia.divergente) ? (
           <article className="panel warning-panel">
             <div className="panel-title">
@@ -2291,7 +2473,9 @@ function PreviewPlantao({
               <div><span>Alertas</span><strong>{totalAlertasEditor}</strong></div>
             </div>
             <p className={`plantao-estado-edicao ${editadoDesdeImportacao ? 'sujo' : 'limpo'}`}>
-              {editadoDesdeImportacao ? 'Alterações não salvas' : 'Nenhuma alteração desde a importação'}
+              {editadoDesdeImportacao
+                ? 'Alterações não salvas'
+                : (origem === 'MANUAL' ? 'Nenhuma alteração desde a criação' : 'Nenhuma alteração desde a importação')}
             </p>
             {pendencias > 0 && (
               <div className="import-actions plantao-vinculo-pendente-banner">
@@ -2355,30 +2539,36 @@ function PreviewPlantao({
 
         {aba === 'resumo' && (
           <div className="plantao-resumo-conteudo">
-            {resultado.erros.length > 0 && (
-              <div className="table-scroll">
-                <table className="data-table">
-                  <thead><tr><th>Local</th><th>Plantonista</th><th>Valor</th><th>Motivo</th></tr></thead>
-                  <tbody>
-                    {resultado.erros.map((erro: ErroImportacaoPlantao, indice) => (
-                      <tr key={`${erro.linha}-${erro.coluna}-${indice}`}>
-                        <td>{erro.coluna}{erro.linha}</td>
-                        <td>{erro.plantonistaNomeOriginal ?? '—'}</td>
-                        <td><code>{erro.valorEncontrado}</code></td>
-                        <td>{erro.motivo}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {resultado.avisos.length > 0 && (
-              <ul className="warning-list">
-                {resultado.avisos.map((aviso) => <li key={aviso}>{aviso}</li>)}
-              </ul>
-            )}
-            {resultado.erros.length === 0 && resultado.avisos.length === 0 && (
-              <p>Nenhum erro ou aviso estrutural na leitura desta planilha.</p>
+            {resultado === null ? (
+              <p>Escala criada manualmente — não houve leitura de planilha, então não há erro ou aviso estrutural aqui.</p>
+            ) : (
+              <>
+                {resultado.erros.length > 0 && (
+                  <div className="table-scroll">
+                    <table className="data-table">
+                      <thead><tr><th>Local</th><th>Plantonista</th><th>Valor</th><th>Motivo</th></tr></thead>
+                      <tbody>
+                        {resultado.erros.map((erro: ErroImportacaoPlantao, indice) => (
+                          <tr key={`${erro.linha}-${erro.coluna}-${indice}`}>
+                            <td>{erro.coluna}{erro.linha}</td>
+                            <td>{erro.plantonistaNomeOriginal ?? '—'}</td>
+                            <td><code>{erro.valorEncontrado}</code></td>
+                            <td>{erro.motivo}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {resultado.avisos.length > 0 && (
+                  <ul className="warning-list">
+                    {resultado.avisos.map((aviso) => <li key={aviso}>{aviso}</li>)}
+                  </ul>
+                )}
+                {resultado.erros.length === 0 && resultado.avisos.length === 0 && (
+                  <p>Nenhum erro ou aviso estrutural na leitura desta planilha.</p>
+                )}
+              </>
             )}
           </div>
         )}
@@ -2425,39 +2615,45 @@ function PreviewPlantao({
                 <div><span>Durações atípicas</span><strong>{conferenciaEscalaAtual.quantidadeDuracoesAtipicas}</strong></div>
               </div>
             </div>
-            <h3>Fonte original (contabilidade declarada na planilha)</h3>
-            <p>Estes valores representam o arquivo importado original.</p>
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead><tr><th>Plantonista</th><th>Plantões informados</th><th>Horas informadas</th></tr></thead>
-              <tbody>
-                {resultado.contabilidadeInformada.map((linha) => (
-                  <tr key={linha.plantonistaNomeOriginal}>
-                    <td>{linha.plantonistaNomeOriginal}</td>
-                    <td>{linha.quantidadeInformada}</td>
-                    <td>{formatarMinutos(linha.minutosInformados)}</td>
-                  </tr>
-                ))}
-                {resultado.contabilidadeInformada.length === 0 && (
-                  <tr><td colSpan={3}>Esta planilha não tem a seção de contabilidade informada.</td></tr>
-                )}
-              </tbody>
-              {resultado.contabilidadeInformada.length > 0 && (
-                <tfoot>
-                  <tr>
-                    <td><strong>Soma das linhas</strong></td>
-                    <td><strong>{conferencia.somaContabilidadeInformada.quantidade}</strong></td>
-                    <td><strong>{formatarMinutos(conferencia.somaContabilidadeInformada.minutos)}</strong></td>
-                  </tr>
-                  <tr>
-                    <td><strong>Total declarado na planilha</strong></td>
-                    <td><strong>{conferencia.declarado ? conferencia.declarado.totalPlantoesInformado : 'Não informado na fonte'}</strong></td>
-                    <td><strong>{conferencia.declarado ? formatarMinutos(conferencia.declarado.totalMinutosInformado) : 'Não informado na fonte'}</strong></td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </div>
+            {resultado !== null && conferencia !== null ? (
+              <>
+                <h3>Fonte original (contabilidade declarada na planilha)</h3>
+                <p>Estes valores representam o arquivo importado original.</p>
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead><tr><th>Plantonista</th><th>Plantões informados</th><th>Horas informadas</th></tr></thead>
+                    <tbody>
+                      {resultado.contabilidadeInformada.map((linha) => (
+                        <tr key={linha.plantonistaNomeOriginal}>
+                          <td>{linha.plantonistaNomeOriginal}</td>
+                          <td>{linha.quantidadeInformada}</td>
+                          <td>{formatarMinutos(linha.minutosInformados)}</td>
+                        </tr>
+                      ))}
+                      {resultado.contabilidadeInformada.length === 0 && (
+                        <tr><td colSpan={3}>Esta planilha não tem a seção de contabilidade informada.</td></tr>
+                      )}
+                    </tbody>
+                    {resultado.contabilidadeInformada.length > 0 && (
+                      <tfoot>
+                        <tr>
+                          <td><strong>Soma das linhas</strong></td>
+                          <td><strong>{conferencia.somaContabilidadeInformada.quantidade}</strong></td>
+                          <td><strong>{formatarMinutos(conferencia.somaContabilidadeInformada.minutos)}</strong></td>
+                        </tr>
+                        <tr>
+                          <td><strong>Total declarado na planilha</strong></td>
+                          <td><strong>{conferencia.declarado ? conferencia.declarado.totalPlantoesInformado : 'Não informado na fonte'}</strong></td>
+                          <td><strong>{conferencia.declarado ? formatarMinutos(conferencia.declarado.totalMinutosInformado) : 'Não informado na fonte'}</strong></td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              </>
+            ) : (
+              <p>Escala criada manualmente. Não há contabilidade de planilha para conferir.</p>
+            )}
           </>
         )}
 
@@ -2640,6 +2836,21 @@ export function DashboardApp() {
   const [modalAtribuicaoPlantao, setModalAtribuicaoPlantao] = useState<
     { modo: 'criar' | 'editar'; idLocal: string | null; valoresIniciais: FormularioAtribuicaoPlantao } | null
   >(null);
+  /**
+   * Fase ESCALAS-UX-1B — de onde vem a prévia de Plantão ATUALMENTE aberta
+   * no Editor: `'IMPORTADO'` (planilha, `resultadoPlantao` preenchido) ou
+   * `'MANUAL'` (criada vazia por "+ Nova escala", `resultadoPlantao` fica
+   * `null` — nunca uma fonte XLS fingida com números 0/0/0). `null` quando
+   * não há nenhuma prévia de Plantão aberta.
+   */
+  const [origemPlantaoAtual, setOrigemPlantaoAtual] = useState<OrigemPlantao | null>(null);
+  // --- "+ Nova escala" (Fase ESCALAS-UX-1B) — escolher tipo, depois grupo/competência de Plantão ---
+  const [novaEscalaEtapa, setNovaEscalaEtapa] = useState<'tipo' | 'plantao' | null>(null);
+  const [novoPlantaoGrupoId, setNovoPlantaoGrupoId] = useState('');
+  const [novoPlantaoCompetencia, setNovoPlantaoCompetencia] = useState('');
+  const [novoPlantaoErro, setNovoPlantaoErro] = useState('');
+  const [novoPlantaoCriando, setNovoPlantaoCriando] = useState(false);
+  const [novoPlantaoRascunhoExistente, setNovoPlantaoRascunhoExistente] = useState<CompetenciaPlantao | null>(null);
   // --- Administração de Plantão (Fase PLANTÃO-3B) — Grupos/participantes/contatos/rascunho ---
   const [gruposPlantaoAdmin, setGruposPlantaoAdmin] = useState<GrupoPlantao[]>([]);
   const [participantesPorGrupoPlantao, setParticipantesPorGrupoPlantao] = useState<Record<string, ParticipantePlantao[]>>({});
@@ -2741,13 +2952,22 @@ export function DashboardApp() {
    * garante que alguém com 0 atribuições atuais (ex.: consta só na
    * contabilidade declarada) continue visível na lista de participantes.
    */
-  const participantesPlantao = useMemo(
-    () => (resultadoPlantao === null ? [] : consolidarParticipantesPlantao({
+  /**
+   * Fase ESCALAS-UX-1B — para origem MANUAL não existe planilha nenhuma
+   * (nem `contabilidadeInformada`, nem nomes a conciliar): os participantes
+   * vêm dos participantes ATIVOS do Grupo escolhido, resolvidos por login →
+   * nome do usuário cadastrado (`consolidarParticipantesGrupoPlantao`).
+   */
+  const participantesPlantao = useMemo(() => {
+    if (origemPlantaoAtual === 'MANUAL') {
+      const participantesAtivos = (participantesPorGrupoPlantao[grupoRascunhoEscolhido] ?? []).filter((item) => item.ativo);
+      return consolidarParticipantesGrupoPlantao(participantesAtivos, usuarios, atribuicoesEditaveisPlantao);
+    }
+    return resultadoPlantao === null ? [] : consolidarParticipantesPlantao({
       atribuicoes: atribuicoesEditaveisPlantao,
       contabilidadeInformada: resultadoPlantao.contabilidadeInformada,
-    })),
-    [resultadoPlantao, atribuicoesEditaveisPlantao],
-  );
+    });
+  }, [origemPlantaoAtual, resultadoPlantao, atribuicoesEditaveisPlantao, participantesPorGrupoPlantao, grupoRascunhoEscolhido, usuarios]);
   const atribuicoesPlantaoComVinculo = useMemo(
     () => aplicarVinculosNasAtribuicoes(atribuicoesEditaveisPlantao, vinculosPlantao)
       .slice()
@@ -3320,6 +3540,7 @@ export function DashboardApp() {
     setArquivo(buffer);
     setNomeArquivo(nome);
     setResultadoPlantao(resultado);
+    setOrigemPlantaoAtual('IMPORTADO');
     setAtribuicoesEditaveisPlantao(criarAtribuicoesEditaveis(resultado.atribuicoes));
     setPlantaoEditadoDesdeImportacao(false);
     setVinculosPlantao(iniciarVinculosPlantao(consolidarParticipantesPlantao(resultado), usuarios));
@@ -3428,6 +3649,159 @@ export function DashboardApp() {
     }
     setPreviaPlantaoValidada(true);
     setMensagem('Prévia validada. Nenhum dado de Plantão foi publicado.');
+  }
+
+  // --- "+ Nova escala" (Fase ESCALAS-UX-1B) ---
+
+  /**
+   * Mesma lógica de `abrirParticipantesDoGrupo()` (cache em
+   * `participantesPorGrupoPlantao`), mas sem o toggle de
+   * `grupoPlantaoExpandido` (que pertence só à tela "Plantões") e devolvendo
+   * a lista para o chamador poder usar o resultado imediatamente.
+   */
+  async function garantirParticipantesDoGrupoCarregados(grupoId: string): Promise<ParticipantePlantao[]> {
+    const cache = participantesPorGrupoPlantao[grupoId];
+    if (modoDemo || cache !== undefined) {
+      return cache ?? [];
+    }
+    const participantes = await listarParticipantesPlantao(grupoId);
+    setParticipantesPorGrupoPlantao((atuais) => ({ ...atuais, [grupoId]: participantes }));
+    return participantes;
+  }
+
+  function abrirNovaEscala() {
+    setNovaEscalaEtapa('tipo');
+    setNovoPlantaoGrupoId('');
+    setNovoPlantaoCompetencia('');
+    setNovoPlantaoErro('');
+    setNovoPlantaoRascunhoExistente(null);
+  }
+
+  function fecharNovaEscala() {
+    setNovaEscalaEtapa(null);
+    setNovoPlantaoGrupoId('');
+    setNovoPlantaoCompetencia('');
+    setNovoPlantaoErro('');
+    setNovoPlantaoRascunhoExistente(null);
+  }
+
+  /**
+   * "Escala de jornada" (6x1) e "Importar planilha" (Plantão) levam ao MESMO
+   * lugar: a tela "Importar" já existente — nenhum parser/fluxo novo, só
+   * roteamento (§8/§37 desta fase: nenhuma refatoração ampla só para
+   * eliminar um item de navegação).
+   */
+  function escolherJornadaNovaEscala() {
+    fecharNovaEscala();
+    setTela('importar');
+  }
+
+  function escolherPlantaoNovaEscala() {
+    setNovaEscalaEtapa('plantao');
+  }
+
+  function importarPlanilhaNovoPlantao() {
+    fecharNovaEscala();
+    setTela('importar');
+  }
+
+  async function mudarGrupoNovoPlantao(grupoId: string) {
+    setNovoPlantaoGrupoId(grupoId);
+    setNovoPlantaoRascunhoExistente(null);
+    setNovoPlantaoErro('');
+    if (grupoId !== '') {
+      await garantirParticipantesDoGrupoCarregados(grupoId);
+    }
+  }
+
+  /**
+   * Leva à mesma tela "Plantões" onde o rascunho existente já é visível
+   * (participantes/status), com o grupo expandido. Reabrir um rascunho
+   * existente DIRETO no calendário para continuar editando (reidratando a
+   * working copy a partir de `AtribuicaoPlantaoPersistida[]`, com a
+   * conversão inversa de instante UTC para horário civil) é um fluxo maior,
+   * fora do escopo desta fase — ver `CHECKPOINT-FASE-ESCALAS-UX-1B-NOVA-ESCALA-VAZIA.md`,
+   * "Próxima fase". Nunca sobrescreve nem cria um segundo rascunho.
+   */
+  function abrirRascunhoExistenteNovoPlantao() {
+    const grupoId = novoPlantaoGrupoId;
+    fecharNovaEscala();
+    setTela('plantoes');
+    setGrupoPlantaoExpandido(grupoId);
+  }
+
+  /**
+   * Cria a working copy vazia (origem MANUAL) para um Grupo/competência
+   * ainda sem rascunho — nunca sobrescreve um rascunho existente (checagem
+   * de duplicata via `obterCompetenciaPlantaoRascunho`). Os vínculos nascem
+   * todos já resolvidos (`vinculosDeParticipantesGrupoPlantao`): cada
+   * participante ativo do grupo é uma pessoa real por login, nunca um nome
+   * de planilha a conciliar.
+   */
+  async function criarPlantaoEmBrancoAcao() {
+    if (usuarioReal === null) {
+      return;
+    }
+    const competencia = novoPlantaoCompetencia.trim();
+    const errosValidacao = validarNovoPlantaoEmBranco({ grupoId: novoPlantaoGrupoId, competencia });
+    if (errosValidacao.length > 0) {
+      setNovoPlantaoErro(errosValidacao.join(' '));
+      return;
+    }
+    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === novoPlantaoGrupoId);
+    if (grupo === undefined) {
+      setNovoPlantaoErro('Selecione um Grupo de Plantão.');
+      return;
+    }
+    if (!podeGerenciarEsteGrupoPlantao(grupo)) {
+      setNovoPlantaoErro('Você não administra este grupo de Plantão.');
+      return;
+    }
+    const periodo = periodoDaCompetencia(competencia);
+    if (periodo === null) {
+      setNovoPlantaoErro('Informe a competência no formato AAAA-MM.');
+      return;
+    }
+
+    setNovoPlantaoCriando(true);
+    setNovoPlantaoErro('');
+    try {
+      if (!modoDemo) {
+        const existente = await obterCompetenciaPlantaoRascunho(grupo.grupoId, competencia);
+        if (existente !== null) {
+          setNovoPlantaoRascunhoExistente(existente);
+          return;
+        }
+      }
+      const participantesAtivos = (await garantirParticipantesDoGrupoCarregados(grupo.grupoId))
+        .filter((item) => item.ativo);
+      const vinculosIniciais = vinculosDeParticipantesGrupoPlantao(participantesAtivos, usuarios);
+
+      setArquivo(null);
+      setNomeArquivo('');
+      setResultadoPlantao(null);
+      setOrigemPlantaoAtual('MANUAL');
+      setAtribuicoesEditaveisPlantao([]);
+      setPlantaoEditadoDesdeImportacao(false);
+      setVinculosPlantao(vinculosIniciais);
+      setPreviaPlantaoValidada(previaPlantaoValidavel(vinculosIniciais));
+      setAbaPreviaPlantao('calendario');
+      setBuscaVinculoPlantao({});
+      setGrupoRascunhoEscolhido(grupo.grupoId);
+      setCompetenciaRascunho(competencia);
+      setPeriodoInicioRascunho(periodo.periodoInicio);
+      setPeriodoFimRascunho(periodo.periodoFim);
+      setErroRascunhoPlantao('');
+      setRascunhoPlantaoSalvoEm(null);
+      setTipoArquivoDetectado('PLANTAO');
+      setMensagem(`Escala de Plantão criada — "${grupo.nome}" (${competencia}). Nenhum dado foi publicado.`);
+      fecharNovaEscala();
+      setTela('importar');
+    } catch (falha) {
+      setNovoPlantaoErro(mensagemErroFirebase(falha, 'Não foi possível criar a escala de Plantão.', ambienteFirebaseAtual));
+    } finally {
+      setNovoPlantaoCriando(false);
+    }
   }
 
   function selecionarVinculoConciliacao(linha: LinhaConciliacao, login: string) {
@@ -4291,7 +4665,7 @@ export function DashboardApp() {
    * preservar `criadoEm`/`criadoPorLogin` numa regravação idempotente.
    */
   async function salvarRascunhoPlantaoAcao() {
-    if (usuarioReal === null || resultadoPlantao === null) {
+    if (usuarioReal === null || origemPlantaoAtual === null) {
       return;
     }
     if (grupoRascunhoEscolhido === '') {
@@ -4332,12 +4706,17 @@ export function DashboardApp() {
 
       const competenciaId = idCompetenciaPlantao(grupo.grupoId, competencia);
       const competenciaExistente = modoDemo ? null : await obterCompetenciaPlantaoRascunho(grupo.grupoId, competencia);
+      // Fase ESCALAS-UX-1B — origem MANUAL nunca finge uma fonte XLS: sem
+      // `resultadoPlantao`, os totais declarados/brutos da fonte são 0/null,
+      // nunca inventados como se viessem de uma planilha real.
+      const resultadoParaCompetencia = resultadoPlantao ?? { totalBrutoCalculado: { quantidade: 0, minutos: 0 }, totaisInformados: null };
       const competenciaParaSalvar = montarCompetenciaPlantaoRascunho({
         grupoId: grupo.grupoId,
         competencia,
         periodoInicio,
         periodoFim,
-        resultado: resultadoPlantao,
+        resultado: resultadoParaCompetencia,
+        origem: origemPlantaoAtual,
         loginAtual: usuarioReal.login,
         agoraIso: agora,
         competenciaExistente,
@@ -4347,6 +4726,7 @@ export function DashboardApp() {
         competenciaId,
         atribuicoes: atribuicoesPlantaoComVinculo,
         timezone: grupo.timezone,
+        origem: origemPlantaoAtual,
         agoraIso: agora,
       });
 
@@ -4607,8 +4987,11 @@ export function DashboardApp() {
    * Administração nesta sessão.
    */
   useEffect(() => {
+    // Fase ESCALAS-UX-1B — a etapa "Plantão" de "+ Nova escala" precisa da
+    // lista de grupos ANTES do usuário chegar no select (nunca esperar a
+    // planilha ser importada, já que aqui não existe planilha nenhuma).
     const precisaCarregar = podeAcessarPlantoes
-      && (tela === 'plantoes' || tipoArquivoDetectado === 'PLANTAO');
+      && (tela === 'plantoes' || tipoArquivoDetectado === 'PLANTAO' || novaEscalaEtapa !== null);
     if (!precisaCarregar || modoDemo || usuarioReal === null) {
       return undefined;
     }
@@ -4660,7 +5043,7 @@ export function DashboardApp() {
     return () => {
       cancelado = true;
     };
-  }, [tela, tipoArquivoDetectado, podeAcessarPlantoes, souAdmin, modoDemo, usuarioReal]);
+  }, [tela, tipoArquivoDetectado, novaEscalaEtapa, podeAcessarPlantoes, souAdmin, modoDemo, usuarioReal]);
 
   async function encerrarSessao() {
     await sair();
@@ -4949,9 +5332,10 @@ export function DashboardApp() {
             </article>
           )}
 
-          {tipoArquivoDetectado === 'PLANTAO' && resultadoPlantao && (
+          {tipoArquivoDetectado === 'PLANTAO' && origemPlantaoAtual !== null && (
             <PreviewPlantao
               resultado={resultadoPlantao}
+              origem={origemPlantaoAtual}
               nomeArquivo={nomeArquivo}
               participantes={participantesPlantao}
               atribuicoes={atribuicoesPlantaoComVinculo}
@@ -4964,7 +5348,7 @@ export function DashboardApp() {
                 setBuscaVinculoPlantao((atuais) => ({ ...atuais, [participanteNomeOriginal]: termo }))}
               onConfirmarVinculo={confirmarVinculoPlantaoAcao}
               onDesfazerVinculo={desfazerVinculoPlantaoAcao}
-              conferencia={conferirContabilidadePlantao(resultadoPlantao)}
+              conferencia={resultadoPlantao === null ? null : conferirContabilidadePlantao(resultadoPlantao)}
               pendencias={pendenciasVinculoPlantao}
               podeValidar={previaPlantaoPodeValidar}
               validada={previaPlantaoValidada}
@@ -4993,7 +5377,7 @@ export function DashboardApp() {
             />
           )}
 
-          {tipoArquivoDetectado === 'PLANTAO' && resultadoPlantao && previaPlantaoValidada && (
+          {tipoArquivoDetectado === 'PLANTAO' && origemPlantaoAtual !== null && previaPlantaoValidada && (
             <article className="panel">
               <div className="panel-title">
                 <div>
@@ -5293,9 +5677,14 @@ export function DashboardApp() {
         <section>
           <header className="page-heading">
             <div><p className="eyebrow">Competências</p><h1>Escalas</h1><p>Rascunhos e publicações disponíveis para a equipe.</p></div>
-            <button className="primary-button" type="button" onClick={() => setTela('importar')}>
-              <Plus size={17} /> Importar
-            </button>
+            <div className="grade-header-actions">
+              <button className="secondary-button" type="button" onClick={abrirNovaEscala}>
+                <Plus size={17} /> Nova escala
+              </button>
+              <button className="primary-button" type="button" onClick={() => setTela('importar')}>
+                <Plus size={17} /> Importar
+              </button>
+            </div>
           </header>
           <article className="panel scale-record">
             <div className="scale-period"><span>AGO</span><strong>2026</strong></div>
@@ -6236,6 +6625,29 @@ export function DashboardApp() {
           unidadesPermitidas={souAdmin ? null : minhasUnidadesPermitidas}
           onFechar={() => setModalEquipe(null)}
           onSalvar={salvarEquipeDoModal}
+        />
+      )}
+
+      {novaEscalaEtapa !== null && (
+        <ModalNovaEscala
+          etapa={novaEscalaEtapa}
+          onFechar={fecharNovaEscala}
+          onEscolherJornada={escolherJornadaNovaEscala}
+          onEscolherPlantao={escolherPlantaoNovaEscala}
+          podeAcessarPlantoes={podeAcessarPlantoes}
+          gruposDisponiveis={gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao)}
+          equipes={equipesAdmin}
+          participantesPorGrupo={participantesPorGrupoPlantao}
+          grupoId={novoPlantaoGrupoId}
+          onMudarGrupo={(grupoId) => void mudarGrupoNovoPlantao(grupoId)}
+          competencia={novoPlantaoCompetencia}
+          onMudarCompetencia={setNovoPlantaoCompetencia}
+          erro={novoPlantaoErro}
+          criando={novoPlantaoCriando}
+          rascunhoExistente={novoPlantaoRascunhoExistente}
+          onAbrirRascunhoExistente={abrirRascunhoExistenteNovoPlantao}
+          onImportarPlanilha={importarPlanilhaNovoPlantao}
+          onCriarVazia={() => void criarPlantaoEmBrancoAcao()}
         />
       )}
 

@@ -1617,3 +1617,136 @@ futura.
 
 Ver `CHECKPOINT-FASE-ESCALAS-UX-1A-EDITOR-PLANTAO.md` para o
 detalhamento completo desta fase.
+
+## 25. ESCALAS-UX-1B — "+ Nova escala" e Plantão criado vazio
+
+A ESCALAS-UX-1A resolveu "importação não é um destino" — o coordenador
+edita a working copy depois de importar. Esta fase resolve a outra
+metade do fluxo descrito em § 12 ("Nova escala — visão futura"): criar
+uma escala de Plantão **sem** nenhuma planilha, usando o MESMO Editor.
+
+Fluxo implementado:
+
+```
++ Nova escala (botão na tela "Escalas")
+       |
+       v
+ O que você quer criar?
+   Escala de jornada  |  Plantão
+       |                    |
+       v                    v
+ (rotaciona para      Novo Plantão:
+  "Importar" —          Grupo de Plantão (só os que o usuário administra)
+  fluxo 6x1 já          Competência (AAAA-MM, janela 26→25)
+  existente, sem        Como começar?
+  código novo)            Criar escala vazia  |  Importar planilha
+                              |                     |
+                              v                     v
+                    working copy = []      (mesmo roteamento p/ "Importar")
+                              |
+                              v
+                     MESMO Editor de Plantão
+                     (calendário/lista/contabilidade/vínculos)
+```
+
+Nenhuma segunda tela de "montagem manual" foi criada — "Criar escala
+vazia" só popula `atribuicoesEditaveisPlantao` com `[]` e abre a MESMA
+`PreviewPlantao`/`PlantaoCalendario`/`ModalEditarAtribuicaoPlantao` já
+usadas pelo caminho importado, com `origem: 'MANUAL'`.
+
+### 25.1 Origem MANUAL — contrato já suportava, só não era usado
+
+`OrigemPlantao` (`packages/contrato/src/modeloPlantaoPersistente.ts`)
+já incluía `'MANUAL'` desde a PLANTÃO-3A — nunca foi um valor novo. O
+que faltava era `montarCompetenciaPlantaoRascunho()`/
+`montarAtribuicoesPlantaoRascunho()` (`lib/montagemRascunhoPlantao.ts`)
+pararem de hardcodar `origem: 'IMPORTADO'` e passarem a receber a
+origem como parâmetro — corrigido nesta fase, com os 11 pontos de
+chamada existentes (todos do caminho `IMPORTADO`, em testes)
+atualizados para passar `origem: 'IMPORTADO'` explicitamente.
+
+### 25.2 Participantes e vínculos de uma escala MANUAL
+
+Sem planilha, não existe nome de plantonista a conciliar — os
+candidatos são os participantes **ativos** do Grupo escolhido,
+identificados por `login` desde o início. Duas funções novas em
+`lib/conciliacaoPlantoes.ts` resolvem isso sem introduzir nenhum
+conceito paralelo:
+
+- `consolidarParticipantesGrupoPlantao(participantesAtivos, usuarios, atribuicoes)`
+  — equivalente a `consolidarParticipantesPlantao()`, mas a partir do
+  Grupo, não da planilha; um participante sem nenhuma atribuição ainda
+  aparece como "0 plantões · 0h" (mesmo princípio da PLANTÃO-2/
+  ESCALAS-UX-1A — nunca descartado por falta de atribuição).
+- `vinculosDeParticipantesGrupoPlantao(participantesAtivos, usuarios)`
+  — todo participante ativo do Grupo nasce `VINCULADO` (nunca
+  `PENDENTE`), porque não há nome de planilha nenhum a resolver.
+  `previaPlantaoValidavel()` (inalterada) já retorna `true` para essa
+  lista sem nenhuma mudança de lógica.
+
+O campo "Plantonista" do modal de edição, para QUALQUER origem, é
+sempre um `<select>` sobre os participantes já conhecidos da
+competência (decisão já tomada na ESCALAS-UX-1A) — nunca texto livre.
+Isso significa que uma escala MANUAL nunca pode introduzir um nome que
+a conciliação de vínculos desconhece: adicionar uma pessoa nova ao
+Plantão continua sendo responsabilidade da tela "Plantões" →
+"Gerenciar participantes" (PLANTÃO-3B, inalterada), nunca do Editor.
+
+### 25.3 Duplicata: nunca sobrescrever silenciosamente
+
+Antes de criar a working copy vazia, `criarPlantaoEmBrancoAcao()`
+verifica `obterCompetenciaPlantaoRascunho(grupoId, competencia)` (já
+existente desde a PLANTÃO-3B, usada também para a idempotência do
+"Salvar rascunho"). Se já existir um rascunho para o mesmo
+Grupo+competência, a criação é bloqueada e a UI mostra "Já existe um
+rascunho para este Plantão e competência" com a ação "Abrir rascunho
+existente" — que leva à tela "Plantões" com o grupo expandido (ver
+limitação § 25.5). Nunca cria um segundo documento, nunca sobrescreve.
+
+### 25.4 "Escala de jornada" — só roteamento, nenhum código 6x1 novo
+
+A opção "Escala de jornada" na primeira etapa de "+ Nova escala"
+apenas leva à tela "Importar" (`setTela('importar')`) — o fluxo 6x1 já
+existente. Nenhum parser novo, nenhuma mudança na Grade, nenhuma
+mudança no modelo 6x1. O mesmo vale para "Importar planilha" dentro da
+etapa "Plantão": também roteia para "Importar", reaproveitando o
+importador/preview já existentes (`processarArquivoImportado`,
+`PreviewPlantao`) — não haveria ganho em replicar o upload dentro do
+modal só para eliminar uma navegação extra.
+
+### 25.5 O que esta fase explicitamente NÃO faz
+
+- Nenhuma publicação (`publicarPlantao()` continua inexistente);
+  nenhuma mudança de Firestore Rules — `test:firestore-rules` permanece
+  em 153/153, diff zero em `firestore.rules`.
+- Nenhum histórico de publicação, nenhuma revisão oficial — tudo
+  permanece `RASCUNHO`.
+- Nenhum gerador determinístico/automático (`origem: 'GERADO'`
+  permanece reservado, não implementado).
+- Nenhuma regra de cobertura COSI (19→07/24h/12h por dia da semana)
+  foi transplantada do dashboard antigo.
+- **"Abrir rascunho existente" não reabre o rascunho DENTRO do
+  calendário para continuar editando** — leva à tela "Plantões" com o
+  grupo expandido (onde o rascunho já é visível). Reidratar a working
+  copy a partir de `AtribuicaoPlantaoPersistida[]` exigiria uma
+  conversão inversa de instante UTC para horário civil (nenhuma função
+  desse tipo existe hoje — `converterMomentoParaInstanteUtc()` só vai
+  num sentido) e uma reconciliação cuidadosa de IDs para a idempotência
+  do resave continuar valendo. Decisão deliberada de não construir isso
+  agora (nenhuma refatoração ampla só para fechar este caso) — registrado
+  como próximo passo explícito, não implementado.
+- "Copiar escala anterior" (`origem: 'COPIADO'`, mencionada em § 12)
+  continua adiada para ESCALAS-UX-1B/1C — só registrada em
+  `docs/spec/EDITOR_ESCALAS.md` § 8 como origem futura.
+- Nenhuma mudança em `OrganizationTree`/`OrganizationTeamPicker`/
+  `lib/organizacao.ts`/`equipes`/`unidadesOrganizacionais`.
+- Nenhum hardcode/correção silenciosa de NOC — reconfirmado: `EQ_NOC`
+  continua só em seed/fixtures, nenhum código de produção trata NOC
+  como caso especial (mesmo achado da ESCALAS-UX-1A § 24.7).
+- Nenhuma simplificação do formulário de Grupo de Plantão (timezone/
+  ACL/"equipe responsável sempre incluída") — ideias válidas, fora de
+  escopo para não misturar configuração rara do Grupo com criação
+  mensal de escala.
+
+Ver `CHECKPOINT-FASE-ESCALAS-UX-1B-NOVA-ESCALA-VAZIA.md` para o
+detalhamento completo desta fase.

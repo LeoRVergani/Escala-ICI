@@ -107,3 +107,94 @@ test('9. nenhuma dependência de testing-library/jsdom foi adicionada nesta fase
     assert.doesNotMatch(nome, /testing-library|jsdom/iu, `${nome} não deveria ter sido adicionado`);
   }
 });
+
+// Fase ESCALAS-UX-1B: "+ Nova escala" (criação manual de Plantão) — o
+// mesmo Editor, nunca um segundo. Ver docs/spec/EDITOR_ESCALAS.md § 3/§ 8
+// e CHECKPOINT-FASE-ESCALAS-UX-1B-NOVA-ESCALA-VAZIA.md.
+
+test('10. existe UM único tipo de working copy (AtribuicaoPlantaoEditavel) e UM único componente de calendário/modal de Plantão — nunca um segundo editor', async () => {
+  const [editor, calendario, modal, dashboard] = await Promise.all([
+    ler('lib/editorPlantao.ts'),
+    ler('components/plantao/PlantaoCalendario.tsx'),
+    ler('components/plantao/ModalEditarAtribuicaoPlantao.tsx'),
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+  ]);
+  const fontes = [editor, calendario, modal, dashboard].map(semComentarios);
+  const contarOcorrencias = (regex) => fontes.reduce((soma, fonte) => soma + (fonte.match(regex) ?? []).length, 0);
+
+  assert.equal(contarOcorrencias(/interface AtribuicaoPlantaoEditavel\b/gu), 1, 'só pode existir UMA definição de working copy de Plantão');
+  assert.equal(contarOcorrencias(/function PlantaoCalendario\b/gu), 1, 'só pode existir UM componente de calendário de Plantão');
+  assert.equal(contarOcorrencias(/function ModalEditarAtribuicaoPlantao\b/gu), 1, 'só pode existir UM modal de edição de atribuição de Plantão');
+  assert.doesNotMatch(dashboard, /function ModalNovaAtribuicaoManual|function ModalCriarPlantaoManual|function CalendarioPlantaoManual/u, 'a criação manual não pode ter um segundo calendário/modal próprio');
+});
+
+test('11. a working copy MANUAL nasce SEMPRE por criarAtribuicoesEditaveis (a mesma função do caminho IMPORTADO) — nunca um segundo construtor', async () => {
+  const editor = semComentarios(await ler('lib/editorPlantao.ts'));
+  const ocorrencias = editor.match(/export function criarAtribuicoesEditaveis\b/gu) ?? [];
+  assert.equal(ocorrencias.length, 1, 'só pode existir UMA função que cria a working copy inicial');
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /setAtribuicoesEditaveisPlantao\(\[\]\)/u, 'a criação manual precisa iniciar a working copy vazia, nunca com um objeto XLS fingido');
+});
+
+test('12. lib/editorPlantao.ts e lib/conciliacaoPlantoes.ts (onde vivem os helpers de escala MANUAL) nunca importam o parser/XLSX de Plantão', async () => {
+  const [editor, conciliacao] = await Promise.all([
+    ler('lib/editorPlantao.ts'),
+    ler('lib/conciliacaoPlantoes.ts'),
+  ]);
+  for (const fonteBruta of [editor, conciliacao]) {
+    const fonte = semComentarios(fonteBruta);
+    for (const proibido of ['parsePlanilhaPlantao', 'processarArquivoImportado', "from 'xlsx'"]) {
+      assert.doesNotMatch(fonte, new RegExp(proibido.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'), proibido);
+    }
+  }
+});
+
+test('13. o parser de Plantão (packages/contrato/src/parserPlantao.ts) nunca conhece a existência de escala MANUAL/criada vazia', async () => {
+  const parser = semComentarios(await ler('packages/contrato/src/parserPlantao.ts'));
+  assert.doesNotMatch(parser, /MANUAL|criarPlantaoEmBranco|OrigemPlantao/u, 'o parser lê planilhas — não precisa saber que existe um caminho sem planilha');
+});
+
+test('14. montarCompetenciaPlantaoRascunho/montarAtribuicoesPlantaoRascunho nunca hardcodam origem — o chamador decide, IMPORTADO ou MANUAL', async () => {
+  const montagem = semComentarios(await ler('lib/montagemRascunhoPlantao.ts'));
+  assert.doesNotMatch(montagem, /origem:\s*['"]IMPORTADO['"]/u, 'a origem precisa vir de um parâmetro, nunca hardcoded para IMPORTADO');
+});
+
+test('15. "+ Nova escala" nunca virou uma nova seção fixa na navegação lateral (sidebar) — é uma ação contextual da tela Escalas', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.doesNotMatch(
+    dashboard,
+    /\{\s*id:\s*['"]nova-?escala['"]/iu,
+    'nenhum item novo de sidebar pode existir para "+ Nova escala" — ela é um botão dentro da tela Escalas',
+  );
+  assert.match(dashboard, /abrirNovaEscala/u, 'a ação "+ Nova escala" precisa existir em algum lugar do Dashboard');
+});
+
+test('16. a criação manual não introduz nenhuma regra de horário fixa por dia da semana (ex.: sexta/sábado = 24h) — nenhuma regra COSI de cobertura', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  for (const proibido of ['segunda-quinta', 'gerarEscalaAutomatica', 'regraCoberturaCosi', 'distribuicaoAutomatica']) {
+    assert.doesNotMatch(dashboard, new RegExp(proibido, 'iu'), proibido);
+  }
+});
+
+test('17. a competência de "+ Nova escala" usa periodoDaCompetencia (a mesma janela 26→25 do resto do sistema) — nunca um cálculo de mês civil próprio', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /periodoDaCompetencia\(/u, 'criarPlantaoEmBrancoAcao precisa reaproveitar periodoDaCompetencia');
+  assert.doesNotMatch(dashboard, /getDate\(\)\s*===\s*0|new Date\(\d{4},\s*\w+\s*\+\s*1,\s*0\)/u, 'nenhum cálculo de "último dia do mês civil" próprio para a competência de Plantão');
+});
+
+test('18. o Editor de Plantão nunca depende da timezone da máquina local — sempre grupo.timezone', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.doesNotMatch(
+    dashboard,
+    /Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone/u,
+    'nenhuma leitura da timezone do host pode influenciar o Editor de Plantão',
+  );
+});
+
+test('19. apps/app (PWA do colaborador) continua sem nenhum editor administrativo de Plantão', async () => {
+  const arquivos = await Promise.all(['apps/app/src/EmployeeApp.tsx'].map((caminho) => ler(caminho).catch(() => '')));
+  const fonte = semComentarios(arquivos.join('\n'));
+  for (const proibido of ['PlantaoCalendario', 'ModalEditarAtribuicaoPlantao', 'ModalNovaEscala', 'criarAtribuicoesEditaveis', 'montarAtribuicoesPlantaoRascunho']) {
+    assert.doesNotMatch(fonte, new RegExp(proibido, 'u'), proibido);
+  }
+});

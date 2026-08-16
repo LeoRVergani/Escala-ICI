@@ -7,6 +7,7 @@ import {
   type AtribuicaoPlantaoPersistida,
   type CompetenciaPlantao,
   type GrupoPlantao,
+  type OrigemPlantao,
   type ParticipantePlantao,
   type ResultadoParsePlantao,
 } from '@escala-ici/contrato';
@@ -86,6 +87,23 @@ export function periodoDaCompetencia(competencia: string): { periodoInicio: stri
     periodoInicio: `${String(anoDoMesAnterior).padStart(4, '0')}-${String(mesAnterior).padStart(2, '0')}-26`,
     periodoFim: `${String(ano).padStart(4, '0')}-${String(mes).padStart(2, '0')}-25`,
   };
+}
+
+/**
+ * Fase ESCALAS-UX-1B — os dois únicos campos obrigatórios de "+ Nova
+ * escala" → Plantão → "Criar escala vazia": Grupo e competência (janela
+ * 26→25 válida). Nunca pede timezone/ACL/participantes aqui — isso é
+ * configuração do Grupo, resolvida automaticamente a partir dele.
+ */
+export function validarNovoPlantaoEmBranco(entrada: { grupoId: string; competencia: string }): string[] {
+  const erros: string[] = [];
+  if (entrada.grupoId.trim() === '') {
+    erros.push('Selecione um Grupo de Plantão.');
+  }
+  if (periodoDaCompetencia(entrada.competencia.trim()) === null) {
+    erros.push('Informe a competência no formato AAAA-MM.');
+  }
+  return erros;
 }
 
 /**
@@ -171,11 +189,13 @@ export function montarCompetenciaPlantaoRascunho(opcoes: {
   periodoInicio: string;
   periodoFim: string;
   resultado: Pick<ResultadoParsePlantao, 'totalBrutoCalculado' | 'totaisInformados'>;
+  /** Fase ESCALAS-UX-1B — `'MANUAL'` para uma escala criada vazia pelo Editor, `'IMPORTADO'` para uma vinda de planilha. Nunca hardcoded: o chamador sempre decide, nunca uma XLS vazia fingida. */
+  origem: OrigemPlantao;
   loginAtual: string;
   agoraIso: string;
   competenciaExistente: CompetenciaPlantao | null;
 }): CompetenciaPlantao {
-  const { grupoId, competencia, periodoInicio, periodoFim, resultado, loginAtual, agoraIso, competenciaExistente } = opcoes;
+  const { grupoId, competencia, periodoInicio, periodoFim, resultado, origem, loginAtual, agoraIso, competenciaExistente } = opcoes;
   const id = idCompetenciaPlantao(grupoId, competencia);
   return {
     id,
@@ -185,7 +205,7 @@ export function montarCompetenciaPlantaoRascunho(opcoes: {
     periodoFim,
     status: 'RASCUNHO',
     revisao: 0,
-    origem: 'IMPORTADO',
+    origem,
     totaisInformadosOrigem: resultado.totaisInformados === null
       ? null
       : {
@@ -216,9 +236,11 @@ export function montarAtribuicoesPlantaoRascunho(opcoes: {
   competenciaId: string;
   atribuicoes: readonly AtribuicaoPlantaoComVinculo[];
   timezone: string;
+  /** Fase ESCALAS-UX-1B — mesma origem da competência (`montarCompetenciaPlantaoRascunho`); nunca hardcoded. */
+  origem: OrigemPlantao;
   agoraIso: string;
 }): AtribuicaoPlantaoPersistida[] {
-  const { grupoId, competenciaId, atribuicoes, timezone, agoraIso } = opcoes;
+  const { grupoId, competenciaId, atribuicoes, timezone, origem, agoraIso } = opcoes;
   return atribuicoes.map((atribuicao, indice) => {
     if (atribuicao.loginVinculado === null) {
       throw new Error(
@@ -235,7 +257,7 @@ export function montarAtribuicoesPlantaoRascunho(opcoes: {
       fim: converterMomentoParaInstanteUtc(atribuicao.fim, timezone),
       duracaoMinutos: atribuicao.duracaoMinutos,
       papel: 'PRIMARIO',
-      origem: 'IMPORTADO',
+      origem,
       revisao: 0,
       schemaVersion: 1,
       criadoEm: agoraIso,
