@@ -333,6 +333,23 @@ Regras do modelo:
   explícito ("Você ainda não tem nenhuma escala para gerenciar"), nunca
   um seletor quebrado ou sem opções.
 
+**Correção ESCALAS-UX-2A.1-FIX (consulta ≠ edição)**: a implementação real
+da ESCALAS-UX-2A.1 seguiu esta proposta literalmente e listou em
+"PLANTÕES" todo `gruposPlantaoAdmin` — administrados E só-consultados via
+`equipesConsulta` — como contexto igualmente selecionável. Isso é
+inadequado nesta etapa: o Editor atual só sabe abrir/gravar um **rascunho
+administrativo** (`abrirRascunhoNoEditorAcao`/`salvarRascunhoPlantaoAcao`),
+e Plantão publicado ainda não tem nenhum read model operacional
+(`PLANTÃO-3C` não existe). Selecionar um grupo só-consultado abriria um
+Editor que não tem o que mostrar/salvar. A partir da FIX, o switcher desta
+fase só lista para edição `gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao)`
+— os grupos só-consultados continuam existindo e consultáveis pelo
+domínio já existente (Rules/`equipesConsulta` inalterados), só não
+aparecem como contexto **editável** aqui. Depois de `PLANTÃO-3C`, o
+seletor pode evoluir para distinguir Editáveis/Consulta ou permitir abrir
+uma escala publicada em modo leitura — não implementado agora. Ver
+`CHECKPOINT-FASE-ESCALAS-UX-2A1-FIX-DIRTY.md`.
+
 ---
 
 ## 8. "+ Nova escala" — primeira etapa (preservada)
@@ -1501,7 +1518,8 @@ modelo de contexto novo por cima dela.
 | --- | --- | --- |
 | **ESCALAS-UX-2A** ✅ **implementada** | Sidebar nova (§ 5): remove "Importar"/"Grade"/"Plantões" como itens; "Escalas" vira destino único de trabalho; "Plantões" (conteúdo) migra para Administração → Grupos de Plantão (§ 27). Migração de rotas internas (`setTela('grade')` etc.) para o novo destino, sem ainda introduzir o `ContextoEscalaAtivo`. Ver `CHECKPOINT-FASE-ESCALAS-UX-2A-NAVEGACAO.md`. | — |
 | **ESCALAS-UX-2A.1** ✅ **implementada (escopo reduzido)** | `ContextoEscalaAtivo` (`lib/contextoEscala.ts`) + `ScheduleContextSwitcher`/`ScheduleCompetenceControl`/`ScheduleStatusBadge` no header + guarda de alterações não salvas (`UnsavedChangesDialog`) (§ 6/§ 7/§ 32). **NÃO incluiu** `NewScheduleDialog` nem "Criar vazia"/"Usar anterior" para Jornada 6x1 (§ 9/§ 10/§ 11, risco § 35.3) — permanece como follow-up. Ver `CHECKPOINT-FASE-ESCALAS-UX-2A1-CONTEXTO-ATIVO.md`. | ESCALAS-UX-2A |
-| *(follow-up, não nomeado ainda)* | `NewScheduleDialog` redesenhado + "Criar vazia"/"Usar anterior" para Jornada 6x1 — parte do § 36 original que ficou de fora da ESCALAS-UX-2A.1 real. | ESCALAS-UX-2A.1 |
+| **ESCALAS-UX-2A.1-FIX** ✅ **implementada** | Correção de 3 desvios do relatório final da 2A.1: (1) dirty de Plantão passou a ser um estado explícito (`plantaoPossuiAlteracoesNaoSalvas`), nunca mais `plantaoEditadoDesdeImportacao`; (2) dirty de Jornada (`jornadaPossuiAlteracoesNaoSalvas`, renomeado de `jornadaEditadaDesdeCarregamento`) passou a cobrir também os pontos de importação/reconciliação, não só `editarCelula()`; (3) o switcher de Plantão só lista para edição `gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao)` — grupos só-consultados deixaram de aparecer como contexto editável. Ver `CHECKPOINT-FASE-ESCALAS-UX-2A1-FIX-DIRTY.md`. | ESCALAS-UX-2A.1 |
+| *(follow-up, não nomeado ainda)* | `NewScheduleDialog` redesenhado + "Criar vazia"/"Usar anterior" para Jornada 6x1 — parte do § 36 original que ficou de fora da ESCALAS-UX-2A.1 real. | ESCALAS-UX-2A.1-FIX |
 | **PLANTAO-PADRAO-1** | Padrão semanal configurável por Grupo (§ 17/§ 18) — schema, Rules, UI de configuração em Administração → Grupos de Plantão, e o card "Padrão do grupo" no modal de criação. Fase isolada por causa do risco de schema (§ 35.5). | ESCALAS-UX-2A (para o novo local de Administração já existir) |
 | **ESCALAS-UX-2B** | Roster lateral (§ 14) substituindo "Resumo por pessoa"; interação rápida (clique+clique já existe, só reposiciona); drag-and-drop opcional (§ 16) como atalho adicional sobre o mesmo pipeline de criação. | ESCALAS-UX-2A.1 |
 | **ESCALAS-UX-2C** | Contabilidade redesenhada (§ 25), Pendências como painel (§ 26), limpeza de Lista (§ 24)/Resumo (§ 23) como abas — remoção formal das abas antigas, atualização de boundary tests (risco § 35.6). | ESCALAS-UX-2A.1 |

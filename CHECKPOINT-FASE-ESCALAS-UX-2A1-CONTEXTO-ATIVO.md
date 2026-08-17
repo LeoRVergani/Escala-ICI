@@ -72,6 +72,15 @@ equipes permitidas, de 0 a N.
 
 ## 4. Contextos de Plantão — como são descobertos
 
+> **ERRATA (ESCALAS-UX-2A.1-FIX, 2026-08-17)**: listar grupos
+> só-consultados como contexto igualmente **editável** era inadequado —
+> o Editor atual só sabe abrir/gravar um rascunho administrativo, e
+> Plantão publicado ainda não tem read model operacional. Corrigido: o
+> switcher passou a filtrar `gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao)`
+> para a lista editável. Nenhuma mudança de ACL/Rules — grupos
+> só-consultados continuam existindo e consultáveis pelo domínio já
+> existente. Ver `CHECKPOINT-FASE-ESCALAS-UX-2A1-FIX-DIRTY.md` § 3.
+
 `gruposPlantaoAdmin` (`GrupoPlantao[]`, já existente — inclui grupos
 administrados E grupos só consultados via `equipesConsulta`, confirmado
 por auditoria da função `listarGruposPlantaoPermitidos()`) fornece os
@@ -224,11 +233,34 @@ dessas funções existe dentro dos blocos `tela === 'administracao'`/
 
 ## 18. Dirty guard — Plantão
 
+> **ERRATA (ESCALAS-UX-2A.1-FIX, 2026-08-17)**: esta seção estava
+> **incorreta**. `plantaoEditadoDesdeImportacao` significa "a working
+> copy divergiu do conteúdo importado" — não "existe algo não
+> persistido". Reaproveitá-lo como guard deixava escalas criadas vazias
+> ou copiadas do período anterior (que nunca "divergem de uma
+> importação" porque não vieram de nenhuma) sem proteção alguma contra
+> perda ao trocar de contexto. Corrigido com um estado explícito e
+> próprio, `plantaoPossuiAlteracoesNaoSalvas` — ver
+> `CHECKPOINT-FASE-ESCALAS-UX-2A1-FIX-DIRTY.md` § 1.
+> `plantaoEditadoDesdeImportacao` não foi removido, só deixou de ser o
+> guard.
+
 Reaproveita `plantaoEditadoDesdeImportacao` (já existente desde a
 ESCALAS-UX-1A) — nenhuma mudança na lógica que o define, só uma nova
 LEITURA em `existeAlteracaoNaoSalvaNoContextoAtivo()`.
 
 ## 19. Dirty guard — Jornada
+
+> **ERRATA (ESCALAS-UX-2A.1-FIX, 2026-08-17)**: a cobertura descrita
+> abaixo era insuficiente — `jornadaEditadaDesdeCarregamento` só era
+> marcado `true` em `editarCelula()`, mas `aplicarConciliacao()` e
+> `cadastrarFaltantes()` (ambos parte de um fluxo de importação ainda NÃO
+> salvo) zeravam o dirty state incondicionalmente. Resultado: importar
+> uma planilha, resolver uma pendência de conciliação de nomes, e trocar
+> de contexto perdia a importação inteira sem aviso. Corrigido — estado
+> renomeado para `jornadaPossuiAlteracoesNaoSalvas` e os dois pontos de
+> importação passaram a marcar `true`. Ver
+> `CHECKPOINT-FASE-ESCALAS-UX-2A1-FIX-DIRTY.md` § 2.
 
 **Não existia.** Auditoria confirmou: `editarCelula()` sempre gravou
 direto em `resultado` sem nenhum sinal de "alterado, ainda não salvo".

@@ -2978,6 +2978,23 @@ export function DashboardApp() {
    */
   const [atribuicoesEditaveisPlantao, setAtribuicoesEditaveisPlantao] = useState<AtribuicaoPlantaoEditavel[]>([]);
   const [plantaoEditadoDesdeImportacao, setPlantaoEditadoDesdeImportacao] = useState(false);
+  /**
+   * FASE ESCALAS-UX-2A.1-FIX — dirty state EXPLÍCITO de "alterações não
+   * salvas" do Editor de Plantão, deliberadamente SEPARADO de
+   * `plantaoEditadoDesdeImportacao` (que só significa "a working copy
+   * divergiu do conteúdo importado", não "existe algo não persistido" — a
+   * ESCALAS-UX-2A.1 reaproveitou aquele estado por engano como guard de
+   * navegação; ver `CHECKPOINT-FASE-ESCALAS-UX-2A1-FIX-DIRTY.md`). `true`
+   * sempre que nasce uma working copy ainda não persistida (importar XLS,
+   * criar escala vazia, usar período anterior) ou sofre qualquer mutação
+   * que seria perdida ao trocar de contexto (editar/adicionar/excluir
+   * atribuição, confirmar/desfazer vínculo — ambos afetam o payload
+   * salvo). `false` ao reabrir um rascunho já persistido ou logo após
+   * salvar com sucesso; permanece `true` se salvar falhar. Único sinal que
+   * o guard de troca de contexto pode ler para Plantão — NUNCA
+   * `plantaoEditadoDesdeImportacao` (protegido por boundary test).
+   */
+  const [plantaoPossuiAlteracoesNaoSalvas, setPlantaoPossuiAlteracoesNaoSalvas] = useState(false);
   const [modalAtribuicaoPlantao, setModalAtribuicaoPlantao] = useState<
     { modo: 'criar' | 'editar'; idLocal: string | null; valoresIniciais: FormularioAtribuicaoPlantao } | null
   >(null);
@@ -3010,16 +3027,19 @@ export function DashboardApp() {
    */
   const [contextoEscalaAtivo, setContextoEscalaAtivo] = useState<ContextoEscalaAtivo | null>(null);
   /**
-   * Diferente de `plantaoEditadoDesdeImportacao` (já existente), a Jornada
-   * 6x1 NUNCA teve um dirty state — `editarCelula()` grava direto em
-   * `resultado` sem nenhum sinal de "alterado, ainda não salvo". Esta
-   * fase adiciona o equivalente mínimo, no MESMO ponto onde a edição de
-   * célula acontece (nunca em `ScheduleGrid.tsx`, nunca uma heurística
-   * frágil) — zerado em toda substituição de `resultado` que não seja
-   * essa edição local (carregamento, importação, salvar, publicar,
-   * descartar, restaurar revisão, logout).
+   * FASE ESCALAS-UX-2A.1-FIX — `true` sempre que existe uma working copy de
+   * Jornada (`resultado`) que diverge do que está persistido/publicado:
+   * importação recém-lida (mesmo sem nenhuma célula editada — importar não
+   * é salvar), reprocessamento de conciliação/cadastro de faltantes (ainda
+   * o mesmo arquivo importado), ou edição local de célula
+   * (`editarCelula()`, único ponto de mutação direta de conteúdo). `false`
+   * em toda substituição de `resultado` que já nasce sincronizada com uma
+   * fonte confiável: carregamento remoto/demo, salvar/publicar com
+   * sucesso, restaurar revisão, descartar, trocar de contexto, logout.
+   * Único sinal que o guard de troca de contexto pode ler para Jornada —
+   * ver `existeAlteracaoNaoSalvaNoContextoAtivo()`.
    */
-  const [jornadaEditadaDesdeCarregamento, setJornadaEditadaDesdeCarregamento] = useState(false);
+  const [jornadaPossuiAlteracoesNaoSalvas, setJornadaPossuiAlteracoesNaoSalvas] = useState(false);
   /** Verdadeiro quando o contexto+competência selecionados não têm nenhuma escala (nunca criada automaticamente — § 16 do redesign). */
   const [contextoSemEscala, setContextoSemEscala] = useState(false);
   const [carregandoContexto, setCarregandoContexto] = useState(false);
@@ -3325,7 +3345,7 @@ export function DashboardApp() {
               publicadoEm: null,
             })),
           });
-          setJornadaEditadaDesdeCarregamento(false);
+          setJornadaPossuiAlteracoesNaoSalvas(false);
           if (usuarioEfetivo !== null) {
             setContextoEscalaAtivo({
               tipo: 'JORNADA',
@@ -3380,7 +3400,7 @@ export function DashboardApp() {
           publicadoEm: null,
         })),
       });
-      setJornadaEditadaDesdeCarregamento(false);
+      setJornadaPossuiAlteracoesNaoSalvas(false);
     } catch (falha) {
       setMensagem(falha instanceof Error ? falha.message : 'Falha ao carregar demonstração.');
     } finally {
@@ -3432,7 +3452,7 @@ export function DashboardApp() {
         erros: [],
         avisos: [],
       });
-      setJornadaEditadaDesdeCarregamento(false);
+      setJornadaPossuiAlteracoesNaoSalvas(false);
       setContextoEscalaAtivo({ tipo: 'JORNADA', equipeId: alvo.equipeId, competencia: '2026-08' });
       setContextoSemEscala(false);
       setTela('escalas');
@@ -3722,6 +3742,12 @@ export function DashboardApp() {
    * Concilia os nomes da planilha com os usuários cadastrados e, quando a
    * conciliação resolve algo que o login exato não resolveu, reprocessa a
    * planilha com o mapa estendido — sem precisar reescrever o parser.
+   *
+   * FASE ESCALAS-UX-2A.1-FIX — este é sempre um caminho de IMPORTAÇÃO ainda
+   * não salva (a fonte é sempre `buffer`, o arquivo recém-selecionado ou já
+   * em edição de conciliação, nunca uma leitura remota já persistida):
+   * `jornadaPossuiAlteracoesNaoSalvas` precisa ficar `true`, nunca `false`
+   * — importar não é salvar.
    */
   function aplicarConciliacao(buffer: ArrayBuffer, linhas: LinhaConciliacao[]) {
     setLinhasConciliacao(linhas);
@@ -3729,7 +3755,7 @@ export function DashboardApp() {
       ? reparsear(buffer, loginParaUidComConciliacao(mapaLogins(usuarios), linhas))
       : reparsear(buffer, mapaLogins(usuarios));
     setResultado(parseado);
-    setJornadaEditadaDesdeCarregamento(false);
+    setJornadaPossuiAlteracoesNaoSalvas(true);
     return parseado;
   }
 
@@ -3779,6 +3805,9 @@ export function DashboardApp() {
     setOrigemPlantaoAtual('IMPORTADO');
     setAtribuicoesEditaveisPlantao(criarAtribuicoesEditaveis(resultado.atribuicoes));
     setPlantaoEditadoDesdeImportacao(false);
+    // FASE ESCALAS-UX-2A.1-FIX — a working copy nasce agora, ainda não
+    // persistida: importar não é salvar.
+    setPlantaoPossuiAlteracoesNaoSalvas(true);
     setVinculosPlantao(iniciarVinculosPlantao(consolidarParticipantesPlantao(resultado), usuarios));
     setPreviaPlantaoValidada(false);
     setAbaPreviaPlantao('calendario');
@@ -3803,11 +3832,15 @@ export function DashboardApp() {
   function confirmarVinculoPlantaoAcao(participanteNomeOriginal: string, usuario: Usuario) {
     setVinculosPlantao((atuais) => confirmarVinculoPlantao(atuais, participanteNomeOriginal, usuario));
     setPreviaPlantaoValidada(false);
+    // FASE ESCALAS-UX-2A.1-FIX — vínculo afeta o payload salvo (login da
+    // atribuição), então conta como alteração não salva.
+    setPlantaoPossuiAlteracoesNaoSalvas(true);
   }
 
   function desfazerVinculoPlantaoAcao(participanteNomeOriginal: string) {
     setVinculosPlantao((atuais) => desfazerVinculoPlantao(atuais, participanteNomeOriginal));
     setPreviaPlantaoValidada(false);
+    setPlantaoPossuiAlteracoesNaoSalvas(true);
   }
 
   /**
@@ -3818,6 +3851,7 @@ export function DashboardApp() {
    */
   function marcarPlantaoEditadoNoEditor() {
     setPlantaoEditadoDesdeImportacao(true);
+    setPlantaoPossuiAlteracoesNaoSalvas(true);
     setRascunhoPlantaoSalvoEm(null);
   }
 
@@ -4051,6 +4085,9 @@ export function DashboardApp() {
       setOrigemPlantaoAtual('MANUAL');
       setAtribuicoesEditaveisPlantao([]);
       setPlantaoEditadoDesdeImportacao(false);
+      // FASE ESCALAS-UX-2A.1-FIX — escala vazia é uma working copy nova,
+      // ainda não persistida.
+      setPlantaoPossuiAlteracoesNaoSalvas(true);
       setVinculosPlantao(vinculosIniciais);
       setPreviaPlantaoValidada(previaPlantaoValidavel(vinculosIniciais));
       setAbaPreviaPlantao('calendario');
@@ -4159,6 +4196,9 @@ export function DashboardApp() {
       setOrigemPlantaoAtual('COPIADO');
       setAtribuicoesEditaveisPlantao(resultadoCopia.atribuicoes);
       setPlantaoEditadoDesdeImportacao(false);
+      // FASE ESCALAS-UX-2A.1-FIX — cópia do período anterior é uma working
+      // copy nova, ainda não persistida.
+      setPlantaoPossuiAlteracoesNaoSalvas(true);
       setVinculosPlantao(vinculosIniciais);
       setPreviaPlantaoValidada(previaPlantaoValidavel(vinculosIniciais));
       setAbaPreviaPlantao('calendario');
@@ -4272,7 +4312,7 @@ export function DashboardApp() {
 
     if (processado.tipo === 'DESCONHECIDA') {
       setResultado(null);
-      setJornadaEditadaDesdeCarregamento(false);
+      setJornadaPossuiAlteracoesNaoSalvas(false);
       setLinhasConciliacao([]);
       setResultadoPlantao(null);
       setVinculosPlantao([]);
@@ -4285,7 +4325,7 @@ export function DashboardApp() {
 
     if (processado.tipo === 'PLANTAO') {
       setResultado(null);
-      setJornadaEditadaDesdeCarregamento(false);
+      setJornadaPossuiAlteracoesNaoSalvas(false);
       setLinhasConciliacao([]);
       interpretarPlantao(buffer, file.name, processado.resultado);
       return;
@@ -4355,7 +4395,9 @@ export function DashboardApp() {
           loginParaUid: mapaLogins(atualizados),
         });
         setResultado(parseado);
-        setJornadaEditadaDesdeCarregamento(false);
+        // FASE ESCALAS-UX-2A.1-FIX — ainda é o mesmo arquivo importado, só
+        // reprocessado com os logins recém-cadastrados; continua não salvo.
+        setJornadaPossuiAlteracoesNaoSalvas(true);
         setMensagem(parseado.ok
           ? `${novos.length} usuário(s) cadastrado(s). A escala está pronta para salvar.`
           : `${parseado.erros.length} inconsistência(s) ainda precisam de correção.`);
@@ -4392,7 +4434,7 @@ export function DashboardApp() {
           status: 'RASCUNHO',
         })),
       });
-      setJornadaEditadaDesdeCarregamento(false);
+      setJornadaPossuiAlteracoesNaoSalvas(false);
       setMensagem('Rascunho salvo com sucesso. Nenhum arquivo foi enviado.');
       setTela('escalas');
     } catch (falha) {
@@ -4444,7 +4486,7 @@ export function DashboardApp() {
           publicadoEm: agora,
         })),
       });
-      setJornadaEditadaDesdeCarregamento(false);
+      setJornadaPossuiAlteracoesNaoSalvas(false);
       setMensagem('Escala publicada para a equipe.');
       setPublicacaoPendente(false);
       setMotivoPublicacao('');
@@ -4579,7 +4621,7 @@ export function DashboardApp() {
         erros: [],
         avisos: [],
       });
-      setJornadaEditadaDesdeCarregamento(false);
+      setJornadaPossuiAlteracoesNaoSalvas(false);
       setMensagem(
         `Revisão ${revisaoParaRestaurar.revisao} restaurada como revisão ${restaurada.publicacao.revisao}.`,
       );
@@ -4619,8 +4661,8 @@ export function DashboardApp() {
     });
     setResultado({ ...resultado, documentos: atualizados });
     // Fase ESCALAS-UX-2A.1 — o único ponto de edição local da Jornada;
-    // ver comentário do estado `jornadaEditadaDesdeCarregamento`.
-    setJornadaEditadaDesdeCarregamento(true);
+    // ver comentário do estado `jornadaPossuiAlteracoesNaoSalvas`.
+    setJornadaPossuiAlteracoesNaoSalvas(true);
     setCelulaEditando(null);
     setMensagem('Célula atualizada no rascunho local. Salve para persistir.');
   }
@@ -4895,7 +4937,7 @@ export function DashboardApp() {
         }
       }
       setResultado(null);
-      setJornadaEditadaDesdeCarregamento(false);
+      setJornadaPossuiAlteracoesNaoSalvas(false);
       setArquivo(null);
       setLinhasConciliacao([]);
       setTela('importar');
@@ -5029,6 +5071,9 @@ export function DashboardApp() {
       setOrigemPlantaoAtual(reidratado.origem);
       setAtribuicoesEditaveisPlantao(reidratado.atribuicoesEditaveis);
       setPlantaoEditadoDesdeImportacao(false);
+      // FASE ESCALAS-UX-2A.1-FIX — rascunho recém-reaberto já está
+      // persistido; nenhuma alteração pendente ainda.
+      setPlantaoPossuiAlteracoesNaoSalvas(false);
       setVinculosPlantao(reidratado.vinculos);
       setPreviaPlantaoValidada(previaPlantaoValidavel(reidratado.vinculos));
       setAbaPreviaPlantao('calendario');
@@ -5221,6 +5266,11 @@ export function DashboardApp() {
       // fase): sem isto, o indicador "Alterações não salvas" continuava
       // aceso mesmo logo após um "Salvar rascunho" bem-sucedido.
       setPlantaoEditadoDesdeImportacao(false);
+      // FASE ESCALAS-UX-2A.1-FIX — só depois da persistência bem-sucedida
+      // (linhas acima); se `salvarCompetenciaPlantaoRascunho`/
+      // `salvarAtribuicoesPlantaoRascunho` lançarem, o `catch` abaixo nunca
+      // chega aqui e o estado permanece `true`.
+      setPlantaoPossuiAlteracoesNaoSalvas(false);
       // Mantém a lista de rascunhos da tela "Plantões" coerente sem
       // precisar recarregar a página — a competência recém-salva aparece/
       // atualiza imediatamente ali também.
@@ -5590,15 +5640,21 @@ export function DashboardApp() {
 
   /**
    * Fase ESCALAS-UX-2A.1 — guarda única de "alterações não salvas" para
-   * trocar de contexto OU competência (§ 24/§ 25 do redesign): Plantão já
-   * tinha `plantaoEditadoDesdeImportacao`; Jornada ganhou o equivalente
-   * (`jornadaEditadaDesdeCarregamento`) nesta mesma fase.
+   * trocar de contexto OU competência (§ 24/§ 25 do redesign).
+   *
+   * FASE ESCALAS-UX-2A.1-FIX — lê SOMENTE os dirty states explícitos
+   * (`plantaoPossuiAlteracoesNaoSalvas`/`jornadaPossuiAlteracoesNaoSalvas`),
+   * NUNCA `plantaoEditadoDesdeImportacao` (esse continua existindo só para
+   * o indicador visual "divergiu da importação", não é sinônimo de
+   * "existe algo não salvo" — ver comentário do estado). Boundary test
+   * garante que esta função nunca volte a referenciar
+   * `plantaoEditadoDesdeImportacao`.
    */
   function existeAlteracaoNaoSalvaNoContextoAtivo(): boolean {
     if (contextoEscalaAtivo === null) {
       return false;
     }
-    return contextoEscalaAtivo.tipo === 'PLANTAO' ? plantaoEditadoDesdeImportacao : jornadaEditadaDesdeCarregamento;
+    return contextoEscalaAtivo.tipo === 'PLANTAO' ? plantaoPossuiAlteracoesNaoSalvas : jornadaPossuiAlteracoesNaoSalvas;
   }
 
   /**
@@ -5670,7 +5726,7 @@ export function DashboardApp() {
         erros: [],
         avisos: [],
       });
-      setJornadaEditadaDesdeCarregamento(false);
+      setJornadaPossuiAlteracoesNaoSalvas(false);
       setContextoEscalaAtivo(alvo);
       setContextoSemEscala(false);
       setTela('grade');
@@ -5739,7 +5795,7 @@ export function DashboardApp() {
     setUsuarioReal(null);
     setSimulando(null);
     setResultado(null);
-    setJornadaEditadaDesdeCarregamento(false);
+    setJornadaPossuiAlteracoesNaoSalvas(false);
     setContextoEscalaAtivo(null);
     setContextoSemEscala(false);
     setIntencaoTrocaEscalaPendente(null);
@@ -5777,17 +5833,32 @@ export function DashboardApp() {
     rotuloPrincipal: equipesAdmin.find((item) => item.id === equipeId)?.nome ?? equipeId,
     rotuloSecundario: 'Jornada 6x1',
   }));
-  const opcoesContextoPlantao: OpcaoContextoEscala[] = gruposPlantaoAdmin.map((grupo) => ({
-    contexto: {
-      tipo: 'PLANTAO',
-      grupoId: grupo.grupoId,
-      competencia: contextoEhPlantao(contextoEscalaAtivo) && contextoEscalaAtivo.grupoId === grupo.grupoId
-        ? contextoEscalaAtivo.competencia
-        : competenciaParaNovasOpcoes,
-    },
-    rotuloPrincipal: grupo.nome,
-    rotuloSecundario: equipesAdmin.find((item) => item.id === grupo.equipeResponsavelId)?.nome ?? grupo.equipeResponsavelId,
-  }));
+  /**
+   * FASE ESCALAS-UX-2A.1-FIX (Problema 3) — o switcher desta fase só
+   * oferece para EDIÇÃO os grupos que o usuário administra
+   * (`podeGerenciarEsteGrupoPlantao`, autorização real já existente,
+   * nenhum hardcode de sigla). `gruposPlantaoAdmin` inclui também grupos
+   * só-consultados via `equipesConsulta` — esses continuam existindo e
+   * consultáveis pelo domínio já existente, só não aparecem como contexto
+   * EDITÁVEL aqui: o Editor atual só sabe abrir um rascunho administrativo,
+   * e Plantão publicado ainda não tem read model operacional (PLANTÃO-3C).
+   * Não é mudança de ACL/Rules/GrupoPlantao — é só filtro de UX deste
+   * seletor. Depois de PLANTÃO-3C isto pode evoluir para distinguir
+   * Editáveis/Consulta ou abrir uma escala publicada read-only.
+   */
+  const opcoesContextoPlantao: OpcaoContextoEscala[] = gruposPlantaoAdmin
+    .filter(podeGerenciarEsteGrupoPlantao)
+    .map((grupo) => ({
+      contexto: {
+        tipo: 'PLANTAO',
+        grupoId: grupo.grupoId,
+        competencia: contextoEhPlantao(contextoEscalaAtivo) && contextoEscalaAtivo.grupoId === grupo.grupoId
+          ? contextoEscalaAtivo.competencia
+          : competenciaParaNovasOpcoes,
+      },
+      rotuloPrincipal: grupo.nome,
+      rotuloSecundario: equipesAdmin.find((item) => item.id === grupo.equipeResponsavelId)?.nome ?? grupo.equipeResponsavelId,
+    }));
   const rotuloContextoAtivo = contextoEscalaAtivo === null
     ? 'Selecionar escala'
     : contextoEhJornada(contextoEscalaAtivo)

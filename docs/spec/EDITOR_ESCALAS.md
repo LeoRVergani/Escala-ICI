@@ -262,11 +262,21 @@ string estática anterior — nenhuma mudança no Editor em si (mesmo
 `PlantaoCalendario`/`ModalEditarAtribuicaoPlantao`, mesmo
 `abrirRascunhoNoEditorAcao()`, reaproveitados integralmente). Trocar de
 contexto/competência com alterações não salvas é bloqueado por um guard
-explícito (`UnsavedChangesDialog`) — Plantão reaproveita
-`plantaoEditadoDesdeImportacao` já existente; a Jornada 6x1 ganhou o
-equivalente (`jornadaEditadaDesdeCarregamento`), que não existia antes.
-Ver `docs/spec/REDESIGN_WORKSPACE_ESCALAS.md` § 32 e
-`CHECKPOINT-FASE-ESCALAS-UX-2A1-CONTEXTO-ATIVO.md`.
+explícito (`UnsavedChangesDialog`). **Correção ESCALAS-UX-2A.1-FIX**: a
+versão original desta fase reaproveitou `plantaoEditadoDesdeImportacao`
+como fonte do guard de Plantão — errado, porque esse estado só significa
+"a working copy divergiu do conteúdo importado", não "existe algo não
+persistido" (uma escala vazia ou copiada do período anterior nunca
+diverge de uma importação que não existiu, mas é 100% não salva). O guard
+de cada domínio agora lê um dirty state próprio e explícito:
+`plantaoPossuiAlteracoesNaoSalvas` (Plantão) e
+`jornadaPossuiAlteracoesNaoSalvas` (Jornada — antes
+`jornadaEditadaDesdeCarregamento`, incompleto: só cobria `editarCelula()`,
+nunca os pontos de importação em si). `plantaoEditadoDesdeImportacao`
+continua existindo, só para o indicador visual "divergiu da importação" —
+nunca mais como guard. Ver `docs/spec/REDESIGN_WORKSPACE_ESCALAS.md` § 32,
+`CHECKPOINT-FASE-ESCALAS-UX-2A1-CONTEXTO-ATIVO.md` e
+`CHECKPOINT-FASE-ESCALAS-UX-2A1-FIX-DIRTY.md`.
 
 A escala 6x1 não foi tocada nestas fases — este documento descreve o
 conceito para que uma fase futura que precise dar ao 6x1 um Editor

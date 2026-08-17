@@ -47,12 +47,13 @@ test('4. ContextoEscalaAtivo nunca usa nome/sigla/UID/cargo como identidade — 
 
 // --- § 44/§ 47: guarda única de alterações não salvas ---
 
-test('5. existeAlteracaoNaoSalvaNoContextoAtivo() verifica AMBOS os dirty states (Plantão e Jornada) — nunca só um', async () => {
+test('5. existeAlteracaoNaoSalvaNoContextoAtivo() verifica AMBOS os dirty states explícitos (Plantão e Jornada) — nunca plantaoEditadoDesdeImportacao', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const corpo = /function existeAlteracaoNaoSalvaNoContextoAtivo\(\): boolean \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(corpo, 'existeAlteracaoNaoSalvaNoContextoAtivo precisa existir');
-  assert.match(corpo[1], /plantaoEditadoDesdeImportacao/u, 'precisa verificar o dirty state de Plantão já existente');
-  assert.match(corpo[1], /jornadaEditadaDesdeCarregamento/u, 'precisa verificar o novo dirty state de Jornada');
+  assert.match(corpo[1], /plantaoPossuiAlteracoesNaoSalvas/u, 'precisa verificar o dirty state explícito de Plantão');
+  assert.match(corpo[1], /jornadaPossuiAlteracoesNaoSalvas/u, 'precisa verificar o dirty state explícito de Jornada');
+  assert.doesNotMatch(corpo[1], /plantaoEditadoDesdeImportacao/u, 'FIX ESCALAS-UX-2A.1: o guard nunca pode usar plantaoEditadoDesdeImportacao — esse estado só significa "divergiu da importação", não "existe algo não salvo"');
 });
 
 test('6. solicitarTrocaContexto/solicitarTrocaCompetencia usam a MESMA guarda — nunca dois sistemas separados', async () => {
@@ -66,13 +67,90 @@ test('6. solicitarTrocaContexto/solicitarTrocaCompetencia usam a MESMA guarda �
   assert.match(competencia[1], /setIntencaoTrocaEscalaPendente/u);
 });
 
-test('7. jornadaEditadaDesdeCarregamento só vira true no único ponto real de edição local (editarCelula) — nunca fora dele', async () => {
+test('7. jornadaPossuiAlteracoesNaoSalvas vira true em editarCelula (mutação local) E nos pontos de importação não salva (aplicarConciliacao/cadastrarFaltantes) — FIX ESCALAS-UX-2A.1: cobertura completa, não só editarCelula', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  const ocorrenciasTrue = dashboard.match(/setJornadaEditadaDesdeCarregamento\(true\)/gu) ?? [];
-  assert.equal(ocorrenciasTrue.length, 1, 'só pode existir UM ponto que marca a Jornada como editada');
+  const ocorrenciasTrue = dashboard.match(/setJornadaPossuiAlteracoesNaoSalvas\(true\)/gu) ?? [];
+  assert.equal(ocorrenciasTrue.length, 3, 'exatamente 3 pontos marcam a Jornada como não salva: editarCelula, aplicarConciliacao, cadastrarFaltantes');
   const editarCelula = /function editarCelula\(codigo: string\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(editarCelula, 'editarCelula precisa existir');
-  assert.match(editarCelula[1], /setJornadaEditadaDesdeCarregamento\(true\)/u, 'a única marcação de dirty precisa estar dentro de editarCelula');
+  assert.match(editarCelula[1], /setJornadaPossuiAlteracoesNaoSalvas\(true\)/u, 'a mutação local de célula precisa marcar dirty=true');
+  const aplicarConciliacao = /function aplicarConciliacao\(buffer: ArrayBuffer, linhas: LinhaConciliacao\[\]\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(aplicarConciliacao, 'aplicarConciliacao precisa existir');
+  assert.match(aplicarConciliacao[1], /setJornadaPossuiAlteracoesNaoSalvas\(true\)/u, 'importar/reconciliar planilha nunca pode deixar dirty=false — importar não é salvar');
+});
+
+// --- FASE ESCALAS-UX-2A.1-FIX — Problema 1: dirty de Plantão explícito ---
+
+test('21. existe um dirty state explícito de Plantão separado de plantaoEditadoDesdeImportacao', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /const \[plantaoPossuiAlteracoesNaoSalvas, setPlantaoPossuiAlteracoesNaoSalvas\] = useState\(false\)/u, 'plantaoPossuiAlteracoesNaoSalvas precisa existir como estado próprio');
+  assert.match(dashboard, /const \[plantaoEditadoDesdeImportacao, setPlantaoEditadoDesdeImportacao\] = useState\(false\)/u, 'plantaoEditadoDesdeImportacao precisa continuar existindo — não foi removido, só deixou de ser o guard');
+});
+
+test('22. importar/criar vazia/usar período anterior de Plantão marcam plantaoPossuiAlteracoesNaoSalvas=true mesmo quando plantaoEditadoDesdeImportacao continua false', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const interpretarPlantao = /function interpretarPlantao\(buffer: ArrayBuffer, nome: string, resultado: ResultadoParsePlantao\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(interpretarPlantao, 'interpretarPlantao precisa existir');
+  assert.match(interpretarPlantao[1], /setPlantaoEditadoDesdeImportacao\(false\)/u);
+  assert.match(interpretarPlantao[1], /setPlantaoPossuiAlteracoesNaoSalvas\(true\)/u, 'importar uma planilha de Plantão precisa marcar alteração não salva mesmo sem nenhuma edição de célula');
+
+  const criarVazia = /async function criarPlantaoEmBrancoAcao\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(criarVazia, 'criarPlantaoEmBrancoAcao precisa existir');
+  assert.match(criarVazia[1], /setPlantaoPossuiAlteracoesNaoSalvas\(true\)/u);
+
+  const usarAnterior = /async function usarPeriodoAnteriorAcao\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(usarAnterior, 'usarPeriodoAnteriorAcao precisa existir');
+  assert.match(usarAnterior[1], /setPlantaoPossuiAlteracoesNaoSalvas\(true\)/u);
+});
+
+test('23. reabrir rascunho de Plantão persistido zera plantaoPossuiAlteracoesNaoSalvas; salvar com sucesso também zera', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const abrirRascunho = /async function abrirRascunhoNoEditorAcao\(([\s\S]*?)\n {2}\}\n/u.exec(dashboard);
+  assert.ok(abrirRascunho, 'abrirRascunhoNoEditorAcao precisa existir');
+  assert.match(abrirRascunho[1], /setPlantaoPossuiAlteracoesNaoSalvas\(false\)/u, 'reabrir um rascunho já persistido precisa zerar o dirty state');
+
+  const salvar = /async function salvarRascunhoPlantaoAcao\(\) \{([\s\S]*?)\n {2}\}\n/u.exec(dashboard);
+  assert.ok(salvar, 'salvarRascunhoPlantaoAcao precisa existir');
+  const corpoTry = /try \{([\s\S]*?)\} catch \(falha\) \{([\s\S]*?)\n {4}\} finally/u.exec(salvar[1]);
+  assert.ok(corpoTry, 'salvarRascunhoPlantaoAcao precisa ter try/catch');
+  assert.match(corpoTry[1], /setPlantaoPossuiAlteracoesNaoSalvas\(false\)/u, 'salvar com sucesso precisa zerar o dirty state');
+  assert.doesNotMatch(corpoTry[2], /setPlantaoPossuiAlteracoesNaoSalvas/u, 'o catch de erro NUNCA pode zerar o dirty state — deve permanecer true');
+});
+
+test('24. mutações do Editor de Plantão (editar/adicionar/excluir atribuição, confirmar/desfazer vínculo) marcam plantaoPossuiAlteracoesNaoSalvas=true', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const marcarEditado = /function marcarPlantaoEditadoNoEditor\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(marcarEditado, 'marcarPlantaoEditadoNoEditor precisa existir (chamado por editar/adicionar/excluir atribuição)');
+  assert.match(marcarEditado[1], /setPlantaoPossuiAlteracoesNaoSalvas\(true\)/u);
+
+  const confirmarVinculo = /function confirmarVinculoPlantaoAcao\(participanteNomeOriginal: string, usuario: Usuario\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(confirmarVinculo, 'confirmarVinculoPlantaoAcao precisa existir');
+  assert.match(confirmarVinculo[1], /setPlantaoPossuiAlteracoesNaoSalvas\(true\)/u, 'confirmar vínculo afeta o payload salvo — precisa marcar dirty=true');
+
+  const desfazerVinculo = /function desfazerVinculoPlantaoAcao\(participanteNomeOriginal: string\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(desfazerVinculo, 'desfazerVinculoPlantaoAcao precisa existir');
+  assert.match(desfazerVinculo[1], /setPlantaoPossuiAlteracoesNaoSalvas\(true\)/u, 'desfazer vínculo afeta o payload salvo — precisa marcar dirty=true');
+});
+
+// --- FASE ESCALAS-UX-2A.1-FIX — Problema 3: grupos consulta-only não alimentam o switcher editável ---
+
+test('25. opcoesContextoPlantao filtra gruposPlantaoAdmin por podeGerenciarEsteGrupoPlantao — grupos só-consultados não aparecem como contexto editável nesta fase', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const trecho = /const opcoesContextoPlantao: OpcaoContextoEscala\[\] = ([\s\S]*?);\n {2}const rotuloContextoAtivo/u.exec(dashboard);
+  assert.ok(trecho, 'opcoesContextoPlantao precisa existir');
+  assert.match(trecho[1], /gruposPlantaoAdmin\s*\n?\s*\.filter\(podeGerenciarEsteGrupoPlantao\)/u, 'a lista de opções editáveis precisa filtrar por podeGerenciarEsteGrupoPlantao');
+  for (const proibido of ['SOC', 'NOC', 'COSI', 'CODB']) {
+    assert.doesNotMatch(trecho[1], new RegExp(`['"\`]${proibido}['"\`]`, 'u'), `nenhum hardcode de sigla ("${proibido}") no filtro do switcher`);
+  }
+});
+
+test('26. existeAlteracaoNaoSalvaNoContextoAtivo nunca referencia plantaoEditadoDesdeImportacao em lugar nenhum do arquivo como leitura de guard (proteção estrutural ampla)', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const solicitarContexto = /function solicitarTrocaContexto\(alvo: ContextoEscalaAtivo\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  const solicitarCompetencia = /function solicitarTrocaCompetencia\(novaCompetencia: string\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(solicitarContexto && solicitarCompetencia);
+  assert.doesNotMatch(solicitarContexto[1], /plantaoEditadoDesdeImportacao/u);
+  assert.doesNotMatch(solicitarCompetencia[1], /plantaoEditadoDesdeImportacao/u);
 });
 
 test('8. nenhuma nova ação de código chama window.confirm() — a guarda usa o modal UnsavedChangesDialog', async () => {
