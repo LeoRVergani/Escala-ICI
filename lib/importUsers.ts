@@ -80,6 +80,16 @@ export function validarEdicaoUsuario(
   if (editado.cargo.trim() === '') {
     erros.push('Informe o cargo do colaborador.');
   }
+  /**
+   * Fase ESCALAS-UX-2B.2 — `equipeId` é pertencimento organizacional real,
+   * nunca inferido por participar de um Grupo de Plantão nem herdado do
+   * operador que está cadastrando. Exigir explicitamente aqui garante que
+   * nenhum caminho (cadastro manual, cadastro a partir de Vínculos) salve
+   * um colaborador sem uma equipe escolhida de propósito.
+   */
+  if (editado.equipeId.trim() === '') {
+    erros.push('Selecione a equipe do colaborador.');
+  }
   if (usuariosDaEquipe.some((outro) =>
     outro.login === editado.login
     && outro.login !== loginOriginal

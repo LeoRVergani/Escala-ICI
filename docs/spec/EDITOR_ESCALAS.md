@@ -517,7 +517,8 @@ independente de como o usuário chegou até ele:
 - clicar "+ Adicionar" (sempre presente, acessível por teclado) com uma
   pessoa já selecionada.
 
-A decisão que essa função toma (atualizada na ESCALAS-UX-2B.1 — ver §12.10):
+A decisão que essa função toma (atualizada na ESCALAS-UX-2B.1 — ver
+§12.10 — e na ESCALAS-UX-2B.2 — ver §12.11):
 
 ```
 data FORA do período da competência ativa (dataPertenceCompetencia)
@@ -526,11 +527,9 @@ data FORA do período da competência ativa (dataPertenceCompetencia)
 sem plantonista (string vazia)
     -> abre o editor completo (ModalEditarAtribuicaoPlantao), como sempre
 
-com plantonista, sem padrão configurado para o dia
-    -> abre o editor completo, plantonista pré-preenchido
-
-com plantonista E padrão configurado (obterPadraoHorarioGrupoParaData)
-    -> abre QuickAddPlantaoPopover (confirmação explícita)
+com plantonista (com ou sem padrão configurado para o dia)
+    -> SEMPRE abre QuickAddPlantaoPopover — o popover decide o que
+       mostrar a partir de `padrao` (§12.11)
 ```
 
 O DROP em si **nunca grava nada** — só chama a mesma função que o clique
@@ -618,8 +617,9 @@ já é suficiente.
 - O quick-add é um dialog central, não um popover ancorado à célula —
   decisão deliberada de confiabilidade (seção 12.3), não uma limitação
   técnica.
-- O redesign do Resumo/Contabilidade/Lista/Vínculos permanece fora de
-  escopo (ESCALAS-UX-2C).
+- O redesign completo de Contabilidade/Lista/Vínculos permanece fora de
+  escopo (ESCALAS-UX-2C) — a aba "Resumo" em si foi removida na
+  ESCALAS-UX-2B.2 (§12.11), adiantando parte desse escopo.
 
 Ver `CHECKPOINT-FASE-ESCALAS-UX-2B-ROSTER-DRAG.md` para o detalhamento
 completo desta fase.
@@ -662,3 +662,73 @@ chamado por `lib/editorPlantao.ts`/`lib/conciliacaoPlantoes.ts`
 
 Ver `CHECKPOINT-FASE-ESCALAS-UX-2B1-LIMITES-COMPETENCIA.md` para o
 detalhamento completo desta correção.
+
+### 12.11 Correções de homologação real (Fase ESCALAS-UX-2B.2)
+
+Cinco problemas concretos, confirmados testando o Editor num navegador
+real, corrigidos sem avançar para o redesign completo da ESCALAS-UX-2C.
+
+**Quick-add sempre abre — nunca mais cai silenciosamente no editor
+completo.** A causa real de "arrastar ainda abre o modal grande" não era
+um bug de drag (click e drag sempre convergiram para a mesma função,
+`solicitarNovaAtribuicaoPlantao`, desde a ESCALAS-UX-2B) — era a
+ausência de qualquer feedback quando `obterPadraoHorarioGrupoParaData()`
+retorna `null` (Grupo sem padrão para aquele dia da semana): a função
+caía direto no editor completo, indistinguível de um comportamento
+quebrado. Corrigido: `quickAddPlantao.padrao` passou a aceitar `null`, e
+`QuickAddPlantaoPopover` sempre abre, mostrando "Padrão do grupo" (com
+padrão) ou "Nenhum padrão configurado" (sem padrão) com duas ações
+próprias — "Configurar padrão" (`irConfigurarPadraoQuickAdd()`, navega
+para Administração → Grupos de Plantão → o Grupo atual já aberto para
+edição, nunca configura dentro do calendário, nunca salva nada
+automaticamente) e "Informar horário manualmente"
+(`informarHorarioManualmenteQuickAdd()`, o mesmo editor completo de
+sempre, início/fim vazios). "Outro horário" (só existe com padrão)
+passou a pré-preencher início/fim derivados do padrão via
+`construirAtribuicaoDoPadraoHorario()` (a MESMA função pura já usada por
+"Adicionar" — nunca um segundo construtor), evitando redigitar tudo.
+
+**Vínculos — cadastro inline, nunca mais "Ir para Usuários".** Um
+participante sem login encontrado (`vinculo.status ===
+'USUARIO_NAO_ENCONTRADO'`) agora mostra "Cadastrar e vincular"
+(`abrirCadastroDeVinculoPlantao()`), que abre o MESMO modal de cadastro
+de usuário sem sair da tela de Importação/Vínculos (`tela` nunca muda),
+com nome/login pré-preenchidos (nome do participante da planilha, login
+do termo já digitado na busca — nunca um e-mail inventado). Depois de
+salvar com sucesso, o vínculo é aplicado automaticamente ao participante
+que originou o cadastro (`origemCadastroVinculoPlantao`, novo estado —
+identidade exata, mesmo participante, mesmo `Usuario` recém-criado).
+
+**`Usuario.equipeId` nunca mais inferido — nem do operador, nem do
+Grupo de Plantão.** Causa raiz do "EQ_SOC pré-definido": o campo
+`Equipe` do formulário de cadastro era um `<input disabled>` mostrando
+`usuarioEfetivo?.equipeId` (o operador LOGADO, nunca o novo
+colaborador) — e `novoUsuario()` (`lib/importUsers.ts`) persistia
+exatamente esse valor como fallback interno. Corrigido: `FormularioUsuario`
+ganhou um campo `equipeId` real, sempre vazio ao abrir um cadastro novo
+(`abrirNovoUsuario()`/`abrirCadastroDeVinculoPlantao()`), com um seletor
+de verdade (`OrganizationTeamPicker`, modo `single`, mesmo padrão já
+usado em `ModalGrupoPlantao`) — nunca um default de sigla, nunca
+`grupo.equipeResponsavelId`. `validarEdicaoUsuario()`
+(`lib/importUsers.ts`) passou a exigir `equipeId` não vazio, o mesmo
+ponto único de validação para qualquer cadastro. Vincular um usuário
+EXISTENTE a um Plantão continua nunca tocando `equipeId`
+(`confirmarVinculoPlantaoAcao()` já não lia/gravava esse campo).
+
+**Aba "Resumo" removida.** O roster lateral (§12.1) já é o resumo
+primário por pessoa desde a ESCALAS-UX-2B; o conteúdo remanescente
+exclusivo do "Resumo" (erros/avisos estruturais da leitura da planilha)
+foi realocado para dentro de "Contabilidade", numa seção recolhível
+("Conferência do arquivo importado") — nenhuma informação operacional
+foi perdida, só reposicionada para perto de onde já existia a
+"Conferência da fonte" equivalente para números.
+
+**Header com mais respiro.** `padding-block: 12px` no
+`.schedule-context-cluster` (nunca margem solta espalhada pelos
+filhos — `docs/spec/UI_CASCADE_E_HERANCA.md`, "pai antes do filho");
+`.topbar` virou `min-height` (era `height` fixo) para caber esse padding
+sem cortar conteúdo; mobile ganhou `flex-wrap` no cluster (nunca tenta
+espremer os três controles numa única linha comprimida).
+
+Ver `CHECKPOINT-FASE-ESCALAS-UX-2B2-HOMOLOGACAO.md` para o detalhamento
+completo desta fase.

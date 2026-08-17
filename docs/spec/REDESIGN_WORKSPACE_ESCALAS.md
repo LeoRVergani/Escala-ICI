@@ -18,9 +18,18 @@
   "NÃO implementar" no pedido que a originou); esse trabalho permanece
   como um follow-up a definir, dentro de `ESCALAS-UX-2B` ou uma
   microfase própria.
-- Roster lateral, drag-and-drop, padrão de horário por Grupo, nova
-  Contabilidade/Lista/Pendências, importação inline e publicação
-  **ainda não foram iniciados**.
+- **PLANTAO-PADRAO-1**, **ESCALAS-UX-2B** (roster + drag + quick-add),
+  **ESCALAS-UX-2B.1** (limites de competência no quick-add/drag) e
+  **ESCALAS-UX-2B.2** (correções de homologação real: quick-add sem
+  padrão, cadastro inline a partir de Vínculos, equipe nunca inferida
+  por Plantão, remoção da aba Resumo, respiro do header) ✅
+  implementadas — ver checkpoints próprios
+  (`CHECKPOINT-FASE-PLANTAO-PADRAO-1.md`,
+  `CHECKPOINT-FASE-ESCALAS-UX-2B-ROSTER-DRAG.md`,
+  `CHECKPOINT-FASE-ESCALAS-UX-2B1-LIMITES-COMPETENCIA.md`,
+  `CHECKPOINT-FASE-ESCALAS-UX-2B2-HOMOLOGACAO.md`).
+- Nova Contabilidade/Lista/Pendências (redesign completo, ESCALAS-UX-2C),
+  importação inline e publicação **ainda não foram iniciados**.
 
 ## Por que este documento existe
 
@@ -835,6 +844,22 @@ manual:
   atrás de um menu extra.
 - Se o Grupo não tem padrão configurado, o card "Padrão do grupo"
   simplesmente não aparece — o modal volta a ser exatamente o de hoje.
+
+> **Correção de implementação (ESCALAS-UX-2B.2)**: a proposta acima ("sem
+> padrão, o card simplesmente não aparece — cai direto no modal de
+> sempre") foi o que a ESCALAS-UX-2B efetivamente implementou, e a
+> homologação real mostrou que essa queda silenciosa era indistinguível
+> de um bug de drag — o coordenador arrastava uma pessoa e via o modal
+> grande aparecer sem entender se o padrão simplesmente não existia ou
+> se algo tinha quebrado. Corrigido: o quick-add SEMPRE abre agora (com
+> ou sem padrão); sem padrão, mostra "Nenhum padrão configurado — Este
+> Grupo não possui horário padrão para este dia da semana" com duas
+> ações explícitas, **"Configurar padrão"** (leva a Administração →
+> Grupos de Plantão → o Grupo atual, já aberto para edição — nunca
+> configura dentro do calendário) e **"Informar horário manualmente"**
+> (o mesmo editor completo de sempre, início/fim vazios). Ver
+> `CHECKPOINT-FASE-ESCALAS-UX-2B2-HOMOLOGACAO.md`.
+
 - Uma ação explícita futura, **"Aplicar padrão"**, poderia preencher em
   lote os dias vazios de uma competência de uma vez (mencionada no
   pedido) — este documento a registra como possibilidade avaliável em
@@ -1561,7 +1586,9 @@ modelo de contexto novo por cima dela.
 | *(follow-up, não nomeado ainda)* | `NewScheduleDialog` redesenhado + "Criar vazia"/"Usar anterior" para Jornada 6x1 — parte do § 36 original que ficou de fora da ESCALAS-UX-2A.1 real. | ESCALAS-UX-2A.1-FIX |
 | **PLANTAO-PADRAO-1** ✅ **implementada** | Padrão semanal configurável por Grupo (§ 17/§ 18) — `GrupoPlantao.padraoHorarioSemanal?` (opcional, retrocompatível), helpers puros de consulta/validação/duração em `@escala-ici/contrato`, Rules (create/update aceitam e validam o campo, leitura inalterada), seção "Padrão de horário" em `ModalGrupoPlantao` (`PadraoHorarioSemanalCampo`). **NÃO inclui** nenhum consumo pelo Editor (clicar/arrastar para preencher horário) — isso é ESCALAS-UX-2B. Ver `CHECKPOINT-FASE-PLANTAO-PADRAO-1.md`. | ESCALAS-UX-2A (para o novo local de Administração já existir) |
 | **ESCALAS-UX-2B** ✅ **implementada (escopo Plantão)** | Roster lateral (§ 14) substituindo "Resumo por pessoa" — `PlantaoRoster`; interação por clique reaproveitada (`plantonistaSelecionadoPlantao`); drag-and-drop nativo HTML5 (§ 16) como segundo gatilho para a MESMA operação de criação (`solicitarNovaAtribuicaoPlantao`); consumo real de `GrupoPlantao.padraoHorarioSemanal` via `obterPadraoHorarioGrupoParaData()` + popover de confirmação (`QuickAddPlantaoPopover`). **NÃO inclui** a Grade 6x1 (`ScheduleGrid` continua sem roster/drag — avaliação de como o mesmo princípio se aplica à Jornada fica para uma fase futura própria) nem o redesign de Resumo/Lista/Contabilidade/Vínculos (ESCALAS-UX-2C). Ver `CHECKPOINT-FASE-ESCALAS-UX-2B-ROSTER-DRAG.md`. | ESCALAS-UX-2A.1, PLANTAO-PADRAO-1 |
-| **ESCALAS-UX-2C** | Contabilidade redesenhada (§ 25), Pendências como painel (§ 26), limpeza de Lista (§ 24)/Resumo (§ 23) como abas — remoção formal das abas antigas, atualização de boundary tests (risco § 35.6). | ESCALAS-UX-2A.1 |
+| **ESCALAS-UX-2B.1** ✅ **implementada** | Microcorreção da 2B: gate definitivo `dataPertenceCompetencia()` — uma NOVA atribuição só pode INICIAR dentro de `periodoInicio..periodoFim` (26/07..25/08); o término pode ultrapassar livremente. Reforço de UI (omissão de "+ Adicionar"/drop em dias de contexto) além do gate real em `solicitarNovaAtribuicaoPlantao()`. Ver `CHECKPOINT-FASE-ESCALAS-UX-2B1-LIMITES-COMPETENCIA.md`. | ESCALAS-UX-2B |
+| **ESCALAS-UX-2B.2** ✅ **implementada** | Correções de 5 problemas confirmados em homologação real: (1) quick-add sempre abre (nunca mais cai silenciosamente no editor completo sem padrão — novo estado "Nenhum padrão configurado" com "Configurar padrão"/"Informar horário manualmente"); (2) cadastro de usuário inline a partir de Vínculos (nunca mais "Ir para Usuários"), com vínculo automático pós-cadastro; (3) `Usuario.equipeId` nunca mais inferido do operador logado nem do Grupo de Plantão — seletor real (`OrganizationTeamPicker`) obrigatório; (4) aba "Resumo" removida (conteúdo realocado para "Conferência do arquivo importado" dentro de Contabilidade) — adianta parte do escopo original da 2C; (5) respiro do header (`padding-block` no cluster, `.topbar` virou `min-height`). Ver `CHECKPOINT-FASE-ESCALAS-UX-2B2-HOMOLOGACAO.md`. | ESCALAS-UX-2B, ESCALAS-UX-2B.1 |
+| **ESCALAS-UX-2C** | Contabilidade redesenhada (§ 25), Pendências como painel (§ 26), limpeza de Lista (§ 24) — Resumo (§ 23) já foi removido na ESCALAS-UX-2B.2, adiantado do escopo original desta fase. Atualização de boundary tests remanescente (risco § 35.6). | ESCALAS-UX-2B.2 |
 | **HOMOLOGAÇÃO VISUAL** | Validação end-to-end do novo workspace (desktop 1440/1024, mobile 412/390/360, light/dark) para os dois tipos de escala, com o usuário testando diretamente (sem emulador+Playwright autônomo, conforme preferência já registrada). | ESCALAS-UX-2A, 2A.1, 2B, 2C |
 | **PLANTÃO-3C** | Publicação/histórico de Plantão — só depois do workspace estabilizado, para a UI de publicação já nascer dentro do novo `ScheduleHeader`/status, nunca como mais uma tela solta. | HOMOLOGAÇÃO VISUAL |
 

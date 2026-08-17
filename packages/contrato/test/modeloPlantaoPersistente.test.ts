@@ -586,4 +586,40 @@ describe('obterPadraoHorarioGrupoParaData', () => {
     expect(obterPadraoHorarioGrupoParaData(grupo, '2026-08-17')?.horaInicio).toBe('08:00'); // segunda
     expect(obterPadraoHorarioGrupoParaData(grupo, '2026-08-16')).toBeNull(); // domingo, sem padrão
   });
+
+  /**
+   * Fase ESCALAS-UX-2B.2 — § 23/§ 51 do pedido: reproduz o caso real
+   * relatado na homologação (plantonista + Grupo com padrão configurado
+   * + dia da semana coberto), com os mesmos números do wireframe do
+   * pedido ("Domingo, 26 de julho" · "19:00 → 07:00" · 12h). Confirma que
+   * a causa do "modal grande abrindo" NÃO é um bug de integração desta
+   * função — ela encontra o padrão corretamente quando ele existe para o
+   * dia da semana perguntado; a causa real era a ausência de um estado
+   * intermediário "sem padrão" no Dashboard (corrigida em
+   * `solicitarNovaAtribuicaoPlantao()`/`QuickAddPlantaoPopover`, fora
+   * deste pacote puro).
+   */
+  it('caso real: Grupo com padrão de domingo (19:00 → 07:00 +1) — encontra o padrão para 26/07/2026 (um domingo)', () => {
+    const grupoComPadrao = {
+      padraoHorarioSemanal: [entradaPadrao({ diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 })],
+    };
+    const padrao = obterPadraoHorarioGrupoParaData(grupoComPadrao, '2026-07-26');
+    expect(padrao).not.toBeNull();
+    expect(padrao?.horaInicio).toBe('19:00');
+    expect(padrao?.horaFim).toBe('07:00');
+    expect(padrao?.fimDiaOffset).toBe(1);
+  });
+
+  it('caso real: o MESMO Grupo não tem padrão para segunda-feira (27/07/2026) — retorna null, nunca um padrão inventado', () => {
+    const grupoComPadraoSoDomingo = {
+      padraoHorarioSemanal: [entradaPadrao({ diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 })],
+    };
+    expect(obterPadraoHorarioGrupoParaData(grupoComPadraoSoDomingo, '2026-07-27')).toBeNull();
+  });
+
+  it('Grupo sem nenhum padrão configurado (padraoHorarioSemanal ausente) — sempre retorna null, para qualquer dia', () => {
+    const grupoSemPadrao = {};
+    expect(obterPadraoHorarioGrupoParaData(grupoSemPadrao, '2026-07-26')).toBeNull();
+    expect(obterPadraoHorarioGrupoParaData(grupoSemPadrao, '2026-07-27')).toBeNull();
+  });
 });

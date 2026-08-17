@@ -220,7 +220,13 @@ select:focus-visible,
 .collapse-button:hover { background: var(--surface-muted); color: var(--text); }
 
 .topbar {
-  height: 76px;
+  /*
+   * Fase ESCALAS-UX-2B.2 — `min-height` (não `height` fixo) para o
+   * cluster de contexto (§ 35-38 do pedido) poder respirar com
+   * `padding-block` próprio sem cortar conteúdo; aumento pequeno,
+   * proporcional ao próprio conteúdo, nunca "exagerado".
+   */
+  min-height: 76px;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   backdrop-filter: blur(14px);
@@ -323,7 +329,14 @@ select:focus-visible,
  * diferente, mas o vocabulário visual (borda, raio, sombra, animação) é
  * o mesmo, nunca uma estética nova.
  */
-.schedule-context-cluster { display: flex; align-items: flex-start; gap: 22px; flex: 1; min-width: 0; }
+/*
+ * Fase ESCALAS-UX-2B.2 — § 35-38 do pedido: "sem respiro" era falta de
+ * padding-block no CONTAINER (nunca margem solta espalhada pelos
+ * filhos — UI_CASCADE_E_HERANCA § "pai antes do filho"). `.topbar` virou
+ * `min-height` (acima) especificamente para caber este padding sem
+ * cortar conteúdo.
+ */
+.schedule-context-cluster { display: flex; align-items: flex-start; gap: 18px; flex: 1; min-width: 0; padding-block: 12px; }
 .escala-context-switcher, .escala-competencia-control { position: relative; min-width: 0; }
 .escala-context-switcher > span, .escala-competencia-control > span, .escala-status-control > span {
   display: block; color: var(--muted); font-size: 11px; margin-bottom: 5px;
@@ -377,6 +390,8 @@ select:focus-visible,
   background: var(--surface); color: var(--text); font: inherit;
 }
 .escala-status-control { display: flex; flex-direction: column; }
+/* Fase ESCALAS-UX-2B.2 — alinha a altura do badge com os gatilhos de "Escala atual"/"Competência" (§ 38 do pedido: "não ficar grudado no topo"). */
+.escala-status-control .status-badge { min-height: 34px; }
 
 .workspace { padding: 30px; max-width: 1720px; margin: 0 auto; }
 .page-heading { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 22px; }
@@ -1563,6 +1578,13 @@ button.shift-chip:disabled { cursor: default; }
   .collapse-button { display: none; }
   .topbar { padding: 0 14px; gap: 10px; }
   .competence-control { flex: 1; }
+  /*
+   * Fase ESCALAS-UX-2B.2 — § 40 do pedido: mobile nunca tenta reproduzir o
+   * desktop comprimido — o cluster QUEBRA linha (nunca scroll horizontal
+   * de página) em vez de espremer os três controles numa única linha.
+   */
+  .schedule-context-cluster { flex-wrap: wrap; gap: 8px 14px; padding-block: 8px; }
+  .escala-context-trigger { max-width: none; }
   .product-link, .user-menu > .user-identity { display: none; }
   .user-menu { padding-left: 8px; }
   .workspace { padding: 22px 14px; }
@@ -5080,6 +5102,13 @@ fieldset.checkbox-card-list > legend {
 }
 .plantao-quick-add-padrao span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; }
 .plantao-quick-add-padrao strong { font-size: 15px; }
+/* Fase ESCALAS-UX-2B.2 — mesmo cartão visual de ".plantao-quick-add-padrao", nunca uma estética nova, para o estado "sem padrão configurado" (§ 25 do pedido). */
+.plantao-quick-add-sem-padrao {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 12px; border: 1px solid var(--warning); border-radius: 8px; background: var(--warning-soft);
+}
+.plantao-quick-add-sem-padrao span { font-size: 10.5px; color: var(--warning); text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; }
+.plantao-quick-add-sem-padrao p { margin: 0; font-size: 12.5px; }
 
 .plantao-selecao-ativa {
   margin: 0 0 var(--space-2); padding: 8px 10px; border: 1px solid var(--primary-bright);
@@ -5102,7 +5131,25 @@ fieldset.checkbox-card-list > legend {
 .plantao-conferencia-escala-atual { margin-bottom: var(--space-4); }
 .plantao-conferencia-escala-atual h3 { margin: 0 0 4px; font-size: 13px; }
 .plantao-conferencia-escala-atual p { margin: 0 0 var(--space-2); color: var(--muted); font-size: 11.5px; }
-.plantao-resumo-conteudo { display: flex; flex-direction: column; gap: var(--space-2); }
+/*
+ * Fase ESCALAS-UX-2B.2 — realoca o conteúdo da antiga aba "Resumo"
+ * (removida) para dentro de "Contabilidade", recolhível por padrão.
+ * Mesmo mecanismo de chevron de `.legacy-panel` (nunca uma segunda
+ * implementação de details/summary), classe própria porque o significado
+ * é diferente (informação auditável da fonte, não "legado/depreciado") e
+ * o tamanho é menor (vive dentro de uma aba, não é um `.panel` de topo).
+ */
+.plantao-conferencia-importada { margin-top: var(--space-4); border: 1px solid var(--border); border-radius: 10px; }
+.plantao-conferencia-importada > summary {
+  list-style: none; cursor: pointer; padding: 10px 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+}
+.plantao-conferencia-importada > summary::-webkit-details-marker { display: none; }
+.plantao-conferencia-importada > summary h3 { margin: 0; font-size: 13px; }
+.plantao-conferencia-importada > summary p { margin: 3px 0 0; color: var(--muted); font-size: 11.5px; }
+.plantao-conferencia-importada > summary::after { content: '▾'; color: var(--muted); transition: transform 0.15s ease; flex: 0 0 auto; }
+.plantao-conferencia-importada[open] > summary::after { transform: rotate(180deg); }
+.plantao-conferencia-importada-corpo { padding: 0 12px 12px; display: flex; flex-direction: column; gap: var(--space-2); }
 
 /*
  * Fase ESCALAS-UX-1B — "+ Nova escala": dois cards de tipo (etapa 1) e o

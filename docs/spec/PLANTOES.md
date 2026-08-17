@@ -2157,8 +2157,10 @@ pessoa e clicar um dia (ou arrastar a pessoa até o dia, no desktop) chama
 popover de confirmação (`QuickAddPlantaoPopover`, reaproveitando
 `previewPadraoHorarioPlantaoDia()` já existente) antes de gravar
 qualquer coisa na working copy — nunca automático, nunca no drop em si.
-Sem padrão, cai direto no editor completo de sempre. Detalhamento
-completo em `docs/spec/EDITOR_ESCALAS.md` seção 12 e
+Sem padrão, cai direto no editor completo de sempre (corrigido na
+ESCALAS-UX-2B.2 — ver seção 30 abaixo: o popover sempre abre agora,
+mesmo sem padrão). Detalhamento completo em
+`docs/spec/EDITOR_ESCALAS.md` seção 12 e
 `CHECKPOINT-FASE-ESCALAS-UX-2B-ROSTER-DRAG.md`.
 
 **Correção ESCALAS-UX-2B.1**: uma NOVA atribuição só pode iniciar dentro
@@ -2170,3 +2172,52 @@ periodoFim`, via `dataPertenceCompetencia()`) — dias de contexto visual
 já existentes/importadas nunca são afetadas — a regra vale só para
 criação nova pela UI. Ver `docs/spec/EDITOR_ESCALAS.md` §12.10 e
 `CHECKPOINT-FASE-ESCALAS-UX-2B1-LIMITES-COMPETENCIA.md`.
+
+## 30. ESCALAS-UX-2B.2 — correções de homologação real
+
+Cinco problemas confirmados testando o Editor de Plantão num navegador
+real, corrigidos sem avançar para o redesign completo de Contabilidade/
+Lista/Pendências (ESCALAS-UX-2C):
+
+1. **Quick-add sempre abre.** A causa de "arrastar ainda abre o modal
+   grande" não era um bug de drag — click e drag sempre convergiram para
+   a mesma função desde a ESCALAS-UX-2B. A causa real era `padrao ===
+   null` (Grupo sem horário configurado para aquele dia da semana)
+   caindo direto e silenciosamente no editor completo, sem nenhum
+   feedback distinguível de um comportamento quebrado. Corrigido: o
+   popover sempre abre, mostrando "Nenhum padrão configurado" com duas
+   ações ("Configurar padrão", que leva a Administração → Grupos de
+   Plantão já aberto para edição do Grupo; "Informar horário
+   manualmente", o editor completo de sempre) quando não há padrão.
+2. **Vínculos — cadastro inline.** Um participante sem login encontrado
+   ganhou "Cadastrar e vincular" (nunca mais "Ir para Usuários" como
+   ação principal) — abre o mesmo modal de cadastro sem sair da tela de
+   Importação, nome/login pré-preenchidos, e vincula automaticamente ao
+   participante que originou o cadastro depois de salvar com sucesso.
+3. **`Usuario.equipeId` nunca mais inferido por Plantão.** O bug
+   relatado ("Equipe = EQ_SOC" pré-definida ao cadastrar a partir de um
+   participante de Plantão COSI) tinha causa real no campo `Equipe` do
+   formulário ser um `<input disabled>` mostrando o `equipeId` do
+   OPERADOR logado — nunca do Grupo de Plantão em si, mas igualmente
+   incorreto como pertencimento organizacional do novo colaborador.
+   Corrigido com um seletor real (`OrganizationTeamPicker`), sempre
+   vazio ao abrir um cadastro novo, validado como obrigatório. Reforça o
+   princípio já registrado neste documento (§ 1, "USUÁRIO ≠ ESCALA"):
+   participar de um Grupo de Plantão nunca definiu — e continua nunca
+   definindo — o pertencimento organizacional principal do usuário
+   (`Usuario.equipeId`), que é um conceito completamente diferente de
+   `GrupoPlantao.equipeResponsavelId` (equipe responsável pela
+   administração do Grupo) ou de `GrupoPlantao.participantes` (quem pode
+   participar do Plantão).
+4. **Aba "Resumo" removida** do Editor — o roster lateral (ESCALAS-UX-2B)
+   já é o resumo primário por pessoa; o conteúdo exclusivo remanescente
+   (erros/avisos estruturais da planilha) foi realocado para dentro de
+   "Contabilidade".
+5. **Header com mais respiro** — ajuste de `padding-block`/`min-height`
+   no cluster de contexto (`docs/spec/EDITOR_ESCALAS.md` §12.11), sem
+   nenhuma mudança em `ContextoEscalaAtivo`/os seletores em si.
+
+Nenhuma mudança de schema Firestore, nenhuma Rule nova, nenhuma
+publicação de Plantão introduzida. Ver
+`CHECKPOINT-FASE-ESCALAS-UX-2B2-HOMOLOGACAO.md` e
+`docs/spec/EDITOR_ESCALAS.md` §12.11 para o detalhamento completo.

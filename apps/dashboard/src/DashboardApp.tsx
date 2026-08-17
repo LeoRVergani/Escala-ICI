@@ -588,6 +588,14 @@ interface FormularioUsuario {
   email: string;
   login: string;
   cargo: string;
+  /**
+   * Fase ESCALAS-UX-2B.2 — pertencimento organizacional real (§ 5-9 do
+   * pedido). Vazio (`''`) quando não há fonte inequívoca de equipe — força
+   * o gestor a escolher explicitamente via `OrganizationTeamPicker`, nunca
+   * um default de sigla (`EQ_SOC`) ou herdado de `usuarioEfetivo`/de um
+   * Grupo de Plantão. Ver `salvarFormularioUsuario()`.
+   */
+  equipeId: string;
   nivelHierarquico: number;
   turnoPadrao: string;
   ativo: boolean;
@@ -2402,7 +2410,15 @@ function ModalNovaEscala({
   );
 }
 
-type AbaPreviaPlantao = 'calendario' | 'resumo' | 'plantoes' | 'contabilidade' | 'vinculos';
+/**
+ * Fase ESCALAS-UX-2B.2 — `'resumo'` removida (§ 31/§ 32 do pedido): o
+ * roster lateral (`PlantaoRoster`, ESCALAS-UX-2B) já é o resumo primário
+ * por pessoa; o conteúdo remanescente exclusivo desta aba (erros/avisos
+ * estruturais da planilha importada) foi realocado para dentro de
+ * "Contabilidade" (seção "Conferência do arquivo importado") — nenhuma
+ * informação operacional foi perdida.
+ */
+type AbaPreviaPlantao = 'calendario' | 'plantoes' | 'contabilidade' | 'vinculos';
 
 interface PreviewPlantaoProps {
   /**
@@ -2430,7 +2446,14 @@ interface PreviewPlantaoProps {
   podeValidar: boolean;
   validada: boolean;
   onValidar: () => void;
-  onIrParaUsuarios: () => void;
+  /**
+   * Fase ESCALAS-UX-2B.2 — § 17-20 do pedido: cadastrar um usuário novo a
+   * partir de um participante sem login encontrado abre o MESMO modal de
+   * cadastro sem sair de Vínculos (nunca mais "Ir para Usuários" como
+   * ação principal). Recebe o nome do participante + o termo já digitado
+   * na busca (candidato razoável de login, nunca inventado).
+   */
+  onCadastrarEVincular: (participanteNomeOriginal: string, loginSugerido: string) => void;
   /**
    * Fase ESCALAS-UX-1A — o Editor visual. `atribuicoesEditaveis` é a
    * WORKING COPY (nunca `resultado.atribuicoes`, que fica congelado para a
@@ -2485,7 +2508,7 @@ function PreviewPlantao({
   podeValidar,
   validada,
   onValidar,
-  onIrParaUsuarios,
+  onCadastrarEVincular,
   atribuicoesEditaveis,
   competencia,
   periodoInicio,
@@ -2606,7 +2629,6 @@ function PreviewPlantao({
       <article className="panel">
         <div className="segmented-control" aria-label="Seções da prévia de Plantão">
           <button type="button" className={aba === 'calendario' ? 'active' : ''} aria-pressed={aba === 'calendario'} onClick={() => onMudarAba('calendario')}>Calendário</button>
-          <button type="button" className={aba === 'resumo' ? 'active' : ''} aria-pressed={aba === 'resumo'} onClick={() => onMudarAba('resumo')}>Resumo</button>
           <button type="button" className={aba === 'plantoes' ? 'active' : ''} aria-pressed={aba === 'plantoes'} onClick={() => onMudarAba('plantoes')}>Lista</button>
           <button type="button" className={aba === 'contabilidade' ? 'active' : ''} aria-pressed={aba === 'contabilidade'} onClick={() => onMudarAba('contabilidade')}>Contabilidade</button>
           <button type="button" className={aba === 'vinculos' ? 'active' : ''} aria-pressed={aba === 'vinculos'} onClick={() => onMudarAba('vinculos')}>
@@ -2704,42 +2726,6 @@ function PreviewPlantao({
           </div>
         )}
 
-        {aba === 'resumo' && (
-          <div className="plantao-resumo-conteudo">
-            {resultado === null ? (
-              <p>Não houve leitura de planilha nesta escala — não há erro ou aviso estrutural aqui.</p>
-            ) : (
-              <>
-                {resultado.erros.length > 0 && (
-                  <div className="table-scroll">
-                    <table className="data-table">
-                      <thead><tr><th>Local</th><th>Plantonista</th><th>Valor</th><th>Motivo</th></tr></thead>
-                      <tbody>
-                        {resultado.erros.map((erro: ErroImportacaoPlantao, indice) => (
-                          <tr key={`${erro.linha}-${erro.coluna}-${indice}`}>
-                            <td>{erro.coluna}{erro.linha}</td>
-                            <td>{erro.plantonistaNomeOriginal ?? '—'}</td>
-                            <td><code>{erro.valorEncontrado}</code></td>
-                            <td>{erro.motivo}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {resultado.avisos.length > 0 && (
-                  <ul className="warning-list">
-                    {resultado.avisos.map((aviso) => <li key={aviso}>{aviso}</li>)}
-                  </ul>
-                )}
-                {resultado.erros.length === 0 && resultado.avisos.length === 0 && (
-                  <p>Nenhum erro ou aviso estrutural na leitura desta planilha.</p>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
         {aba === 'plantoes' && (
           <div className="table-scroll">
             <table className="data-table">
@@ -2821,6 +2807,54 @@ function PreviewPlantao({
             ) : (
               <p>Não há contabilidade de planilha para conferir nesta escala.</p>
             )}
+            {/*
+             * Fase ESCALAS-UX-2B.2 — § 31/§ 32 do pedido: conteúdo
+             * realocado da antiga aba "Resumo" (removida — o roster
+             * lateral já é o resumo primário por pessoa). Erros/avisos
+             * ESTRUTURAIS da leitura da planilha são informação da FONTE
+             * importada, então pertencem aqui, nunca misturados com a
+             * working copy acima. Recolhível por padrão — informação
+             * auditável disponível, nunca obrigatória de olhar.
+             */}
+            <details className="plantao-conferencia-importada">
+              <summary>
+                <h3>Conferência do arquivo importado</h3>
+                <p>Erros e avisos estruturais detectados na leitura da planilha original.</p>
+              </summary>
+              <div className="plantao-conferencia-importada-corpo">
+                {resultado === null ? (
+                  <p>Não houve leitura de planilha nesta escala — não há erro ou aviso estrutural aqui.</p>
+                ) : (
+                  <>
+                    {resultado.erros.length > 0 && (
+                      <div className="table-scroll">
+                        <table className="data-table">
+                          <thead><tr><th>Local</th><th>Plantonista</th><th>Valor</th><th>Motivo</th></tr></thead>
+                          <tbody>
+                            {resultado.erros.map((erro: ErroImportacaoPlantao, indice) => (
+                              <tr key={`${erro.linha}-${erro.coluna}-${indice}`}>
+                                <td>{erro.coluna}{erro.linha}</td>
+                                <td>{erro.plantonistaNomeOriginal ?? '—'}</td>
+                                <td><code>{erro.valorEncontrado}</code></td>
+                                <td>{erro.motivo}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {resultado.avisos.length > 0 && (
+                      <ul className="warning-list">
+                        {resultado.avisos.map((aviso) => <li key={aviso}>{aviso}</li>)}
+                      </ul>
+                    )}
+                    {resultado.erros.length === 0 && resultado.avisos.length === 0 && (
+                      <p>Nenhum erro ou aviso estrutural na leitura desta planilha.</p>
+                    )}
+                  </>
+                )}
+              </div>
+            </details>
           </>
         )}
 
@@ -2898,8 +2932,12 @@ function PreviewPlantao({
                               </button>
                             )}
                             {vinculo.status === 'USUARIO_NAO_ENCONTRADO' && (
-                              <button type="button" className="secondary-button compact-button" onClick={onIrParaUsuarios}>
-                                <UserPlus size={14} /> Ir para Usuários
+                              <button
+                                type="button"
+                                className="secondary-button compact-button"
+                                onClick={() => onCadastrarEVincular(participante.nomeOriginal, termo.trim())}
+                              >
+                                <UserPlus size={14} /> Cadastrar e vincular
                               </button>
                             )}
                           </>
@@ -2988,7 +3026,7 @@ export function DashboardApp() {
   const [resultadoPlantao, setResultadoPlantao] = useState<ResultadoParsePlantao | null>(null);
   const [vinculosPlantao, setVinculosPlantao] = useState<VinculoPlantao[]>([]);
   const [previaPlantaoValidada, setPreviaPlantaoValidada] = useState(false);
-  const [abaPreviaPlantao, setAbaPreviaPlantao] = useState<'calendario' | 'resumo' | 'plantoes' | 'contabilidade' | 'vinculos'>('calendario');
+  const [abaPreviaPlantao, setAbaPreviaPlantao] = useState<AbaPreviaPlantao>('calendario');
   const [buscaVinculoPlantao, setBuscaVinculoPlantao] = useState<Record<string, string>>({});
   /**
    * Fase ESCALAS-UX-1A — a WORKING COPY editável do Editor visual.
@@ -3039,12 +3077,20 @@ export function DashboardApp() {
   /**
    * Fase ESCALAS-UX-2B — confirmação contextual do padrão do Grupo
    * (`QuickAddPlantaoPopover`), aberta por `solicitarNovaAtribuicaoPlantao()`
-   * quando existe `padraoHorarioSemanal` para o dia+pessoa escolhidos.
-   * `null` = popover fechado. Nunca grava nada sozinho — só "Adicionar"
-   * confirma a criação na working copy.
+   * sempre que uma pessoa+dia são escolhidos (click, drag ou
+   * "+ Adicionar"). `null` = popover fechado. Nunca grava nada sozinho —
+   * só "Adicionar" confirma a criação na working copy.
+   *
+   * Fase ESCALAS-UX-2B.2 — `padrao` passou a aceitar `null` (§ 23-25 do
+   * pedido): antes, sem padrão configurado para o dia, a função caía
+   * SILENCIOSAMENTE no editor completo — o coordenador via o modal grande
+   * aparecer sem entender por quê, sem diferenciar de um bug de drag.
+   * Agora o próprio popover mostra "Nenhum padrão configurado" com as
+   * ações "Configurar padrão"/"Informar horário manualmente" — nunca mais
+   * uma queda silenciosa para o modal grande.
    */
   const [quickAddPlantao, setQuickAddPlantao] = useState<
-    { plantonistaNomeOriginal: string; dataIso: string; padrao: PadraoHorarioPlantaoDia } | null
+    { plantonistaNomeOriginal: string; dataIso: string; padrao: PadraoHorarioPlantaoDia | null } | null
   >(null);
 
   /**
@@ -3136,6 +3182,20 @@ export function DashboardApp() {
   const [formularioUsuario, setFormularioUsuario] = useState<FormularioUsuario | null>(null);
   const [errosFormularioUsuario, setErrosFormularioUsuario] = useState<string[]>([]);
   const [novoAliasDraft, setNovoAliasDraft] = useState('');
+  /**
+   * Fase ESCALAS-UX-2B.2 — qual participante pendente de Vínculos abriu o
+   * cadastro (`abrirCadastroDeVinculoPlantao`, § 17-20 do pedido). `null`
+   * quando o cadastro foi aberto pela tela "Usuários" normalmente. Depois
+   * de salvar com sucesso, este valor decide se o vínculo é aplicado
+   * automaticamente ao participante que originou o cadastro.
+   */
+  const [origemCadastroVinculoPlantao, setOrigemCadastroVinculoPlantao] = useState<string | null>(null);
+  const [pickerEquipeUsuarioAberto, setPickerEquipeUsuarioAberto] = useState(false);
+  const botaoEquipeUsuarioRef = useRef<HTMLButtonElement>(null);
+  function fecharPickerEquipeUsuario() {
+    setPickerEquipeUsuarioAberto(false);
+    botaoEquipeUsuarioRef.current?.focus();
+  }
   const [descarteRascunhoPendente, setDescarteRascunhoPendente] = useState(false);
   const [membroGradeDraft, setMembroGradeDraft] = useState<{ login: string; turnoPadrao: string } | null>(null);
   const [removerMembroPendente, setRemoverMembroPendente] = useState<TurnosMes | null>(null);
@@ -4010,10 +4070,9 @@ export function DashboardApp() {
     }
     const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === grupoRascunhoEscolhido);
     const padrao = grupo === undefined ? null : obterPadraoHorarioGrupoParaData(grupo, dataIso);
-    if (padrao === null) {
-      abrirCriacaoAtribuicaoPlantao(dataIso, plantonistaNomeOriginal);
-      return;
-    }
+    // Fase ESCALAS-UX-2B.2 — sempre abre o quick-add, com ou sem padrão
+    // (nunca mais cai direto/silenciosamente no editor completo); o
+    // próprio popover decide o que mostrar a partir de `padrao`.
     setQuickAddPlantao({ plantonistaNomeOriginal, dataIso, padrao });
   }
 
@@ -4021,10 +4080,10 @@ export function DashboardApp() {
     setQuickAddPlantao(null);
   }
 
-  /** "Adicionar" do quick-add — confirma o padrão do Grupo como a nova atribuição. */
+  /** "Adicionar" do quick-add — confirma o padrão do Grupo como a nova atribuição. Só age quando há padrão. */
   function confirmarQuickAddPlantao() {
     const estado = quickAddPlantao;
-    if (estado === null) {
+    if (estado === null || estado.padrao === null) {
       return;
     }
     criarAtribuicaoPlantaoNaWorkingCopy(construirAtribuicaoDoPadraoHorario({
@@ -4035,14 +4094,62 @@ export function DashboardApp() {
     setQuickAddPlantao(null);
   }
 
-  /** "Outro horário" do quick-add — fecha o popover e abre o editor completo, mesmo pré-preenchimento de sempre. */
+  /**
+   * "Outro horário" do quick-add (só aparece quando HÁ padrão) — fecha o
+   * popover e abre o editor completo já pré-preenchido com o horário do
+   * padrão (§ 28 do pedido: nunca obrigar a redigitar tudo quando o
+   * padrão já é um bom ponto de partida) — o coordenador ainda pode
+   * ajustar qualquer campo livremente antes de salvar.
+   */
   function abrirOutroHorarioQuickAddPlantao() {
+    const estado = quickAddPlantao;
+    if (estado === null || estado.padrao === null) {
+      return;
+    }
+    setQuickAddPlantao(null);
+    const derivado = construirAtribuicaoDoPadraoHorario({
+      plantonistaNomeOriginal: estado.plantonistaNomeOriginal,
+      dataCivil: estado.dataIso,
+      padrao: estado.padrao,
+    });
+    setModalAtribuicaoPlantao({
+      modo: 'criar',
+      idLocal: null,
+      valoresIniciais: {
+        plantonistaNomeOriginal: derivado.plantonistaNomeOriginal,
+        inicio: derivado.inicio,
+        fim: derivado.fim,
+      },
+    });
+  }
+
+  /**
+   * "Informar horário manualmente" do quick-add (só aparece quando NÃO há
+   * padrão) — mesmo editor completo de sempre, início/fim vazios (nada a
+   * derivar de um padrão inexistente — nunca inventa horário).
+   */
+  function informarHorarioManualmenteQuickAdd() {
     const estado = quickAddPlantao;
     if (estado === null) {
       return;
     }
     setQuickAddPlantao(null);
     abrirCriacaoAtribuicaoPlantao(estado.dataIso, estado.plantonistaNomeOriginal);
+  }
+
+  /**
+   * "Configurar padrão" do quick-add (só aparece quando NÃO há padrão) —
+   * leva para Administração → Grupos de Plantão → o Grupo atual, já
+   * aberto para edição (§ 26 do pedido: nunca configurar padrão dentro do
+   * calendário, nunca salvar nada automaticamente).
+   */
+  function irConfigurarPadraoQuickAdd() {
+    setQuickAddPlantao(null);
+    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === grupoRascunhoEscolhido);
+    setTela('plantoes');
+    if (grupo !== undefined) {
+      abrirEdicaoGrupoPlantao(grupo);
+    }
   }
 
   function excluirModalAtribuicaoPlantao() {
@@ -4796,6 +4903,12 @@ export function DashboardApp() {
     setMensagem('Célula atualizada no rascunho local. Salve para persistir.');
   }
 
+  /**
+   * Fase ESCALAS-UX-2B.2 — `equipeId` nasce vazio (§ 7 do pedido): não há
+   * nenhuma fonte inequívoca de pertencimento organizacional para um
+   * cadastro novo genérico (nem `usuarioEfetivo.equipeId`, nem um Grupo de
+   * Plantão) — o gestor escolhe explicitamente pelo seletor real.
+   */
   function abrirNovoUsuario() {
     setFormularioUsuario({
       loginOriginal: null,
@@ -4803,6 +4916,7 @@ export function DashboardApp() {
       email: '',
       login: '',
       cargo: '',
+      equipeId: '',
       nivelHierarquico: 6,
       turnoPadrao: 'M',
       ativo: true,
@@ -4812,6 +4926,7 @@ export function DashboardApp() {
     });
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
+    setOrigemCadastroVinculoPlantao(null);
   }
 
   function abrirEdicaoUsuario(item: Usuario) {
@@ -4821,6 +4936,7 @@ export function DashboardApp() {
       email: item.email,
       login: item.login,
       cargo: item.cargo,
+      equipeId: item.equipeId,
       nivelHierarquico: item.nivelHierarquico,
       turnoPadrao: item.turnoPadrao,
       ativo: item.ativo,
@@ -4833,12 +4949,44 @@ export function DashboardApp() {
     });
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
+    setOrigemCadastroVinculoPlantao(null);
+  }
+
+  /**
+   * Fase ESCALAS-UX-2B.2 — abre o MESMO modal de cadastro, a partir de um
+   * participante de Vínculos pendente sem login encontrado (§ 17-20 do
+   * pedido) — nunca navega para "Usuários", nunca sai da tela de
+   * Importação/Vínculos. Prefill só do que é realmente conhecido: nome do
+   * participante (vindo da planilha) e o termo já digitado na busca (se o
+   * gestor tentou buscar um login e não achou, é um candidato razoável de
+   * login — nunca um e-mail/domínio inventado). Equipe nasce vazia, como
+   * qualquer outro cadastro novo.
+   */
+  function abrirCadastroDeVinculoPlantao(participanteNomeOriginal: string, loginSugerido: string) {
+    setFormularioUsuario({
+      loginOriginal: null,
+      nome: participanteNomeOriginal,
+      email: '',
+      login: loginSugerido,
+      cargo: '',
+      equipeId: '',
+      nivelHierarquico: 6,
+      turnoPadrao: 'M',
+      ativo: true,
+      aliasesPlanilha: [],
+      unidadesPermitidas: [],
+      equipesPermitidas: [],
+    });
+    setErrosFormularioUsuario([]);
+    setNovoAliasDraft('');
+    setOrigemCadastroVinculoPlantao(participanteNomeOriginal);
   }
 
   function fecharFormularioUsuario() {
     setFormularioUsuario(null);
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
+    setOrigemCadastroVinculoPlantao(null);
   }
 
   function adicionarAliasDraft() {
@@ -4919,6 +5067,13 @@ export function DashboardApp() {
         nome: formularioUsuario.nome,
         email: formularioUsuario.email,
         cargo: formularioUsuario.cargo,
+        // Fase ESCALAS-UX-2B.2 — `novoUsuario()` internamente assume
+        // `gestor.equipeId` (o operador logado) como fallback — nunca a
+        // fonte real de pertencimento de um NOVO colaborador. A escolha
+        // explícita do gestor no formulário (`formularioUsuario.equipeId`,
+        // validada como obrigatória por `validarEdicaoUsuario`) sempre
+        // sobrescreve esse fallback. Nunca `grupo.equipeResponsavelId`.
+        equipeId: formularioUsuario.equipeId,
         nivelHierarquico: formularioUsuario.nivelHierarquico,
         turnoPadrao: formularioUsuario.turnoPadrao,
         aliasesPlanilha: formularioUsuario.aliasesPlanilha,
@@ -4934,6 +5089,10 @@ export function DashboardApp() {
         nome: formularioUsuario.nome,
         email: formularioUsuario.email,
         cargo: formularioUsuario.cargo,
+        // Vínculo a um Plantão NUNCA altera equipeId (§ 22 do pedido) — o
+        // valor aqui só muda quando o próprio gestor escolhe outra equipe
+        // explicitamente nesta tela de edição de usuário.
+        equipeId: formularioUsuario.equipeId,
         nivelHierarquico: formularioUsuario.nivelHierarquico,
         turnoPadrao: formularioUsuario.turnoPadrao,
         ativo: formularioUsuario.ativo,
@@ -4960,6 +5119,14 @@ export function DashboardApp() {
       setMensagem(formularioUsuario.loginOriginal === null
         ? 'Usuário cadastrado com sucesso.'
         : 'Usuário atualizado com sucesso.');
+      // Fase ESCALAS-UX-2B.2 — § 20 do pedido: cadastro iniciado a partir
+      // de um participante pendente de Vínculos vincula automaticamente
+      // ao usuário recém-criado (identidade exata: mesmo participante,
+      // mesmo objeto Usuario que acabou de ser salvo) — nunca exige
+      // pesquisar o login de novo.
+      if (formularioUsuario.loginOriginal === null && origemCadastroVinculoPlantao !== null) {
+        confirmarVinculoPlantaoAcao(origemCadastroVinculoPlantao, candidato);
+      }
       fecharFormularioUsuario();
     } catch (falha) {
       setErrosFormularioUsuario([mensagemErroFirebase(falha, 'Não foi possível salvar o usuário.', ambienteFirebaseAtual)]);
@@ -6008,6 +6175,11 @@ export function DashboardApp() {
         ? 'publicada'
         : 'rascunho';
   const periodoContextoAtivo = contextoEscalaAtivo === null ? null : periodoDaCompetencia(contextoEscalaAtivo.competencia);
+  /** Fase ESCALAS-UX-2B.2 — resolve o rótulo real da equipe escolhida no cadastro de usuário (nunca um ID técnico solto). */
+  const equipeFormularioUsuarioAtual = formularioUsuario === null
+    ? undefined
+    : equipesAdmin.find((item) => item.id === formularioUsuario.equipeId);
+  const raizesParaOPickerUsuario = raizesComEquipesSemUnidade(arvoreOrganizacionalAdmin);
 
   return (
     <AppFrame
@@ -6324,7 +6496,7 @@ export function DashboardApp() {
               podeValidar={previaPlantaoPodeValidar}
               validada={previaPlantaoValidada}
               onValidar={validarPreviaPlantao}
-              onIrParaUsuarios={() => setTela('usuarios')}
+              onCadastrarEVincular={abrirCadastroDeVinculoPlantao}
               atribuicoesEditaveis={atribuicoesEditaveisPlantao}
               competencia={competenciaRascunho}
               periodoInicio={periodoInicioRascunho}
@@ -6358,6 +6530,8 @@ export function DashboardApp() {
               padrao={quickAddPlantao.padrao}
               onAdicionar={confirmarQuickAddPlantao}
               onOutroHorario={abrirOutroHorarioQuickAddPlantao}
+              onConfigurarPadrao={irConfigurarPadraoQuickAdd}
+              onInformarManualmente={informarHorarioManualmenteQuickAdd}
               onFechar={fecharQuickAddPlantao}
             />
           )}
@@ -8153,10 +8327,37 @@ export function DashboardApp() {
                   onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, cargo: evento.target.value })}
                 />
               </label>
-              <label>
-                Equipe
-                <input value={usuarioEfetivo?.equipeId ?? ''} disabled />
-              </label>
+              <div className="user-form-full">
+                <span className="organization-picker-label">Equipe *</span>
+                {equipeFormularioUsuarioAtual ? (
+                  <div className="organization-picker-valor">
+                    <div>
+                      <strong>{equipeFormularioUsuarioAtual.nome}</strong>
+                      {equipeFormularioUsuarioAtual.caminhoUnidade && (
+                        <OrganizationBreadcrumb caminho={equipeFormularioUsuarioAtual.caminhoUnidade} unidades={unidadesAdmin} />
+                      )}
+                    </div>
+                    <button
+                      ref={botaoEquipeUsuarioRef}
+                      type="button"
+                      className="secondary-button compact-button"
+                      onClick={() => setPickerEquipeUsuarioAberto(true)}
+                    >
+                      Alterar
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    ref={botaoEquipeUsuarioRef}
+                    type="button"
+                    className="secondary-button compact-button"
+                    onClick={() => setPickerEquipeUsuarioAberto(true)}
+                  >
+                    Selecionar equipe
+                  </button>
+                )}
+                <small>Pertencimento organizacional real — nunca inferido por participar de um Grupo de Plantão.</small>
+              </div>
               <label>
                 Nível hierárquico
                 <input
@@ -8322,6 +8523,21 @@ export function DashboardApp() {
             </div>
           </section>
         </div>
+      )}
+
+      {formularioUsuario !== null && pickerEquipeUsuarioAberto && (
+        <OrganizationTeamPicker
+          modo="single"
+          titulo="Selecionar equipe"
+          descricao="Pertencimento organizacional real do colaborador — nunca inferido por Grupo de Plantão."
+          raizes={raizesParaOPickerUsuario}
+          valor={formularioUsuario.equipeId || null}
+          onFechar={fecharPickerEquipeUsuario}
+          onConfirmar={(equipeId) => {
+            setFormularioUsuario((atual) => (atual === null ? atual : { ...atual, equipeId }));
+            fecharPickerEquipeUsuario();
+          }}
+        />
       )}
 
       {colaboradorLembretes && modalAtribuirLembrete === null && (

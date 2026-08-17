@@ -118,6 +118,21 @@ describe('validação de edição de usuário', () => {
     expect(erros).toContain('Informe um nível hierárquico válido.');
   });
 
+  /**
+   * Fase ESCALAS-UX-2B.2 — `equipeId` vazio nunca pode ser salvo: nem um
+   * cadastro genérico, nem um cadastro iniciado a partir de um Grupo de
+   * Plantão (que nunca é fonte segura de equipeId — ver `DashboardApp.tsx`).
+   */
+  it('recusa equipeId vazio', () => {
+    const erros = validarEdicaoUsuario({ ...gestora, equipeId: '' }, equipe, gestora.login);
+    expect(erros).toContain('Selecione a equipe do colaborador.');
+  });
+
+  it('recusa equipeId só com espaços', () => {
+    const erros = validarEdicaoUsuario({ ...gestora, equipeId: '   ' }, equipe, gestora.login);
+    expect(erros).toContain('Selecione a equipe do colaborador.');
+  });
+
   it('ignora conflito de login com cadastro inativo', () => {
     const equipeComInativo: Usuario[] = [
       { ...gestora },
