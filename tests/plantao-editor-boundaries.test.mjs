@@ -62,7 +62,7 @@ test('5. o modal de edição não hardcoda um horário padrão (ex.: 19:00→07:
   assert.doesNotMatch(fonte, /07:00/u, 'nenhum horário fixo de COSI pode vir pré-preenchido');
 });
 
-test('6. drag-and-drop, geradores automáticos e cópia de período não foram introduzidos nesta fase', async () => {
+test('6. geradores automáticos e cópia de período não foram introduzidos nesta fase (drag-and-drop passou a ser autorizado na ESCALAS-UX-2B — ver tests/plantao-roster-drag-boundaries.test.mjs)', async () => {
   const arquivos = await Promise.all([
     ler('lib/editorPlantao.ts'),
     ler('components/plantao/PlantaoCalendario.tsx'),
@@ -70,7 +70,7 @@ test('6. drag-and-drop, geradores automáticos e cópia de período não foram i
   ]);
   for (const fonteBruta of arquivos) {
     const fonte = semComentarios(fonteBruta);
-    for (const proibido of ['onDragStart', 'onDrop', 'draggable', 'gerarEscalaAutomatica', 'copiarPeriodoAnterior', 'distribuicaoAutomatica']) {
+    for (const proibido of ['gerarEscalaAutomatica', 'copiarPeriodoAnterior', 'distribuicaoAutomatica']) {
       assert.doesNotMatch(fonte, new RegExp(proibido, 'iu'), proibido);
     }
   }
@@ -315,7 +315,7 @@ test('27. nenhum gerador automático, rotação ou regra de cobertura foi introd
 
 test('28. a distribuição rápida por clique nunca inventa horário — abrirCriacaoAtribuicaoPlantao continua abrindo o modal com início/fim vazios mesmo com plantonista selecionado', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  const corpo = /function abrirCriacaoAtribuicaoPlantao\(dataIso: string\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  const corpo = /function abrirCriacaoAtribuicaoPlantao\(dataIso: string, plantonistaNomeOriginal\?: string\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(corpo, 'abrirCriacaoAtribuicaoPlantao precisa existir');
   assert.match(corpo[1], /inicio:\s*\{\s*data:\s*dataIso,\s*hora:\s*''\s*\}/u, 'início nunca pode vir pré-preenchido com um horário');
   assert.match(corpo[1], /fim:\s*\{\s*data:\s*dataIso,\s*hora:\s*''\s*\}/u, 'fim nunca pode vir pré-preenchido com um horário');
@@ -333,27 +333,30 @@ test('29. a seleção de plantonista (painel "Resumo por pessoa") é puramente d
   }
 });
 
-test('30. drag-and-drop continua deliberadamente não implementado nesta fase — só o caminho por clique/toque', async () => {
+/**
+ * 30. ERRATA (ESCALAS-UX-2B) — este teste, criado em ESCALAS-UX-1C,
+ * proibia drag-and-drop porque aquela fase explicitamente NÃO o
+ * implementava. A ESCALAS-UX-2B autoriza drag-and-drop no roster/
+ * calendário de Plantão como um segundo gatilho para a MESMA operação já
+ * usada pelo clique (nunca um pipeline de domínio paralelo) — a
+ * cobertura completa dessa garantia (drag e click convergem para
+ * `solicitarNovaAtribuicaoPlantao`, drop nunca grava Firestore, sem drag
+ * no mobile) vive em `tests/plantao-roster-drag-boundaries.test.mjs`.
+ * `lib/montagemRascunhoPlantao.ts`/`lib/conciliacaoPlantoes.ts` continuam
+ * sem nenhuma menção a drag — só a camada de apresentação (roster/
+ * calendário) ganhou os handlers nativos do navegador.
+ */
+test('30. drag-and-drop não vazou para os módulos de domínio puro (montagem/conciliação) — só a camada de apresentação (roster/calendário) manipula eventos de drag', async () => {
   const arquivos = await Promise.all([
     ler('lib/montagemRascunhoPlantao.ts'),
-    ler('lib/editorPlantao.ts'),
     ler('lib/conciliacaoPlantoes.ts'),
-    ler('components/plantao/PlantaoCalendario.tsx'),
-    ler('components/plantao/ModalEditarAtribuicaoPlantao.tsx'),
   ]);
   for (const fonteBruta of arquivos) {
     const fonte = semComentarios(fonteBruta);
-    for (const proibido of ['onDragStart', 'onDragOver', 'onDrop=', 'draggable={true}', 'draggable="true"']) {
-      assert.doesNotMatch(fonte, new RegExp(proibido.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'), proibido);
+    for (const proibido of ['onDragStart', 'onDragOver', 'onDrop', 'draggable']) {
+      assert.doesNotMatch(fonte, new RegExp(proibido, 'u'), `${proibido} não pode existir num módulo de domínio puro`);
     }
   }
-  // O Dashboard já usa `onDrop`/`draggable` para o dropzone de importação de
-  // planilha (recurso anterior, fora de escopo) — a prova específica desta
-  // fase é que o painel "Resumo por pessoa" continua sendo botões
-  // clicáveis (`aria-pressed`), nunca elementos arrastáveis.
-  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  assert.match(dashboard, /className=\{`plantao-pessoa-selecionar/u, 'a seleção de plantonista precisa continuar sendo um botão clicável, não um item arrastável');
-  assert.doesNotMatch(dashboard, /plantao-pessoa-selecionar[^`]*draggable/u, 'o botão de seleção de plantonista não pode virar arrastável');
 });
 
 test('31. "Usar período anterior" só lê a competência anterior (nunca a reidrata como working copy nem grava nela) — usarPeriodoAnteriorAcao nunca chama salvarAtribuicoesPlantaoRascunho/salvarCompetenciaPlantaoRascunho com a competência anterior', async () => {

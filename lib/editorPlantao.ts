@@ -1,4 +1,5 @@
 import {
+  adicionarDias,
   calcularDuracaoBrutaDosIntervalos,
   calcularDuracaoEntreMomentos,
   detectarSobreposicoesPlantao,
@@ -6,6 +7,7 @@ import {
   type AtribuicaoPlantaoBruta,
   type LacunaPlantao,
   type MomentoPlantao,
+  type PadraoHorarioPlantaoDia,
   type SobreposicaoPlantao,
   type TotalBrutoPlantao,
 } from '@escala-ici/contrato';
@@ -179,6 +181,35 @@ export function excluirAtribuicaoEditavel(
   idLocal: string,
 ): AtribuicaoPlantaoEditavel[] {
   return atribuicoes.filter((atribuicao) => atribuicao.idLocal !== idLocal);
+}
+
+/**
+ * Fase ESCALAS-UX-2B — ÚNICA função que transforma "pessoa + dia clicado/
+ * arrastado + padrão do Grupo" numa criação de atribuição — usada pelo
+ * quick-add (`solicitarNovaAtribuicaoPlantao()`, Dashboard) depois que o
+ * usuário confirma "Adicionar", nunca por click/drag diretamente (o drop
+ * em si nunca grava — § 11/§13 do pedido). Reaproveita `adicionarDias()`
+ * (`@escala-ici/contrato`) para a virada de dia — nunca um cálculo de data
+ * manual. `fimDiaOffset` decide a data de FIM; a data de INÍCIO é sempre
+ * `dataCivil`, sem exceção. Retorna o mesmo formato que
+ * `adicionarAtribuicaoEditavel()`/`FormularioAtribuicaoPlantao` esperam —
+ * nenhum objeto paralelo construído em outro lugar (drag/click/modal
+ * convergem para o mesmo `adicionarAtribuicaoEditavel()` depois disto).
+ */
+export function construirAtribuicaoDoPadraoHorario(opcoes: {
+  plantonistaNomeOriginal: string;
+  dataCivil: string;
+  padrao: PadraoHorarioPlantaoDia;
+}): { plantonistaNomeOriginal: string; inicio: MomentoPlantao; fim: MomentoPlantao } {
+  const { plantonistaNomeOriginal, dataCivil, padrao } = opcoes;
+  return {
+    plantonistaNomeOriginal,
+    inicio: { data: dataCivil, hora: padrao.horaInicio },
+    fim: {
+      data: padrao.fimDiaOffset === 1 ? adicionarDias(dataCivil, 1) : dataCivil,
+      hora: padrao.horaFim,
+    },
+  };
 }
 
 /**

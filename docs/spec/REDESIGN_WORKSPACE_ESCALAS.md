@@ -580,6 +580,15 @@ Layout de duas áreas (nunca três colunas permanentes):
 
 ## 14. Roster lateral
 
+> **Nota de implementação (ESCALAS-UX-2B)**: implementado para Plantão
+> como `components/plantao/PlantaoRoster.tsx` — 260px desktop (200px em
+> telas ≤960px, empilha acima do calendário em ≤780px), sticky, busca só
+> acima de 8 pessoas, reaproveitando `resumirPorPessoa()`/
+> `indiceIdentidadePlantonista()` sem nenhum recálculo. A avaliação para a
+> Grade 6x1 (substituir a primeira coluna de `ScheduleGrid` pelo mesmo
+> painel) permanece registrada como próximo passo, não implementada nesta
+> fase. Ver `CHECKPOINT-FASE-ESCALAS-UX-2B-ROSTER-DRAG.md`.
+
 Redesign do atual "Resumo por pessoa" (hoje abaixo do calendário,
 exigindo scroll — § 2.2) como painel lateral fixo:
 
@@ -668,6 +677,17 @@ acima).
 ---
 
 ## 16. Drag-and-drop (atalho opcional) + alternativa sem drag
+
+> **Nota de implementação (ESCALAS-UX-2B)**: o drop NÃO abre mais
+> incondicionalmente o modal completo como esta proposta original
+> descrevia — quando existe `padraoHorarioSemanal` para o dia
+> (`PLANTAO-PADRAO-1`), abre primeiro o quick-add
+> (`QuickAddPlantaoPopover`) para confirmar/ajustar o padrão sugerido;
+> "Outro horário" dentro dele abre o editor completo exatamente como
+> descrito abaixo. Sem padrão configurado, o comportamento é IDÊNTICO ao
+> proposto aqui. Ambos os caminhos (com e sem padrão) convergem para
+> `solicitarNovaAtribuicaoPlantao(plantonistaNomeOriginal, dataIso)` — a
+> mesma função por trás do clique.
 
 ```
 DESKTOP (opcional):
@@ -1540,7 +1560,7 @@ modelo de contexto novo por cima dela.
 | **ESCALAS-UX-2A.1-FIX** ✅ **implementada** | Correção de 3 desvios do relatório final da 2A.1: (1) dirty de Plantão passou a ser um estado explícito (`plantaoPossuiAlteracoesNaoSalvas`), nunca mais `plantaoEditadoDesdeImportacao`; (2) dirty de Jornada (`jornadaPossuiAlteracoesNaoSalvas`, renomeado de `jornadaEditadaDesdeCarregamento`) passou a cobrir também os pontos de importação/reconciliação, não só `editarCelula()`; (3) o switcher de Plantão só lista para edição `gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao)` — grupos só-consultados deixaram de aparecer como contexto editável. Ver `CHECKPOINT-FASE-ESCALAS-UX-2A1-FIX-DIRTY.md`. | ESCALAS-UX-2A.1 |
 | *(follow-up, não nomeado ainda)* | `NewScheduleDialog` redesenhado + "Criar vazia"/"Usar anterior" para Jornada 6x1 — parte do § 36 original que ficou de fora da ESCALAS-UX-2A.1 real. | ESCALAS-UX-2A.1-FIX |
 | **PLANTAO-PADRAO-1** ✅ **implementada** | Padrão semanal configurável por Grupo (§ 17/§ 18) — `GrupoPlantao.padraoHorarioSemanal?` (opcional, retrocompatível), helpers puros de consulta/validação/duração em `@escala-ici/contrato`, Rules (create/update aceitam e validam o campo, leitura inalterada), seção "Padrão de horário" em `ModalGrupoPlantao` (`PadraoHorarioSemanalCampo`). **NÃO inclui** nenhum consumo pelo Editor (clicar/arrastar para preencher horário) — isso é ESCALAS-UX-2B. Ver `CHECKPOINT-FASE-PLANTAO-PADRAO-1.md`. | ESCALAS-UX-2A (para o novo local de Administração já existir) |
-| **ESCALAS-UX-2B** | Roster lateral (§ 14) substituindo "Resumo por pessoa"; interação rápida (clique+clique já existe, só reposiciona); drag-and-drop opcional (§ 16) como atalho adicional sobre o mesmo pipeline de criação; consumo real de `GrupoPlantao.padraoHorarioSemanal` (`obterPadraoHorarioGrupoParaData()`, já pronto desde `PLANTAO-PADRAO-1`) para sugerir horário ao criar uma nova atribuição. | ESCALAS-UX-2A.1, PLANTAO-PADRAO-1 |
+| **ESCALAS-UX-2B** ✅ **implementada (escopo Plantão)** | Roster lateral (§ 14) substituindo "Resumo por pessoa" — `PlantaoRoster`; interação por clique reaproveitada (`plantonistaSelecionadoPlantao`); drag-and-drop nativo HTML5 (§ 16) como segundo gatilho para a MESMA operação de criação (`solicitarNovaAtribuicaoPlantao`); consumo real de `GrupoPlantao.padraoHorarioSemanal` via `obterPadraoHorarioGrupoParaData()` + popover de confirmação (`QuickAddPlantaoPopover`). **NÃO inclui** a Grade 6x1 (`ScheduleGrid` continua sem roster/drag — avaliação de como o mesmo princípio se aplica à Jornada fica para uma fase futura própria) nem o redesign de Resumo/Lista/Contabilidade/Vínculos (ESCALAS-UX-2C). Ver `CHECKPOINT-FASE-ESCALAS-UX-2B-ROSTER-DRAG.md`. | ESCALAS-UX-2A.1, PLANTAO-PADRAO-1 |
 | **ESCALAS-UX-2C** | Contabilidade redesenhada (§ 25), Pendências como painel (§ 26), limpeza de Lista (§ 24)/Resumo (§ 23) como abas — remoção formal das abas antigas, atualização de boundary tests (risco § 35.6). | ESCALAS-UX-2A.1 |
 | **HOMOLOGAÇÃO VISUAL** | Validação end-to-end do novo workspace (desktop 1440/1024, mobile 412/390/360, light/dark) para os dois tipos de escala, com o usuário testando diretamente (sem emulador+Playwright autônomo, conforme preferência já registrada). | ESCALAS-UX-2A, 2A.1, 2B, 2C |
 | **PLANTÃO-3C** | Publicação/histórico de Plantão — só depois do workspace estabilizado, para a UI de publicação já nascer dentro do novo `ScheduleHeader`/status, nunca como mais uma tela solta. | HOMOLOGAÇÃO VISUAL |

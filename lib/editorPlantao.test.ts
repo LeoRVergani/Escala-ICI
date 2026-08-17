@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import type { AtribuicaoPlantaoBruta } from '@escala-ici/contrato';
+import type { AtribuicaoPlantaoBruta, PadraoHorarioPlantaoDia } from '@escala-ici/contrato';
 
 import {
   TAMANHO_PALETA_IDENTIDADE_PLANTAO,
   adicionarAtribuicaoEditavel,
   agruparAtribuicoesPorDia,
   conferirEscalaAtualPlantao,
+  construirAtribuicaoDoPadraoHorario,
   criarAtribuicaoEditavelDeCompetenciaAnterior,
   criarAtribuicoesEditaveis,
   duracaoPlantaoAtipica,
@@ -393,5 +394,139 @@ describe('criarAtribuicaoEditavelDeCompetenciaAnterior — Fase ESCALAS-UX-1C ("
       fim: { data: '2026-08-26', hora: '19:00' },
       duracaoMinutos: 43 * 60,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase ESCALAS-UX-2B — construirAtribuicaoDoPadraoHorario (§47 do pedido)
+// ---------------------------------------------------------------------------
+
+describe('construirAtribuicaoDoPadraoHorario', () => {
+  it('1. domingo 19:00 → 07:00 +1: início no dia clicado, fim no dia seguinte', () => {
+    const padrao: PadraoHorarioPlantaoDia = { diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 };
+    const resultado = construirAtribuicaoDoPadraoHorario({
+      plantonistaNomeOriginal: 'Bruno Bueno',
+      dataCivil: '2026-08-16',
+      padrao,
+    });
+    expect(resultado.inicio).toEqual({ data: '2026-08-16', hora: '19:00' });
+    expect(resultado.fim).toEqual({ data: '2026-08-17', hora: '07:00' });
+  });
+
+  it('2. sexta 19:00 → 19:00 +1 (24h): início e fim no dia seguinte, mesma hora', () => {
+    const padrao: PadraoHorarioPlantaoDia = { diaSemana: 5, horaInicio: '19:00', horaFim: '19:00', fimDiaOffset: 1 };
+    const resultado = construirAtribuicaoDoPadraoHorario({
+      plantonistaNomeOriginal: 'Caroline Ferraz',
+      dataCivil: '2026-08-21',
+      padrao,
+    });
+    expect(resultado.inicio).toEqual({ data: '2026-08-21', hora: '19:00' });
+    expect(resultado.fim).toEqual({ data: '2026-08-22', hora: '19:00' });
+  });
+
+  it('3. padrão no mesmo dia (fimDiaOffset=0): início e fim compartilham a data clicada', () => {
+    const padrao: PadraoHorarioPlantaoDia = { diaSemana: 1, horaInicio: '08:00', horaFim: '18:00', fimDiaOffset: 0 };
+    const resultado = construirAtribuicaoDoPadraoHorario({
+      plantonistaNomeOriginal: 'Jean Alves',
+      dataCivil: '2026-08-17',
+      padrao,
+    });
+    expect(resultado.inicio.data).toBe('2026-08-17');
+    expect(resultado.fim.data).toBe('2026-08-17');
+  });
+
+  it('4. primeiro dia do período (26 do mês anterior): virada de dia continua correta', () => {
+    const padrao: PadraoHorarioPlantaoDia = { diaSemana: 3, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 };
+    const resultado = construirAtribuicaoDoPadraoHorario({
+      plantonistaNomeOriginal: 'Ana Costa',
+      dataCivil: '2026-07-26',
+      padrao,
+    });
+    expect(resultado.inicio.data).toBe('2026-07-26');
+    expect(resultado.fim.data).toBe('2026-07-27');
+  });
+
+  it('5. último dia do período (25 do mês), inclusive virada de mês', () => {
+    const padrao: PadraoHorarioPlantaoDia = { diaSemana: 2, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 };
+    const resultado = construirAtribuicaoDoPadraoHorario({
+      plantonistaNomeOriginal: 'Ana Costa',
+      dataCivil: '2026-08-25',
+      padrao,
+    });
+    expect(resultado.inicio.data).toBe('2026-08-25');
+    expect(resultado.fim.data).toBe('2026-08-26');
+  });
+
+  it('6. o nome do plantonista é preservado exatamente como recebido', () => {
+    const padrao: PadraoHorarioPlantaoDia = { diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 };
+    const resultado = construirAtribuicaoDoPadraoHorario({
+      plantonistaNomeOriginal: 'Bruno Bueno',
+      dataCivil: '2026-08-16',
+      padrao,
+    });
+    expect(resultado.plantonistaNomeOriginal).toBe('Bruno Bueno');
+  });
+
+  it('7. a data de início é sempre a data civil informada, nunca deslocada', () => {
+    const padrao: PadraoHorarioPlantaoDia = { diaSemana: 6, horaInicio: '07:00', horaFim: '19:00', fimDiaOffset: 0 };
+    const resultado = construirAtribuicaoDoPadraoHorario({
+      plantonistaNomeOriginal: 'Claudio Reis',
+      dataCivil: '2026-08-22',
+      padrao,
+    });
+    expect(resultado.inicio.data).toBe('2026-08-22');
+  });
+
+  it('8. a data de fim reflete fimDiaOffset corretamente (0 = mesmo dia, 1 = dia seguinte)', () => {
+    const mesmoDia = construirAtribuicaoDoPadraoHorario({
+      plantonistaNomeOriginal: 'X',
+      dataCivil: '2026-08-10',
+      padrao: { diaSemana: 1, horaInicio: '08:00', horaFim: '18:00', fimDiaOffset: 0 },
+    });
+    expect(mesmoDia.fim.data).toBe('2026-08-10');
+    const diaSeguinte = construirAtribuicaoDoPadraoHorario({
+      plantonistaNomeOriginal: 'X',
+      dataCivil: '2026-08-10',
+      padrao: { diaSemana: 1, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 },
+    });
+    expect(diaSeguinte.fim.data).toBe('2026-08-11');
+  });
+
+  it('9. duração correta (12h) quando combinado com calcularDuracaoEntreMomentos via adicionarAtribuicaoEditavel', () => {
+    const resultado = construirAtribuicaoDoPadraoHorario({
+      plantonistaNomeOriginal: 'Bruno Bueno',
+      dataCivil: '2026-08-16',
+      padrao: { diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 },
+    });
+    const [atribuicao] = adicionarAtribuicaoEditavel([], { ...resultado, abaOrigem: 'quick-add' });
+    expect(atribuicao?.duracaoMinutos).toBe(12 * 60);
+  });
+
+  it('10. duração correta (24h) quando combinado com calcularDuracaoEntreMomentos via adicionarAtribuicaoEditavel', () => {
+    const resultado = construirAtribuicaoDoPadraoHorario({
+      plantonistaNomeOriginal: 'Caroline Ferraz',
+      dataCivil: '2026-08-21',
+      padrao: { diaSemana: 5, horaInicio: '19:00', horaFim: '19:00', fimDiaOffset: 1 },
+    });
+    const [atribuicao] = adicionarAtribuicaoEditavel([], { ...resultado, abaOrigem: 'quick-add' });
+    expect(atribuicao?.duracaoMinutos).toBe(24 * 60);
+  });
+
+  it('11. atribuições importadas atípicas (43h/5h) permanecem intactas ao adicionar uma nova atribuição pelo padrão', () => {
+    const existentes = criarAtribuicoesEditaveis([
+      { plantonistaNomeOriginal: 'Ana Costa', inicio: { data: '2026-07-25', hora: '00:00' }, fim: { data: '2026-07-26', hora: '19:00' }, duracaoMinutos: 43 * 60, linhaOrigem: 2, abaOrigem: 'PlantaoCOSI' },
+      { plantonistaNomeOriginal: 'Bruno Lima', inicio: { data: '2026-07-31', hora: '14:00' }, fim: { data: '2026-07-31', hora: '19:00' }, duracaoMinutos: 5 * 60, linhaOrigem: 3, abaOrigem: 'PlantaoCOSI' },
+    ]);
+    const novaAtribuicao = construirAtribuicaoDoPadraoHorario({
+      plantonistaNomeOriginal: 'Caroline Ferraz',
+      dataCivil: '2026-08-16',
+      padrao: { diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 },
+    });
+    const resultado = adicionarAtribuicaoEditavel(existentes, { ...novaAtribuicao, abaOrigem: 'quick-add' });
+    const atribuicao43h = resultado.find((item) => item.plantonistaNomeOriginal === 'Ana Costa');
+    const atribuicao5h = resultado.find((item) => item.plantonistaNomeOriginal === 'Bruno Lima');
+    expect(atribuicao43h?.duracaoMinutos).toBe(43 * 60);
+    expect(atribuicao5h?.duracaoMinutos).toBe(5 * 60);
+    expect(resultado).toHaveLength(3);
   });
 });

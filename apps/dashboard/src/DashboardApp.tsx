@@ -12,6 +12,7 @@ import {
   idCompetenciaPlantao,
   MAXIMO_CONTATOS_PLANTONISTA,
   normalizarContatosPlantonista,
+  obterPadraoHorarioGrupoParaData,
   ordenarPadraoHorarioSemanal,
   parsePlanilhaEscala,
   validarContatosPlantonista,
@@ -25,6 +26,7 @@ import {
   type ErroImportacaoPlantao,
   type GrupoPlantao,
   type OrigemPlantao,
+  type PadraoHorarioPlantaoDia,
   type ParticipantePlantao,
   type ResultadoParse,
   type ResultadoParsePlantao,
@@ -161,6 +163,7 @@ import {
 import {
   adicionarAtribuicaoEditavel,
   conferirEscalaAtualPlantao,
+  construirAtribuicaoDoPadraoHorario,
   criarAtribuicoesEditaveis,
   duracaoPlantaoAtipica,
   editarAtribuicaoEditavel,
@@ -169,6 +172,8 @@ import {
   type AtribuicaoPlantaoEditavel,
 } from '@/lib/editorPlantao';
 import { PlantaoCalendario } from '@/components/plantao/PlantaoCalendario';
+import { PlantaoRoster } from '@/components/plantao/PlantaoRoster';
+import { QuickAddPlantaoPopover } from '@/components/plantao/QuickAddPlantaoPopover';
 import {
   ModalEditarAtribuicaoPlantao,
   type FormularioAtribuicaoPlantao,
@@ -2439,7 +2444,6 @@ interface PreviewPlantaoProps {
   dataHoje: string;
   editadoDesdeImportacao: boolean;
   onEditarAtribuicao: (idLocal: string) => void;
-  onAdicionarPlantao: (dataIso: string) => void;
   /**
    * Fase ESCALAS-UX-1C — "distribuição rápida por clique": seleção
    * PURAMENTE de UI (nunca grava no Firestore, nunca altera o Grupo).
@@ -2447,6 +2451,10 @@ interface PreviewPlantaoProps {
    */
   plantonistaSelecionado: string | null;
   onSelecionarPlantonista: (nomeOriginal: string) => void;
+  /** Fase ESCALAS-UX-2B — operação comum de criação (click e drag convergem aqui, ver `solicitarNovaAtribuicaoPlantao`). */
+  onSolicitarNovaAtribuicao: (plantonistaNomeOriginal: string, dataIso: string) => void;
+  /** Nomes normalizados (`normalizarNome`) de participantes inativos referenciados por alguma atribuição — para o roster mostrar "Inativo" sem esconder a escala. */
+  nomesInativosPlantao: ReadonlySet<string>;
 }
 
 /**
@@ -2484,11 +2492,15 @@ function PreviewPlantao({
   dataHoje,
   editadoDesdeImportacao,
   onEditarAtribuicao,
-  onAdicionarPlantao,
   plantonistaSelecionado,
   onSelecionarPlantonista,
+  onSolicitarNovaAtribuicao,
+  nomesInativosPlantao,
 }: PreviewPlantaoProps) {
   const vinculoPorParticipante = new Map(vinculos.map((vinculo) => [vinculo.participanteNomeOriginal, vinculo]));
+  const nomesPendentesPlantao = new Set(
+    vinculos.filter((vinculo) => vinculo.status !== 'VINCULADO').map((vinculo) => normalizarNome(vinculo.participanteNomeOriginal)),
+  );
   const conferenciaEscalaAtual = conferirEscalaAtualPlantao(atribuicoesEditaveis, duracaoPlantaoAtipica);
   const resumoPorPessoa = resumirPorPessoa(
     atribuicoesEditaveis,
@@ -2657,40 +2669,36 @@ function PreviewPlantao({
                 .
               </p>
             )}
-            {periodoInicio !== '' && periodoFim !== '' ? (
-              <PlantaoCalendario
-                competencia={competencia}
-                periodoInicio={periodoInicio}
-                periodoFim={periodoFim}
-                dataHoje={dataHoje}
-                atribuicoes={atribuicoesEditaveis}
-                onEditarAtribuicao={onEditarAtribuicao}
-                onAdicionarPlantao={onAdicionarPlantao}
+            {/*
+             * Fase ESCALAS-UX-2B — roster lateral substitui o antigo bloco
+             * "Resumo por pessoa" abaixo do calendário (§7 do pedido): a
+             * mesma informação (`resumoPorPessoa`, nenhum recálculo) agora
+             * vive ao lado, sempre visível, sem duplicar a lista embaixo.
+             */}
+            <div className="plantao-editor-layout">
+              <PlantaoRoster
+                pessoas={resumoPorPessoa}
+                plantonistaSelecionado={plantonistaSelecionado}
+                onSelecionarPlantonista={onSelecionarPlantonista}
+                nomesInativos={nomesInativosPlantao}
+                nomesPendentes={nomesPendentesPlantao}
               />
-            ) : (
-              <p>Não foi possível calcular a competência desta planilha — confira as datas na aba Lista.</p>
-            )}
-            <div className="plantao-resumo-por-pessoa">
-              <h3>Resumo por pessoa</h3>
-              <p className="plantao-resumo-por-pessoa-dica">
-                Toque uma pessoa para selecioná-la e depois toque um dia vazio no calendário para criar um plantão já
-                preenchido com ela.
-              </p>
-              <ul>
-                {resumoPorPessoa.map((pessoa) => (
-                  <li key={pessoa.nomeOriginal}>
-                    <button
-                      type="button"
-                      className={`plantao-pessoa-selecionar${plantonistaSelecionado === pessoa.nomeOriginal ? ' selecionado' : ''}`}
-                      aria-pressed={plantonistaSelecionado === pessoa.nomeOriginal}
-                      onClick={() => onSelecionarPlantonista(pessoa.nomeOriginal)}
-                    >
-                      <span>{pessoa.nomeOriginal}</span>
-                      <span>{pessoa.quantidade} plantões · {formatarMinutos(pessoa.minutos)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <div className="plantao-editor-central">
+                {periodoInicio !== '' && periodoFim !== '' ? (
+                  <PlantaoCalendario
+                    competencia={competencia}
+                    periodoInicio={periodoInicio}
+                    periodoFim={periodoFim}
+                    dataHoje={dataHoje}
+                    atribuicoes={atribuicoesEditaveis}
+                    onEditarAtribuicao={onEditarAtribuicao}
+                    plantonistaSelecionado={plantonistaSelecionado}
+                    onSolicitarNovaAtribuicao={onSolicitarNovaAtribuicao}
+                  />
+                ) : (
+                  <p>Não foi possível calcular a competência desta planilha — confira as datas na aba Lista.</p>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -3027,6 +3035,16 @@ export function DashboardApp() {
    * seleção de uma prévia para a próxima.
    */
   const [plantonistaSelecionadoPlantao, setPlantonistaSelecionadoPlantao] = useState<string | null>(null);
+  /**
+   * Fase ESCALAS-UX-2B — confirmação contextual do padrão do Grupo
+   * (`QuickAddPlantaoPopover`), aberta por `solicitarNovaAtribuicaoPlantao()`
+   * quando existe `padraoHorarioSemanal` para o dia+pessoa escolhidos.
+   * `null` = popover fechado. Nunca grava nada sozinho — só "Adicionar"
+   * confirma a criação na working copy.
+   */
+  const [quickAddPlantao, setQuickAddPlantao] = useState<
+    { plantonistaNomeOriginal: string; dataIso: string; padrao: PadraoHorarioPlantaoDia } | null
+  >(null);
 
   /**
    * Fase ESCALAS-UX-2A.1 — `ContextoEscalaAtivo` (`lib/contextoEscala.ts`)
@@ -3216,6 +3234,21 @@ export function DashboardApp() {
       && nomesReferenciados.has(normalizarNome(nomeParticipantePlantao(item, usuarios))));
     return consolidarParticipantesGrupoPlantao([...ativos, ...inativosReferenciados], usuarios, atribuicoesEditaveisPlantao);
   }, [resultadoPlantao, atribuicoesEditaveisPlantao, participantesPorGrupoPlantao, grupoRascunhoEscolhido, usuarios]);
+  /**
+   * Fase ESCALAS-UX-2B — nomes normalizados dos participantes inativos
+   * ainda referenciados por alguma atribuição da working copy, para o
+   * roster mostrar "Inativo" sem esconder a escala (§8 do pedido). Não
+   * existe para o fluxo IMPORTADO (participante de planilha nunca tem
+   * `ativo`/Firestore associado).
+   */
+  const nomesInativosReferenciadosPlantao = useMemo(() => {
+    const todosParticipantes = participantesPorGrupoPlantao[grupoRascunhoEscolhido] ?? [];
+    return new Set(
+      todosParticipantes
+        .filter((item) => !item.ativo)
+        .map((item) => normalizarNome(nomeParticipantePlantao(item, usuarios))),
+    );
+  }, [participantesPorGrupoPlantao, grupoRascunhoEscolhido, usuarios]);
   const atribuicoesPlantaoComVinculo = useMemo(
     () => aplicarVinculosNasAtribuicoes(atribuicoesEditaveisPlantao, vinculosPlantao)
       .slice()
@@ -3891,26 +3924,44 @@ export function DashboardApp() {
    * nunca inventa horário (início/fim continuam vazios, o coordenador
    * sempre confirma explicitamente). Sem seleção, comportamento idêntico
    * ao de antes desta fase.
+   *
+   * Fase ESCALAS-UX-2B — `plantonistaNomeOriginal` passou a aceitar um
+   * override explícito (drag pode arrastar uma pessoa diferente da que
+   * está selecionada no roster) — quando omitido, cai no comportamento de
+   * sempre (`plantonistaSelecionadoPlantao ?? ''`).
    */
-  function abrirCriacaoAtribuicaoPlantao(dataIso: string) {
+  function abrirCriacaoAtribuicaoPlantao(dataIso: string, plantonistaNomeOriginal?: string) {
     setModalAtribuicaoPlantao({
       modo: 'criar',
       idLocal: null,
       valoresIniciais: {
-        plantonistaNomeOriginal: plantonistaSelecionadoPlantao ?? '',
+        plantonistaNomeOriginal: plantonistaNomeOriginal ?? plantonistaSelecionadoPlantao ?? '',
         inicio: { data: dataIso, hora: '' },
         fim: { data: dataIso, hora: '' },
       },
     });
   }
 
-  /** Fase ESCALAS-UX-1C — alterna a seleção do painel "Resumo por pessoa"; puramente de UI (§20). */
+  /** Fase ESCALAS-UX-1C — alterna a seleção do roster; puramente de UI (§20). */
   function alternarPlantonistaSelecionado(nomeOriginal: string) {
     setPlantonistaSelecionadoPlantao((atual) => (atual === nomeOriginal ? null : nomeOriginal));
   }
 
   function fecharModalAtribuicaoPlantao() {
     setModalAtribuicaoPlantao(null);
+  }
+
+  /**
+   * Fase ESCALAS-UX-2B — a ÚNICA função que grava uma NOVA atribuição na
+   * working copy (nunca no Firestore — § 11 do pedido) e marca dirty.
+   * Reaproveitada por `salvarModalAtribuicaoPlantao()` (modal completo,
+   * "Outro horário") E pelo quick-add ("Adicionar" do padrão do Grupo) —
+   * nenhum segundo caminho que grava atribuição.
+   */
+  function criarAtribuicaoPlantaoNaWorkingCopy(valores: FormularioAtribuicaoPlantao) {
+    const abaOrigem = resultadoPlantao?.atribuicoes[0]?.abaOrigem ?? '';
+    setAtribuicoesEditaveisPlantao((atuais) => adicionarAtribuicaoEditavel(atuais, { ...valores, abaOrigem }));
+    marcarPlantaoEditadoNoEditor();
   }
 
   function salvarModalAtribuicaoPlantao(valores: FormularioAtribuicaoPlantao) {
@@ -3921,12 +3972,64 @@ export function DashboardApp() {
     if (modal.modo === 'editar' && modal.idLocal !== null) {
       const idLocal = modal.idLocal;
       setAtribuicoesEditaveisPlantao((atuais) => editarAtribuicaoEditavel(atuais, idLocal, valores));
+      marcarPlantaoEditadoNoEditor();
     } else {
-      const abaOrigem = resultadoPlantao?.atribuicoes[0]?.abaOrigem ?? '';
-      setAtribuicoesEditaveisPlantao((atuais) => adicionarAtribuicaoEditavel(atuais, { ...valores, abaOrigem }));
+      criarAtribuicaoPlantaoNaWorkingCopy(valores);
     }
-    marcarPlantaoEditadoNoEditor();
     setModalAtribuicaoPlantao(null);
+  }
+
+  /**
+   * Fase ESCALAS-UX-2B — operação COMUM de criação (§10 do pedido): click
+   * (pessoa selecionada + tocar dia) e drag (soltar pessoa num dia)
+   * convergem os dois para cá, com a MESMA assinatura
+   * `(plantonistaNomeOriginal, dataIso)`. Sem plantonista (clique em
+   * "+ Adicionar" sem ninguém selecionado) ou sem padrão configurado para
+   * o dia, cai direto no editor completo já existente — nunca inventa
+   * horário, nunca cria sozinho. Com padrão, abre o quick-add
+   * (`QuickAddPlantaoPopover`) para confirmação explícita — o DROP em si
+   * nunca grava nada no Firestore nem na working copy (§13 do pedido).
+   */
+  function solicitarNovaAtribuicaoPlantao(plantonistaNomeOriginal: string, dataIso: string) {
+    if (plantonistaNomeOriginal.trim() === '') {
+      abrirCriacaoAtribuicaoPlantao(dataIso);
+      return;
+    }
+    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === grupoRascunhoEscolhido);
+    const padrao = grupo === undefined ? null : obterPadraoHorarioGrupoParaData(grupo, dataIso);
+    if (padrao === null) {
+      abrirCriacaoAtribuicaoPlantao(dataIso, plantonistaNomeOriginal);
+      return;
+    }
+    setQuickAddPlantao({ plantonistaNomeOriginal, dataIso, padrao });
+  }
+
+  function fecharQuickAddPlantao() {
+    setQuickAddPlantao(null);
+  }
+
+  /** "Adicionar" do quick-add — confirma o padrão do Grupo como a nova atribuição. */
+  function confirmarQuickAddPlantao() {
+    const estado = quickAddPlantao;
+    if (estado === null) {
+      return;
+    }
+    criarAtribuicaoPlantaoNaWorkingCopy(construirAtribuicaoDoPadraoHorario({
+      plantonistaNomeOriginal: estado.plantonistaNomeOriginal,
+      dataCivil: estado.dataIso,
+      padrao: estado.padrao,
+    }));
+    setQuickAddPlantao(null);
+  }
+
+  /** "Outro horário" do quick-add — fecha o popover e abre o editor completo, mesmo pré-preenchimento de sempre. */
+  function abrirOutroHorarioQuickAddPlantao() {
+    const estado = quickAddPlantao;
+    if (estado === null) {
+      return;
+    }
+    setQuickAddPlantao(null);
+    abrirCriacaoAtribuicaoPlantao(estado.dataIso, estado.plantonistaNomeOriginal);
   }
 
   function excluirModalAtribuicaoPlantao() {
@@ -6216,9 +6319,10 @@ export function DashboardApp() {
               dataHoje={dataIsoLocal(new Date())}
               editadoDesdeImportacao={plantaoEditadoDesdeImportacao}
               onEditarAtribuicao={abrirEdicaoAtribuicaoPlantao}
-              onAdicionarPlantao={abrirCriacaoAtribuicaoPlantao}
               plantonistaSelecionado={plantonistaSelecionadoPlantao}
               onSelecionarPlantonista={alternarPlantonistaSelecionado}
+              onSolicitarNovaAtribuicao={solicitarNovaAtribuicaoPlantao}
+              nomesInativosPlantao={nomesInativosReferenciadosPlantao}
             />
           )}
 
@@ -6231,6 +6335,17 @@ export function DashboardApp() {
               onFechar={fecharModalAtribuicaoPlantao}
               onSalvar={salvarModalAtribuicaoPlantao}
               onExcluir={modalAtribuicaoPlantao.modo === 'editar' ? excluirModalAtribuicaoPlantao : undefined}
+            />
+          )}
+
+          {quickAddPlantao !== null && (
+            <QuickAddPlantaoPopover
+              plantonistaNomeOriginal={quickAddPlantao.plantonistaNomeOriginal}
+              dataIso={quickAddPlantao.dataIso}
+              padrao={quickAddPlantao.padrao}
+              onAdicionar={confirmarQuickAddPlantao}
+              onOutroHorario={abrirOutroHorarioQuickAddPlantao}
+              onFechar={fecharQuickAddPlantao}
             />
           )}
 

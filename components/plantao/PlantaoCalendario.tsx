@@ -1,4 +1,5 @@
 import { adicionarDias, formatarData } from '@escala-ici/contrato';
+import { useState, type DragEvent } from 'react';
 
 import {
   agruparAtribuicoesPorDia,
@@ -20,6 +21,16 @@ import {
  * (domingo a sábado); esses dias extras são reais (não células em branco),
  * porque a fixture real já tem atribuições que começam/terminam exatamente
  * neles (a borda de 43h começa um dia antes do início da janela).
+ *
+ * Fase ESCALAS-UX-2B — `onSolicitarNovaAtribuicao(plantonistaNomeOriginal,
+ * dataIso)` é a ÚNICA operação de criação (§10 do pedido): o botão
+ * "+ Adicionar" (mouse/teclado, sempre acessível), clicar o fundo do dia
+ * com alguém selecionado (mouse/toque), e soltar (drop) alguém arrastado
+ * do roster convergem todos para ela — nenhum pipeline de domínio
+ * paralelo. O DROP em si nunca grava nada (o Dashboard decide se abre o
+ * quick-add do padrão ou o editor completo). Sem padrão HTML5 de
+ * drag-and-drop novo além do nativo do navegador — nenhuma biblioteca
+ * adicionada.
  */
 
 function diaDaSemanaUtc(dataIso: string): number {
@@ -45,7 +56,9 @@ export interface PlantaoCalendarioProps {
   dataHoje: string;
   atribuicoes: readonly AtribuicaoPlantaoEditavel[];
   onEditarAtribuicao: (idLocal: string) => void;
-  onAdicionarPlantao: (dataIso: string) => void;
+  /** `null` = ninguém selecionado no roster — clicar o fundo do dia não faz nada (só "+ Adicionar" continua disponível). */
+  plantonistaSelecionado: string | null;
+  onSolicitarNovaAtribuicao: (plantonistaNomeOriginal: string, dataIso: string) => void;
 }
 
 export function PlantaoCalendario({
@@ -55,11 +68,22 @@ export function PlantaoCalendario({
   dataHoje,
   atribuicoes,
   onEditarAtribuicao,
-  onAdicionarPlantao,
+  plantonistaSelecionado,
+  onSolicitarNovaAtribuicao,
 }: PlantaoCalendarioProps) {
   const dias = diasDaGradeCompetencia(periodoInicio, periodoFim);
   const porDia = agruparAtribuicoesPorDia(atribuicoes);
   const [ano, mes] = competencia.split('-');
+  const [diaEmDragOver, setDiaEmDragOver] = useState<string | null>(null);
+
+  function aoSoltarNoDia(evento: DragEvent<HTMLDivElement>, data: string) {
+    evento.preventDefault();
+    setDiaEmDragOver(null);
+    const nomeArrastado = evento.dataTransfer.getData('text/plain').trim();
+    if (nomeArrastado !== '') {
+      onSolicitarNovaAtribuicao(nomeArrastado, data);
+    }
+  }
 
   return (
     <div className="plantao-calendario">
@@ -74,7 +98,11 @@ export function PlantaoCalendario({
       <div className="calendar-weekdays" aria-hidden="true">
         {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((dia) => <span key={dia}>{dia}</span>)}
       </div>
-      <div className="plantao-grid" role="grid" aria-label="Calendário do Plantão">
+      <div
+        className={`plantao-grid${plantonistaSelecionado !== null ? ' selecao-ativa' : ''}`}
+        role="grid"
+        aria-label="Calendário do Plantão"
+      >
         {dias.map((data) => {
           const contexto = ehDiaDeContexto(data, periodoInicio, periodoFim);
           const ehHoje = data === dataHoje;
@@ -83,8 +111,25 @@ export function PlantaoCalendario({
             <div
               key={data}
               role="gridcell"
-              className={['plantao-dia', contexto ? 'contexto' : '', ehHoje ? 'hoje' : ''].filter(Boolean).join(' ')}
+              className={[
+                'plantao-dia',
+                contexto ? 'contexto' : '',
+                ehHoje ? 'hoje' : '',
+                diaEmDragOver === data ? 'drop-alvo' : '',
+              ].filter(Boolean).join(' ')}
               aria-label={formatarData(data, { weekday: 'long', day: '2-digit', month: 'long' })}
+              onClick={() => {
+                if (plantonistaSelecionado !== null) {
+                  onSolicitarNovaAtribuicao(plantonistaSelecionado, data);
+                }
+              }}
+              onDragOver={(evento) => {
+                evento.preventDefault();
+                evento.dataTransfer.dropEffect = 'copy';
+              }}
+              onDragEnter={() => setDiaEmDragOver(data)}
+              onDragLeave={() => setDiaEmDragOver((atual) => (atual === data ? null : atual))}
+              onDrop={(evento) => aoSoltarNoDia(evento, data)}
             >
               <div className="plantao-dia-cabecalho">
                 <span className="plantao-dia-numero">{formatarData(data, { day: 'numeric' })}</span>
@@ -100,7 +145,10 @@ export function PlantaoCalendario({
                       className="plantao-card"
                       data-identidade={indiceIdentidadePlantonista(atribuicao.plantonistaNomeOriginal)}
                       data-atipica={atipica ? 'true' : 'false'}
-                      onClick={() => onEditarAtribuicao(atribuicao.idLocal)}
+                      onClick={(evento) => {
+                        evento.stopPropagation();
+                        onEditarAtribuicao(atribuicao.idLocal);
+                      }}
                       aria-label={`Editar plantão de ${atribuicao.plantonistaNomeOriginal}, ${rotuloHorarioCartaoPlantao(atribuicao)}`}
                     >
                       <span>{nomeCurtoPlantonista(atribuicao.plantonistaNomeOriginal)}</span>
@@ -112,7 +160,10 @@ export function PlantaoCalendario({
               <button
                 type="button"
                 className="plantao-adicionar"
-                onClick={() => onAdicionarPlantao(data)}
+                onClick={(evento) => {
+                  evento.stopPropagation();
+                  onSolicitarNovaAtribuicao(plantonistaSelecionado ?? '', data);
+                }}
                 aria-label={`Adicionar plantão em ${formatarData(data, { day: '2-digit', month: '2-digit' })}`}
               >
                 + Adicionar

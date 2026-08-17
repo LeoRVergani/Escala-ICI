@@ -441,8 +441,16 @@ já com "Plantonista" preenchido — início/fim continuam vazios, o
 coordenador sempre confirma o horário explicitamente. Sem seleção, o
 comportamento é idêntico ao de antes desta fase.
 
+> **Nota de implementação (ESCALAS-UX-2B)**: o "painel compacto dentro do
+> Resumo por pessoa" descrito acima foi REPOSICIONADO para um roster
+> lateral (`PlantaoRoster`) — mesmo mecanismo de seleção
+> (`plantonistaSelecionadoPlantao`/`alternarPlantonistaSelecionado`),
+> nenhuma reimplementação. Drag-and-drop, avaliado e adiado aqui, foi
+> implementado nessa fase como um SEGUNDO gatilho para a mesma operação —
+> ver seção 12.
+
 Drag-and-drop foi avaliado e **deliberadamente NÃO implementado** nesta
-fase: não existe nenhum precedente de arrastar-elemento no código (só o
+fase (ESCALAS-UX-1C): não existe nenhum precedente de arrastar-elemento no código (só o
 dropzone de upload de planilha, um caso não relacionado), nenhuma
 biblioteca de drag está instalada, e a alternativa nativa HTML5
 introduziria um padrão de interação novo sem um equivalente
@@ -466,3 +474,149 @@ autorização nova, sem campo novo, sem coleção nova. Avaliada como NÃO
 "significativa" pelo mesmo critério que barrou mudanças de schema mais
 profundas nesta série de fases; verificada empiricamente no emulador
 (`tests/firebase/firestore.rules.test.ts`, 155/155).
+
+## 12. ESCALAS-UX-2B — roster lateral + montagem rápida + drag-and-drop
+
+Primeira evolução visual/operacional do Editor de Plantão desde a
+ESCALAS-UX-1A: reposiciona a seleção de plantonista para um roster
+lateral sempre visível, adiciona drag-and-drop nativo HTML5 como segundo
+gatilho da mesma criação por clique, e passa a consumir
+`GrupoPlantao.padraoHorarioSemanal` (PLANTAO-PADRAO-1) como sugestão de
+horário via um popover de confirmação. Nenhuma mudança de schema, Rules
+ou domínio de Jornada 6x1.
+
+### 12.1 Roster lateral (`PlantaoRoster`)
+
+Substitui o antigo bloco "Resumo por pessoa" (que ficava abaixo do
+calendário, full-width, exigindo scroll) por um painel lateral de
+230–280px, sempre visível, com rolagem própria (`position: sticky`).
+Reaproveita INTEGRALMENTE:
+
+- `resumirPorPessoa()` para os contadores (nenhum recálculo);
+- `plantonistaSelecionadoPlantao`/`alternarPlantonistaSelecionado()` para
+  seleção (mesmo mecanismo desde ESCALAS-UX-1C);
+- `indiceIdentidadePlantonista()` para a identidade visual (mesmo hash
+  determinístico dos cartões do calendário — nenhuma paleta paralela,
+  nenhum seletor manual de cor).
+
+Busca aparece só quando a lista ultrapassa 8 pessoas
+(`LIMITE_PESSOAS_SEM_BUSCA`). Participantes inativos (mas referenciados
+por alguma atribuição) e com vínculo pendente ganham uma tag
+(`.status-badge`) — nunca escondidos.
+
+### 12.2 Operação comum de criação — click e drag convergem
+
+`solicitarNovaAtribuicaoPlantao(plantonistaNomeOriginal, dataIso)`
+(`DashboardApp.tsx`) é o ÚNICO ponto de entrada para uma nova atribuição,
+independente de como o usuário chegou até ele:
+
+- clicar uma pessoa no roster (seleciona) + clicar/tocar um dia do
+  calendário;
+- arrastar (`draggable`) uma pessoa do roster e soltar (`onDrop`) sobre
+  um dia — desktop apenas, HTML5 nativo, nenhuma biblioteca adicionada;
+- clicar "+ Adicionar" (sempre presente, acessível por teclado) com uma
+  pessoa já selecionada.
+
+A decisão que essa função toma:
+
+```
+sem plantonista (string vazia)
+    -> abre o editor completo (ModalEditarAtribuicaoPlantao), como sempre
+
+com plantonista, sem padrão configurado para o dia
+    -> abre o editor completo, plantonista pré-preenchido
+
+com plantonista E padrão configurado (obterPadraoHorarioGrupoParaData)
+    -> abre QuickAddPlantaoPopover (confirmação explícita)
+```
+
+O DROP em si **nunca grava nada** — só chama a mesma função que o clique
+chama; quem decide o que abrir é sempre `solicitarNovaAtribuicaoPlantao`,
+nunca o evento de drag em si.
+
+### 12.3 Quick-add (`QuickAddPlantaoPopover`)
+
+Confirmação contextual do padrão do Grupo — pessoa, data, e o preview
+humano (`previewPadraoHorarioPlantaoDia()`, o MESMO helper já usado na
+Administração do Grupo, PLANTAO-PADRAO-1 — nunca uma segunda
+implementação, nunca expõe `fimDiaOffset` cru). Três ações: "Adicionar"
+(confirma), "Outro horário" (fecha e abre o editor completo,
+pré-preenchido), Escape/backdrop/X (cancela sem tocar a working copy).
+
+Implementado como dialog pequeno central (`.edit-modal`, mesmo chrome de
+todo modal do Dashboard) em vez de um popover ancorado à célula —
+avaliado e decidido por confiabilidade: posicionamento ancorado exigiria
+lidar com overflow do calendário, scroll interno e proximidade da borda
+da tela, complexidade desproporcional ao ganho nesta primeira
+implementação. Nenhuma biblioteca de posicionamento (Popper/Floating UI)
+foi adicionada.
+
+### 12.4 Construção pela padrão — `construirAtribuicaoDoPadraoHorario()`
+
+Único helper puro (`lib/editorPlantao.ts`) que transforma
+`{ plantonistaNomeOriginal, dataCivil, padrao }` em
+`{ plantonistaNomeOriginal, inicio, fim }` — reaproveita `adicionarDias()`
+(`@escala-ici/contrato`) para a virada de dia (`fimDiaOffset`), nunca um
+cálculo de data manual. A data de INÍCIO é sempre `dataCivil`; a de FIM
+é `dataCivil` ou `dataCivil + 1 dia`, conforme `fimDiaOffset`. O
+resultado alimenta o MESMO `adicionarAtribuicaoEditavel()` que o modal
+completo já usava — nenhum objeto de atribuição construído em outro
+lugar (drag/click/quick-add/modal completo convergem para uma única
+função de escrita na working copy,
+`criarAtribuicaoPlantaoNaWorkingCopy()`).
+
+### 12.5 Dirty guard — sem regressão da FIX
+
+`criarAtribuicaoPlantaoNaWorkingCopy()` chama `marcarPlantaoEditadoNoEditor()`
+(que seta `plantaoPossuiAlteracoesNaoSalvas = true`, o único sinal lido
+pelo guard de troca de contexto desde `ESCALAS-UX-2A.1-FIX`) — nunca
+`plantaoEditadoDesdeImportacao` sozinho. Toda nova atribuição, venha de
+click, drag ou quick-add, passa por essa mesma função — nenhum caminho
+novo escapa do dirty real.
+
+### 12.6 Importados intactos
+
+Adicionar uma atribuição pelo padrão nunca recalcula/normaliza as
+atribuições já existentes — `adicionarAtribuicaoEditavel()` só
+ACRESCENTA ao array, nunca mapeia/edita os elementos existentes.
+Intervalos atípicos importados (43h/5h da fixture real) permanecem
+byte-a-byte idênticos depois de uma criação via padrão — testado
+explicitamente (`lib/editorPlantao.test.ts`, "atribuições importadas
+atípicas permanecem intactas").
+
+### 12.7 Mobile/tablet
+
+Sem drag no mobile (toque não dispara eventos HTML5 de drag — nenhum
+polyfill adicionado, comportamento nativo do navegador). Fluxo principal:
+tocar pessoa (roster) → tocar dia → quick-add → "Adicionar", idêntico ao
+desktop sem a etapa de arrastar. Roster stacka ACIMA do calendário
+(`@media (max-width: 780px)`, mesmo breakpoint já estabelecido para o
+calendário de Plantão) com sua lista de pessoas virando uma faixa
+horizontal com rolagem PRÓPRIA (nunca a página inteira). Em telas
+intermediárias (`@media (max-width: 960px)`) o roster estreita de 260px
+para 200px antes de empilhar — nunca esmaga o calendário para manter uma
+largura fixa.
+
+### 12.8 Acessibilidade
+
+Cada pessoa do roster é um `<button>` real com `aria-pressed` e
+`draggable` no MESMO elemento (nunca um elemento paralelo só-para-drag).
+"+ Adicionar" continua um `<button>` focável em todo dia — a alternativa
+por teclado obrigatória mesmo com drag disponível (Tab até a pessoa →
+Enter seleciona → Tab até o dia → Enter/clique em "+ Adicionar" abre a
+criação). Nenhuma implementação de "drag por teclado" — a ação discreta
+já é suficiente.
+
+### 12.9 Limitações conhecidas
+
+- O drop tem um pequeno flicker de estado visual (`drop-alvo`) quando o
+  cursor passa por cima de um cartão/botão filho antes de sair do dia —
+  aceitável, não usa animação, realce sutil (§21 do pedido).
+- O quick-add é um dialog central, não um popover ancorado à célula —
+  decisão deliberada de confiabilidade (seção 12.3), não uma limitação
+  técnica.
+- O redesign do Resumo/Contabilidade/Lista/Vínculos permanece fora de
+  escopo (ESCALAS-UX-2C).
+
+Ver `CHECKPOINT-FASE-ESCALAS-UX-2B-ROSTER-DRAG.md` para o detalhamento
+completo desta fase.

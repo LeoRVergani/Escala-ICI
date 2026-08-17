@@ -2132,7 +2132,8 @@ LEITURA inalterada.
 ### 28.8 O que esta fase explicitamente NÃO faz
 
 - Nenhum consumo pelo Editor (clicar no calendário → preencher horário,
-  drag pessoa → criar atribuição) — isso é ESCALAS-UX-2B.
+  drag pessoa → criar atribuição) — isso é ESCALAS-UX-2B (implementada,
+  ver seção 29 abaixo e `CHECKPOINT-FASE-ESCALAS-UX-2B-ROSTER-DRAG.md`).
 - Nenhuma normalização/recálculo de atribuições existentes.
 - Nenhuma publicação de Plantão (`publicarPlantao()` continua
   inexistente — PLANTÃO-3C).
@@ -2145,3 +2146,17 @@ LEITURA inalterada.
 
 Ver `CHECKPOINT-FASE-PLANTAO-PADRAO-1.md` para o detalhamento completo
 desta fase.
+
+## 29. ESCALAS-UX-2B — consumo do padrão semanal pelo Editor
+
+Primeiro consumo real de `padraoHorarioSemanal` — um roster lateral
+(`PlantaoRoster`) substitui o antigo "Resumo por pessoa"; selecionar uma
+pessoa e clicar um dia (ou arrastar a pessoa até o dia, no desktop) chama
+`solicitarNovaAtribuicaoPlantao()`, que consulta
+`obterPadraoHorarioGrupoParaData()` e, se existir padrão, abre um
+popover de confirmação (`QuickAddPlantaoPopover`, reaproveitando
+`previewPadraoHorarioPlantaoDia()` já existente) antes de gravar
+qualquer coisa na working copy — nunca automático, nunca no drop em si.
+Sem padrão, cai direto no editor completo de sempre. Detalhamento
+completo em `docs/spec/EDITOR_ESCALAS.md` seção 12 e
+`CHECKPOINT-FASE-ESCALAS-UX-2B-ROSTER-DRAG.md`.
