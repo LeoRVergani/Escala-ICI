@@ -270,3 +270,104 @@ test('25. firestore.rules continua com diff zero — a correção de leitura par
   const leitura = semComentarios(await ler('lib/firebase/plantaoReadRepository.ts'));
   assert.match(leitura, /where\('grupoId', '==', grupoId\)/u, "a correção de list precisa estar no repository (where('grupoId', ...))");
 });
+
+// Fase ESCALAS-UX-1C: "Usar período anterior" + distribuição rápida por
+// clique. Ver docs/spec/EDITOR_ESCALAS.md § 7/§ 19-30 e
+// CHECKPOINT-FASE-ESCALAS-UX-1C-FACILIDADES-DISTRIBUICAO.md.
+
+test('26. "Usar período anterior"/distribuição rápida continuam usando a MESMA working copy/calendário/modal — nenhum segundo Editor, nenhuma segunda estrutura de dados', async () => {
+  const [editor, calendario, modal, dashboard, montagem] = await Promise.all([
+    ler('lib/editorPlantao.ts'),
+    ler('components/plantao/PlantaoCalendario.tsx'),
+    ler('components/plantao/ModalEditarAtribuicaoPlantao.tsx'),
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('lib/montagemRascunhoPlantao.ts'),
+  ]);
+  const fontes = [editor, calendario, modal, dashboard, montagem].map(semComentarios);
+  const contarOcorrencias = (regex) => fontes.reduce((soma, fonte) => soma + (fonte.match(regex) ?? []).length, 0);
+
+  assert.equal(contarOcorrencias(/interface AtribuicaoPlantaoEditavel\b/gu), 1, 'só pode existir UMA definição de working copy de Plantão');
+  assert.equal(contarOcorrencias(/function PlantaoCalendario\b/gu), 1, 'só pode existir UM componente de calendário de Plantão');
+  assert.equal(contarOcorrencias(/function ModalEditarAtribuicaoPlantao\b/gu), 1, 'só pode existir UM modal de edição de atribuição de Plantão');
+  assert.equal(contarOcorrencias(/export function copiarAtribuicoesParaNovaCompetencia\b/gu), 1, 'só pode existir UMA função de cópia de competência anterior');
+  assert.equal(contarOcorrencias(/export function criarAtribuicaoEditavelDeCompetenciaAnterior\b/gu), 1, 'só pode existir UMA função que constrói uma atribuição editável a partir da cópia');
+  assert.doesNotMatch(
+    semComentarios(dashboard),
+    /function EditorPeriodoAnterior|function CalendarioPeriodoAnterior|AtribuicaoPlantaoCopiadaEditavelV2/u,
+    '"Usar período anterior" não pode ter um Editor/tipo próprio',
+  );
+});
+
+test('27. nenhum gerador automático, rotação ou regra de cobertura foi introduzido por "Usar período anterior"/distribuição rápida', async () => {
+  const arquivos = await Promise.all([
+    ler('lib/montagemRascunhoPlantao.ts'),
+    ler('lib/editorPlantao.ts'),
+    ler('lib/conciliacaoPlantoes.ts'),
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+  ]);
+  for (const fonteBruta of arquivos) {
+    const fonte = semComentarios(fonteBruta);
+    for (const proibido of ['gerarEscalaAutomatica', 'distribuicaoAutomatica', 'rotacionar', 'regraCoberturaCosi', 'proximoPlantonista']) {
+      assert.doesNotMatch(fonte, new RegExp(proibido, 'iu'), proibido);
+    }
+  }
+});
+
+test('28. a distribuição rápida por clique nunca inventa horário — abrirCriacaoAtribuicaoPlantao continua abrindo o modal com início/fim vazios mesmo com plantonista selecionado', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const corpo = /function abrirCriacaoAtribuicaoPlantao\(dataIso: string\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(corpo, 'abrirCriacaoAtribuicaoPlantao precisa existir');
+  assert.match(corpo[1], /inicio:\s*\{\s*data:\s*dataIso,\s*hora:\s*''\s*\}/u, 'início nunca pode vir pré-preenchido com um horário');
+  assert.match(corpo[1], /fim:\s*\{\s*data:\s*dataIso,\s*hora:\s*''\s*\}/u, 'fim nunca pode vir pré-preenchido com um horário');
+  for (const proibido of ['19:00', '07:00']) {
+    assert.doesNotMatch(corpo[1], new RegExp(proibido, 'u'), `${proibido} não pode ser um horário fixo inventado`);
+  }
+});
+
+test('29. a seleção de plantonista (painel "Resumo por pessoa") é puramente de UI — nunca escreve no Firestore nem chama Firebase', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const corpo = /function alternarPlantonistaSelecionado\(nomeOriginal: string\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(corpo, 'alternarPlantonistaSelecionado precisa existir');
+  for (const proibido of ['setDoc', 'updateDoc', 'salvarParticipantePlantao', 'salvarGrupoPlantao', 'await ']) {
+    assert.doesNotMatch(corpo[1], new RegExp(proibido.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'), proibido);
+  }
+});
+
+test('30. drag-and-drop continua deliberadamente não implementado nesta fase — só o caminho por clique/toque', async () => {
+  const arquivos = await Promise.all([
+    ler('lib/montagemRascunhoPlantao.ts'),
+    ler('lib/editorPlantao.ts'),
+    ler('lib/conciliacaoPlantoes.ts'),
+    ler('components/plantao/PlantaoCalendario.tsx'),
+    ler('components/plantao/ModalEditarAtribuicaoPlantao.tsx'),
+  ]);
+  for (const fonteBruta of arquivos) {
+    const fonte = semComentarios(fonteBruta);
+    for (const proibido of ['onDragStart', 'onDragOver', 'onDrop=', 'draggable={true}', 'draggable="true"']) {
+      assert.doesNotMatch(fonte, new RegExp(proibido.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'), proibido);
+    }
+  }
+  // O Dashboard já usa `onDrop`/`draggable` para o dropzone de importação de
+  // planilha (recurso anterior, fora de escopo) — a prova específica desta
+  // fase é que o painel "Resumo por pessoa" continua sendo botões
+  // clicáveis (`aria-pressed`), nunca elementos arrastáveis.
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /className=\{`plantao-pessoa-selecionar/u, 'a seleção de plantonista precisa continuar sendo um botão clicável, não um item arrastável');
+  assert.doesNotMatch(dashboard, /plantao-pessoa-selecionar[^`]*draggable/u, 'o botão de seleção de plantonista não pode virar arrastável');
+});
+
+test('31. "Usar período anterior" só lê a competência anterior (nunca a reidrata como working copy nem grava nela) — usarPeriodoAnteriorAcao nunca chama salvarAtribuicoesPlantaoRascunho/salvarCompetenciaPlantaoRascunho com a competência anterior', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const corpo = /async function usarPeriodoAnteriorAcao\(\) \{([\s\S]*?)\n {2}\}\n/u.exec(dashboard);
+  assert.ok(corpo, 'usarPeriodoAnteriorAcao precisa existir');
+  assert.doesNotMatch(corpo[1], /salvarAtribuicoesPlantaoRascunho|salvarCompetenciaPlantaoRascunho|salvarParticipantePlantao/u, 'a leitura da competência anterior nunca pode gravar nada');
+  assert.match(corpo[1], /listarAtribuicoesPlantaoRascunho\(grupo\.grupoId,\s*labelAnterior\)/u, 'as atribuições anteriores precisam ser só lidas (leitura pura)');
+});
+
+test('32. o "Salvar rascunho" (salvarRascunhoPlantaoAcao) sempre grava na competência NOVA (estado atual), nunca em um identificador de competência anterior', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const corpo = /async function salvarRascunhoPlantaoAcao\(\) \{([\s\S]*?)\n {2}\}\n/u.exec(dashboard);
+  assert.ok(corpo, 'salvarRascunhoPlantaoAcao precisa existir');
+  assert.match(corpo[1], /idCompetenciaPlantao\(grupo\.grupoId,\s*competencia\)/u, 'o id da competência a salvar precisa vir de `competencia` (competenciaRascunho), nunca de uma variável de "anterior"');
+  assert.doesNotMatch(corpo[1], /labelAnterior|competenciaAnterior\(/u, 'salvarRascunhoPlantaoAcao nunca deve referenciar a competência anterior');
+});

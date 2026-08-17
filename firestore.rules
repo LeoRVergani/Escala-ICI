@@ -859,6 +859,12 @@ service cloud.firestore {
      * `rascunhosCompetenciasPlantao` só existe enquanto RASCUNHO — gestor
      * autorizado (`podeGerenciarGrupoPlantao`) lê/escreve; nunca visível a
      * quem só pode consultar.
+     *
+     * Fase ESCALAS-UX-1C — `origem` passou a aceitar também `'COPIADO'`
+     * ("Usar período anterior", uma nova competência cujas atribuições
+     * nascem de cópia estrutural de uma competência anterior). Mudança
+     * mecânica: só o valor aceito na lista muda, nenhuma condição de
+     * autorização nova.
      */
     match /rascunhosCompetenciasPlantao/{id} {
       allow read: if podeGerenciarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId));
@@ -871,7 +877,7 @@ service cloud.firestore {
         && request.resource.data.competencia is string && request.resource.data.competencia.size() > 0
         && request.resource.data.periodoInicio is string
         && request.resource.data.periodoFim is string
-        && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO']
+        && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.criadoPorLogin == loginDoAuth()
         && request.resource.data.totalBruto.keys().hasOnly(['quantidade', 'minutos'])
@@ -894,7 +900,7 @@ service cloud.firestore {
         && request.resource.data.criadoEm == resource.data.criadoEm
         && request.resource.data.status == 'RASCUNHO'
         && request.resource.data.revisao == 0
-        && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO']
+        && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.totalBruto.keys().hasOnly(['quantidade', 'minutos'])
         && (
@@ -932,7 +938,7 @@ service cloud.firestore {
         && request.resource.data.fim is string
         && request.resource.data.duracaoMinutos is int && request.resource.data.duracaoMinutos > 0
         && request.resource.data.papel in ['PRIMARIO', 'SECUNDARIO']
-        && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO']
+        && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']
         && request.resource.data.revisao == 0
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.keys().hasOnly([
@@ -950,7 +956,7 @@ service cloud.firestore {
         && request.resource.data.fim is string
         && request.resource.data.duracaoMinutos is int && request.resource.data.duracaoMinutos > 0
         && request.resource.data.papel in ['PRIMARIO', 'SECUNDARIO']
-        && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO']
+        && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.keys().hasOnly([
           'atribuicaoId', 'grupoId', 'competenciaId', 'plantonistaLogin', 'inicio', 'fim',

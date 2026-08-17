@@ -1914,3 +1914,107 @@ sem precisar recarregar a página).
 
 Ver `CHECKPOINT-FASE-ESCALAS-UX-1B1-REABRIR-RASCUNHO.md` para o
 detalhamento completo desta fase.
+
+## 27. ESCALAS-UX-1C — "Usar período anterior" + distribuição rápida de plantões
+
+Terceira e última forma de começar uma competência prevista em § 12
+("Nova escala — visão futura"): "Copiar período anterior" (`origem:
+'COPIADO'`, adiada desde a ESCALAS-UX-1B/1B.1). Junto com isso, reduz o
+esforço de montar uma escala manualmente sem criar um segundo modo de
+trabalho: seleção de plantonista + clique no dia vazio. Ver
+`docs/spec/EDITOR_ESCALAS.md` § 11 para o detalhamento técnico completo
+(tradução de datas, tamanhos de competência diferentes, vínculos,
+drag-and-drop) — esta seção registra o fluxo e as decisões de produto.
+
+```
++ Nova escala → Plantão → Grupo + competência → Como começar?
+   Importar planilha | Criar escala vazia | Usar período anterior
+                                                    |
+                                                    v
+                                     competência EXATAMENTE anterior
+                                     já tem rascunho persistido?
+                                          não -> "Não existe uma escala
+                                                  anterior para este
+                                                  Plantão." (oferece as
+                                                  outras duas opções)
+                                          sim -> copiarAtribuicoesParaNovaCompetencia()
+                                                 + vinculosDeCopiaAnterior()
+                                                    |
+                                                    v
+                                         MESMO Editor de Plantão
+                                         (origem: 'COPIADO')
+```
+
+### 27.1 A competência anterior nunca é alterada
+
+"Usar período anterior" só LÊ a competência anterior
+(`listarAtribuicoesPlantaoRascunho`, leitura pura) — nunca a reidrata
+como working copy, nunca grava nela, nunca cria vínculo retroativo. A
+nova working copy é sempre independente (novas referências de
+array/objeto, nunca reaproveitadas) — editar a competência nova nunca
+altera semanticamente a anterior. "Salvar rascunho" grava sempre na
+competência NOVA (`competenciaRascunho`/`idCompetenciaPlantao(grupoId,
+competencia)`), nunca em um identificador da anterior — garantido
+estruturalmente porque `salvarRascunhoPlantaoAcao()` nunca referencia a
+competência anterior em nenhum ponto (testes 31/32 de
+`tests/plantao-editor-boundaries.test.mjs`).
+
+### 27.2 Não é um gerador, não rotaciona
+
+Copiar a estrutura da competência anterior preserva os MESMOS
+plantonistas nas MESMAS posições relativas — nunca "Ana→Bruno→Carlos"
+nem qualquer outra rotação. O coordenador decide se quer mudar algo
+depois, usando o Editor normalmente (incluindo a distribuição rápida
+por clique desta mesma fase).
+
+### 27.3 Distribuição rápida por clique — reduz esforço, não cria um segundo modo
+
+O painel "Resumo por pessoa" (já existente desde a ESCALAS-UX-1A) ganhou
+um estado de seleção puramente de UI: tocar uma pessoa a marca como
+"ativa" (`aria-pressed`, nunca grava nada); tocar depois um dia vazio no
+calendário abre o MESMO modal de criação já com "Plantonista"
+preenchido. Início/fim continuam sempre vazios — nunca um horário
+inventado. Sem seleção, o comportamento do calendário é idêntico ao de
+antes desta fase. Nenhum modo de edição novo, nenhum componente de
+calendário novo.
+
+### 27.4 Origem COPIADO e a decisão sobre firestore.rules
+
+Diferente de todas as fases anteriores desta série, que mantiveram
+`firestore.rules` com diff zero, esta fase adicionou `'COPIADO'` à
+lista de origens aceitas em 4 ocorrências de `origem in [...]` (mesmo
+bloco `rascunhosCompetenciasPlantao/{id}` de sempre) — avaliada como
+mudança mecânica e não-significativa (nenhuma condição de autorização
+nova, nenhum campo/coleção nova, simétrica ao padrão já usado para os 3
+valores anteriores). Verificada empiricamente no emulador
+(`test:firestore-rules`: 154/154 preservados + 1 teste novo = 155/155).
+Ver `docs/spec/EDITOR_ESCALAS.md` § 11.7 para o raciocínio completo da
+decisão.
+
+### 27.5 O que esta fase explicitamente NÃO faz
+
+- Nenhuma publicação (`publicarPlantao()` continua inexistente).
+- Nenhum gerador/distribuição automática/rotação/autocomplete de
+  plantonista — copiar é uma cópia estrutural, nunca um gerador.
+- Nenhuma regra de cobertura COSI/NOC hardcoded.
+- **Drag-and-drop** — avaliado e deliberadamente não implementado (sem
+  precedente de arrastar-elemento no código, sem biblioteca instalada,
+  sem equivalente acessível-por-teclado já estabelecido para copiar).
+  "Distribuição por clique está completa. Drag-and-drop continua
+  melhoria opcional futura."
+- **"Repetir último horário"** — avaliado e não implementado; o ganho é
+  pequeno frente ao risco de criar uma segunda forma de preencher
+  horário.
+- Nenhuma customização de cor, nenhum modo de calendário novo, nenhum
+  wizard complexo — só um terceiro botão em "Como começar?" e um painel
+  de seleção reaproveitando o "Resumo por pessoa" já existente.
+- Nenhuma mudança funcional na escala 6x1, em `OrganizationTree`/
+  `OrganizationTeamPicker`/`lib/organizacao.ts`, ou hardcode de NOC.
+- O risco de timezone do Grupo mudar depois de um rascunho salvo (§ 26.7
+  da ESCALAS-UX-1B.1) permanece registrado, não resolvido nesta fase.
+- A limitação de "Conferência da fonte" não reconstruível para um
+  rascunho `IMPORTADO` reaberto (§ 26.2) não é afetada por esta fase —
+  `COPIADO` nunca teve uma "fonte XLS" para começar.
+
+Ver `CHECKPOINT-FASE-ESCALAS-UX-1C-FACILIDADES-DISTRIBUICAO.md` para o
+detalhamento completo desta fase.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ParticipantePlantao } from '@escala-ici/contrato';
+import type { AtribuicaoPlantaoPersistida, ParticipantePlantao } from '@escala-ici/contrato';
 
 import {
   aplicarVinculosNasAtribuicoes,
@@ -13,6 +13,7 @@ import {
   iniciarVinculosPlantao,
   nomeParticipantePlantao,
   previaPlantaoValidavel,
+  vinculosDeCopiaAnterior,
   vinculosDeParticipantesGrupoPlantao,
   type VinculoPlantao,
 } from './conciliacaoPlantoes';
@@ -337,6 +338,81 @@ describe('vinculosDeParticipantesGrupoPlantao — Fase ESCALAS-UX-1B', () => {
   it('grupo sem nenhum participante ativo produz lista vazia — previaPlantaoValidavel corretamente fica false', () => {
     const vinculos = vinculosDeParticipantesGrupoPlantao([], USUARIOS_TESTE);
     expect(vinculos).toEqual([]);
+    expect(previaPlantaoValidavel(vinculos)).toBe(false);
+  });
+});
+
+function atribuicaoPersistida(overrides: Partial<AtribuicaoPlantaoPersistida> & { plantonistaLogin: string }): AtribuicaoPlantaoPersistida {
+  return {
+    atribuicaoId: '0001',
+    grupoId: 'PLANTAO_SEGURANCA',
+    competenciaId: 'PLANTAO_SEGURANCA_2026-07',
+    inicio: '2026-06-26T22:00:00.000Z',
+    fim: '2026-06-27T10:00:00.000Z',
+    duracaoMinutos: 720,
+    papel: 'PRIMARIO',
+    origem: 'MANUAL',
+    revisao: 0,
+    schemaVersion: 1,
+    criadoEm: '2026-07-01T00:00:00.000Z',
+    atualizadoEm: '2026-07-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+describe('vinculosDeCopiaAnterior — Fase ESCALAS-UX-1C ("Usar período anterior")', () => {
+  it('login que ainda é participante ATIVO nasce VINCULADO automaticamente — identidade já conhecida com certeza', () => {
+    const vinculos = vinculosDeCopiaAnterior(
+      [atribuicaoPersistida({ plantonistaLogin: 'acosta' })],
+      [participantePlantao({ login: 'acosta' })],
+      USUARIOS_TESTE,
+    );
+    expect(vinculos).toEqual([{ participanteNomeOriginal: 'Ana Costa', login: 'acosta', status: 'VINCULADO', sugestao: null }]);
+  });
+
+  it('login que existe como usuário mas não é (mais) participante ativo deste Grupo vira PENDENTE com sugestão para o próprio login — nunca troca automaticamente por outra pessoa', () => {
+    const vinculos = vinculosDeCopiaAnterior(
+      [atribuicaoPersistida({ plantonistaLogin: 'blima' })],
+      [], // Bruno Lima não é (mais) participante ativo
+      USUARIOS_TESTE,
+    );
+    expect(vinculos).toEqual([{
+      participanteNomeOriginal: 'Bruno Lima',
+      login: null,
+      status: 'PENDENTE',
+      sugestao: { login: 'blima', nome: 'Bruno Lima' },
+    }]);
+  });
+
+  it('login sem nenhum usuário cadastrado vira USUARIO_NAO_ENCONTRADO, nunca inventa um nome', () => {
+    const vinculos = vinculosDeCopiaAnterior(
+      [atribuicaoPersistida({ plantonistaLogin: 'usuario-removido' })],
+      [],
+      USUARIOS_TESTE,
+    );
+    expect(vinculos).toEqual([{
+      participanteNomeOriginal: 'usuario-removido',
+      login: null,
+      status: 'USUARIO_NAO_ENCONTRADO',
+      sugestao: null,
+    }]);
+  });
+
+  it('logins duplicados na competência anterior viram um único vínculo (dedup por login)', () => {
+    const vinculos = vinculosDeCopiaAnterior(
+      [atribuicaoPersistida({ plantonistaLogin: 'acosta' }), atribuicaoPersistida({ plantonistaLogin: 'acosta', atribuicaoId: '0002' })],
+      [participantePlantao({ login: 'acosta' })],
+      USUARIOS_TESTE,
+    );
+    expect(vinculos).toHaveLength(1);
+  });
+
+  it('um vínculo PENDENTE de participante inativo bloqueia previaPlantaoValidavel — o coordenador precisa decidir antes de salvar', () => {
+    const vinculos = vinculosDeCopiaAnterior(
+      [atribuicaoPersistida({ plantonistaLogin: 'blima' })],
+      [],
+      USUARIOS_TESTE,
+    );
     expect(previaPlantaoValidavel(vinculos)).toBe(false);
   });
 });

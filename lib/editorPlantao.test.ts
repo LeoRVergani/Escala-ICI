@@ -7,6 +7,7 @@ import {
   adicionarAtribuicaoEditavel,
   agruparAtribuicoesPorDia,
   conferirEscalaAtualPlantao,
+  criarAtribuicaoEditavelDeCompetenciaAnterior,
   criarAtribuicoesEditaveis,
   duracaoPlantaoAtipica,
   editarAtribuicaoEditavel,
@@ -361,5 +362,36 @@ describe('rotuloHorarioCartaoPlantao', () => {
       duracaoMinutos: 43 * 60,
     });
     expect(rotulo).toBe('⚠ 43h');
+  });
+});
+
+describe('criarAtribuicaoEditavelDeCompetenciaAnterior — Fase ESCALAS-UX-1C ("Usar período anterior")', () => {
+  it('constrói uma atribuição editável com idLocal "copiado-N", distinto de "importado-"/"rehidratado-"', () => {
+    const atribuicao = criarAtribuicaoEditavelDeCompetenciaAnterior({
+      indice: 0,
+      plantonistaNomeOriginal: 'Ana Costa',
+      inicio: { data: '2026-08-26', hora: '19:00' },
+      fim: { data: '2026-08-27', hora: '07:00' },
+      duracaoMinutos: 720,
+    });
+    expect(atribuicao.idLocal).toBe('copiado-0');
+    expect(atribuicao.origemImportacao).toBe(false);
+    expect(atribuicao.linhaOrigem).toBe(-1);
+  });
+
+  it('preserva nome/início/fim/duração exatamente como fornecidos — nenhum recálculo', () => {
+    const atribuicao = criarAtribuicaoEditavelDeCompetenciaAnterior({
+      indice: 3,
+      plantonistaNomeOriginal: 'Bruno Lima',
+      inicio: { data: '2026-08-25', hora: '00:00' },
+      fim: { data: '2026-08-26', hora: '19:00' },
+      duracaoMinutos: 43 * 60,
+    });
+    expect(atribuicao).toMatchObject({
+      plantonistaNomeOriginal: 'Bruno Lima',
+      inicio: { data: '2026-08-25', hora: '00:00' },
+      fim: { data: '2026-08-26', hora: '19:00' },
+      duracaoMinutos: 43 * 60,
+    });
   });
 });

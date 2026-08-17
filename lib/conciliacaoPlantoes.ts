@@ -1,4 +1,4 @@
-import type { AtribuicaoPlantaoBruta, ParticipantePlantao, ResultadoParsePlantao } from '@escala-ici/contrato';
+import type { AtribuicaoPlantaoBruta, AtribuicaoPlantaoPersistida, ParticipantePlantao, ResultadoParsePlantao } from '@escala-ici/contrato';
 
 import { normalizarNome } from './nomes';
 import type { Usuario } from './modelos';
@@ -155,6 +155,54 @@ export function vinculosDeParticipantesGrupoPlantao(
     status: 'VINCULADO',
     sugestao: null,
   }));
+}
+
+/**
+ * Fase ESCALAS-UX-1C — vínculos para "Usar período anterior": diferente
+ * de `vinculosDeParticipantesGrupoPlantao()` (participantes ATIVOS do
+ * Grupo, sempre `VINCULADO`) e de `iniciarVinculosPlantao()` (nomes de
+ * planilha, sempre precisam de confirmação explícita mesmo com sugestão
+ * única), aqui a identidade já é conhecida com certeza — vem do
+ * `plantonistaLogin` já persistido na competência anterior, nunca de um
+ * nome ambíguo a adivinhar.
+ *
+ * Login que AINDA é participante ativo do Grupo: `VINCULADO`
+ * automaticamente (identidade nunca foi ambígua, não há nada para o
+ * coordenador confirmar). Login que existe como usuário cadastrado mas
+ * não é (mais) participante ativo deste Grupo: `PENDENTE` com uma
+ * `sugestao` apontando para o próprio login/nome — um único clique na
+ * aba Vínculos resolve (reaproveitando `confirmarVinculoPlantao()`, que
+ * já reativa/adiciona o participante ao salvar via
+ * `montarParticipantesPlantaoParaSalvar()`); NUNCA troca automaticamente
+ * por outra pessoa (§ 17/§ 18 desta fase — "o coordenador decide").
+ * Login sem nenhum usuário cadastrado: `USUARIO_NAO_ENCONTRADO`, mesmo
+ * princípio de `iniciarVinculosPlantao()`.
+ */
+export function vinculosDeCopiaAnterior(
+  atribuicoesAnteriores: readonly AtribuicaoPlantaoPersistida[],
+  participantesAtivos: readonly ParticipantePlantao[],
+  usuarios: readonly Usuario[],
+): VinculoPlantao[] {
+  const loginsAtivos = new Set(participantesAtivos.map((item) => item.login));
+  const loginsUnicos = [...new Set(atribuicoesAnteriores.map((item) => item.plantonistaLogin))];
+
+  return loginsUnicos.map((login) => {
+    const usuario = usuarios.find((item) => item.login === login);
+    const nomeOriginal = usuario?.nome ?? login;
+
+    if (loginsAtivos.has(login)) {
+      return { participanteNomeOriginal: nomeOriginal, login, status: 'VINCULADO', sugestao: null };
+    }
+    if (usuario === undefined) {
+      return { participanteNomeOriginal: nomeOriginal, login: null, status: 'USUARIO_NAO_ENCONTRADO', sugestao: null };
+    }
+    return {
+      participanteNomeOriginal: nomeOriginal,
+      login: null,
+      status: 'PENDENTE',
+      sugestao: { login: usuario.login, nome: usuario.nome },
+    };
+  });
 }
 
 function candidatosPorNome(nomeOriginal: string, usuarios: readonly Usuario[]): Usuario[] {

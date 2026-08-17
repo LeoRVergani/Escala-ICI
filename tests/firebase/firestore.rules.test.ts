@@ -2282,6 +2282,24 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
         atribuicaoPlantao({ atribuicaoId: '0005', origem: 'INVENTADA' }),
       ));
     });
+
+    it('Fase ESCALAS-UX-1C — origem COPIADO ("Usar período anterior") é aceita na competência e na atribuição, para o gestor autorizado', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-12'),
+        competenciaRascunhoPlantao({ id: 'PLANTAO_TESTE_2026-12', competencia: '2026-12', origem: 'COPIADO' }),
+      ));
+      await assertSucceeds(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-12', 'atribuicoes', '0001'),
+        atribuicaoPlantao({
+          atribuicaoId: '0001',
+          competenciaId: 'PLANTAO_TESTE_2026-12',
+          origem: 'COPIADO',
+          inicio: '2026-11-26T22:00:00.000Z',
+          fim: '2026-11-27T10:00:00.000Z',
+        }),
+      ));
+    });
   });
 
   describe('competência PUBLICADA — leitura pronta para o futuro, escrita bloqueada nesta fase', () => {

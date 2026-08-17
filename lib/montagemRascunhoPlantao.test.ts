@@ -5,6 +5,7 @@ import type { Usuario } from './modelos';
 
 import {
   aplicarVinculosNasAtribuicoes,
+  vinculosDeCopiaAnterior,
   vinculosDeParticipantesGrupoPlantao,
   type AtribuicaoPlantaoComVinculo,
   type VinculoPlantao,
@@ -20,7 +21,9 @@ import {
   resumirPorPessoa,
 } from './editorPlantao';
 import {
+  competenciaAnterior,
   competenciaDoDia,
+  copiarAtribuicoesParaNovaCompetencia,
   montarAtribuicoesPlantaoRascunho,
   montarCompetenciaPlantaoRascunho,
   montarGrupoPlantaoParaSalvar,
@@ -91,6 +94,26 @@ describe('periodoDaCompetencia — janela 26→25 (Fase ESCALAS-UX-1A)', () => {
   it('competência malformada devolve null', () => {
     expect(periodoDaCompetencia('2026-8')).toBeNull();
     expect(periodoDaCompetencia('não-é-competencia')).toBeNull();
+  });
+});
+
+describe('competenciaAnterior — Fase ESCALAS-UX-1C ("Usar período anterior")', () => {
+  it('1. competência anterior de 2026-09 é 2026-08', () => {
+    expect(competenciaAnterior('2026-09')).toBe('2026-08');
+  });
+
+  it('2. competência anterior de 2026-01 é 2025-12 (rollover de ano)', () => {
+    expect(competenciaAnterior('2026-01')).toBe('2025-12');
+  });
+
+  it('nunca depende da data da máquina — determinística para qualquer entrada válida', () => {
+    expect(competenciaAnterior('2030-05')).toBe('2030-04');
+  });
+
+  it('competência malformada devolve null', () => {
+    expect(competenciaAnterior('2026-9')).toBeNull();
+    expect(competenciaAnterior('não-é-competencia')).toBeNull();
+    expect(competenciaAnterior('2026-13')).toBeNull();
   });
 });
 
@@ -983,5 +1006,294 @@ describe('reidratarRascunhoPlantao — Fase ESCALAS-UX-1B.1 (reabrir rascunho no
     // Ordena pelos mesmos critérios (nome) para comparar sem depender de ordem de array/IDs transitórios.
     const ordenar = (lista: typeof original) => [...lista].sort((a, b) => a.plantonistaNomeOriginal.localeCompare(b.plantonistaNomeOriginal));
     expect(ordenar(reidratado)).toEqual(ordenar(original));
+  });
+});
+
+describe('copiarAtribuicoesParaNovaCompetencia — Fase ESCALAS-UX-1C ("Usar período anterior")', () => {
+  function usuario(overrides: Partial<Usuario> & { login: string; nome: string }): Usuario {
+    return {
+      email: `${overrides.login}@empresa.com`,
+      cargo: 'Analista',
+      equipeId: 'EQ_COSI',
+      gestorUid: null,
+      nivelHierarquico: 6,
+      turnoPadrao: 'M',
+      ativo: true,
+      ...overrides,
+    };
+  }
+
+  const USUARIOS = [
+    usuario({ login: 'acosta', nome: 'Ana Costa' }),
+    usuario({ login: 'blima', nome: 'Bruno Lima' }),
+  ];
+
+  function participantePlantao(overrides: Partial<ParticipantePlantao> & { login: string }): ParticipantePlantao {
+    return {
+      grupoId: 'PLANTAO_SEGURANCA',
+      ativo: true,
+      contatos: [],
+      schemaVersion: 1,
+      criadoPorLogin: 'gestor1',
+      criadoEm: '2026-08-01T00:00:00.000Z',
+      atualizadoEm: '2026-08-01T00:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  function atribuicaoPersistida(overrides: Partial<AtribuicaoPlantaoPersistida> & { atribuicaoId: string }): AtribuicaoPlantaoPersistida {
+    return {
+      grupoId: 'PLANTAO_SEGURANCA',
+      competenciaId: 'PLANTAO_SEGURANCA_2026-08',
+      plantonistaLogin: 'acosta',
+      inicio: '2026-07-26T22:00:00.000Z',
+      fim: '2026-07-27T10:00:00.000Z',
+      duracaoMinutos: 720,
+      papel: 'PRIMARIO',
+      origem: 'MANUAL',
+      revisao: 0,
+      schemaVersion: 1,
+      criadoEm: '2026-08-01T00:00:00.000Z',
+      atualizadoEm: '2026-08-01T00:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  const PARTICIPANTES_ATIVOS: ParticipantePlantao[] = [
+    participantePlantao({ login: 'acosta' }),
+    participantePlantao({ login: 'blima' }),
+  ];
+
+  it('3. carrega atribuições anteriores — cada atribuição persistida vira uma atribuição editável', () => {
+    const resultado = copiarAtribuicoesParaNovaCompetencia({
+      atribuicoesAnteriores: [
+        atribuicaoPersistida({ atribuicaoId: '0001', plantonistaLogin: 'acosta' }),
+        atribuicaoPersistida({ atribuicaoId: '0002', plantonistaLogin: 'blima', inicio: '2026-07-31T22:00:00.000Z', fim: '2026-08-01T22:00:00.000Z' }),
+      ],
+      periodoAnteriorInicio: '2026-07-26',
+      periodoNovoInicio: '2026-08-26',
+      periodoNovoFim: '2026-09-25',
+      timezone: 'America/Sao_Paulo',
+      participantes: PARTICIPANTES_ATIVOS,
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoes).toHaveLength(2);
+    expect(resultado.quantidadeNaoCopiada).toBe(0);
+  });
+
+  it('4. cria uma NOVA working copy — idLocal "copiado-N", nunca reaproveita nenhuma referência da competência anterior', () => {
+    const resultado = copiarAtribuicoesParaNovaCompetencia({
+      atribuicoesAnteriores: [atribuicaoPersistida({ atribuicaoId: '0001' })],
+      periodoAnteriorInicio: '2026-07-26',
+      periodoNovoInicio: '2026-08-26',
+      periodoNovoFim: '2026-09-25',
+      timezone: 'America/Sao_Paulo',
+      participantes: PARTICIPANTES_ATIVOS,
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoes[0]?.idLocal).toBe('copiado-0');
+  });
+
+  it('5. preserva o plantonista (login/nome) — nunca troca automaticamente por outra pessoa', () => {
+    const resultado = copiarAtribuicoesParaNovaCompetencia({
+      atribuicoesAnteriores: [atribuicaoPersistida({ atribuicaoId: '0001', plantonistaLogin: 'blima' })],
+      periodoAnteriorInicio: '2026-07-26',
+      periodoNovoInicio: '2026-08-26',
+      periodoNovoFim: '2026-09-25',
+      timezone: 'America/Sao_Paulo',
+      participantes: PARTICIPANTES_ATIVOS,
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoes[0]?.plantonistaNomeOriginal).toBe('Bruno Lima');
+  });
+
+  it('6. preserva o horário civil — hora de início/fim nunca é recalculada, só a data muda', () => {
+    const resultado = copiarAtribuicoesParaNovaCompetencia({
+      atribuicoesAnteriores: [atribuicaoPersistida({
+        atribuicaoId: '0001',
+        inicio: '2026-07-26T22:00:00.000Z', // 19:00 America/Sao_Paulo
+        fim: '2026-07-27T10:00:00.000Z', // 07:00 America/Sao_Paulo
+      })],
+      periodoAnteriorInicio: '2026-07-26',
+      periodoNovoInicio: '2026-08-26',
+      periodoNovoFim: '2026-09-25',
+      timezone: 'America/Sao_Paulo',
+      participantes: PARTICIPANTES_ATIVOS,
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoes[0]?.inicio.hora).toBe('19:00');
+    expect(resultado.atribuicoes[0]?.fim.hora).toBe('07:00');
+  });
+
+  it('7. ajusta as datas para a nova competência, preservando a posição relativa (dia 0 da anterior -> dia 0 da nova)', () => {
+    const resultado = copiarAtribuicoesParaNovaCompetencia({
+      atribuicoesAnteriores: [atribuicaoPersistida({
+        atribuicaoId: '0001',
+        inicio: '2026-07-26T22:00:00.000Z', // dia 26/07 = dia 0 da competência 2026-08
+        fim: '2026-07-27T10:00:00.000Z',
+      })],
+      periodoAnteriorInicio: '2026-07-26',
+      periodoNovoInicio: '2026-08-26', // dia 0 da nova competência 2026-09
+      periodoNovoFim: '2026-09-25',
+      timezone: 'America/Sao_Paulo',
+      participantes: PARTICIPANTES_ATIVOS,
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoes[0]?.inicio.data).toBe('2026-08-26');
+    expect(resultado.atribuicoes[0]?.fim.data).toBe('2026-08-27');
+  });
+
+  it('preserva a duração de 12h ao traduzir para a nova competência', () => {
+    const resultado = copiarAtribuicoesParaNovaCompetencia({
+      atribuicoesAnteriores: [atribuicaoPersistida({ atribuicaoId: '0001', duracaoMinutos: 12 * 60 })],
+      periodoAnteriorInicio: '2026-07-26',
+      periodoNovoInicio: '2026-08-26',
+      periodoNovoFim: '2026-09-25',
+      timezone: 'America/Sao_Paulo',
+      participantes: PARTICIPANTES_ATIVOS,
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoes[0]?.duracaoMinutos).toBe(12 * 60);
+  });
+
+  it('13. borda real de 43h é preservada exatamente — nunca normalizada', () => {
+    const resultado = copiarAtribuicoesParaNovaCompetencia({
+      atribuicoesAnteriores: [atribuicaoPersistida({
+        atribuicaoId: '0001',
+        inicio: '2026-07-25T03:00:00.000Z', // 00:00 America/Sao_Paulo, dia 25 (contexto)
+        fim: '2026-07-26T22:00:00.000Z', // 19:00 América/Sao_Paulo, dia 26
+        duracaoMinutos: 43 * 60,
+      })],
+      periodoAnteriorInicio: '2026-07-26',
+      periodoNovoInicio: '2026-08-26',
+      periodoNovoFim: '2026-09-25',
+      timezone: 'America/Sao_Paulo',
+      participantes: PARTICIPANTES_ATIVOS,
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoes).toHaveLength(1);
+    expect(resultado.atribuicoes[0]?.duracaoMinutos).toBe(43 * 60);
+    expect(resultado.atribuicoes[0]?.inicio).toEqual({ data: '2026-08-25', hora: '00:00' });
+    expect(resultado.atribuicoes[0]?.fim).toEqual({ data: '2026-08-26', hora: '19:00' });
+  });
+
+  it('8. NÃO altera a competência anterior — as atribuições persistidas de entrada nunca são mutadas', () => {
+    const anteriores = [atribuicaoPersistida({ atribuicaoId: '0001' })];
+    const copiaAntesEsperada = JSON.parse(JSON.stringify(anteriores));
+    copiarAtribuicoesParaNovaCompetencia({
+      atribuicoesAnteriores: anteriores,
+      periodoAnteriorInicio: '2026-07-26',
+      periodoNovoInicio: '2026-08-26',
+      periodoNovoFim: '2026-09-25',
+      timezone: 'America/Sao_Paulo',
+      participantes: PARTICIPANTES_ATIVOS,
+      usuarios: USUARIOS,
+    });
+    expect(anteriores).toEqual(copiaAntesEsperada);
+  });
+
+  it('12. anterior inexistente: função não decide isso (responsabilidade do chamador verificar antes) — mas atribuicoesAnteriores vazio produz working copy vazia, nunca erro', () => {
+    const resultado = copiarAtribuicoesParaNovaCompetencia({
+      atribuicoesAnteriores: [],
+      periodoAnteriorInicio: '2026-07-26',
+      periodoNovoInicio: '2026-08-26',
+      periodoNovoFim: '2026-09-25',
+      timezone: 'America/Sao_Paulo',
+      participantes: PARTICIPANTES_ATIVOS,
+      usuarios: USUARIOS,
+    });
+    expect(resultado).toEqual({ atribuicoes: [], quantidadeNaoCopiada: 0 });
+  });
+
+  it('13b. participante inativo/removido do Grupo: nome é preservado (nunca trocado), reconhecível via vinculosDeCopiaAnterior', () => {
+    const resultado = copiarAtribuicoesParaNovaCompetencia({
+      atribuicoesAnteriores: [atribuicaoPersistida({ atribuicaoId: '0001', plantonistaLogin: 'blima' })],
+      periodoAnteriorInicio: '2026-07-26',
+      periodoNovoInicio: '2026-08-26',
+      periodoNovoFim: '2026-09-25',
+      timezone: 'America/Sao_Paulo',
+      participantes: [], // Bruno Lima não é mais participante ativo
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoes[0]?.plantonistaNomeOriginal).toBe('Bruno Lima');
+
+    const vinculos = vinculosDeCopiaAnterior(
+      [atribuicaoPersistida({ atribuicaoId: '0001', plantonistaLogin: 'blima' })],
+      [],
+      USUARIOS,
+    );
+    expect(vinculos[0]?.status).toBe('PENDENTE');
+  });
+
+  it('14. competências com quantidades de dias diferentes: atribuição fora da nova janela (mais curta) NÃO é copiada, só contada — nunca truncada/deslocada em silêncio', () => {
+    // Competência 2026-08 (31 dias: 26/07 a 25/08) -> última atribuição no último dia (offset 30).
+    // Copiando para 2026-03 (28 dias: 26/02 a 25/03, fevereiro não-bissexto) — offset 30 fica bem além do limite.
+    const resultado = copiarAtribuicoesParaNovaCompetencia({
+      atribuicoesAnteriores: [atribuicaoPersistida({
+        atribuicaoId: '0001',
+        inicio: '2026-08-25T22:00:00.000Z', // 19:00 America/Sao_Paulo, dia 25/08 = offset 30 de 26/07
+        fim: '2026-08-26T03:00:00.000Z',
+      })],
+      periodoAnteriorInicio: '2026-07-26',
+      periodoNovoInicio: '2026-02-26',
+      periodoNovoFim: '2026-03-25',
+      timezone: 'America/Sao_Paulo',
+      participantes: PARTICIPANTES_ATIVOS,
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoes).toHaveLength(0);
+    expect(resultado.quantidadeNaoCopiada).toBe(1);
+  });
+
+  it('uma atribuição cujo offset ainda cabe na nova janela (mesmo em um mês mais curto) é copiada normalmente', () => {
+    const resultado = copiarAtribuicoesParaNovaCompetencia({
+      atribuicoesAnteriores: [atribuicaoPersistida({
+        atribuicaoId: '0001',
+        inicio: '2026-07-26T22:00:00.000Z', // dia 26/07 = offset 0
+        fim: '2026-07-27T10:00:00.000Z',
+      })],
+      periodoAnteriorInicio: '2026-07-26',
+      periodoNovoInicio: '2026-02-26',
+      periodoNovoFim: '2026-03-25',
+      timezone: 'America/Sao_Paulo',
+      participantes: PARTICIPANTES_ATIVOS,
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoes).toHaveLength(1);
+    expect(resultado.quantidadeNaoCopiada).toBe(0);
+    expect(resultado.atribuicoes[0]?.inicio.data).toBe('2026-02-26');
+  });
+
+  it('15. nenhuma rotação automática — copiar duas atribuições da mesma pessoa preserva a MESMA pessoa nas duas, nunca redistribui para outra', () => {
+    const resultado = copiarAtribuicoesParaNovaCompetencia({
+      atribuicoesAnteriores: [
+        atribuicaoPersistida({ atribuicaoId: '0001', plantonistaLogin: 'acosta', inicio: '2026-07-26T22:00:00.000Z', fim: '2026-07-27T10:00:00.000Z' }),
+        atribuicaoPersistida({ atribuicaoId: '0002', plantonistaLogin: 'acosta', inicio: '2026-07-28T22:00:00.000Z', fim: '2026-07-29T10:00:00.000Z' }),
+      ],
+      periodoAnteriorInicio: '2026-07-26',
+      periodoNovoInicio: '2026-08-26',
+      periodoNovoFim: '2026-09-25',
+      timezone: 'America/Sao_Paulo',
+      participantes: PARTICIPANTES_ATIVOS,
+      usuarios: USUARIOS,
+    });
+    expect(resultado.atribuicoes.every((item) => item.plantonistaNomeOriginal === 'Ana Costa')).toBe(true);
+  });
+
+  it('9/10/11 — origem definida como COPIADO, dirty inicial coerente e nova competência correta são responsabilidade do chamador (DashboardApp) — cobertos no describe de origem/contrato acima (montarCompetenciaPlantaoRascunho — origem COPIADO)', () => {
+    // Ver describe 'montarCompetenciaPlantaoRascunho — Fase ESCALAS-UX-1B (origem MANUAL...)' — o mesmo mecanismo
+    // (origem como parâmetro explícito) já cobre COPIADO sem nenhuma mudança de código, testado abaixo.
+    const competencia = montarCompetenciaPlantaoRascunho({
+      grupoId: 'PLANTAO_SEGURANCA',
+      competencia: '2026-09',
+      periodoInicio: '2026-08-26',
+      periodoFim: '2026-09-25',
+      resultado: { totalBrutoCalculado: { quantidade: 0, minutos: 0 }, totaisInformados: null },
+      origem: 'COPIADO',
+      loginAtual: 'gestor1',
+      agoraIso: '2026-09-01T00:00:00.000Z',
+      competenciaExistente: null,
+    });
+    expect(competencia.origem).toBe('COPIADO');
   });
 });

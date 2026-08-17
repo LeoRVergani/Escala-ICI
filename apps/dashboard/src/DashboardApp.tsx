@@ -89,6 +89,7 @@ import {
   iniciarVinculosPlantao,
   nomeParticipantePlantao,
   previaPlantaoValidavel,
+  vinculosDeCopiaAnterior,
   vinculosDeParticipantesGrupoPlantao,
   type AtribuicaoPlantaoComVinculo,
   type ParticipanteConsolidadoPlantao,
@@ -145,6 +146,8 @@ import {
   salvarParticipantePlantao,
 } from '@/lib/firebase/plantaoWriteRepository';
 import {
+  competenciaAnterior,
+  copiarAtribuicoesParaNovaCompetencia,
   montarAtribuicoesPlantaoRascunho,
   montarCompetenciaPlantaoRascunho,
   montarParticipantesPlantaoParaSalvar,
@@ -2140,6 +2143,7 @@ function ModalNovaEscala({
   gruposDisponiveis,
   equipes,
   participantesPorGrupo,
+  rascunhosPorGrupo,
   grupoId,
   onMudarGrupo,
   competencia,
@@ -2150,6 +2154,7 @@ function ModalNovaEscala({
   onAbrirRascunhoExistente,
   onImportarPlanilha,
   onCriarVazia,
+  onUsarPeriodoAnterior,
 }: {
   etapa: 'tipo' | 'plantao';
   onFechar: () => void;
@@ -2159,6 +2164,7 @@ function ModalNovaEscala({
   gruposDisponiveis: GrupoPlantao[];
   equipes: Equipe[];
   participantesPorGrupo: Record<string, ParticipantePlantao[]>;
+  rascunhosPorGrupo: Record<string, CompetenciaPlantao[]>;
   grupoId: string;
   onMudarGrupo: (grupoId: string) => void;
   competencia: string;
@@ -2169,6 +2175,7 @@ function ModalNovaEscala({
   onAbrirRascunhoExistente: () => void | Promise<void>;
   onImportarPlanilha: () => void;
   onCriarVazia: () => void;
+  onUsarPeriodoAnterior: () => void | Promise<void>;
 }) {
   useTeclaEsc(onFechar);
   const grupoEscolhido = gruposDisponiveis.find((item) => item.grupoId === grupoId) ?? null;
@@ -2181,6 +2188,13 @@ function ModalNovaEscala({
   const competenciaNormalizada = competencia.trim();
   const periodoPreview = /^\d{4}-\d{2}$/u.test(competenciaNormalizada) ? periodoDaCompetencia(competenciaNormalizada) : null;
   const podeCriar = grupoEscolhido !== null && periodoPreview !== null && !criando;
+  // Fase ESCALAS-UX-1C — "Usar período anterior" só fica disponível quando
+  // a competência EXATAMENTE anterior (nunca "a mais recente que existir")
+  // já tem um rascunho salvo para este Grupo.
+  const labelCompetenciaAnterior = periodoPreview !== null ? competenciaAnterior(competenciaNormalizada) : null;
+  const competenciaAnteriorEncontrada = grupoEscolhido === null || labelCompetenciaAnterior === null
+    ? null
+    : (rascunhosPorGrupo[grupoEscolhido.grupoId] ?? []).find((item) => item.competencia === labelCompetenciaAnterior) ?? null;
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
@@ -2274,6 +2288,23 @@ function ModalNovaEscala({
               <button className="secondary-button" type="button" onClick={onImportarPlanilha}>
                 <UploadCloud size={16} /> Importar planilha
               </button>
+              {/*
+               * Fase ESCALAS-UX-1C — terceira forma de começar (§7/§11):
+               * só habilitada quando a competência EXATAMENTE anterior já
+               * tem um rascunho persistido para este Grupo — nunca cria
+               * uma escala vazia disfarçada quando não existe anterior.
+               */}
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={!podeCriar || competenciaAnteriorEncontrada === null}
+                onClick={() => void onUsarPeriodoAnterior()}
+                title={competenciaAnteriorEncontrada === null
+                  ? 'Não existe uma escala anterior para este Plantão.'
+                  : `Copia a estrutura de ${labelCompetenciaAnterior}`}
+              >
+                {criando ? <LoaderCircle className="spin" size={16} /> : <RotateCcw size={16} />} Usar período anterior
+              </button>
               <button className="primary-button" type="button" disabled={!podeCriar} onClick={onCriarVazia}>
                 {criando ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} Criar escala vazia
               </button>
@@ -2329,6 +2360,13 @@ interface PreviewPlantaoProps {
   editadoDesdeImportacao: boolean;
   onEditarAtribuicao: (idLocal: string) => void;
   onAdicionarPlantao: (dataIso: string) => void;
+  /**
+   * Fase ESCALAS-UX-1C — "distribuição rápida por clique": seleção
+   * PURAMENTE de UI (nunca grava no Firestore, nunca altera o Grupo).
+   * `null` significa nenhuma pessoa selecionada. Ver §19-21/§26-30.
+   */
+  plantonistaSelecionado: string | null;
+  onSelecionarPlantonista: (nomeOriginal: string) => void;
 }
 
 /**
@@ -2367,6 +2405,8 @@ function PreviewPlantao({
   editadoDesdeImportacao,
   onEditarAtribuicao,
   onAdicionarPlantao,
+  plantonistaSelecionado,
+  onSelecionarPlantonista,
 }: PreviewPlantaoProps) {
   const vinculoPorParticipante = new Map(vinculos.map((vinculo) => [vinculo.participanteNomeOriginal, vinculo]));
   const conferenciaEscalaAtual = conferirEscalaAtualPlantao(atribuicoesEditaveis, duracaoPlantaoAtipica);
@@ -2384,8 +2424,14 @@ function PreviewPlantao({
       <article className="panel plantao-resumo-panel">
         <div className="panel-title">
           <div>
-            <p className="eyebrow">{origem === 'MANUAL' ? 'Escala de Plantão' : 'Planilha de Plantão detectada'}</p>
-            <h2>{origem === 'MANUAL' ? 'Escala criada manualmente' : nomeArquivo}</h2>
+            <p className="eyebrow">{resultado === null ? 'Escala de Plantão' : 'Planilha de Plantão detectada'}</p>
+            {/*
+             * Fase ESCALAS-UX-1C — `origem === 'COPIADO'` também tem
+             * `resultado === null` (nunca uma fonte XLS fingida): mostra
+             * uma indicação de UI, sem qualquer metadado novo no schema
+             * (§38 da fase — "Baseada na competência anterior" é só texto).
+             */}
+            <h2>{origem === 'MANUAL' ? 'Escala criada manualmente' : (origem === 'COPIADO' ? 'Escala baseada na competência anterior' : nomeArquivo)}</h2>
             {resultado !== null && <p>Aba de origem: {resultado.abaOrigem}</p>}
           </div>
           {resultado !== null && (
@@ -2416,7 +2462,7 @@ function PreviewPlantao({
             </div>
           </div>
         ) : (
-          <p>Escala criada manualmente. Não há planilha de origem para conferir aqui — ver &ldquo;Escala atual&rdquo; na aba Contabilidade.</p>
+          <p>Não há planilha de origem para conferir aqui — ver &ldquo;Escala atual&rdquo; na aba Contabilidade.</p>
         )}
         <div className="import-actions">
           <span className={`status-badge ${pendencias === 0 ? 'success' : 'warning'}`}>
@@ -2486,7 +2532,7 @@ function PreviewPlantao({
             <p className={`plantao-estado-edicao ${editadoDesdeImportacao ? 'sujo' : 'limpo'}`}>
               {editadoDesdeImportacao
                 ? 'Alterações não salvas'
-                : (origem === 'MANUAL' ? 'Nenhuma alteração desde a criação' : 'Nenhuma alteração desde a importação')}
+                : (resultado === null ? 'Nenhuma alteração desde a criação' : 'Nenhuma alteração desde a importação')}
             </p>
             {pendencias > 0 && (
               <div className="import-actions plantao-vinculo-pendente-banner">
@@ -2521,6 +2567,16 @@ function PreviewPlantao({
                 )}
               </ul>
             )}
+            {plantonistaSelecionado !== null && (
+              <p className="plantao-selecao-ativa">
+                Adicionando plantões para <strong>{plantonistaSelecionado}</strong> — toque um dia vazio no
+                calendário, ou{' '}
+                <button type="button" className="link-button" onClick={() => onSelecionarPlantonista(plantonistaSelecionado)}>
+                  cancelar seleção
+                </button>
+                .
+              </p>
+            )}
             {periodoInicio !== '' && periodoFim !== '' ? (
               <PlantaoCalendario
                 competencia={competencia}
@@ -2536,11 +2592,22 @@ function PreviewPlantao({
             )}
             <div className="plantao-resumo-por-pessoa">
               <h3>Resumo por pessoa</h3>
+              <p className="plantao-resumo-por-pessoa-dica">
+                Toque uma pessoa para selecioná-la e depois toque um dia vazio no calendário para criar um plantão já
+                preenchido com ela.
+              </p>
               <ul>
                 {resumoPorPessoa.map((pessoa) => (
                   <li key={pessoa.nomeOriginal}>
-                    <span>{pessoa.nomeOriginal}</span>
-                    <span>{pessoa.quantidade} plantões · {formatarMinutos(pessoa.minutos)}</span>
+                    <button
+                      type="button"
+                      className={`plantao-pessoa-selecionar${plantonistaSelecionado === pessoa.nomeOriginal ? ' selecionado' : ''}`}
+                      aria-pressed={plantonistaSelecionado === pessoa.nomeOriginal}
+                      onClick={() => onSelecionarPlantonista(pessoa.nomeOriginal)}
+                    >
+                      <span>{pessoa.nomeOriginal}</span>
+                      <span>{pessoa.quantidade} plantões · {formatarMinutos(pessoa.minutos)}</span>
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -2551,7 +2618,7 @@ function PreviewPlantao({
         {aba === 'resumo' && (
           <div className="plantao-resumo-conteudo">
             {resultado === null ? (
-              <p>Escala criada manualmente — não houve leitura de planilha, então não há erro ou aviso estrutural aqui.</p>
+              <p>Não houve leitura de planilha nesta escala — não há erro ou aviso estrutural aqui.</p>
             ) : (
               <>
                 {resultado.erros.length > 0 && (
@@ -2663,7 +2730,7 @@ function PreviewPlantao({
                 </div>
               </>
             ) : (
-              <p>Escala criada manualmente. Não há contabilidade de planilha para conferir.</p>
+              <p>Não há contabilidade de planilha para conferir nesta escala.</p>
             )}
           </>
         )}
@@ -2855,6 +2922,14 @@ export function DashboardApp() {
    * não há nenhuma prévia de Plantão aberta.
    */
   const [origemPlantaoAtual, setOrigemPlantaoAtual] = useState<OrigemPlantao | null>(null);
+  /**
+   * Fase ESCALAS-UX-1C — "distribuição rápida por clique" (§19-21/§26-30):
+   * seleção PURAMENTE de UI (nunca grava no Firestore, nunca altera o
+   * Grupo). Reiniciada em TODA entrada nova no Editor (importar/criar
+   * vazia/reabrir rascunho/usar período anterior) para nunca "vazar" a
+   * seleção de uma prévia para a próxima.
+   */
+  const [plantonistaSelecionadoPlantao, setPlantonistaSelecionadoPlantao] = useState<string | null>(null);
   // --- "+ Nova escala" (Fase ESCALAS-UX-1B) — escolher tipo, depois grupo/competência de Plantão ---
   const [novaEscalaEtapa, setNovaEscalaEtapa] = useState<'tipo' | 'plantao' | null>(null);
   const [novoPlantaoGrupoId, setNovoPlantaoGrupoId] = useState('');
@@ -3587,6 +3662,7 @@ export function DashboardApp() {
     setPreviaPlantaoValidada(false);
     setAbaPreviaPlantao('calendario');
     setBuscaVinculoPlantao({});
+    setPlantonistaSelecionadoPlantao(null);
     setGrupoRascunhoEscolhido('');
     // Fase ESCALAS-UX-1A — sugerida já na importação (não só ao validar a
     // prévia), para o calendário destacar a janela 26→25 antes mesmo dos
@@ -3640,16 +3716,29 @@ export function DashboardApp() {
     });
   }
 
+  /**
+   * Fase ESCALAS-UX-1C — "distribuição rápida por clique" (§19-21): com um
+   * plantonista selecionado no painel compacto, tocar um dia vazio já abre
+   * este MESMO modal de criação com o campo Plantonista pré-preenchido —
+   * nunca inventa horário (início/fim continuam vazios, o coordenador
+   * sempre confirma explicitamente). Sem seleção, comportamento idêntico
+   * ao de antes desta fase.
+   */
   function abrirCriacaoAtribuicaoPlantao(dataIso: string) {
     setModalAtribuicaoPlantao({
       modo: 'criar',
       idLocal: null,
       valoresIniciais: {
-        plantonistaNomeOriginal: '',
+        plantonistaNomeOriginal: plantonistaSelecionadoPlantao ?? '',
         inicio: { data: dataIso, hora: '' },
         fim: { data: dataIso, hora: '' },
       },
     });
+  }
+
+  /** Fase ESCALAS-UX-1C — alterna a seleção do painel "Resumo por pessoa"; puramente de UI (§20). */
+  function alternarPlantonistaSelecionado(nomeOriginal: string) {
+    setPlantonistaSelecionadoPlantao((atual) => (atual === nomeOriginal ? null : nomeOriginal));
   }
 
   function fecharModalAtribuicaoPlantao() {
@@ -3750,7 +3839,14 @@ export function DashboardApp() {
     setNovoPlantaoRascunhoExistente(null);
     setNovoPlantaoErro('');
     if (grupoId !== '') {
-      await garantirParticipantesDoGrupoCarregados(grupoId);
+      // Fase ESCALAS-UX-1C — carrega os rascunhos do grupo já ao escolher o
+      // Grupo, para "Usar período anterior" saber se a competência
+      // exatamente anterior existe assim que a competência é digitada
+      // (mesmo cache de `garantirRascunhosDoGrupoCarregados`, sem query nova).
+      await Promise.all([
+        garantirParticipantesDoGrupoCarregados(grupoId),
+        garantirRascunhosDoGrupoCarregados(grupoId),
+      ]);
     }
   }
 
@@ -3838,6 +3934,7 @@ export function DashboardApp() {
       setPreviaPlantaoValidada(previaPlantaoValidavel(vinculosIniciais));
       setAbaPreviaPlantao('calendario');
       setBuscaVinculoPlantao({});
+      setPlantonistaSelecionadoPlantao(null);
       setGrupoRascunhoEscolhido(grupo.grupoId);
       setCompetenciaRascunho(competencia);
       setPeriodoInicioRascunho(periodo.periodoInicio);
@@ -3850,6 +3947,114 @@ export function DashboardApp() {
       setTela('importar');
     } catch (falha) {
       setNovoPlantaoErro(mensagemErroFirebase(falha, 'Não foi possível criar a escala de Plantão.', ambienteFirebaseAtual));
+    } finally {
+      setNovoPlantaoCriando(false);
+    }
+  }
+
+  /**
+   * Fase ESCALAS-UX-1C — "Usar período anterior" (§7-§18). Carrega a
+   * competência EXATAMENTE anterior (`competenciaAnterior()`, nunca "a
+   * mais recente disponível") já persistida como rascunho para este
+   * Grupo, e usa suas atribuições como BASE de uma NOVA working copy —
+   * via `copiarAtribuicoesParaNovaCompetencia()` (tradução de datas
+   * preservando posição relativa e horário civil) e
+   * `vinculosDeCopiaAnterior()` (participante ainda ativo → vínculo
+   * automático; inativo/desconhecido → pendência, nunca troca sozinho).
+   * A competência anterior nunca é lida como working copy nem alterada —
+   * só consultada (`listarAtribuicoesPlantaoRascunho`, leitura pura).
+   * Mesma checagem de duplicata de `criarPlantaoEmBrancoAcao`: nunca
+   * sobrescreve um rascunho já existente na competência NOVA.
+   */
+  async function usarPeriodoAnteriorAcao() {
+    if (usuarioReal === null) {
+      return;
+    }
+    const competencia = novoPlantaoCompetencia.trim();
+    const errosValidacao = validarNovoPlantaoEmBranco({ grupoId: novoPlantaoGrupoId, competencia });
+    if (errosValidacao.length > 0) {
+      setNovoPlantaoErro(errosValidacao.join(' '));
+      return;
+    }
+    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === novoPlantaoGrupoId);
+    if (grupo === undefined) {
+      setNovoPlantaoErro('Selecione um Grupo de Plantão.');
+      return;
+    }
+    if (!podeGerenciarEsteGrupoPlantao(grupo)) {
+      setNovoPlantaoErro('Você não administra este grupo de Plantão.');
+      return;
+    }
+    const periodo = periodoDaCompetencia(competencia);
+    if (periodo === null) {
+      setNovoPlantaoErro('Informe a competência no formato AAAA-MM.');
+      return;
+    }
+    const labelAnterior = competenciaAnterior(competencia);
+    const periodoAnterior = labelAnterior === null ? null : periodoDaCompetencia(labelAnterior);
+    if (labelAnterior === null || periodoAnterior === null) {
+      setNovoPlantaoErro('Informe a competência no formato AAAA-MM.');
+      return;
+    }
+
+    setNovoPlantaoCriando(true);
+    setNovoPlantaoErro('');
+    try {
+      if (!modoDemo) {
+        const existente = await obterCompetenciaPlantaoRascunho(grupo.grupoId, competencia);
+        if (existente !== null) {
+          setNovoPlantaoRascunhoExistente(existente);
+          return;
+        }
+      }
+      const rascunhosDoGrupo = await garantirRascunhosDoGrupoCarregados(grupo.grupoId);
+      const competenciaAnteriorPersistida = rascunhosDoGrupo.find((item) => item.competencia === labelAnterior);
+      if (competenciaAnteriorPersistida === undefined) {
+        setNovoPlantaoErro('Não existe uma escala anterior para este Plantão.');
+        return;
+      }
+
+      const [atribuicoesAnteriores, participantesAtivos] = await Promise.all([
+        modoDemo ? Promise.resolve([]) : listarAtribuicoesPlantaoRascunho(grupo.grupoId, labelAnterior),
+        garantirParticipantesDoGrupoCarregados(grupo.grupoId).then((lista) => lista.filter((item) => item.ativo)),
+      ]);
+
+      const resultadoCopia = copiarAtribuicoesParaNovaCompetencia({
+        atribuicoesAnteriores,
+        periodoAnteriorInicio: periodoAnterior.periodoInicio,
+        periodoNovoInicio: periodo.periodoInicio,
+        periodoNovoFim: periodo.periodoFim,
+        timezone: grupo.timezone,
+        participantes: participantesAtivos,
+        usuarios,
+      });
+      const vinculosIniciais = vinculosDeCopiaAnterior(atribuicoesAnteriores, participantesAtivos, usuarios);
+
+      setArquivo(null);
+      setNomeArquivo('');
+      setResultadoPlantao(null);
+      setOrigemPlantaoAtual('COPIADO');
+      setAtribuicoesEditaveisPlantao(resultadoCopia.atribuicoes);
+      setPlantaoEditadoDesdeImportacao(false);
+      setVinculosPlantao(vinculosIniciais);
+      setPreviaPlantaoValidada(previaPlantaoValidavel(vinculosIniciais));
+      setAbaPreviaPlantao('calendario');
+      setBuscaVinculoPlantao({});
+      setPlantonistaSelecionadoPlantao(null);
+      setGrupoRascunhoEscolhido(grupo.grupoId);
+      setCompetenciaRascunho(competencia);
+      setPeriodoInicioRascunho(periodo.periodoInicio);
+      setPeriodoFimRascunho(periodo.periodoFim);
+      setErroRascunhoPlantao('');
+      setRascunhoPlantaoSalvoEm(null);
+      setTipoArquivoDetectado('PLANTAO');
+      setMensagem(resultadoCopia.quantidadeNaoCopiada > 0
+        ? `Escala baseada na competência anterior (${labelAnterior}) — "${grupo.nome}" (${competencia}). ${resultadoCopia.quantidadeNaoCopiada} plantão(ões) da competência anterior não coube(ram) na nova janela e não foram copiados. Nenhum dado foi publicado.`
+        : `Escala baseada na competência anterior (${labelAnterior}) — "${grupo.nome}" (${competencia}). Nenhum dado foi publicado.`);
+      fecharNovaEscala();
+      setTela('importar');
+    } catch (falha) {
+      setNovoPlantaoErro(mensagemErroFirebase(falha, 'Não foi possível usar o período anterior.', ambienteFirebaseAtual));
     } finally {
       setNovoPlantaoCriando(false);
     }
@@ -4693,6 +4898,7 @@ export function DashboardApp() {
       setPreviaPlantaoValidada(previaPlantaoValidavel(reidratado.vinculos));
       setAbaPreviaPlantao('calendario');
       setBuscaVinculoPlantao({});
+      setPlantonistaSelecionadoPlantao(null);
       setGrupoRascunhoEscolhido(grupo.grupoId);
       setCompetenciaRascunho(reidratado.competencia.competencia);
       setPeriodoInicioRascunho(reidratado.competencia.periodoInicio);
@@ -5510,6 +5716,8 @@ export function DashboardApp() {
               editadoDesdeImportacao={plantaoEditadoDesdeImportacao}
               onEditarAtribuicao={abrirEdicaoAtribuicaoPlantao}
               onAdicionarPlantao={abrirCriacaoAtribuicaoPlantao}
+              plantonistaSelecionado={plantonistaSelecionadoPlantao}
+              onSelecionarPlantonista={alternarPlantonistaSelecionado}
             />
           )}
 
@@ -6827,6 +7035,7 @@ export function DashboardApp() {
           gruposDisponiveis={gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao)}
           equipes={equipesAdmin}
           participantesPorGrupo={participantesPorGrupoPlantao}
+          rascunhosPorGrupo={rascunhosPlantaoPorGrupo}
           grupoId={novoPlantaoGrupoId}
           onMudarGrupo={(grupoId) => void mudarGrupoNovoPlantao(grupoId)}
           competencia={novoPlantaoCompetencia}
@@ -6837,6 +7046,7 @@ export function DashboardApp() {
           onAbrirRascunhoExistente={abrirRascunhoExistenteNovoPlantao}
           onImportarPlanilha={importarPlanilhaNovoPlantao}
           onCriarVazia={() => void criarPlantaoEmBrancoAcao()}
+          onUsarPeriodoAnterior={() => void usarPeriodoAnteriorAcao()}
         />
       )}
 

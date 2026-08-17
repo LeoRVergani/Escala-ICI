@@ -1,4 +1,5 @@
 import {
+  adicionarDias,
   competenciaOperacional,
   converterInstanteUtcParaMomento,
   converterMomentoParaInstanteUtc,
@@ -13,7 +14,11 @@ import {
   type ResultadoParsePlantao,
 } from '@escala-ici/contrato';
 import { nomeParticipantePlantao, vinculosDeParticipantesGrupoPlantao, type AtribuicaoPlantaoComVinculo, type VinculoPlantao } from './conciliacaoPlantoes';
-import { criarAtribuicaoEditavelDePersistida, type AtribuicaoPlantaoEditavel } from './editorPlantao';
+import {
+  criarAtribuicaoEditavelDeCompetenciaAnterior,
+  criarAtribuicaoEditavelDePersistida,
+  type AtribuicaoPlantaoEditavel,
+} from './editorPlantao';
 import type { Usuario } from './modelos';
 
 /**
@@ -90,6 +95,31 @@ export function periodoDaCompetencia(competencia: string): { periodoInicio: stri
     periodoInicio: `${String(anoDoMesAnterior).padStart(4, '0')}-${String(mesAnterior).padStart(2, '0')}-26`,
     periodoFim: `${String(ano).padStart(4, '0')}-${String(mes).padStart(2, '0')}-25`,
   };
+}
+
+/**
+ * Fase ESCALAS-UX-1C — o rótulo `AAAA-MM` da competência imediatamente
+ * ANTERIOR a `competencia` (nunca "a competência anterior mais recente
+ * que existir" — "Usar período anterior" é sempre o mês civil-de-rótulo
+ * exatamente anterior; se essa competência específica não tiver rascunho
+ * salvo, § 11 desta fase manda mostrar "Não existe uma escala anterior",
+ * nunca procurar mais para trás). Mesma aritmética de decremento de
+ * mês/ano já usada em `periodoDaCompetencia()` — não reinventada.
+ * Determinístico, nunca depende da data da máquina.
+ */
+export function competenciaAnterior(competencia: string): string | null {
+  const match = /^(\d{4})-(\d{2})$/u.exec(competencia);
+  if (match === null) {
+    return null;
+  }
+  const ano = Number(match[1]);
+  const mes = Number(match[2]);
+  if (!mesAnoValidos(ano, mes)) {
+    return null;
+  }
+  const mesAnterior = mes === 1 ? 12 : mes - 1;
+  const anoAnterior = mes === 1 ? ano - 1 : ano;
+  return `${String(anoAnterior).padStart(4, '0')}-${String(mesAnterior).padStart(2, '0')}`;
 }
 
 /**
@@ -377,4 +407,102 @@ export function reidratarRascunhoPlantao(dados: {
     vinculos,
     dirtyInicial: false,
   };
+}
+
+function diasEntreDatasIso(dataA: string, dataB: string): number {
+  const [anoA, mesA, diaA] = dataA.split('-').map(Number);
+  const [anoB, mesB, diaB] = dataB.split('-').map(Number);
+  const utcA = Date.UTC(anoA, mesA - 1, diaA);
+  const utcB = Date.UTC(anoB, mesB - 1, diaB);
+  return Math.round((utcB - utcA) / 86_400_000);
+}
+
+export interface CopiaCompetenciaAnteriorResultado {
+  atribuicoes: AtribuicaoPlantaoEditavel[];
+  /** Quantidade de atribuições da competência anterior que não couberam na nova janela — nunca truncadas/inventadas em silêncio, só contadas para o aviso na UI. */
+  quantidadeNaoCopiada: number;
+}
+
+/**
+ * Fase ESCALAS-UX-1C — "Usar período anterior": traduz as atribuições de
+ * uma competência anterior JÁ PERSISTIDA para uma working copy nova,
+ * ainda não persistida, pronta para a competência ATUAL.
+ *
+ * Estratégia de tradução de datas (§ 13 da fase — preservar a POSIÇÃO
+ * RELATIVA dentro da competência, nunca "+31 dias"): para cada
+ * atribuição, calcula `offsetInicio` = quantos dias o início dela está
+ * depois de `periodoAnteriorInicio` (pode ser negativo — dia de
+ * contexto antes do dia 26, como a borda real de 43h da fixture) e
+ * `spanDias` = quantos dias de duração ela tem (início→fim, geralmente
+ * 0 ou 1, até maior para os 24h/43h). A nova data de início é
+ * `periodoNovoInicio + offsetInicio` dias; a nova data de fim é
+ * `novaDataInicio + spanDias` dias — nunca um offset recalculado
+ * independentemente para o fim, para o "tamanho" da atribuição (e por
+ * tabela sua `duracaoMinutos`) ser preservado EXATAMENTE, sem nenhuma
+ * normalização de horário atípico (43h/5h continuam 43h/5h).
+ *
+ * Competências com quantidades de dias diferentes (§ 14 — 28/29/30/31
+ * dias, dependendo de qual mês cai entre os dias 26 e 25): uma
+ * atribuição cujo novo início cai fora da nova janela (mesma tolerância
+ * de "dia de contexto" de 1 dia antes/depois já usada em
+ * `ehDiaDeContexto()`) não é copiada — só contada em
+ * `quantidadeNaoCopiada`, nunca truncada/deslocada/inventada em
+ * silêncio. Determinístico: a mesma entrada sempre produz a mesma
+ * saída.
+ *
+ * Preserva o login do plantonista quando ele ainda é um participante
+ * conhecido (ativo ou não — nunca troca automaticamente por outra
+ * pessoa, § 17/§ 18); a resolução de vínculo (quem está ativo vs. quem
+ * precisa de confirmação) é responsabilidade de
+ * `vinculosDeCopiaAnterior()` (`lib/conciliacaoPlantoes.ts`), não desta
+ * função. Módulo puro: sem React, sem Firebase.
+ */
+export function copiarAtribuicoesParaNovaCompetencia(dados: {
+  atribuicoesAnteriores: readonly AtribuicaoPlantaoPersistida[];
+  periodoAnteriorInicio: string;
+  periodoNovoInicio: string;
+  periodoNovoFim: string;
+  timezone: string;
+  participantes: readonly ParticipantePlantao[];
+  usuarios: readonly Usuario[];
+}): CopiaCompetenciaAnteriorResultado {
+  const {
+    atribuicoesAnteriores, periodoAnteriorInicio, periodoNovoInicio, periodoNovoFim,
+    timezone, participantes, usuarios,
+  } = dados;
+  const participantePorLogin = new Map(participantes.map((item) => [item.login, item] as const));
+  const limiteInferior = adicionarDias(periodoNovoInicio, -1);
+  const limiteSuperior = adicionarDias(periodoNovoFim, 1);
+
+  const atribuicoesCopiadas: AtribuicaoPlantaoEditavel[] = [];
+  let quantidadeNaoCopiada = 0;
+
+  for (const persistida of atribuicoesAnteriores) {
+    const inicioCivil = converterInstanteUtcParaMomento(persistida.inicio, timezone);
+    const fimCivil = converterInstanteUtcParaMomento(persistida.fim, timezone);
+    const offsetInicio = diasEntreDatasIso(periodoAnteriorInicio, inicioCivil.data);
+    const spanDias = diasEntreDatasIso(inicioCivil.data, fimCivil.data);
+    const novaDataInicio = adicionarDias(periodoNovoInicio, offsetInicio);
+
+    if (novaDataInicio < limiteInferior || novaDataInicio > limiteSuperior) {
+      quantidadeNaoCopiada += 1;
+      continue;
+    }
+
+    const novaDataFim = adicionarDias(novaDataInicio, spanDias);
+    const participante = participantePorLogin.get(persistida.plantonistaLogin);
+    const nomeOriginal = participante !== undefined
+      ? nomeParticipantePlantao(participante, usuarios)
+      : (usuarios.find((usuario) => usuario.login === persistida.plantonistaLogin)?.nome ?? persistida.plantonistaLogin);
+
+    atribuicoesCopiadas.push(criarAtribuicaoEditavelDeCompetenciaAnterior({
+      indice: atribuicoesCopiadas.length,
+      plantonistaNomeOriginal: nomeOriginal,
+      inicio: { data: novaDataInicio, hora: inicioCivil.hora },
+      fim: { data: novaDataFim, hora: fimCivil.hora },
+      duracaoMinutos: persistida.duracaoMinutos,
+    }));
+  }
+
+  return { atribuicoes: atribuicoesCopiadas, quantidadeNaoCopiada };
 }

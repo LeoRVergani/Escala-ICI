@@ -206,8 +206,8 @@ describe('validarAtribuicaoPlantaoPersistida', () => {
     expect(erros.some((e) => e.includes('login'))).toBe(true);
   });
 
-  it('21. origem válida (IMPORTADO/MANUAL/GERADO) não gera erro', () => {
-    for (const origem of ['IMPORTADO', 'MANUAL', 'GERADO']) {
+  it('21. origem válida (IMPORTADO/MANUAL/GERADO/COPIADO) não gera erro', () => {
+    for (const origem of ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']) {
       const erros = validarAtribuicaoPlantaoPersistida({
         ...base,
         origem,

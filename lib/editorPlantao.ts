@@ -89,6 +89,40 @@ export function criarAtribuicaoEditavelDePersistida(opcoes: {
   };
 }
 
+/**
+ * Fase ESCALAS-UX-1C — constrói UMA atribuição editável a partir de uma
+ * atribuição de uma COMPETÊNCIA ANTERIOR ("Usar período anterior"), já
+ * com data traduzida para a nova competência. Nunca reaproveita
+ * `criarAtribuicaoEditavelDePersistida()` (prefixo `rehidratado-`) —
+ * esta atribuição não é a mesma linha reaberta na MESMA competência, é
+ * uma NOVA linha (ainda não persistida) numa competência diferente;
+ * usar o mesmo prefixo confundiria as duas origens ao debugar. `indice`
+ * é só a posição na cópia (não tem relação com `atribuicaoId` da
+ * competência anterior) — determinístico dentro desta chamada, nunca
+ * reaproveitado depois. Recebe início/fim JÁ traduzidos para a nova
+ * competência e em horário civil — a tradução de data e a conversão de
+ * timezone são responsabilidade de quem chama
+ * (`lib/montagemRascunhoPlantao.ts`).
+ */
+export function criarAtribuicaoEditavelDeCompetenciaAnterior(opcoes: {
+  indice: number;
+  plantonistaNomeOriginal: string;
+  inicio: MomentoPlantao;
+  fim: MomentoPlantao;
+  duracaoMinutos: number;
+}): AtribuicaoPlantaoEditavel {
+  return {
+    plantonistaNomeOriginal: opcoes.plantonistaNomeOriginal,
+    inicio: opcoes.inicio,
+    fim: opcoes.fim,
+    duracaoMinutos: opcoes.duracaoMinutos,
+    linhaOrigem: -1,
+    abaOrigem: '',
+    idLocal: `copiado-${opcoes.indice}`,
+    origemImportacao: false,
+  };
+}
+
 let proximoIdManual = 0;
 
 /**

@@ -15,13 +15,27 @@ import type { MomentoPlantao } from './tiposPlantao.js';
  * separadas, estratégia de IDs e de timezone).
  */
 
-export type OrigemPlantao = 'IMPORTADO' | 'MANUAL' | 'GERADO';
+/**
+ * Fase ESCALAS-UX-1C — `'COPIADO'` foi adicionado (`docs/spec/EDITOR_ESCALAS.md`
+ * § 7 já reservava esse nome desde a ESCALAS-UX-1B) para "Usar período
+ * anterior": uma nova competência cujas atribuições nascem de uma cópia
+ * estrutural de uma competência anterior já persistida, nunca um gerador
+ * (`'GERADO'` continua reservado para uma futura distribuição automática
+ * por regra de cobertura/rotação — domínio diferente, nunca confundido
+ * com "copiar o que já existia"). Adicionar este valor aqui e em
+ * `firestore.rules` (`origem in [...]`, 4 ocorrências) foi avaliado como
+ * mudança mecânica e não-significativa — mesmo padrão de enum já usado
+ * para os três valores anteriores, nenhuma lógica de autorização nova,
+ * nenhum campo novo — por isso feito nesta fase em vez de adiado. Ver
+ * checkpoint desta fase para o registro completo da decisão.
+ */
+export type OrigemPlantao = 'IMPORTADO' | 'MANUAL' | 'GERADO' | 'COPIADO';
 export type PapelPlantonista = 'PRIMARIO' | 'SECUNDARIO';
 export type StatusCompetenciaPlantao = 'RASCUNHO' | 'PUBLICADA';
 
 export const MAXIMO_CONTATOS_PLANTONISTA = 3;
 
-export const ORIGENS_PLANTAO_VALIDAS: readonly OrigemPlantao[] = ['IMPORTADO', 'MANUAL', 'GERADO'];
+export const ORIGENS_PLANTAO_VALIDAS: readonly OrigemPlantao[] = ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO'];
 export const PAPEIS_PLANTONISTA_VALIDOS: readonly PapelPlantonista[] = ['PRIMARIO', 'SECUNDARIO'];
 
 /**

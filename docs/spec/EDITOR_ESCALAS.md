@@ -129,11 +129,15 @@ Estes recursos podem existir no produto, mas nunca como parte do
 caminho comum de importar/ver/editar/conferir/salvar — cada um exige
 uma decisão de fase própria antes de entrar no Editor:
 
-- Arrastar-e-soltar (drag-and-drop) para mover uma atribuição.
+- Arrastar-e-soltar (drag-and-drop) para mover uma atribuição — avaliado
+  na ESCALAS-UX-1C e deliberadamente NÃO implementado (§ 11.6): sem
+  precedente no código, sem biblioteca instalada, sem um caminho de
+  acessibilidade por teclado equivalente já estabelecido para copiar. A
+  distribuição por clique/toque (§ 11.5) já cobre o objetivo de reduzir
+  cliques sem esse risco.
 - Geração automática / distribuição / rotação / autocomplete de
-  plantonista.
-- "+ Nova escala vazia" e "Copiar período anterior" (criação sem
-  importação) — adiados para ESCALAS-UX-1B.
+  plantonista — "Usar período anterior" (§ 11) copia uma ESTRUTURA já
+  existente, nunca gera ou rotaciona pessoas sozinho.
 - Múltiplos modos de cartão, customização manual de cor, compactação
   configurável — nenhum foi trazido dos protótipos antigos do
   dashboard; só a filosofia ("calendário fácil de ler + clique fácil
@@ -153,6 +157,7 @@ entre as portas de entrada do Editor — nunca um segundo pipeline:
 | --- | --- | --- |
 | `IMPORTADO` | `criarAtribuicoesEditaveis(resultado.atribuicoes)` a partir do parser | preenchido — alimenta a "Conferência da fonte" |
 | `MANUAL` | `criarAtribuicoesEditaveis([])` — "+ Nova escala" → Plantão → Grupo + competência → Criar escala vazia | `null` — nunca uma `ResultadoParsePlantao` XLS fingida com 0/0/0 |
+| `COPIADO` (Fase ESCALAS-UX-1C) | `copiarAtribuicoesParaNovaCompetencia()` a partir das atribuições PERSISTIDAS da competência EXATAMENTE anterior — "+ Nova escala" → Plantão → Grupo + competência → Usar período anterior | `null` — mesma regra do `MANUAL`, nunca um XLS fingido |
 | `GERADO` (futuro) | reservado para um gerador determinístico (ver PLANTOES.md § 12/§ 15) | a decidir na fase que implementar |
 
 Depois que a working copy existe, o restante do Editor — calendário,
@@ -172,12 +177,13 @@ função `previaPlantaoValidavel()` que hoje decide se "Salvar rascunho"
 libera para `IMPORTADO` decide, sem nenhuma mudança de lógica, também
 para `MANUAL`.
 
-Registrado para uma fase futura, ainda NÃO implementado: **`COPIADO`**
-— copiar a escala de uma competência anterior como ponto de partida
-(mencionado como possibilidade em PLANTOES.md § 12, adiado
-explicitamente para ESCALAS-UX-1C). Quando existir, deve seguir a MESMA
-regra: nasce como uma working copy comum via `criarAtribuicoesEditaveis()`
-(populada a partir da competência anterior), nunca um quarto pipeline.
+**`COPIADO`** (Fase ESCALAS-UX-1C, ver § 11 abaixo) — copiar a escala de
+uma competência anterior como ponto de partida (mencionado como
+possibilidade em PLANTOES.md § 12) — foi implementado seguindo a MESMA
+regra das demais origens: a working copy nasce via
+`criarAtribuicaoEditavelDeCompetenciaAnterior()` (o equivalente de
+`criarAtribuicoesEditaveis()` para este caso, `idLocal = "copiado-N"`),
+nunca um quarto pipeline paralelo.
 
 **Reabrir um rascunho existente (Fase ESCALAS-UX-1B.1) não é uma quarta
 origem** — é uma quarta PORTA DE ENTRADA que preserva a origem já
@@ -217,10 +223,12 @@ persistida (`IMPORTADO` continua `IMPORTADO`, `MANUAL` continua
   de criar/editar.
 - `apps/dashboard/src/DashboardApp.tsx` (`PreviewPlantao`,
   `ModalNovaEscala`) — orquestra a working copy, a conferência dupla e o
-  rascunho, o fluxo "+ Nova escala" e (Fase ESCALAS-UX-1B.1) "Abrir
-  rascunho" (tela "Plantões" e o atalho dentro de "+ Nova escala");
-  nenhuma lógica de domínio nova mora aqui além da fiação de
-  estado/props.
+  rascunho, o fluxo "+ Nova escala", (Fase ESCALAS-UX-1B.1) "Abrir
+  rascunho" e (Fase ESCALAS-UX-1C) "Usar período anterior" +
+  distribuição rápida por clique (tela "Plantões" e o atalho dentro de
+  "+ Nova escala"); nenhuma lógica de domínio nova mora aqui além da
+  fiação de estado/props — a tradução de datas e os vínculos vivem em
+  `lib/montagemRascunhoPlantao.ts`/`lib/conciliacaoPlantoes.ts` (§ 11).
 
 A escala 6x1 não foi tocada nestas fases — este documento descreve o
 conceito para que uma fase futura que precise dar ao 6x1 um Editor
@@ -308,3 +316,105 @@ Garantias que fazem esse ciclo seguro:
   por competência; risco registrado (não resolvido nesta fase — mudar o
   schema para snapshot exigiria autorização explícita de uma fase
   própria).
+
+## 11. "Usar período anterior" + distribuição rápida por clique (Fase ESCALAS-UX-1C)
+
+Terceira forma de começar uma competência de Plantão, ao lado de
+"Importar planilha" (§ 5) e "Criar escala vazia" (§ 7/`MANUAL`) — as
+TRÊS terminam no mesmo `AtribuicaoPlantaoEditavel[]` → mesmo
+`PlantaoCalendario` → mesmo `ModalEditarAtribuicaoPlantao` → mesma Lista
+→ mesma Contabilidade → mesmo "Salvar rascunho" (testado em
+`tests/plantao-editor-boundaries.test.mjs`, testes 26/31/32).
+
+### 11.1 Competência anterior é exata, nunca "a mais recente"
+
+`competenciaAnterior()` (`lib/montagemRascunhoPlantao.ts`) é uma função
+pura que calcula a competência exatamente um mês antes (`2026-09` →
+`2026-08`; `2026-01` → `2025-12`, com o rollover de ano) — nunca "a
+competência mais recente disponível para o Grupo". Se essa competência
+exata não tiver rascunho persistido, "Usar período anterior" fica
+desabilitado no modal e, se acionado mesmo assim, mostra "Não existe uma
+escala anterior para este Plantão." (nunca cria uma escala vazia
+disfarçada).
+
+### 11.2 Tradução de datas — offset + span, nunca "+31 dias"
+
+`copiarAtribuicoesParaNovaCompetencia()` não soma um número fixo de
+dias (competências têm 28/29/30/31 dias). Para cada atribuição
+anterior: converte início/fim para civil (`converterInstanteUtcParaMomento`),
+calcula `offsetInicio` (posição do dia de início relativa ao começo da
+janela anterior — pode ser negativo, dia de contexto) e `spanDias` (a
+duração intrínseca da atribuição em dias, tipicamente 0-2), aplica o
+MESMO offset ao início da janela nova, e recalcula o fim somando o
+mesmo `spanDias` — nunca recalculando a duração a partir de zero. Isso
+preserva a posição relativa (1º dia da janela anterior → 1º dia da
+janela nova) independente de quantos dias cada mês tem.
+
+### 11.3 Competências de tamanhos diferentes — nunca truncar ou inventar
+
+Quando a nova janela é mais curta que a anterior (ex.: anterior com 31
+dias, nova com 28), uma atribuição cujo início traduzido cai fora de
+`[períodoNovoInício - 1 dia, períodoNovoFim + 1 dia]` (mesma tolerância
+de "dia de contexto" já usada por `ehDiaDeContexto()`) é EXCLUÍDA da
+cópia — nunca deslocada para uma posição arbitrária, nunca truncada
+silenciosamente. `copiarAtribuicoesParaNovaCompetencia()` retorna
+`quantidadeNaoCopiada` para a UI poder avisar o coordenador quando isso
+acontece (mensagem em `usarPeriodoAnteriorAcao()`).
+
+### 11.4 Horário civil e durações atípicas preservados, nunca normalizados
+
+O horário (`hora`) nunca é alterado — só a data muda. `duracaoMinutos`
+é copiado verbatim do registro persistido (nunca recalculado a partir
+das datas traduzidas), então uma duração atípica (43h, 5h) sobrevive
+exatamente igual. Testado em `lib/montagemRascunhoPlantao.test.ts`
+(inclui um caso de fronteira de 43h).
+
+### 11.5 Vínculos — participante ativo nunca troca sozinho
+
+`vinculosDeCopiaAnterior()` (`lib/conciliacaoPlantoes.ts`) reaproveita o
+MESMO mecanismo de vínculo pendente/sugestão já usado para `IMPORTADO`
+(§ 5): login ainda ativo no Grupo → `VINCULADO` automático; login
+conhecido mas não mais um participante ativo → `PENDENTE` com uma
+`sugestao` apontando para o próprio login (um clique reconfirma e
+reativa, via `confirmarVinculoPlantao()`/`montarParticipantesPlantaoParaSalvar()`,
+sem nenhuma UI nova); login desconhecido → `USUARIO_NAO_ENCONTRADO`.
+Nunca troca automaticamente por outra pessoa — "Salvar rascunho"
+continua bloqueado por pendências, exatamente como já acontecia para
+planilhas com nomes ambíguos.
+
+### 11.6 Distribuição rápida por clique — nunca inventa horário
+
+Um painel compacto (dentro do já existente "Resumo por pessoa") permite
+selecionar UM plantonista (seleção puramente de UI, nunca grava no
+Firestore/Grupo — `plantonistaSelecionadoPlantao`, reiniciada em toda
+entrada nova no Editor). Com uma pessoa selecionada, tocar um dia vazio
+do calendário abre o MESMO modal de criação (`abrirCriacaoAtribuicaoPlantao`)
+já com "Plantonista" preenchido — início/fim continuam vazios, o
+coordenador sempre confirma o horário explicitamente. Sem seleção, o
+comportamento é idêntico ao de antes desta fase.
+
+Drag-and-drop foi avaliado e **deliberadamente NÃO implementado** nesta
+fase: não existe nenhum precedente de arrastar-elemento no código (só o
+dropzone de upload de planilha, um caso não relacionado), nenhuma
+biblioteca de drag está instalada, e a alternativa nativa HTML5
+introduziria um padrão de interação novo sem um equivalente
+acessível-por-teclado já estabelecido para copiar — um risco real de
+acessibilidade. **Distribuição por clique está completa. Drag-and-drop
+continua melhoria opcional futura.**
+
+"Repetir último horário" (atalho de sessão sugerindo o último horário
+digitado) foi avaliado e também NÃO implementado — mesmo critério de
+simplicidade: o ganho é pequeno frente ao risco de criar uma segunda
+forma de preencher horário que o coordenador precisaria aprender.
+
+### 11.7 Origem `COPIADO` — decisão sobre `firestore.rules`
+
+Diferente das fases anteriores desta série (que mantiveram
+`firestore.rules` com diff zero), `COPIADO` exigiu adicionar o valor à
+lista de enum aceita em 4 ocorrências de `origem in [...]` dentro do
+mesmo bloco `rascunhosCompetenciasPlantao/{id}` já existente — uma
+mudança mecânica e simétrica às 3 anteriores, sem nenhuma condição de
+autorização nova, sem campo novo, sem coleção nova. Avaliada como NÃO
+"significativa" pelo mesmo critério que barrou mudanças de schema mais
+profundas nesta série de fases; verificada empiricamente no emulador
+(`tests/firebase/firestore.rules.test.ts`, 155/155).

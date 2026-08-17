@@ -776,7 +776,7 @@ button.shift-chip:disabled { cursor: default; }
 .publication-reason textarea { min-height: 104px; resize: vertical; padding: 12px; color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; font: inherit; font-weight: 500; }
 .publication-reason textarea:focus { outline: 2px solid color-mix(in srgb, var(--primary-bright) 25%, transparent); border-color: var(--primary-bright); }
 .publication-reason small { justify-self: end; color: var(--muted); font-size: 9px; font-weight: 500; }
-.rollback-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.rollback-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 /* Excluir some para a esquerda quando um modal tem 3 ações (Excluir/Cancelar/Salvar) — Fase ESCALAS-UX-1A. */
 .rollback-actions-excluir { margin-right: auto; }
 .login-code { font-size: 11px; font-weight: 800; }
@@ -4881,13 +4881,35 @@ fieldset.checkbox-card-list > legend {
 .plantao-vinculo-pendente-banner { justify-content: flex-start; flex-wrap: wrap; }
 .plantao-alertas-clicaveis .alert-item-button { font-size: 12px; }
 .plantao-resumo-por-pessoa h3 { margin: 0 0 var(--space-2); font-size: 13px; }
+.plantao-resumo-por-pessoa-dica { margin: 0 0 var(--space-2); color: var(--muted); font-size: 11.5px; }
 .plantao-resumo-por-pessoa ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.plantao-resumo-por-pessoa li {
-  display: flex; justify-content: space-between; gap: var(--space-2);
+/*
+ * Fase ESCALAS-UX-1C — "distribuição rápida por clique" (§19-21/§26-30):
+ * cada pessoa do "Resumo por pessoa" virou um botão semântico
+ * (`aria-pressed`), reaproveitando a MESMA caixa visual que a `<li>` já
+ * usava (nenhum sistema visual novo) — só troca o elemento estático por
+ * um controle interativo com foco visível e estado `.selecionado`.
+ */
+.plantao-resumo-por-pessoa li { padding: 0; border: none; background: none; }
+.plantao-resumo-por-pessoa li > button.plantao-pessoa-selecionar {
+  display: flex; width: 100%; justify-content: space-between; gap: var(--space-2);
   padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px;
-  background: var(--surface-muted); font-size: 12.5px;
+  background: var(--surface-muted); font-size: 12.5px; cursor: pointer;
+  font: inherit; color: inherit; text-align: left;
 }
-.plantao-resumo-por-pessoa li > span:last-child { color: var(--muted); white-space: nowrap; }
+.plantao-resumo-por-pessoa li > button.plantao-pessoa-selecionar:hover { border-color: var(--primary-bright); }
+.plantao-resumo-por-pessoa li > button.plantao-pessoa-selecionar.selecionado {
+  border-color: var(--primary-bright); background: var(--primary-soft);
+}
+.plantao-resumo-por-pessoa li > button.plantao-pessoa-selecionar > span:last-child { color: var(--muted); white-space: nowrap; }
+.plantao-selecao-ativa {
+  margin: 0 0 var(--space-2); padding: 8px 10px; border: 1px solid var(--primary-bright);
+  border-radius: 7px; background: var(--primary-soft); font-size: 12.5px;
+}
+.plantao-selecao-ativa .link-button {
+  border: none; background: none; padding: 0; margin: 0; font: inherit;
+  color: var(--primary-bright); text-decoration: underline; cursor: pointer;
+}
 .plantao-conferencia-escala-atual { margin-bottom: var(--space-4); }
 .plantao-conferencia-escala-atual h3 { margin: 0 0 4px; font-size: 13px; }
 .plantao-conferencia-escala-atual p { margin: 0 0 var(--space-2); color: var(--muted); font-size: 11.5px; }
