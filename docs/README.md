@@ -33,6 +33,22 @@ resumido do projeto, comece por
   CSS/layout, no App PWA e no Dashboard. **Leitura obrigatória antes de
   alterar CSS/layout** — inclui casos reais documentados (botão "Hoje",
   chip de "Próximos lembretes", padding herdado de `.selected-day-card`).
+- [`spec/EDITOR_ESCALAS.md`](spec/EDITOR_ESCALAS.md) — doutrina do Editor
+  de Plantão (working copy única, origens suportadas IMPORTADO/MANUAL/
+  COPIADO/GERADO, round-trip rascunho). **Fonte atual.**
+- [`spec/PLANTOES.md`](spec/PLANTOES.md) — domínio de Plantão completo:
+  conceitos, schema persistente, histórico de fases PLANTÃO-0 até
+  ESCALAS-UX-1C. **Fonte atual.**
+- [`spec/HIERARQUIA_ORGANIZACIONAL.md`](spec/HIERARQUIA_ORGANIZACIONAL.md) —
+  modelo normativo de Unidade/Equipe/Usuário/perfis/escopos efetivos.
+  **Fonte atual.**
+- [`spec/REDESIGN_WORKSPACE_ESCALAS.md`](spec/REDESIGN_WORKSPACE_ESCALAS.md)
+  — proposta de design/arquitetura de UX (Fase ESCALAS-UX-2): workspace
+  único de escala (Jornada 6x1 + Plantão), sidebar simplificada, contexto
+  de escala no header, wireframes e matriz atual→novo. **Documento de
+  design, ainda NÃO implementado** — nenhuma microfase do plano proposto
+  foi iniciada; ver o documento para o plano completo antes de alterar a
+  navegação do Dashboard.
 
 ## Operação (`docs/operacao/`)
 
