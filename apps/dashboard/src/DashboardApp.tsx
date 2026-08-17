@@ -202,6 +202,11 @@ import {
 } from '@/lib/firebase/lembretesRepository';
 import { exclusaoZeraGestores, podeExcluirCompetencia, podeExcluirUsuario } from '@/lib/adminGuards';
 import { areaNavegacaoDaTela } from '@/lib/navegacaoDashboard';
+import { contextoEhJornada, contextoEhPlantao, contextosEscalaIguais, type ContextoEscalaAtivo } from '@/lib/contextoEscala';
+import { ScheduleContextSwitcher, type OpcaoContextoEscala } from '@/components/escalas/ScheduleContextSwitcher';
+import { ScheduleCompetenceControl } from '@/components/escalas/ScheduleCompetenceControl';
+import { ScheduleStatusBadge, type StatusContextoEscala } from '@/components/escalas/ScheduleStatusBadge';
+import { UnsavedChangesDialog } from '@/components/escalas/UnsavedChangesDialog';
 import {
   COMPETENCIA_ATUAL,
   ehAdminSistema,
@@ -285,6 +290,16 @@ import type {
 } from '@/lib/modelos';
 
 type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao';
+
+/**
+ * Fase ESCALAS-UX-2A.1 — a intenção de troca (contexto OU competência)
+ * pendente de confirmação quando o guard de alterações não salvas
+ * intercepta a ação (§ 24/§ 25 do redesign: mesmo helper/estado para os
+ * dois casos, nunca dois sistemas de guard separados).
+ */
+type IntencaoTrocaEscala =
+  | { tipo: 'contexto'; alvo: ContextoEscalaAtivo }
+  | { tipo: 'competencia'; competencia: string };
 type FiltroTrocas = 'pendentes' | 'aprovadas' | 'recusadas' | 'historico';
 
 /**
@@ -2982,6 +2997,39 @@ export function DashboardApp() {
    * seleção de uma prévia para a próxima.
    */
   const [plantonistaSelecionadoPlantao, setPlantonistaSelecionadoPlantao] = useState<string | null>(null);
+
+  /**
+   * Fase ESCALAS-UX-2A.1 — `ContextoEscalaAtivo` (`lib/contextoEscala.ts`)
+   * é a fonte de verdade explícita para "qual escala o usuário está
+   * trabalhando agora" (`docs/spec/REDESIGN_WORKSPACE_ESCALAS.md` § 32) —
+   * estado de FRONTEND, sessão apenas, nunca persistido no Firestore.
+   * Sincronizado reativamente a partir do estado já existente de Jornada/
+   * Plantão (nunca definido diretamente por cada ação de carregamento —
+   * ver os `useEffect` de sincronização abaixo), nunca escolhido por
+   * hardcode de equipe/grupo.
+   */
+  const [contextoEscalaAtivo, setContextoEscalaAtivo] = useState<ContextoEscalaAtivo | null>(null);
+  /**
+   * Diferente de `plantaoEditadoDesdeImportacao` (já existente), a Jornada
+   * 6x1 NUNCA teve um dirty state — `editarCelula()` grava direto em
+   * `resultado` sem nenhum sinal de "alterado, ainda não salvo". Esta
+   * fase adiciona o equivalente mínimo, no MESMO ponto onde a edição de
+   * célula acontece (nunca em `ScheduleGrid.tsx`, nunca uma heurística
+   * frágil) — zerado em toda substituição de `resultado` que não seja
+   * essa edição local (carregamento, importação, salvar, publicar,
+   * descartar, restaurar revisão, logout).
+   */
+  const [jornadaEditadaDesdeCarregamento, setJornadaEditadaDesdeCarregamento] = useState(false);
+  /** Verdadeiro quando o contexto+competência selecionados não têm nenhuma escala (nunca criada automaticamente — § 16 do redesign). */
+  const [contextoSemEscala, setContextoSemEscala] = useState(false);
+  const [carregandoContexto, setCarregandoContexto] = useState(false);
+  const [erroContextoEscala, setErroContextoEscala] = useState('');
+  /**
+   * Guarda de "alterações não salvas" (§ 24-§ 28 do redesign) — a MESMA
+   * intenção pendente serve tanto para trocar de contexto quanto para
+   * trocar de competência, nunca dois sistemas separados.
+   */
+  const [intencaoTrocaEscalaPendente, setIntencaoTrocaEscalaPendente] = useState<IntencaoTrocaEscala | null>(null);
   // --- "+ Nova escala" (Fase ESCALAS-UX-1B) — escolher tipo, depois grupo/competência de Plantão ---
   const [novaEscalaEtapa, setNovaEscalaEtapa] = useState<'tipo' | 'plantao' | null>(null);
   const [novoPlantaoGrupoId, setNovoPlantaoGrupoId] = useState('');
@@ -3277,6 +3325,15 @@ export function DashboardApp() {
               publicadoEm: null,
             })),
           });
+          setJornadaEditadaDesdeCarregamento(false);
+          if (usuarioEfetivo !== null) {
+            setContextoEscalaAtivo({
+              tipo: 'JORNADA',
+              equipeId: usuarioEfetivo.equipeId,
+              competencia: escala.documentos[0]?.competencia ?? '2026-08',
+            });
+            setContextoSemEscala(false);
+          }
         }
       })
       .catch((falha: unknown) => {
@@ -3323,6 +3380,7 @@ export function DashboardApp() {
           publicadoEm: null,
         })),
       });
+      setJornadaEditadaDesdeCarregamento(false);
     } catch (falha) {
       setMensagem(falha instanceof Error ? falha.message : 'Falha ao carregar demonstração.');
     } finally {
@@ -3374,6 +3432,9 @@ export function DashboardApp() {
         erros: [],
         avisos: [],
       });
+      setJornadaEditadaDesdeCarregamento(false);
+      setContextoEscalaAtivo({ tipo: 'JORNADA', equipeId: alvo.equipeId, competencia: '2026-08' });
+      setContextoSemEscala(false);
       setTela('escalas');
     }
   }
@@ -3381,7 +3442,12 @@ export function DashboardApp() {
   async function autenticar(autenticado: Usuario, demonstracao: boolean) {
     setUsuarioReal(autenticado);
     setModoDemo(demonstracao);
-    if (!demonstracao) {
+    if (demonstracao) {
+      // Fase ESCALAS-UX-2A.1 — laboratório local sem Firestore: semeia
+      // `equipesAdmin` com a mesma equipe fixa de sempre (`EQUIPE_DEMO`)
+      // para o ScheduleContextSwitcher resolver o rótulo da Jornada demo.
+      setEquipesAdmin([EQUIPE_DEMO]);
+    } else {
       await carregarDadosDaEquipe(autenticado);
     }
   }
@@ -3663,6 +3729,7 @@ export function DashboardApp() {
       ? reparsear(buffer, loginParaUidComConciliacao(mapaLogins(usuarios), linhas))
       : reparsear(buffer, mapaLogins(usuarios));
     setResultado(parseado);
+    setJornadaEditadaDesdeCarregamento(false);
     return parseado;
   }
 
@@ -3679,6 +3746,14 @@ export function DashboardApp() {
       setNomeArquivo(nome);
       const parseado = aplicarConciliacao(buffer, linhas);
       setCorrecoes({});
+      if (usuarioEfetivo !== null) {
+        setContextoEscalaAtivo({
+          tipo: 'JORNADA',
+          equipeId: usuarioEfetivo.equipeId,
+          competencia: parseado.documentos[0]?.competencia ?? '2026-08',
+        });
+        setContextoSemEscala(false);
+      }
       if (!parseado.ok) {
         setMensagem(`${parseado.erros.length} erro(s) encontrado(s). Corrija antes de salvar.`);
       } else if (publicacaoBloqueadaPorConciliacao(linhas)) {
@@ -3988,6 +4063,8 @@ export function DashboardApp() {
       setErroRascunhoPlantao('');
       setRascunhoPlantaoSalvoEm(null);
       setTipoArquivoDetectado('PLANTAO');
+      setContextoEscalaAtivo({ tipo: 'PLANTAO', grupoId: grupo.grupoId, competencia });
+      setContextoSemEscala(false);
       setMensagem(`Escala de Plantão criada — "${grupo.nome}" (${competencia}). Nenhum dado foi publicado.`);
       fecharNovaEscala();
       setTela('importar');
@@ -4094,6 +4171,8 @@ export function DashboardApp() {
       setErroRascunhoPlantao('');
       setRascunhoPlantaoSalvoEm(null);
       setTipoArquivoDetectado('PLANTAO');
+      setContextoEscalaAtivo({ tipo: 'PLANTAO', grupoId: grupo.grupoId, competencia });
+      setContextoSemEscala(false);
       setMensagem(resultadoCopia.quantidadeNaoCopiada > 0
         ? `Escala baseada na competência anterior (${labelAnterior}) — "${grupo.nome}" (${competencia}). ${resultadoCopia.quantidadeNaoCopiada} plantão(ões) da competência anterior não coube(ram) na nova janela e não foram copiados. Nenhum dado foi publicado.`
         : `Escala baseada na competência anterior (${labelAnterior}) — "${grupo.nome}" (${competencia}). Nenhum dado foi publicado.`);
@@ -4193,6 +4272,7 @@ export function DashboardApp() {
 
     if (processado.tipo === 'DESCONHECIDA') {
       setResultado(null);
+      setJornadaEditadaDesdeCarregamento(false);
       setLinhasConciliacao([]);
       setResultadoPlantao(null);
       setVinculosPlantao([]);
@@ -4205,6 +4285,7 @@ export function DashboardApp() {
 
     if (processado.tipo === 'PLANTAO') {
       setResultado(null);
+      setJornadaEditadaDesdeCarregamento(false);
       setLinhasConciliacao([]);
       interpretarPlantao(buffer, file.name, processado.resultado);
       return;
@@ -4274,6 +4355,7 @@ export function DashboardApp() {
           loginParaUid: mapaLogins(atualizados),
         });
         setResultado(parseado);
+        setJornadaEditadaDesdeCarregamento(false);
         setMensagem(parseado.ok
           ? `${novos.length} usuário(s) cadastrado(s). A escala está pronta para salvar.`
           : `${parseado.erros.length} inconsistência(s) ainda precisam de correção.`);
@@ -4310,6 +4392,7 @@ export function DashboardApp() {
           status: 'RASCUNHO',
         })),
       });
+      setJornadaEditadaDesdeCarregamento(false);
       setMensagem('Rascunho salvo com sucesso. Nenhum arquivo foi enviado.');
       setTela('escalas');
     } catch (falha) {
@@ -4361,6 +4444,7 @@ export function DashboardApp() {
           publicadoEm: agora,
         })),
       });
+      setJornadaEditadaDesdeCarregamento(false);
       setMensagem('Escala publicada para a equipe.');
       setPublicacaoPendente(false);
       setMotivoPublicacao('');
@@ -4495,6 +4579,7 @@ export function DashboardApp() {
         erros: [],
         avisos: [],
       });
+      setJornadaEditadaDesdeCarregamento(false);
       setMensagem(
         `Revisão ${revisaoParaRestaurar.revisao} restaurada como revisão ${restaurada.publicacao.revisao}.`,
       );
@@ -4533,6 +4618,9 @@ export function DashboardApp() {
       return { ...documento, dias, totais: calcularTotais(dias, catalogo) };
     });
     setResultado({ ...resultado, documentos: atualizados });
+    // Fase ESCALAS-UX-2A.1 — o único ponto de edição local da Jornada;
+    // ver comentário do estado `jornadaEditadaDesdeCarregamento`.
+    setJornadaEditadaDesdeCarregamento(true);
     setCelulaEditando(null);
     setMensagem('Célula atualizada no rascunho local. Salve para persistir.');
   }
@@ -4807,6 +4895,7 @@ export function DashboardApp() {
         }
       }
       setResultado(null);
+      setJornadaEditadaDesdeCarregamento(false);
       setArquivo(null);
       setLinhasConciliacao([]);
       setTela('importar');
@@ -4952,6 +5041,8 @@ export function DashboardApp() {
       setErroRascunhoPlantao('');
       setRascunhoPlantaoSalvoEm(null);
       setTipoArquivoDetectado('PLANTAO');
+      setContextoEscalaAtivo({ tipo: 'PLANTAO', grupoId: grupo.grupoId, competencia: reidratado.competencia.competencia });
+      setContextoSemEscala(false);
       setMensagem(`Rascunho de Plantão reaberto — "${grupo.nome}" (${reidratado.competencia.competencia}). Nenhum dado foi publicado.`);
       setAbrirRascunhoPlantaoStatus(null);
       setTela('importar');
@@ -5385,13 +5476,18 @@ export function DashboardApp() {
    * independente) para o seletor de equipe responsável do
    * `ModalGrupoPlantao` funcionar mesmo se o usuário nunca abriu a aba
    * Administração nesta sessão.
+   *
+   * Fase ESCALAS-UX-2A.1 — deixou de esperar `tela === 'plantoes'`/
+   * planilha detectada/"+ Nova escala" aberta: o `ScheduleContextSwitcher`
+   * do header precisa da lista de "Plantões disponíveis" em QUALQUER tela
+   * (o cluster de contexto aparece em todas — § 29 do redesign), não só
+   * nesses três pontos específicos. `podeAcessarPlantoes` continua sendo
+   * o gate de QUEM (mesma autorização de sempre, nenhuma ampliação de
+   * acesso — Rules continuam a fonte de verdade do que cada leitura
+   * realmente retorna).
    */
   useEffect(() => {
-    // Fase ESCALAS-UX-1B — a etapa "Plantão" de "+ Nova escala" precisa da
-    // lista de grupos ANTES do usuário chegar no select (nunca esperar a
-    // planilha ser importada, já que aqui não existe planilha nenhuma).
-    const precisaCarregar = podeAcessarPlantoes
-      && (tela === 'plantoes' || tipoArquivoDetectado === 'PLANTAO' || novaEscalaEtapa !== null);
+    const precisaCarregar = podeAcessarPlantoes;
     if (!precisaCarregar || modoDemo || usuarioReal === null) {
       return undefined;
     }
@@ -5443,13 +5539,210 @@ export function DashboardApp() {
     return () => {
       cancelado = true;
     };
-  }, [tela, tipoArquivoDetectado, novaEscalaEtapa, podeAcessarPlantoes, souAdmin, modoDemo, usuarioReal]);
+  }, [podeAcessarPlantoes, souAdmin, modoDemo, usuarioReal]);
+
+  /**
+   * Fase ESCALAS-UX-2A.1 — `equipesAdmin` precisa estar disponível para o
+   * `ScheduleContextSwitcher` resolver os rótulos das Jornadas
+   * (`equipeId` → nome) mesmo para quem NÃO é gestor de Plantão (o efeito
+   * acima só carrega para `podeAcessarPlantoes`) e mesmo antes de visitar
+   * Administração (o outro efeito só carrega para `tela === 'administracao'`).
+   * `equipes` é uma coleção de leitura franqueada a qualquer usuário
+   * autenticado (`docs/spec/ADMINISTRACAO_E_HIERARQUIA.md` § "Limitações
+   * e riscos") — carregar uma vez por sessão aqui não amplia nenhuma
+   * autorização, só evita esperar por uma tela específica. O modo demo
+   * (sem Firestore) já semeia `equipesAdmin` diretamente em `autenticar()`
+   * — nunca dentro deste efeito.
+   */
+  useEffect(() => {
+    if (modoDemo || usuarioReal === null || equipesAdmin.length > 0) {
+      return undefined;
+    }
+    let cancelado = false;
+    void listarEquipes().then((equipes) => {
+      if (!cancelado) {
+        setEquipesAdmin(equipes);
+      }
+    }).catch(() => {
+      // Silencioso: `equipesAdmin` também é recarregado (com tratamento de
+      // erro completo) pelos dois efeitos acima assim que o usuário visitar
+      // Administração ou Plantões — esta leitura eager é só uma otimização
+      // para o seletor de contexto, nunca o único lugar que a garante.
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, [modoDemo, usuarioReal, equipesAdmin.length]);
+
+  /**
+   * Fase ESCALAS-UX-2A.1 — sincronização do contexto ativo a partir de
+   * evidência inequívoca já existente (§ 13 do redesign). Feita como
+   * chamada DIRETA em cada ponto onde Grupo+competência de Plantão ou
+   * Jornada realmente passam a existir — nunca um `useEffect` reativo
+   * genérico observando o resultado dessas ações (isso encadearia
+   * re-renders desnecessários — "derived state" pertence ao corpo da
+   * própria ação, não a um efeito separado). Ver `setContextoEscalaAtivo`
+   * dentro de `criarPlantaoEmBrancoAcao`/`usarPeriodoAnteriorAcao`/
+   * `abrirRascunhoNoEditorAcao`/o `<select>` de Grupo do rascunho
+   * importado (Plantão) e dentro de `carregarDadosDaEquipe`/`interpretar`/
+   * `aplicarConciliacao` (Jornada).
+   */
+
+  /**
+   * Fase ESCALAS-UX-2A.1 — guarda única de "alterações não salvas" para
+   * trocar de contexto OU competência (§ 24/§ 25 do redesign): Plantão já
+   * tinha `plantaoEditadoDesdeImportacao`; Jornada ganhou o equivalente
+   * (`jornadaEditadaDesdeCarregamento`) nesta mesma fase.
+   */
+  function existeAlteracaoNaoSalvaNoContextoAtivo(): boolean {
+    if (contextoEscalaAtivo === null) {
+      return false;
+    }
+    return contextoEscalaAtivo.tipo === 'PLANTAO' ? plantaoEditadoDesdeImportacao : jornadaEditadaDesdeCarregamento;
+  }
+
+  /**
+   * Carrega de fato o contexto solicitado: para Plantão, reaproveita
+   * INTEGRALMENTE `abrirRascunhoNoEditorAcao()` (nunca um segundo caminho
+   * de reidratação); para Jornada, usa `carregarEscalasEquipe()` (a mesma
+   * função já usada por `carregarDadosDaEquipe()`), agora parametrizada
+   * pela competência do contexto-alvo em vez do literal fixo de sempre.
+   * Em nenhum caso cria uma escala vazia automaticamente quando não
+   * encontra nada — só marca `contextoSemEscala` e deixa "Escalas" mostrar
+   * a ação explícita de criar (§ 16 do redesign).
+   */
+  async function aplicarTrocaContexto(alvo: ContextoEscalaAtivo) {
+    setErroContextoEscala('');
+    if (alvo.tipo === 'PLANTAO') {
+      const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === alvo.grupoId);
+      if (grupo === undefined) {
+        setErroContextoEscala('Grupo de Plantão não encontrado — recarregue a página.');
+        return;
+      }
+      setCarregandoContexto(true);
+      try {
+        const competenciaExistente = modoDemo ? null : await obterCompetenciaPlantaoRascunho(grupo.grupoId, alvo.competencia);
+        if (competenciaExistente === null) {
+          setContextoEscalaAtivo(alvo);
+          setContextoSemEscala(true);
+          setTela('escalas');
+          return;
+        }
+        const resultadoAbertura = await abrirRascunhoNoEditorAcao(grupo, competenciaExistente);
+        if (resultadoAbertura.ok) {
+          setContextoEscalaAtivo(alvo);
+          setContextoSemEscala(false);
+        } else if (resultadoAbertura.motivo === 'erro') {
+          setErroContextoEscala(resultadoAbertura.mensagem);
+        } else {
+          setContextoEscalaAtivo(alvo);
+          setContextoSemEscala(true);
+          setTela('escalas');
+        }
+      } finally {
+        setCarregandoContexto(false);
+      }
+      return;
+    }
+    if (usuarioEfetivo === null) {
+      return;
+    }
+    setCarregandoContexto(true);
+    try {
+      const documentosExistentes = modoDemo
+        ? (resultado?.documentos.filter((documento) => documento.competencia === alvo.competencia) ?? [])
+        : await carregarEscalasEquipe(alvo.equipeId, alvo.competencia, false);
+      if (documentosExistentes.length === 0) {
+        setContextoEscalaAtivo(alvo);
+        setContextoSemEscala(true);
+        setTela('escalas');
+        return;
+      }
+      const datas = documentosExistentes.flatMap((documento) => Object.keys(documento.dias));
+      const periodo = periodoDaCompetencia(alvo.competencia);
+      setResultado({
+        ok: true,
+        equipeNome: alvo.equipeId,
+        periodoInicio: datas.sort()[0] ?? periodo?.periodoInicio ?? '',
+        periodoFim: datas.sort().at(-1) ?? periodo?.periodoFim ?? '',
+        totalDias: new Set(datas).size,
+        documentos: documentosExistentes,
+        erros: [],
+        avisos: [],
+      });
+      setJornadaEditadaDesdeCarregamento(false);
+      setContextoEscalaAtivo(alvo);
+      setContextoSemEscala(false);
+      setTela('grade');
+    } catch (falha) {
+      setErroContextoEscala(mensagemErroFirebase(falha, 'Não foi possível carregar esta jornada.', ambienteFirebaseAtual));
+    } finally {
+      setCarregandoContexto(false);
+    }
+  }
+
+  function aplicarTrocaCompetencia(novaCompetencia: string) {
+    if (contextoEscalaAtivo === null) {
+      return;
+    }
+    const alvo: ContextoEscalaAtivo = contextoEscalaAtivo.tipo === 'JORNADA'
+      ? { tipo: 'JORNADA', equipeId: contextoEscalaAtivo.equipeId, competencia: novaCompetencia }
+      : { tipo: 'PLANTAO', grupoId: contextoEscalaAtivo.grupoId, competencia: novaCompetencia };
+    void aplicarTrocaContexto(alvo);
+  }
+
+  /** Ponto único de entrada para trocar de contexto — nunca chamado diretamente pelo JSX sem passar pelo guard de alterações não salvas. */
+  function solicitarTrocaContexto(alvo: ContextoEscalaAtivo) {
+    if (contextosEscalaIguais(contextoEscalaAtivo, alvo)) {
+      return;
+    }
+    if (existeAlteracaoNaoSalvaNoContextoAtivo()) {
+      setIntencaoTrocaEscalaPendente({ tipo: 'contexto', alvo });
+      return;
+    }
+    void aplicarTrocaContexto(alvo);
+  }
+
+  /** Idem para competência — mesmo guard, nunca um segundo sistema (§ 25 do redesign). */
+  function solicitarTrocaCompetencia(novaCompetencia: string) {
+    if (contextoEscalaAtivo === null || contextoEscalaAtivo.competencia === novaCompetencia) {
+      return;
+    }
+    if (existeAlteracaoNaoSalvaNoContextoAtivo()) {
+      setIntencaoTrocaEscalaPendente({ tipo: 'competencia', competencia: novaCompetencia });
+      return;
+    }
+    aplicarTrocaCompetencia(novaCompetencia);
+  }
+
+  /** Cancelar: mantém integralmente contexto/competência/working copy/aba/dirty state — nenhuma perda (§ 27 do redesign). */
+  function cancelarTrocaEscalaPendente() {
+    setIntencaoTrocaEscalaPendente(null);
+  }
+
+  /** Só após confirmação explícita a troca de fato acontece (§ 26 do redesign) — nunca carrega o destino antes/atrás do modal. */
+  function confirmarDescarteETrocarEscala() {
+    const intencao = intencaoTrocaEscalaPendente;
+    setIntencaoTrocaEscalaPendente(null);
+    if (intencao === null) {
+      return;
+    }
+    if (intencao.tipo === 'contexto') {
+      void aplicarTrocaContexto(intencao.alvo);
+    } else {
+      aplicarTrocaCompetencia(intencao.competencia);
+    }
+  }
 
   async function encerrarSessao() {
     await sair();
     setUsuarioReal(null);
     setSimulando(null);
     setResultado(null);
+    setJornadaEditadaDesdeCarregamento(false);
+    setContextoEscalaAtivo(null);
+    setContextoSemEscala(false);
+    setIntencaoTrocaEscalaPendente(null);
     setLinhasConciliacao([]);
     setFormularioUsuario(null);
     setMensagem('');
@@ -5463,16 +5756,87 @@ export function DashboardApp() {
   }
   const usuarioParaFrame = simulando ?? usuarioReal;
 
+  /**
+   * Fase ESCALAS-UX-2A.1 — opções reais do `ScheduleContextSwitcher`,
+   * nunca hardcode de sigla (§ 7/§ 8/§ 9 do redesign): uma entrada por
+   * Equipe permitida (Jornada) e por Grupo de Plantão acessível
+   * (Plantão), rótulos resolvidos a partir dos dados já carregados. A
+   * competência de uma opção ainda não visitada herda a competência do
+   * contexto ativo (ou o único valor hoje hardcoded no restante do
+   * Dashboard, `'2026-08'`, se nenhum contexto foi selecionado ainda).
+   */
+  const competenciaParaNovasOpcoes = contextoEscalaAtivo?.competencia ?? '2026-08';
+  const opcoesContextoJornada: OpcaoContextoEscala[] = minhasEquipesPermitidas.map((equipeId) => ({
+    contexto: {
+      tipo: 'JORNADA',
+      equipeId,
+      competencia: contextoEhJornada(contextoEscalaAtivo) && contextoEscalaAtivo.equipeId === equipeId
+        ? contextoEscalaAtivo.competencia
+        : competenciaParaNovasOpcoes,
+    },
+    rotuloPrincipal: equipesAdmin.find((item) => item.id === equipeId)?.nome ?? equipeId,
+    rotuloSecundario: 'Jornada 6x1',
+  }));
+  const opcoesContextoPlantao: OpcaoContextoEscala[] = gruposPlantaoAdmin.map((grupo) => ({
+    contexto: {
+      tipo: 'PLANTAO',
+      grupoId: grupo.grupoId,
+      competencia: contextoEhPlantao(contextoEscalaAtivo) && contextoEscalaAtivo.grupoId === grupo.grupoId
+        ? contextoEscalaAtivo.competencia
+        : competenciaParaNovasOpcoes,
+    },
+    rotuloPrincipal: grupo.nome,
+    rotuloSecundario: equipesAdmin.find((item) => item.id === grupo.equipeResponsavelId)?.nome ?? grupo.equipeResponsavelId,
+  }));
+  const rotuloContextoAtivo = contextoEscalaAtivo === null
+    ? 'Selecionar escala'
+    : contextoEhJornada(contextoEscalaAtivo)
+      ? (equipesAdmin.find((item) => item.id === contextoEscalaAtivo.equipeId)?.nome ?? contextoEscalaAtivo.equipeId)
+      : (gruposPlantaoAdmin.find((item) => item.grupoId === contextoEscalaAtivo.grupoId)?.nome ?? contextoEscalaAtivo.grupoId);
+  /**
+   * Status contextual (§ 17/§ 18 do redesign): "Publicada" para Jornada só
+   * reflete um fato já calculado por `publicados`/`documentos` (nunca uma
+   * funcionalidade nova) — Plantão nunca mostra "Publicada" nesta fase
+   * (PLANTÃO-3C não existe ainda), só "Rascunho"/"Sem escala".
+   */
+  const statusContextoAtivo: StatusContextoEscala | null = contextoEscalaAtivo === null
+    ? null
+    : contextoSemEscala
+      ? 'sem-escala'
+      : (contextoEhJornada(contextoEscalaAtivo) && documentos.length > 0 && publicados.length === documentos.length)
+        ? 'publicada'
+        : 'rascunho';
+  const periodoContextoAtivo = contextoEscalaAtivo === null ? null : periodoDaCompetencia(contextoEscalaAtivo.competencia);
+
   return (
     <AppFrame
       produto="dashboard"
       usuario={usuarioParaFrame}
-      competencia="Agosto 2026"
+      competencia={contextoEscalaAtivo === null ? 'Nenhuma escala selecionada' : formatarCompetencia(contextoEscalaAtivo.competencia)}
       itens={navegacaoVisivel}
       ativo={areaNavegacaoDaTela(tela)}
       onNavegar={(id) => setTela(id as Tela)}
       onSair={encerrarSessao}
       produtoHref={import.meta.env.VITE_EMPLOYEE_APP_URL ?? '/app'}
+      contextoEscala={(
+        <div className="schedule-context-cluster">
+          <ScheduleContextSwitcher
+            contextoAtivo={contextoEscalaAtivo}
+            rotuloContextoAtivo={rotuloContextoAtivo}
+            opcoesJornada={opcoesContextoJornada}
+            opcoesPlantao={opcoesContextoPlantao}
+            onSelecionar={solicitarTrocaContexto}
+            carregando={carregandoContexto}
+          />
+          <ScheduleCompetenceControl
+            competencia={contextoEscalaAtivo?.competencia ?? null}
+            periodoInicio={periodoContextoAtivo?.periodoInicio ?? null}
+            periodoFim={periodoContextoAtivo?.periodoFim ?? null}
+            onMudarCompetencia={solicitarTrocaCompetencia}
+          />
+          <ScheduleStatusBadge status={statusContextoAtivo} />
+        </div>
+      )}
       acoesTopo={(
         <AlertasOperacionaisBell
           alertas={alertasOperacionais}
@@ -5814,6 +6178,10 @@ export function DashboardApp() {
                           setGrupoRascunhoEscolhido(evento.target.value);
                           setRascunhoPlantaoSalvoEm(null);
                           setErroRascunhoPlantao('');
+                          if (evento.target.value !== '') {
+                            setContextoEscalaAtivo({ tipo: 'PLANTAO', grupoId: evento.target.value, competencia: competenciaRascunho });
+                            setContextoSemEscala(false);
+                          }
                         }}
                       >
                         <option value="">Selecione um grupo que você administra</option>
@@ -6105,41 +6473,60 @@ export function DashboardApp() {
               </button>
             </div>
           </header>
-          <article className="panel scale-record">
-            <div className="scale-period"><span>AGO</span><strong>2026</strong></div>
-            <div className="scale-info">
-              <h2>COSI &gt; SOC</h2>
-              <p>26/07/2026 até 25/08/2026 · {documentos.length} colaboradores</p>
-              <span className={`status-badge ${publicados.length === documentos.length && documentos.length ? 'success' : 'warning'}`}>
-                {publicados.length === documentos.length && documentos.length ? 'Publicada' : 'Rascunho'}
-              </span>
-              {revisaoAtual > 0 && <span className="revision-label">Revisão ativa {revisaoAtual}</span>}
-            </div>
-            <div className="scale-actions">
-              <button className="secondary-button" type="button" onClick={() => setTela('grade')}>Revisar grade</button>
-              {documentos.length > 0 && publicados.length !== documentos.length && (
+          {erroContextoEscala !== '' && <div className="alert error" role="alert">{erroContextoEscala}</div>}
+          {contextoSemEscala && contextoEscalaAtivo !== null && (
+            /*
+             * Fase ESCALAS-UX-2A.1 — § 16 do redesign: trocar de contexto/
+             * competência NUNCA cria um rascunho silenciosamente. Este
+             * estado só aparece quando `aplicarTrocaContexto()`/
+             * `aplicarTrocaCompetencia()` confirmaram (via
+             * `obterCompetenciaPlantaoRascunho`/`carregarEscalasEquipe`) que
+             * não existe nenhuma escala para o alvo — a ação de criar
+             * continua sendo a mesma "+ Nova escala" de sempre.
+             */
+            <article className="panel organization-empty-state">
+              <CalendarDays size={28} aria-hidden="true" />
+              <h2>Nenhuma escala criada para {formatarCompetencia(contextoEscalaAtivo.competencia)}</h2>
+              <p>Use &ldquo;Nova escala&rdquo; acima para importar uma planilha, criar vazia ou usar o período anterior.</p>
+            </article>
+          )}
+          {!contextoSemEscala && (
+            <article className="panel scale-record">
+              <div className="scale-period"><span>AGO</span><strong>2026</strong></div>
+              <div className="scale-info">
+                <h2>COSI &gt; SOC</h2>
+                <p>26/07/2026 até 25/08/2026 · {documentos.length} colaboradores</p>
+                <span className={`status-badge ${publicados.length === documentos.length && documentos.length ? 'success' : 'warning'}`}>
+                  {publicados.length === documentos.length && documentos.length ? 'Publicada' : 'Rascunho'}
+                </span>
+                {revisaoAtual > 0 && <span className="revision-label">Revisão ativa {revisaoAtual}</span>}
+              </div>
+              <div className="scale-actions">
+                <button className="secondary-button" type="button" onClick={() => setTela('grade')}>Revisar grade</button>
+                {documentos.length > 0 && publicados.length !== documentos.length && (
+                  <button
+                    className="secondary-button danger-button"
+                    type="button"
+                    disabled={processando || escritaBloqueada}
+                    onClick={() => setDescarteRascunhoPendente(true)}
+                  >
+                    <Trash2 size={16} /> Descartar rascunho
+                  </button>
+                )}
                 <button
-                  className="secondary-button danger-button"
+                  className="primary-button"
                   type="button"
-                  disabled={processando || escritaBloqueada}
-                  onClick={() => setDescarteRascunhoPendente(true)}
+                  disabled={!documentos.length || !resultado?.ok || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
+                  onClick={() => {
+                    setErroPublicacao('');
+                    setPublicacaoPendente(true);
+                  }}
                 >
-                  <Trash2 size={16} /> Descartar rascunho
+                  <Send size={16} /> Publicar
                 </button>
-              )}
-              <button
-                className="primary-button"
-                type="button"
-                disabled={!documentos.length || !resultado?.ok || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
-                onClick={() => {
-                  setErroPublicacao('');
-                  setPublicacaoPendente(true);
-                }}
-              >
-                <Send size={16} /> Publicar
-              </button>
-            </div>
-          </article>
+              </div>
+            </article>
+          )}
           <article className="panel publication-history-panel">
             <div className="panel-title">
               <div>
@@ -7367,6 +7754,13 @@ export function DashboardApp() {
             </div>
           </section>
         </div>
+      )}
+
+      {intencaoTrocaEscalaPendente !== null && (
+        <UnsavedChangesDialog
+          onContinuarEditando={cancelarTrocaEscalaPendente}
+          onTrocarSemSalvar={confirmarDescarteETrocarEscala}
+        />
       )}
 
       {descarteRascunhoPendente && (

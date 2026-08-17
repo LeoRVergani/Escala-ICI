@@ -83,7 +83,7 @@ test('9. "Administração" oferece a sub-navegação Organização/Grupos de Pla
   assert.equal(usos.length, 2, 'a sub-navegação precisa ser usada nos DOIS lugares (Administração e Grupos de Plantão), nunca só em um');
 });
 
-test('10. nenhum ContextoEscalaAtivo / seletor de escala no header foi implementado nesta fase', async () => {
+test('10. ESCALAS-UX-2A em si não implementou ContextoEscalaAtivo — isso ficou para a ESCALAS-UX-2A.1 (já concluída; ver tests/dashboard-contexto-escala-boundaries.test.mjs) — mas o workspace unificado final (ScheduleWorkspace) continua fora de escopo de ambas', async () => {
   const arquivos = await Promise.all([
     ler('apps/dashboard/src/DashboardApp.tsx'),
     ler('components/AppFrame.tsx'),
@@ -91,8 +91,13 @@ test('10. nenhum ContextoEscalaAtivo / seletor de escala no header foi implement
   ]);
   for (const fonteBruta of arquivos) {
     const fonte = semComentarios(fonteBruta);
-    for (const proibido of ['ContextoEscalaAtivo', 'ScheduleContextSwitcher', 'ScheduleHeader', 'ScheduleWorkspace']) {
-      assert.doesNotMatch(fonte, new RegExp(proibido, 'u'), `${proibido} pertence a uma fase futura (ESCALAS-UX-2A.1), não a esta`);
+    // Fase ESCALAS-UX-2A.1 — `ContextoEscalaAtivo`/`ScheduleContextSwitcher`
+    // foram implementados como planejado (ver `lib/contextoEscala.ts`,
+    // `components/escalas/`); esta asserção histórica é ajustada para
+    // continuar protegendo só o que ainda é fora de escopo de QUALQUER fase
+    // concluída até agora — o workspace final único.
+    for (const proibido of ['ScheduleWorkspace']) {
+      assert.doesNotMatch(fonte, new RegExp(proibido, 'u'), `${proibido} pertence a uma fase futura (ESCALAS-UX-2B ou posterior), ainda não implementado`);
     }
   }
 });

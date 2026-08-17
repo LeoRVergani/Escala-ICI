@@ -246,6 +246,28 @@ rascunho) continua exatamente o mesmo descrito nas seções acima. Ver
 `docs/spec/REDESIGN_WORKSPACE_ESCALAS.md` § 5 e
 `CHECKPOINT-FASE-ESCALAS-UX-2A-NAVEGACAO.md`.
 
+**Nota (Fase ESCALAS-UX-2A.1) — `ContextoEscalaAtivo` (`lib/contextoEscala.ts`).**
+Registra formalmente qual escala está ativa (`{tipo:'JORNADA', equipeId,
+competencia}` ou `{tipo:'PLANTAO', grupoId, competencia}`) — estado de
+FRONTEND apenas, nunca persistido, identidade sempre por ID real (nunca
+nome/sigla). É sincronizado explicitamente nos mesmos pontos onde
+Grupo+competência de Plantão (`grupoRascunhoEscolhido`/
+`competenciaRascunho`) ou Jornada (`resultado`/`usuarioEfetivo.equipeId`)
+já passam a existir — nunca um `useEffect` reativo genérico (evitado
+deliberadamente por gerar cascata de re-renders). O header do Dashboard
+ganhou controles reais de "Escala atual"/"Competência"/"Status"
+(`components/escalas/ScheduleContextSwitcher.tsx`/
+`ScheduleCompetenceControl.tsx`/`ScheduleStatusBadge.tsx`) substituindo a
+string estática anterior — nenhuma mudança no Editor em si (mesmo
+`PlantaoCalendario`/`ModalEditarAtribuicaoPlantao`, mesmo
+`abrirRascunhoNoEditorAcao()`, reaproveitados integralmente). Trocar de
+contexto/competência com alterações não salvas é bloqueado por um guard
+explícito (`UnsavedChangesDialog`) — Plantão reaproveita
+`plantaoEditadoDesdeImportacao` já existente; a Jornada 6x1 ganhou o
+equivalente (`jornadaEditadaDesdeCarregamento`), que não existia antes.
+Ver `docs/spec/REDESIGN_WORKSPACE_ESCALAS.md` § 32 e
+`CHECKPOINT-FASE-ESCALAS-UX-2A1-CONTEXTO-ATIVO.md`.
+
 A escala 6x1 não foi tocada nestas fases — este documento descreve o
 conceito para que uma fase futura que precise dar ao 6x1 um Editor
 equivalente (célula a célula, já existe de forma mais simples via

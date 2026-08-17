@@ -5,8 +5,22 @@
 - **ESCALAS-UX-2A** ✅ implementada (`CHECKPOINT-FASE-ESCALAS-UX-2A-NAVEGACAO.md`) —
   sidebar simplificada, "Importar"/"Grade"/"Plantões" deixaram de ser
   destinos principais, telas internas preservadas com pontes
-  transitórias. `ContextoEscalaAtivo` e o restante do § 36 **ainda não
-  foram iniciados**.
+  transitórias.
+- **ESCALAS-UX-2A.1** ✅ implementada, com escopo mais estreito do que o
+  originalmente planejado no § 36
+  (`CHECKPOINT-FASE-ESCALAS-UX-2A1-CONTEXTO-ATIVO.md`) — entregou
+  `ContextoEscalaAtivo` (`lib/contextoEscala.ts`) + os três controles
+  reais de header (`ScheduleContextSwitcher`/`ScheduleCompetenceControl`/
+  `ScheduleStatusBadge`) + a guarda de alterações não salvas
+  (`UnsavedChangesDialog`). **NÃO incluiu** o redesign do `NewScheduleDialog`
+  nem "Criar vazia"/"Usar anterior" para Jornada 6x1 (§ 9/§ 11) —
+  explicitamente fora de escopo da execução real desta fase (ver
+  "NÃO implementar" no pedido que a originou); esse trabalho permanece
+  como um follow-up a definir, dentro de `ESCALAS-UX-2B` ou uma
+  microfase própria.
+- Roster lateral, drag-and-drop, padrão de horário por Grupo, nova
+  Contabilidade/Lista/Pendências, importação inline e publicação
+  **ainda não foram iniciados**.
 
 ## Por que este documento existe
 
@@ -1125,6 +1139,18 @@ duplicaria cálculo nenhum já existente.
 
 ## 32. Modelo de estado/contexto proposto
 
+> **Nota de implementação (ESCALAS-UX-2A.1)**: `ContextoEscalaAtivo` foi
+> implementado essencialmente como proposto abaixo (`lib/contextoEscala.ts`),
+> mas o pedido que autorizou a implementação real optou deliberadamente
+> por NÃO cachear múltiplas working copies indexadas por contexto (a
+> ideia de `workingCopies: Record<string, ...>` mais abaixo) — mudar de
+> contexto com alterações não salvas passa por uma guarda explícita
+> ("Continuar editando" / "Trocar sem salvar", nunca `window.confirm()`),
+> nunca preserva silenciosamente o estado em memória. Isso é uma escolha
+> deliberada de simplicidade (menos estado para racionar, nunca perder
+> dado sem avisar), não uma limitação técnica — ver
+> `CHECKPOINT-FASE-ESCALAS-UX-2A1-CONTEXTO-ATIVO.md`.
+
 Problema central a resolver (§ 3.4/§ 7): hoje não existe uma variável
 única "o que estou editando" — jornada e Plantão são dois blocos de
 estado paralelos, e trocar de um para o outro é trocar de `tela`, o que
@@ -1474,7 +1500,8 @@ modelo de contexto novo por cima dela.
 | Microfase | Escopo | Depende de |
 | --- | --- | --- |
 | **ESCALAS-UX-2A** ✅ **implementada** | Sidebar nova (§ 5): remove "Importar"/"Grade"/"Plantões" como itens; "Escalas" vira destino único de trabalho; "Plantões" (conteúdo) migra para Administração → Grupos de Plantão (§ 27). Migração de rotas internas (`setTela('grade')` etc.) para o novo destino, sem ainda introduzir o `ContextoEscalaAtivo`. Ver `CHECKPOINT-FASE-ESCALAS-UX-2A-NAVEGACAO.md`. | — |
-| **ESCALAS-UX-2A.1** | `ScheduleContextSwitcher` + `ScheduleHeader` + modelo `ContextoEscalaAtivo` (§ 6/§ 7/§ 32); `NewScheduleDialog` com as três formas de começar para AMBOS os tipos (§ 9/§ 10/§ 11), incluindo implementar "Criar vazia"/"Usar anterior" para Jornada 6x1 (risco § 35.3). | ESCALAS-UX-2A |
+| **ESCALAS-UX-2A.1** ✅ **implementada (escopo reduzido)** | `ContextoEscalaAtivo` (`lib/contextoEscala.ts`) + `ScheduleContextSwitcher`/`ScheduleCompetenceControl`/`ScheduleStatusBadge` no header + guarda de alterações não salvas (`UnsavedChangesDialog`) (§ 6/§ 7/§ 32). **NÃO incluiu** `NewScheduleDialog` nem "Criar vazia"/"Usar anterior" para Jornada 6x1 (§ 9/§ 10/§ 11, risco § 35.3) — permanece como follow-up. Ver `CHECKPOINT-FASE-ESCALAS-UX-2A1-CONTEXTO-ATIVO.md`. | ESCALAS-UX-2A |
+| *(follow-up, não nomeado ainda)* | `NewScheduleDialog` redesenhado + "Criar vazia"/"Usar anterior" para Jornada 6x1 — parte do § 36 original que ficou de fora da ESCALAS-UX-2A.1 real. | ESCALAS-UX-2A.1 |
 | **PLANTAO-PADRAO-1** | Padrão semanal configurável por Grupo (§ 17/§ 18) — schema, Rules, UI de configuração em Administração → Grupos de Plantão, e o card "Padrão do grupo" no modal de criação. Fase isolada por causa do risco de schema (§ 35.5). | ESCALAS-UX-2A (para o novo local de Administração já existir) |
 | **ESCALAS-UX-2B** | Roster lateral (§ 14) substituindo "Resumo por pessoa"; interação rápida (clique+clique já existe, só reposiciona); drag-and-drop opcional (§ 16) como atalho adicional sobre o mesmo pipeline de criação. | ESCALAS-UX-2A.1 |
 | **ESCALAS-UX-2C** | Contabilidade redesenhada (§ 25), Pendências como painel (§ 26), limpeza de Lista (§ 24)/Resumo (§ 23) como abas — remoção formal das abas antigas, atualização de boundary tests (risco § 35.6). | ESCALAS-UX-2A.1 |

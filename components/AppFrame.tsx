@@ -52,6 +52,15 @@ interface AppFrameProps {
   onSair: () => void;
   produtoHref?: string;
   acoesTopo?: ReactNode;
+  /**
+   * Fase ESCALAS-UX-2A.1 — slot opcional para o cluster "Escala atual /
+   * Competência / Status" (`docs/spec/REDESIGN_WORKSPACE_ESCALAS.md`
+   * § 10/§ 31). AppFrame continua genérico — nunca importa
+   * `ContextoEscalaAtivo`/`GrupoPlantao`/`Equipe`; quem monta o conteúdo é
+   * sempre o chamador. Quando ausente, cai no `.competence-control`
+   * estático de sempre (usado hoje por `apps/app`, inalterado).
+   */
+  contextoEscala?: ReactNode;
   children: ReactNode;
 }
 
@@ -65,6 +74,7 @@ export function AppFrame({
   onSair,
   produtoHref,
   acoesTopo,
+  contextoEscala,
   children,
 }: AppFrameProps) {
   const [recolhida, setRecolhida] = useState(false);
@@ -178,10 +188,12 @@ export function AppFrame({
               <strong>Escala ICI</strong>
             </div>
           )}
-          <div className="competence-control">
-            <span>Competência</span>
-            <strong><CalendarDays size={16} /> {competencia}</strong>
-          </div>
+          {contextoEscala ?? (
+            <div className="competence-control">
+              <span>Competência</span>
+              <strong><CalendarDays size={16} /> {competencia}</strong>
+            </div>
+          )}
           <div className="topbar-actions">
             {acoesTopo}
             <ThemeToggle />
