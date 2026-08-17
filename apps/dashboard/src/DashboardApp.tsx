@@ -152,6 +152,7 @@ import {
 import {
   competenciaAnterior,
   copiarAtribuicoesParaNovaCompetencia,
+  dataPertenceCompetencia,
   montarAtribuicoesPlantaoRascunho,
   montarCompetenciaPlantaoRascunho,
   montarParticipantesPlantaoParaSalvar,
@@ -3989,8 +3990,20 @@ export function DashboardApp() {
    * horário, nunca cria sozinho. Com padrão, abre o quick-add
    * (`QuickAddPlantaoPopover`) para confirmação explícita — o DROP em si
    * nunca grava nada no Firestore nem na working copy (§13 do pedido).
+   *
+   * Fase ESCALAS-UX-2B.1 — gate DEFINITIVO de "esta data pode iniciar uma
+   * NOVA atribuição": `dataPertenceCompetencia()` (única fonte, reaproveita
+   * `periodoDaCompetencia()`). `PlantaoCalendario` já omite a UI de criação
+   * para dias de contexto (§6/§7 do pedido), mas o gate real fica aqui —
+   * único funil de click/drag/"+ Adicionar" — para nunca depender só da UI
+   * não oferecer a ação. Fora do período: no-op silencioso (nenhuma
+   * mudança na working copy, nenhum dirty) — nunca um erro pós-fato, o
+   * calendário já não mostra a ação como disponível.
    */
   function solicitarNovaAtribuicaoPlantao(plantonistaNomeOriginal: string, dataIso: string) {
+    if (!dataPertenceCompetencia(dataIso, competenciaRascunho)) {
+      return;
+    }
     if (plantonistaNomeOriginal.trim() === '') {
       abrirCriacaoAtribuicaoPlantao(dataIso);
       return;

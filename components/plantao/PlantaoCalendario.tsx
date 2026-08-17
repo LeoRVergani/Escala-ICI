@@ -31,6 +31,17 @@ import {
  * quick-add do padrão ou o editor completo). Sem padrão HTML5 de
  * drag-and-drop novo além do nativo do navegador — nenhuma biblioteca
  * adicionada.
+ *
+ * Fase ESCALAS-UX-2B.1 — dia de CONTEXTO (`ehDiaDeContexto()`, fora do
+ * período real da competência) nunca oferece a ação de criar: sem
+ * "+ Adicionar", sem clique de fundo, sem aceitar drop (`onDragOver` não
+ * chama `preventDefault()`, então o navegador já recusa nativamente antes
+ * do drop acontecer — o usuário percebe ANTES de soltar, nunca um erro
+ * depois). O gate DEFINITIVO continua em `solicitarNovaAtribuicaoPlantao()`
+ * (Dashboard, via `dataPertenceCompetencia()`) — esta omissão de UI é só
+ * para nunca nem oferecer a ação, nunca a única defesa. Atribuições já
+ * existentes num dia de contexto continuam renderizadas normalmente
+ * (nunca escondidas/normalizadas).
  */
 
 function diaDaSemanaUtc(dataIso: string): number {
@@ -76,9 +87,12 @@ export function PlantaoCalendario({
   const [ano, mes] = competencia.split('-');
   const [diaEmDragOver, setDiaEmDragOver] = useState<string | null>(null);
 
-  function aoSoltarNoDia(evento: DragEvent<HTMLDivElement>, data: string) {
+  function aoSoltarNoDia(evento: DragEvent<HTMLDivElement>, data: string, podeReceber: boolean) {
     evento.preventDefault();
     setDiaEmDragOver(null);
+    if (!podeReceber) {
+      return;
+    }
     const nomeArrastado = evento.dataTransfer.getData('text/plain').trim();
     if (nomeArrastado !== '') {
       onSolicitarNovaAtribuicao(nomeArrastado, data);
@@ -105,6 +119,7 @@ export function PlantaoCalendario({
       >
         {dias.map((data) => {
           const contexto = ehDiaDeContexto(data, periodoInicio, periodoFim);
+          const podeCriar = !contexto;
           const ehHoje = data === dataHoje;
           const atribuicoesDoDia = porDia.get(data) ?? [];
           return (
@@ -115,21 +130,32 @@ export function PlantaoCalendario({
                 'plantao-dia',
                 contexto ? 'contexto' : '',
                 ehHoje ? 'hoje' : '',
-                diaEmDragOver === data ? 'drop-alvo' : '',
+                podeCriar && diaEmDragOver === data ? 'drop-alvo' : '',
               ].filter(Boolean).join(' ')}
-              aria-label={formatarData(data, { weekday: 'long', day: '2-digit', month: 'long' })}
+              aria-label={
+                contexto
+                  ? `${formatarData(data, { weekday: 'long', day: '2-digit', month: 'long' })}, fora do período desta competência — não aceita novos plantões`
+                  : formatarData(data, { weekday: 'long', day: '2-digit', month: 'long' })
+              }
               onClick={() => {
-                if (plantonistaSelecionado !== null) {
+                if (podeCriar && plantonistaSelecionado !== null) {
                   onSolicitarNovaAtribuicao(plantonistaSelecionado, data);
                 }
               }}
               onDragOver={(evento) => {
+                if (!podeCriar) {
+                  return;
+                }
                 evento.preventDefault();
                 evento.dataTransfer.dropEffect = 'copy';
               }}
-              onDragEnter={() => setDiaEmDragOver(data)}
+              onDragEnter={() => {
+                if (podeCriar) {
+                  setDiaEmDragOver(data);
+                }
+              }}
               onDragLeave={() => setDiaEmDragOver((atual) => (atual === data ? null : atual))}
-              onDrop={(evento) => aoSoltarNoDia(evento, data)}
+              onDrop={(evento) => aoSoltarNoDia(evento, data, podeCriar)}
             >
               <div className="plantao-dia-cabecalho">
                 <span className="plantao-dia-numero">{formatarData(data, { day: 'numeric' })}</span>
@@ -157,17 +183,19 @@ export function PlantaoCalendario({
                   );
                 })}
               </div>
-              <button
-                type="button"
-                className="plantao-adicionar"
-                onClick={(evento) => {
-                  evento.stopPropagation();
-                  onSolicitarNovaAtribuicao(plantonistaSelecionado ?? '', data);
-                }}
-                aria-label={`Adicionar plantão em ${formatarData(data, { day: '2-digit', month: '2-digit' })}`}
-              >
-                + Adicionar
-              </button>
+              {podeCriar && (
+                <button
+                  type="button"
+                  className="plantao-adicionar"
+                  onClick={(evento) => {
+                    evento.stopPropagation();
+                    onSolicitarNovaAtribuicao(plantonistaSelecionado ?? '', data);
+                  }}
+                  aria-label={`Adicionar plantão em ${formatarData(data, { day: '2-digit', month: '2-digit' })}`}
+                >
+                  + Adicionar
+                </button>
+              )}
             </div>
           );
         })}

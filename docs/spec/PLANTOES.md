@@ -2160,3 +2160,13 @@ qualquer coisa na working copy — nunca automático, nunca no drop em si.
 Sem padrão, cai direto no editor completo de sempre. Detalhamento
 completo em `docs/spec/EDITOR_ESCALAS.md` seção 12 e
 `CHECKPOINT-FASE-ESCALAS-UX-2B-ROSTER-DRAG.md`.
+
+**Correção ESCALAS-UX-2B.1**: uma NOVA atribuição só pode iniciar dentro
+do período real da competência (`periodoInicio <= dataInicial <=
+periodoFim`, via `dataPertenceCompetencia()`) — dias de contexto visual
+(fora da janela 26→25) nunca aceitam criação por click/drag/
+"+ Adicionar"/quick-add. O TÉRMINO pode ultrapassar o período livremente
+(um plantão de 25/08 19:00 até 26/08 07:00 continua válido). Atribuições
+já existentes/importadas nunca são afetadas — a regra vale só para
+criação nova pela UI. Ver `docs/spec/EDITOR_ESCALAS.md` §12.10 e
+`CHECKPOINT-FASE-ESCALAS-UX-2B1-LIMITES-COMPETENCIA.md`.

@@ -100,6 +100,31 @@ export function periodoDaCompetencia(competencia: string): { periodoInicio: stri
 }
 
 /**
+ * Fase ESCALAS-UX-2B.1 — `true` só quando `dataIso` está DENTRO do
+ * período real da competência (`periodoInicio <= dataIso <= periodoFim`,
+ * comparação lexicográfica, válida porque as três são sempre `AAAA-MM-DD`)
+ * — reaproveita `periodoDaCompetencia()`, nunca um segundo cálculo 26→25.
+ * `competencia`/`dataIso` inválidos retornam `false` (nunca lançam,
+ * nunca assumem um período "default").
+ *
+ * Único gate de "esta data pode iniciar uma NOVA atribuição de Plantão
+ * criada pela UI" (click/drag/quick-add — ver `solicitarNovaAtribuicaoPlantao()`
+ * em `DashboardApp.tsx`). Nunca usado para filtrar/normalizar atribuições
+ * JÁ existentes — dias de contexto continuam mostrando o que já está lá
+ * (ex.: a borda real de 43h que começa um dia antes do início da janela).
+ */
+export function dataPertenceCompetencia(dataIso: string, competencia: string): boolean {
+  if (!PADRAO_DATA_ISO.test(dataIso)) {
+    return false;
+  }
+  const periodo = periodoDaCompetencia(competencia);
+  if (periodo === null) {
+    return false;
+  }
+  return dataIso >= periodo.periodoInicio && dataIso <= periodo.periodoFim;
+}
+
+/**
  * Fase ESCALAS-UX-1C — o rótulo `AAAA-MM` da competência imediatamente
  * ANTERIOR a `competencia` (nunca "a competência anterior mais recente
  * que existir" — "Usar período anterior" é sempre o mês civil-de-rótulo

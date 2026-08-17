@@ -28,6 +28,7 @@ import {
   montarCompetenciaPlantaoRascunho,
   montarGrupoPlantaoParaSalvar,
   montarParticipantesPlantaoParaSalvar,
+  dataPertenceCompetencia,
   periodoDaCompetencia,
   reidratarRascunhoPlantao,
   sugerirCompetenciaPlantao,
@@ -94,6 +95,53 @@ describe('periodoDaCompetencia — janela 26→25 (Fase ESCALAS-UX-1A)', () => {
   it('competência malformada devolve null', () => {
     expect(periodoDaCompetencia('2026-8')).toBeNull();
     expect(periodoDaCompetencia('não-é-competencia')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase ESCALAS-UX-2B.1 — dataPertenceCompetencia (§10 do pedido)
+// ---------------------------------------------------------------------------
+
+describe('dataPertenceCompetencia — gate de "esta data pode iniciar uma nova atribuição de Plantão"', () => {
+  it('1. dia anterior ao período (25/07 para competência 2026-08) -> false', () => {
+    expect(dataPertenceCompetencia('2026-07-25', '2026-08')).toBe(false);
+  });
+
+  it('2. primeiro dia do período (26/07 para competência 2026-08) -> true', () => {
+    expect(dataPertenceCompetencia('2026-07-26', '2026-08')).toBe(true);
+  });
+
+  it('3. dia comum dentro do período (01/08) -> true', () => {
+    expect(dataPertenceCompetencia('2026-08-01', '2026-08')).toBe(true);
+  });
+
+  it('4. último dia do período (25/08) -> true', () => {
+    expect(dataPertenceCompetencia('2026-08-25', '2026-08')).toBe(true);
+  });
+
+  it('5. dia posterior ao período (26/08) -> false', () => {
+    expect(dataPertenceCompetencia('2026-08-26', '2026-08')).toBe(false);
+  });
+
+  it('6. dia bem posterior (29/08) -> false', () => {
+    expect(dataPertenceCompetencia('2026-08-29', '2026-08')).toBe(false);
+  });
+
+  it('7. competência malformada -> false (nunca lança, nunca assume período default)', () => {
+    expect(dataPertenceCompetencia('2026-08-10', '2026-8')).toBe(false);
+    expect(dataPertenceCompetencia('2026-08-10', '')).toBe(false);
+  });
+
+  it('8. data malformada -> false', () => {
+    expect(dataPertenceCompetencia('10/08/2026', '2026-08')).toBe(false);
+    expect(dataPertenceCompetencia('', '2026-08')).toBe(false);
+  });
+
+  it('9. reaproveita periodoDaCompetencia — mesmo resultado para uma virada de ano (janeiro)', () => {
+    expect(dataPertenceCompetencia('2025-12-26', '2026-01')).toBe(true);
+    expect(dataPertenceCompetencia('2025-12-25', '2026-01')).toBe(false);
+    expect(dataPertenceCompetencia('2026-01-25', '2026-01')).toBe(true);
+    expect(dataPertenceCompetencia('2026-01-26', '2026-01')).toBe(false);
   });
 });
 

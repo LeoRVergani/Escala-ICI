@@ -200,6 +200,15 @@ sem ninguém selecionado (`plantonistaNomeOriginal === ''`) também cai
 direto no editor completo — comportamento idêntico ao de antes desta
 fase.
 
+> **ERRATA (ESCALAS-UX-2B.1, 2026-08-17)**: esta fase não limitava a
+> data inicial de uma nova atribuição ao período real da competência —
+> click/drag/"+ Adicionar" funcionavam também em dias exibidos só como
+> contexto visual (fora de `periodoInicio..periodoFim`). Corrigido com um
+> gate definitivo em `solicitarNovaAtribuicaoPlantao()`
+> (`dataPertenceCompetencia()`) + omissão da UI de criação em dias de
+> contexto no `PlantaoCalendario`. Ver
+> `CHECKPOINT-FASE-ESCALAS-UX-2B1-LIMITES-COMPETENCIA.md`.
+
 ## 11. Mobile/tablet
 
 Sem drag no mobile — toque não dispara eventos HTML5 de drag (nenhum

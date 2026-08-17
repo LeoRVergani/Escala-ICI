@@ -5061,10 +5061,10 @@ fieldset.checkbox-card-list > legend {
   .plantao-roster-pessoa { flex: 0 0 auto; min-width: 168px; }
 }
 
-/* Feedback de drag-over (§21 do pedido) — realce sutil, nunca colorir o calendário inteiro. */
+/* Feedback de drag-over (§21 do pedido) — realce sutil, nunca colorir o calendário inteiro. Nunca em dia de contexto (§7 da Fase ESCALAS-UX-2B.1 — esses dias não aceitam drop). */
 .plantao-dia.drop-alvo { outline: 2px solid var(--primary-bright); outline-offset: -2px; background: var(--primary-soft); }
-/* Com alguém selecionado no roster, o fundo do dia também cria (além do botão "+ Adicionar", sempre disponível). */
-.plantao-grid.selecao-ativa .plantao-dia { cursor: pointer; }
+/* Com alguém selecionado no roster, o fundo do dia também cria (além do botão "+ Adicionar") — exceto em dia de contexto, que nunca aparenta aceitar a ação (Fase ESCALAS-UX-2B.1). */
+.plantao-grid.selecao-ativa .plantao-dia:not(.contexto) { cursor: pointer; }
 
 /*
  * Quick-add do padrão do Grupo (`QuickAddPlantaoPopover`) — dialog pequeno

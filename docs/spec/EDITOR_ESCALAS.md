@@ -517,9 +517,12 @@ independente de como o usuário chegou até ele:
 - clicar "+ Adicionar" (sempre presente, acessível por teclado) com uma
   pessoa já selecionada.
 
-A decisão que essa função toma:
+A decisão que essa função toma (atualizada na ESCALAS-UX-2B.1 — ver §12.10):
 
 ```
+data FORA do período da competência ativa (dataPertenceCompetencia)
+    -> no-op silencioso, nada acontece
+
 sem plantonista (string vazia)
     -> abre o editor completo (ModalEditarAtribuicaoPlantao), como sempre
 
@@ -620,3 +623,42 @@ já é suficiente.
 
 Ver `CHECKPOINT-FASE-ESCALAS-UX-2B-ROSTER-DRAG.md` para o detalhamento
 completo desta fase.
+
+### 12.10 Limites da competência (Fase ESCALAS-UX-2B.1)
+
+Correção: uma NOVA atribuição criada pela UI (click, drag, "+ Adicionar"
+ou quick-add) só pode ter **data inicial** dentro do período real da
+competência ativa — `periodoInicio <= dataInicial <= periodoFim`
+(`periodoDaCompetencia()`, mesma janela 26→25 de sempre, reaproveitada
+pelo novo helper `dataPertenceCompetencia(dataIso, competencia)`,
+`lib/montagemRascunhoPlantao.ts`). Dias exibidos só como contexto visual
+(antes do dia 26 ou depois do dia 25, servindo apenas para completar as
+semanas do calendário — `ehDiaDeContexto()`) nunca aceitam iniciar uma
+atribuição nova.
+
+**O TÉRMINO pode ultrapassar o período** — nunca limitado. `25/08 19:00
+→ 26/08 07:00` (12h) e `25/08 19:00 → 26/08 19:00` (24h) continuam
+válidos porque o INÍCIO (25/08) pertence à competência; o fim cair um
+dia depois nunca é bloqueado.
+
+Gate único e definitivo: `solicitarNovaAtribuicaoPlantao()` (o mesmo
+funil de click/drag/"+ Adicionar"/quick-add desde §12.2) verifica
+`dataPertenceCompetencia(dataIso, competenciaRascunho)` como o PRIMEIRO
+passo — fora do período, retorna sem tocar a working copy nem marcar
+dirty (no-op silencioso). `PlantaoCalendario` também omite a UI de
+criação num dia de contexto (sem "+ Adicionar", sem clique de fundo, sem
+aceitar drop — `onDragOver` não chama `preventDefault()`, então o
+navegador recusa o drop nativamente ANTES de soltar, nunca um erro
+depois) — essa omissão de UI é só reforço, o gate real é sempre a função
+do Dashboard.
+
+**Atribuições já existentes/importadas NUNCA são normalizadas por esta
+regra** — o gate só se aplica à criação de NOVAS atribuições pela UI.
+Um dia de contexto continua mostrando qualquer atribuição que já exista
+nele (ex.: a borda real de 43h de uma planilha importada, que começa um
+dia antes do início da janela) — `dataPertenceCompetencia()` nunca é
+chamado por `lib/editorPlantao.ts`/`lib/conciliacaoPlantoes.ts`
+(confirmado por boundary test).
+
+Ver `CHECKPOINT-FASE-ESCALAS-UX-2B1-LIMITES-COMPETENCIA.md` para o
+detalhamento completo desta correção.
