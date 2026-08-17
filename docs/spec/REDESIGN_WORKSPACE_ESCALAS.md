@@ -1,5 +1,13 @@
 # Redesign do Workspace de Escalas (Fase ESCALAS-UX-2)
 
+## Status de implementação do plano (§ 36)
+
+- **ESCALAS-UX-2A** ✅ implementada (`CHECKPOINT-FASE-ESCALAS-UX-2A-NAVEGACAO.md`) —
+  sidebar simplificada, "Importar"/"Grade"/"Plantões" deixaram de ser
+  destinos principais, telas internas preservadas com pontes
+  transitórias. `ContextoEscalaAtivo` e o restante do § 36 **ainda não
+  foram iniciados**.
+
 ## Por que este documento existe
 
 Este é um documento de **design/arquitetura de UX, não de implementação**.
@@ -1465,7 +1473,7 @@ modelo de contexto novo por cima dela.
 
 | Microfase | Escopo | Depende de |
 | --- | --- | --- |
-| **ESCALAS-UX-2A** | Sidebar nova (§ 5): remove "Importar"/"Grade"/"Plantões" como itens; "Escalas" vira destino único de trabalho; "Plantões" (conteúdo) migra para Administração → Grupos de Plantão (§ 27). Migração de rotas internas (`setTela('grade')` etc.) para o novo destino, sem ainda introduzir o `ContextoEscalaAtivo`. | — |
+| **ESCALAS-UX-2A** ✅ **implementada** | Sidebar nova (§ 5): remove "Importar"/"Grade"/"Plantões" como itens; "Escalas" vira destino único de trabalho; "Plantões" (conteúdo) migra para Administração → Grupos de Plantão (§ 27). Migração de rotas internas (`setTela('grade')` etc.) para o novo destino, sem ainda introduzir o `ContextoEscalaAtivo`. Ver `CHECKPOINT-FASE-ESCALAS-UX-2A-NAVEGACAO.md`. | — |
 | **ESCALAS-UX-2A.1** | `ScheduleContextSwitcher` + `ScheduleHeader` + modelo `ContextoEscalaAtivo` (§ 6/§ 7/§ 32); `NewScheduleDialog` com as três formas de começar para AMBOS os tipos (§ 9/§ 10/§ 11), incluindo implementar "Criar vazia"/"Usar anterior" para Jornada 6x1 (risco § 35.3). | ESCALAS-UX-2A |
 | **PLANTAO-PADRAO-1** | Padrão semanal configurável por Grupo (§ 17/§ 18) — schema, Rules, UI de configuração em Administração → Grupos de Plantão, e o card "Padrão do grupo" no modal de criação. Fase isolada por causa do risco de schema (§ 35.5). | ESCALAS-UX-2A (para o novo local de Administração já existir) |
 | **ESCALAS-UX-2B** | Roster lateral (§ 14) substituindo "Resumo por pessoa"; interação rápida (clique+clique já existe, só reposiciona); drag-and-drop opcional (§ 16) como atalho adicional sobre o mesmo pipeline de criação. | ESCALAS-UX-2A.1 |

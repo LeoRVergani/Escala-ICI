@@ -69,8 +69,13 @@ test('5. o seletor de equipe responsável do ModalGrupoPlantao reaproveita Organ
 test('6. o Dashboard não tem nenhum botão/rótulo de publicação de Plantão', async () => {
   const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
   const corpo = semComentarios(dashboard);
-  const inicioNav = corpo.indexOf("id: 'plantoes'");
-  assert.ok(inicioNav > 0, 'a navegação precisa ter a entrada "plantoes"');
+  // Fase ESCALAS-UX-2A — 'plantoes' deixou de ser um item de NAVEGACAO
+  // (agora é a sub-tela "Grupos de Plantão" de Administração, ver
+  // docs/spec/REDESIGN_WORKSPACE_ESCALAS.md § 10/§ 27); o bloco de
+  // renderização `tela === 'plantoes'` continua existindo e é o âncora
+  // atual, no lugar do antigo item de array `id: 'plantoes'`.
+  const inicioNav = corpo.indexOf("tela === 'plantoes'");
+  assert.ok(inicioNav > 0, 'a tela interna "plantoes" precisa continuar existindo');
   for (const proibido of [/Publicar Plantão/iu, /publicarPlantao/u]) {
     assert.doesNotMatch(corpo, proibido, String(proibido));
   }

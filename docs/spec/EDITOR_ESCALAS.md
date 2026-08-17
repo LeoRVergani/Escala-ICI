@@ -225,10 +225,26 @@ persistida (`IMPORTADO` continua `IMPORTADO`, `MANUAL` continua
   `ModalNovaEscala`) — orquestra a working copy, a conferência dupla e o
   rascunho, o fluxo "+ Nova escala", (Fase ESCALAS-UX-1B.1) "Abrir
   rascunho" e (Fase ESCALAS-UX-1C) "Usar período anterior" +
-  distribuição rápida por clique (tela "Plantões" e o atalho dentro de
-  "+ Nova escala"); nenhuma lógica de domínio nova mora aqui além da
-  fiação de estado/props — a tradução de datas e os vínculos vivem em
-  `lib/montagemRascunhoPlantao.ts`/`lib/conciliacaoPlantoes.ts` (§ 11).
+  distribuição rápida por clique (tela interna `plantoes`, chamada de
+  "Grupos de Plantão" na UI desde a ESCALAS-UX-2A — ver nota abaixo — e
+  o atalho dentro de "+ Nova escala"); nenhuma lógica de domínio nova
+  mora aqui além da fiação de estado/props — a tradução de datas e os
+  vínculos vivem em `lib/montagemRascunhoPlantao.ts`/
+  `lib/conciliacaoPlantoes.ts` (§ 11).
+
+**Nota (Fase ESCALAS-UX-2A) — navegação principal ≠ telas internas.**
+A sidebar do Dashboard passou a refletir ÁREAS do produto ("Escalas",
+"Administração", ...), nunca mais 1:1 com cada `Tela` interna — "Importar"
+e "Grade" são formas de trabalhar dentro de "Escalas"; a administração de
+Grupo de Plantão (`tela === 'plantoes'`, hoje rotulada "Grupos de
+Plantão" na UI) é uma sub-tela de "Administração". O mapeamento
+tela→área é uma função pura (`areaNavegacaoDaTela()`,
+`lib/navegacaoDashboard.ts`) — nunca espalhado em ternários pelo JSX.
+Isso é só reorganização de NAVEGAÇÃO: o Editor em si (working copy,
+`PlantaoCalendario`, `ModalEditarAtribuicaoPlantao`, o round-trip do
+rascunho) continua exatamente o mesmo descrito nas seções acima. Ver
+`docs/spec/REDESIGN_WORKSPACE_ESCALAS.md` § 5 e
+`CHECKPOINT-FASE-ESCALAS-UX-2A-NAVEGACAO.md`.
 
 A escala 6x1 não foi tocada nestas fases — este documento descreve o
 conceito para que uma fase futura que precise dar ao 6x1 um Editor

@@ -4906,10 +4906,20 @@ fieldset.checkbox-card-list > legend {
   margin: 0 0 var(--space-2); padding: 8px 10px; border: 1px solid var(--primary-bright);
   border-radius: 7px; background: var(--primary-soft); font-size: 12.5px;
 }
-.plantao-selecao-ativa .link-button {
+/*
+ * Fase ESCALAS-UX-2A — `.link-button` deixou de ser escopado só a
+ * `.plantao-selecao-ativa` (ESCALAS-UX-1C) porque o breadcrumb transitório
+ * de "Importar"/"Grade" (`.tela-breadcrumb`, abaixo) precisa do mesmo
+ * padrão de "botão que parece link" — generalizada em vez de duplicada,
+ * por `docs/spec/UI_CASCADE_E_HERANCA.md` (reuso de classe, nunca uma
+ * segunda regra quase idêntica sob outro nome).
+ */
+.link-button {
   border: none; background: none; padding: 0; margin: 0; font: inherit;
   color: var(--primary-bright); text-decoration: underline; cursor: pointer;
 }
+.tela-breadcrumb { margin: 0 0 6px; font-size: 12px; }
+.administracao-subnav { margin-bottom: var(--space-4); }
 .plantao-conferencia-escala-atual { margin-bottom: var(--space-4); }
 .plantao-conferencia-escala-atual h3 { margin: 0 0 4px; font-size: 13px; }
 .plantao-conferencia-escala-atual p { margin: 0 0 var(--space-2); color: var(--muted); font-size: 11.5px; }

@@ -1,0 +1,129 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import test from 'node:test';
+
+const ler = (caminho) => readFile(new URL(`../${caminho}`, import.meta.url), 'utf8');
+const semComentarios = (fonte) => fonte.replace(/\/\*[\s\S]*?\*\//g, '');
+
+// Fase ESCALAS-UX-2A: simplificação da navegação principal do Dashboard —
+// "Importar"/"Grade"/"Plantões" saem da sidebar como destinos próprios, mas
+// continuam existindo como `Tela` interna, acessíveis por pontes a partir
+// de "Escalas"/"Administração". Ver docs/spec/REDESIGN_WORKSPACE_ESCALAS.md
+// § 5 e CHECKPOINT-FASE-ESCALAS-UX-2A-NAVEGACAO.md.
+
+test('1. a sidebar principal (NAVEGACAO) não contém mais "Importar escala" como item', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const navegacao = /const NAVEGACAO: ItemNavegacao\[\] = \[([\s\S]*?)\];/u.exec(dashboard);
+  assert.ok(navegacao, 'NAVEGACAO precisa continuar existindo');
+  assert.doesNotMatch(navegacao[1], /rotulo:\s*'Importar escala'/u, '"Importar escala" não pode mais ser um item de sidebar');
+});
+
+test('2. a sidebar principal não contém mais "Grade" como item de nível principal', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const navegacao = /const NAVEGACAO: ItemNavegacao\[\] = \[([\s\S]*?)\];/u.exec(dashboard);
+  assert.ok(navegacao);
+  assert.doesNotMatch(navegacao[1], /id:\s*'grade'/u, '"grade" não pode mais ter um item próprio em NAVEGACAO');
+});
+
+test('3. a sidebar principal não contém mais "Plantões" como item de nível principal', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const navegacao = /const NAVEGACAO: ItemNavegacao\[\] = \[([\s\S]*?)\];/u.exec(dashboard);
+  assert.ok(navegacao);
+  assert.doesNotMatch(navegacao[1], /id:\s*'plantoes'/u, '"plantoes" não pode mais ter um item próprio em NAVEGACAO');
+});
+
+test('4. NAVEGACAO tem exatamente 5 áreas: visao, escalas, trocas, usuarios, administracao', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const navegacao = /const NAVEGACAO: ItemNavegacao\[\] = \[([\s\S]*?)\];/u.exec(dashboard);
+  assert.ok(navegacao);
+  const ids = [...navegacao[1].matchAll(/id:\s*'([a-z]+)'/gu)].map((m) => m[1]);
+  assert.deepEqual(ids, ['visao', 'escalas', 'trocas', 'usuarios', 'administracao']);
+});
+
+test('5. as telas internas importar/grade/plantoes continuam existindo (Tela e os blocos de renderização)', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /type Tela = [^;]*'importar'/u, "'importar' precisa continuar no union Tela");
+  assert.match(dashboard, /type Tela = [^;]*'grade'/u, "'grade' precisa continuar no union Tela");
+  assert.match(dashboard, /type Tela = [^;]*'plantoes'/u, "'plantoes' precisa continuar no union Tela");
+  assert.match(dashboard, /\{tela === 'importar' && \(/u, 'o bloco de renderização de "importar" precisa continuar existindo');
+  assert.match(dashboard, /\{tela === 'grade' && \(/u, 'o bloco de renderização de "grade" precisa continuar existindo');
+  assert.match(dashboard, /\{tela === 'plantoes' && podeAcessarPlantoes && \(/u, 'o bloco de renderização de "plantoes" precisa continuar existindo');
+});
+
+test('6. lib/navegacaoDashboard.ts é puro (sem Firebase, sem React) e mapeia importar/grade -> escalas, plantoes -> administracao', async () => {
+  const fonte = semComentarios(await ler('lib/navegacaoDashboard.ts'));
+  for (const proibido of ['firebase/firestore', 'firebase/auth', "from 'react'", 'useState', 'useEffect']) {
+    assert.doesNotMatch(fonte, new RegExp(proibido.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'), proibido);
+  }
+  assert.match(fonte, /export function areaNavegacaoDaTela/u, 'areaNavegacaoDaTela precisa existir e ser exportada');
+  assert.match(fonte, /case 'importar':\s*\n\s*case 'grade':\s*\n\s*return 'escalas';/u, "'importar'/'grade' precisam mapear para a área 'escalas'");
+  assert.match(fonte, /case 'plantoes':\s*\n\s*return 'administracao';/u, "'plantoes' precisa mapear para a área 'administracao'");
+});
+
+test('7. o item ativo da sidebar usa areaNavegacaoDaTela(tela), nunca a tela crua — evita que "importar"/"grade"/"plantoes" fiquem sem nenhum item destacado', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /import \{ areaNavegacaoDaTela \} from '@\/lib\/navegacaoDashboard';/u, 'o helper precisa ser importado');
+  assert.match(dashboard, /ativo=\{areaNavegacaoDaTela\(tela\)\}/u, 'a prop "ativo" do AppFrame precisa vir do helper, não de `tela` diretamente');
+  assert.doesNotMatch(dashboard, /ativo=\{tela\}/u, 'nenhum ponto pode voltar a passar `tela` crua como item ativo da sidebar');
+});
+
+test('8. "Escalas" oferece pontes explícitas para Importar e para Grade — nunca escondidas', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const bloco = /\{tela === 'escalas' && \(([\s\S]*?)\n {6}\)\}/u.exec(dashboard);
+  assert.ok(bloco, 'o bloco de "escalas" precisa existir');
+  assert.match(bloco[1], /onClick=\{\(\) => setTela\('importar'\)\}/u, '"Escalas" precisa oferecer uma ponte para "Importar"');
+  assert.match(bloco[1], /onClick=\{\(\) => setTela\('grade'\)\}/u, '"Escalas" precisa oferecer uma ponte para "Grade"');
+});
+
+test('9. "Administração" oferece a sub-navegação Organização/Grupos de Plantão, e "Plantões" (Grupos de Plantão) referencia a mesma sub-navegação', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const ocorrencias = dashboard.match(/function AdministracaoSubnav\(/gu) ?? [];
+  assert.equal(ocorrencias.length, 1, 'só pode existir UM componente de sub-navegação de Administração — nunca uma segunda sidebar');
+  const usos = dashboard.match(/<AdministracaoSubnav\b/gu) ?? [];
+  assert.equal(usos.length, 2, 'a sub-navegação precisa ser usada nos DOIS lugares (Administração e Grupos de Plantão), nunca só em um');
+});
+
+test('10. nenhum ContextoEscalaAtivo / seletor de escala no header foi implementado nesta fase', async () => {
+  const arquivos = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('components/AppFrame.tsx'),
+    ler('lib/navegacaoDashboard.ts'),
+  ]);
+  for (const fonteBruta of arquivos) {
+    const fonte = semComentarios(fonteBruta);
+    for (const proibido of ['ContextoEscalaAtivo', 'ScheduleContextSwitcher', 'ScheduleHeader', 'ScheduleWorkspace']) {
+      assert.doesNotMatch(fonte, new RegExp(proibido, 'u'), `${proibido} pertence a uma fase futura (ESCALAS-UX-2A.1), não a esta`);
+    }
+  }
+});
+
+test('11. nenhuma mudança de schema/Rules — firestore.rules e a origem de Plantão continuam exatamente como na ESCALAS-UX-1C', async () => {
+  const rules = await ler('firestore.rules');
+  const ocorrenciasCopiado = rules.match(/COPIADO/gu) ?? [];
+  assert.equal(ocorrenciasCopiado.length, 5, 'firestore.rules precisa ter exatamente as mesmas 5 ocorrências de COPIADO da ESCALAS-UX-1C (4 no enum + 1 no comentário) — nenhuma mudança de schema nesta fase');
+  const modelo = await ler('packages/contrato/src/modeloPlantaoPersistente.ts');
+  assert.match(modelo, /export type OrigemPlantao = 'IMPORTADO' \| 'MANUAL' \| 'GERADO' \| 'COPIADO';/u, 'OrigemPlantao precisa continuar exatamente com os mesmos 4 valores, nenhum novo');
+});
+
+test('12. nenhum Editor foi reescrito — PlantaoCalendario, ModalEditarAtribuicaoPlantao e ScheduleGrid continuam existindo exatamente uma vez cada', async () => {
+  const [calendario, modal, grade] = await Promise.all([
+    ler('components/plantao/PlantaoCalendario.tsx'),
+    ler('components/plantao/ModalEditarAtribuicaoPlantao.tsx'),
+    ler('components/ScheduleGrid.tsx'),
+  ]);
+  assert.equal((semComentarios(calendario).match(/function PlantaoCalendario\b/gu) ?? []).length, 1);
+  assert.equal((semComentarios(modal).match(/function ModalEditarAtribuicaoPlantao\b/gu) ?? []).length, 1);
+  assert.equal((semComentarios(grade).match(/function ScheduleGrid\b/gu) ?? []).length, 1);
+});
+
+test('13. AppFrame continua sem nenhum conceito de contexto de escala — só recebe `itens`/`ativo`/`onNavegar` como antes', async () => {
+  const appFrame = semComentarios(await ler('components/AppFrame.tsx'));
+  assert.match(appFrame, /plantao: Radio/u, 'o ícone de Plantão precisa continuar mapeado (usado por Administração/Grupos de Plantão)');
+  assert.doesNotMatch(appFrame, /GrupoPlantao|CompetenciaPlantao|AtribuicaoPlantao/u, 'AppFrame continua genérico — nunca importa tipos de domínio de Plantão');
+});
+
+test('14. os breadcrumbs transitórios de "Importar"/"Grade" voltam para "Escalas", nunca para uma tela removida', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const ocorrencias = dashboard.match(/className="link-button" onClick=\{\(\) => setTela\('escalas'\)\}/gu) ?? [];
+  assert.equal(ocorrencias.length, 2, 'tanto "Importar" quanto "Grade" precisam de um botão de volta para Escalas');
+});

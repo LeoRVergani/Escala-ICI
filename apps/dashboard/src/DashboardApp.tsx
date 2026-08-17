@@ -42,6 +42,7 @@ import {
   ChevronRight,
   FileSpreadsheet,
   Filter,
+  Grid3X3,
   HelpCircle,
   Link2,
   LoaderCircle,
@@ -200,6 +201,7 @@ import {
   type LembreteAtribuidoPersistido,
 } from '@/lib/firebase/lembretesRepository';
 import { exclusaoZeraGestores, podeExcluirCompetencia, podeExcluirUsuario } from '@/lib/adminGuards';
+import { areaNavegacaoDaTela } from '@/lib/navegacaoDashboard';
 import {
   COMPETENCIA_ATUAL,
   ehAdminSistema,
@@ -656,14 +658,21 @@ function descreverDivergenciaPlantao(divergencia: DivergenciaPlantao): string {
   }
 }
 
+/**
+ * Fase ESCALAS-UX-2A — a sidebar principal reflete ÁREAS reais do produto
+ * (`docs/spec/REDESIGN_WORKSPACE_ESCALAS.md` § 5), nunca ferramentas
+ * internas: "Importar" é uma ação de criação de escala, "Grade" é um editor
+ * de jornada, "Plantões" hoje é administração de Grupo de Plantão — nenhum
+ * dos três é uma área principal independente. As telas internas
+ * (`tela === 'importar' | 'grade' | 'plantoes'`) continuam existindo
+ * (ver `lib/navegacaoDashboard.ts`); só deixaram de ser itens de MENU
+ * PRINCIPAL — acessíveis por pontes a partir de "Escalas"/"Administração".
+ */
 const NAVEGACAO: ItemNavegacao[] = [
   { id: 'visao', rotulo: 'Visão geral', icone: 'home' },
-  { id: 'importar', rotulo: 'Importar escala', icone: 'upload' },
   { id: 'escalas', rotulo: 'Escalas', icone: 'calendar' },
-  { id: 'grade', rotulo: 'Grade', icone: 'grid' },
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   { id: 'usuarios', rotulo: 'Usuários', icone: 'users' },
-  { id: 'plantoes', rotulo: 'Plantões', icone: 'plantao' },
   { id: 'administracao', rotulo: 'Administração', icone: 'admin' },
 ];
 
@@ -2123,6 +2132,49 @@ function ModalLembretesAtribuidos({
 }
 
 /**
+ * Fase ESCALAS-UX-2A — sub-navegação local de "Administração" (§ 11 de
+ * `docs/spec/REDESIGN_WORKSPACE_ESCALAS.md`): "Organização" é o conteúdo já
+ * existente em `tela === 'administracao'`; "Grupos de Plantão" é o mesmo
+ * conteúdo já existente em `tela === 'plantoes'` (renomeado apenas na UI —
+ * nenhuma mudança de lógica). Reaproveita `.segmented-control` (mesmo
+ * padrão já usado nos filtros de Trocas) — nunca uma segunda sidebar
+ * dentro da sidebar. A aba "Grupos de Plantão" só aparece para quem já
+ * podia acessar a antiga tela "Plantões" (`podeAcessarPlantoes`).
+ */
+function AdministracaoSubnav({
+  aba,
+  podeAcessarPlantoes,
+  onEscolherAba,
+}: {
+  aba: 'organizacao' | 'plantao';
+  podeAcessarPlantoes: boolean;
+  onEscolherAba: (aba: 'organizacao' | 'plantao') => void;
+}) {
+  return (
+    <div className="segmented-control administracao-subnav" aria-label="Áreas de Administração">
+      <button
+        type="button"
+        aria-current={aba === 'organizacao' ? 'page' : undefined}
+        className={aba === 'organizacao' ? 'active' : ''}
+        onClick={() => onEscolherAba('organizacao')}
+      >
+        Organização
+      </button>
+      {podeAcessarPlantoes && (
+        <button
+          type="button"
+          aria-current={aba === 'plantao' ? 'page' : undefined}
+          className={aba === 'plantao' ? 'active' : ''}
+          onClick={() => onEscolherAba('plantao')}
+        >
+          Grupos de Plantão
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
  * Fase ESCALAS-UX-1B — "+ Nova escala". Duas etapas num único modal (nunca
  * dois diálogos separados, para caber na "regra dos três passos" do § 43
  * da fase: 1. escolha o tipo, 2. escolha grupo/competência, 3. o Editor em
@@ -3118,15 +3170,9 @@ export function DashboardApp() {
   const podeAcessarPlantoes = usuarioReal !== null && souGestorDePlantao(usuarioReal);
   const carregandoEquipesPlantaoParaExibir = carregandoEquipesPlantao && podeAcessarPlantoes && !modoDemo;
   const minhasEquipesPermitidas = usuarioReal !== null ? equipesPermitidasEfetivas(usuarioReal) : [];
-  const navegacaoVisivel = NAVEGACAO.filter((item) => {
-    if (item.id === 'administracao') {
-      return podeAcessarAdministracao;
-    }
-    if (item.id === 'plantoes') {
-      return podeAcessarPlantoes;
-    }
-    return true;
-  });
+  // Fase ESCALAS-UX-2A — 'plantoes' não é mais um id presente em NAVEGACAO
+  // (ver comentário acima do array); só 'administracao' precisa de gate.
+  const navegacaoVisivel = NAVEGACAO.filter((item) => (item.id === 'administracao' ? podeAcessarAdministracao : true));
 
   // --- Derivados da tela Administração (Resumo, árvore, filtros de Usuários) ---
   const arvoreUnidadesAdmin = construirArvoreUnidades(unidadesAdmin);
@@ -5423,7 +5469,7 @@ export function DashboardApp() {
       usuario={usuarioParaFrame}
       competencia="Agosto 2026"
       itens={navegacaoVisivel}
-      ativo={tela}
+      ativo={areaNavegacaoDaTela(tela)}
       onNavegar={(id) => setTela(id as Tela)}
       onSair={encerrarSessao}
       produtoHref={import.meta.env.VITE_EMPLOYEE_APP_URL ?? '/app'}
@@ -5605,7 +5651,13 @@ export function DashboardApp() {
       {tela === 'importar' && (
         <section>
           <header className="page-heading">
-            <div><p className="eyebrow">Importação segura</p><h1>Importar escala</h1><p>O arquivo é processado somente na memória deste navegador.</p></div>
+            <div>
+              {/* Fase ESCALAS-UX-2A — "Importar" saiu da sidebar principal (§ 8/§ 18 do redesign); este breadcrumb transitório evita que o usuário se sinta perdido. */}
+              <p className="tela-breadcrumb">
+                <button type="button" className="link-button" onClick={() => setTela('escalas')}>← Voltar para Escalas</button>
+              </p>
+              <p className="eyebrow">Importação segura</p><h1>Importar escala</h1><p>O arquivo é processado somente na memória deste navegador.</p>
+            </div>
           </header>
           <article className="import-panel panel">
             <div
@@ -6033,12 +6085,23 @@ export function DashboardApp() {
         <section>
           <header className="page-heading">
             <div><p className="eyebrow">Competências</p><h1>Escalas</h1><p>Rascunhos e publicações disponíveis para a equipe.</p></div>
+            {/*
+             * Fase ESCALAS-UX-2A — "Escalas" vira o hub operacional
+             * principal enquanto o workspace unificado (ESCALAS-UX-2A.1)
+             * não existe: "Nova escala" é a ação primária; "Importar
+             * escala" e "Abrir grade" são pontes explícitas para as telas
+             * internas que saíram da sidebar (`docs/spec/REDESIGN_WORKSPACE_ESCALAS.md`
+             * § 6/§ 9), nunca escondidas atrás de nenhum menu extra.
+             */}
             <div className="grade-header-actions">
-              <button className="secondary-button" type="button" onClick={abrirNovaEscala}>
-                <Plus size={17} /> Nova escala
+              <button className="secondary-button" type="button" onClick={() => setTela('importar')}>
+                <UploadCloud size={17} /> Importar escala
               </button>
-              <button className="primary-button" type="button" onClick={() => setTela('importar')}>
-                <Plus size={17} /> Importar
+              <button className="secondary-button" type="button" onClick={() => setTela('grade')}>
+                <Grid3X3 size={17} /> Abrir grade
+              </button>
+              <button className="primary-button" type="button" onClick={abrirNovaEscala}>
+                <Plus size={17} /> Nova escala
               </button>
             </div>
           </header>
@@ -6188,6 +6251,10 @@ export function DashboardApp() {
         <section>
           <header className="page-heading">
             <div>
+              {/* Fase ESCALAS-UX-2A — "Grade" saiu da sidebar principal (§ 9/§ 18 do redesign); breadcrumb transitório de volta para "Escalas". */}
+              <p className="tela-breadcrumb">
+                <button type="button" className="link-button" onClick={() => setTela('escalas')}>← Voltar para Escalas</button>
+              </p>
               <p className="eyebrow">Revisão completa</p>
               <h1>Grade da equipe</h1>
               <p>Clique em uma célula para editar o rascunho.</p>
@@ -6409,14 +6476,27 @@ export function DashboardApp() {
         <section>
           <header className="page-heading">
             <div>
-              <p className="eyebrow">Escalas de sobreaviso</p>
-              <h1><Radio size={20} /> Plantões</h1>
-              <p>Grupos de Plantão, participantes, contatos e rascunhos de competência.</p>
+              {/*
+               * Fase ESCALAS-UX-2A — "Plantões" saiu da sidebar principal e
+               * virou a sub-tela "Grupos de Plantão" de Administração
+               * (§ 10/§ 12 do redesign): esta tela é configuração
+               * ADMINISTRATIVA de Grupo — nunca a escala mensal (essa
+               * continua em "Escalas"). Nome de UI atualizado para deixar
+               * essa distinção explícita; nenhuma lógica funcional mudou.
+               */}
+              <p className="eyebrow">Administração</p>
+              <h1><Radio size={20} /> Grupos de Plantão</h1>
+              <p>Configuração de Grupo, participantes, contatos e ACL — não é a escala mensal de Plantão.</p>
             </div>
             <button className="primary-button" type="button" onClick={abrirNovoGrupoPlantao}>
               <Plus size={16} /> Novo grupo
             </button>
           </header>
+          <AdministracaoSubnav
+            aba="plantao"
+            podeAcessarPlantoes={podeAcessarPlantoes}
+            onEscolherAba={(aba) => setTela(aba === 'organizacao' ? 'administracao' : 'plantoes')}
+          />
           {erroPlantaoAdmin && <div className="alert error" role="alert">{erroPlantaoAdmin}</div>}
           {gruposPlantaoAdmin.length === 0 && !erroPlantaoAdmin && (
             <article className="panel organization-empty-state">
@@ -6633,6 +6713,12 @@ export function DashboardApp() {
               )}
             </div>
           </header>
+          {/* Fase ESCALAS-UX-2A — § 11 do redesign: "Organização" (conteúdo abaixo, inalterado) e "Grupos de Plantão" (antiga tela "Plantões") como abas da mesma área, nunca uma segunda sidebar. */}
+          <AdministracaoSubnav
+            aba="organizacao"
+            podeAcessarPlantoes={podeAcessarPlantoes}
+            onEscolherAba={(aba) => setTela(aba === 'organizacao' ? 'administracao' : 'plantoes')}
+          />
           {erroAdmin && <div className="alert error" role="alert">{erroAdmin}</div>}
 
           <article className="panel">
