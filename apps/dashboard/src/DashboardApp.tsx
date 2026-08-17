@@ -12,6 +12,7 @@ import {
   idCompetenciaPlantao,
   MAXIMO_CONTATOS_PLANTONISTA,
   normalizarContatosPlantonista,
+  ordenarPadraoHorarioSemanal,
   parsePlanilhaEscala,
   validarContatosPlantonista,
   validarGrupoPlantao,
@@ -172,6 +173,7 @@ import {
   ModalEditarAtribuicaoPlantao,
   type FormularioAtribuicaoPlantao,
 } from '@/components/plantao/ModalEditarAtribuicaoPlantao';
+import { PadraoHorarioSemanalCampo } from '@/components/plantao/PadraoHorarioSemanalCampo';
 import {
   excluirEscalaPublicada,
   excluirUsuario,
@@ -1128,6 +1130,13 @@ function ModalGrupoPlantao({
     const candidato: GrupoPlantao = {
       ...form,
       equipesConsulta: equipesConsultaEfetivas(form.equipeResponsavelId, form.equipesConsulta),
+      // Fase PLANTAO-PADRAO-1 — sempre ordenado (Domingo→Sábado) antes de
+      // salvar; array vazio equivale a "nenhum padrão configurado", nunca
+      // persistido como `[]` (mesmo princípio de `descricao` em branco
+      // virando `undefined`, acima).
+      padraoHorarioSemanal: (form.padraoHorarioSemanal?.length ?? 0) === 0
+        ? undefined
+        : ordenarPadraoHorarioSemanal(form.padraoHorarioSemanal ?? []),
     };
     const erros = validarGrupoPlantao(candidato);
     if (erros.length > 0) {
@@ -1294,6 +1303,10 @@ function ModalGrupoPlantao({
               </ul>
             )}
           </fieldset>
+          <PadraoHorarioSemanalCampo
+            valor={form.padraoHorarioSemanal}
+            onAlterar={(novo) => setForm((atual) => ({ ...atual, padraoHorarioSemanal: novo }))}
+          />
         </div>
         {erro && <p className="admin-form-erro">{erro}</p>}
         <div className="rollback-actions">
@@ -4969,6 +4982,7 @@ export function DashboardApp() {
         equipesConsulta: [],
         timezone: 'America/Sao_Paulo',
         ativo: true,
+        padraoHorarioSemanal: undefined,
         schemaVersion: 1,
         criadoPorLogin: usuarioReal.login,
         criadoEm: '',

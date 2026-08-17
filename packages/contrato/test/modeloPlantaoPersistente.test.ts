@@ -3,17 +3,25 @@ import { describe, expect, it } from 'vitest';
 import {
   converterInstanteUtcParaMomento,
   converterMomentoParaInstanteUtc,
+  diaSemanaCivil,
+  duracaoMinutosPadraoHorarioPlantaoDia,
   equipesConsultaEfetivas,
+  horarioPlantaoValido,
   idAtribuicaoPlantao,
   idCompetenciaPlantao,
   idGrupoPlantaoValido,
   normalizarContatosPlantonista,
+  obterPadraoHorarioGrupoParaData,
+  obterPadraoHorarioParaDia,
+  ordenarPadraoHorarioSemanal,
   timezoneValida,
   validarAtribuicaoPlantaoPersistida,
   validarCompetenciaPlantao,
   validarContatosPlantonista,
   validarGrupoPlantao,
   validarParticipantePlantao,
+  validarPadraoHorarioSemanal,
+  type PadraoHorarioPlantaoDia,
 } from '../src/index.js';
 
 const GRUPO_VALIDO = {
@@ -421,3 +429,161 @@ describe('converterInstanteUtcParaMomento — Fase ESCALAS-UX-1B.1 (operação i
 // encontra o SDK do Firestore — lib/firebase/plantaoWriteRepository.test.ts
 // (`removerUndefined()` antes de qualquer `setDoc`/`updateDoc`), não aqui:
 // este módulo é puro e não decide serialização, só validação/conversão.
+
+// ---------------------------------------------------------------------------
+// Fase PLANTAO-PADRAO-1 — padrão semanal (fonte de verdade + helpers puros)
+// ---------------------------------------------------------------------------
+
+function entradaPadrao(parcial: Partial<PadraoHorarioPlantaoDia> = {}): PadraoHorarioPlantaoDia {
+  return { diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1, ...parcial };
+}
+
+describe('validarPadraoHorarioSemanal', () => {
+  it('1. array vazio é válido — nenhum padrão configurado', () => {
+    expect(validarPadraoHorarioSemanal([])).toEqual([]);
+  });
+
+  it('2. um dia válido não gera erro', () => {
+    expect(validarPadraoHorarioSemanal([entradaPadrao({ diaSemana: 0 })])).toEqual([]);
+  });
+
+  it('3. sete dias válidos (todos os dias da semana) não geram erro', () => {
+    const seteDias = [0, 1, 2, 3, 4, 5, 6].map((diaSemana) => entradaPadrao({ diaSemana: diaSemana as 0 | 1 | 2 | 3 | 4 | 5 | 6 }));
+    expect(validarPadraoHorarioSemanal(seteDias)).toEqual([]);
+  });
+
+  it('4. dia duplicado é inválido', () => {
+    const erros = validarPadraoHorarioSemanal([
+      entradaPadrao({ diaSemana: 2 }),
+      entradaPadrao({ diaSemana: 2 }),
+    ]);
+    expect(erros.some((erro) => erro.includes('duplicado'))).toBe(true);
+  });
+
+  it('5. diaSemana -1 é inválido', () => {
+    const erros = validarPadraoHorarioSemanal([entradaPadrao({ diaSemana: -1 as unknown as 0 })]);
+    expect(erros.some((erro) => erro.includes('dia da semana inválido'))).toBe(true);
+  });
+
+  it('6. diaSemana 7 é inválido', () => {
+    const erros = validarPadraoHorarioSemanal([entradaPadrao({ diaSemana: 7 as unknown as 0 })]);
+    expect(erros.some((erro) => erro.includes('dia da semana inválido'))).toBe(true);
+  });
+
+  it('7. 19:00 → 07:00 (+1 dia) = 12h → válido', () => {
+    expect(validarPadraoHorarioSemanal([entradaPadrao({ horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 })])).toEqual([]);
+    expect(duracaoMinutosPadraoHorarioPlantaoDia({ horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 })).toBe(12 * 60);
+  });
+
+  it('8. 19:00 → 19:00 (+1 dia) = 24h → válido', () => {
+    expect(validarPadraoHorarioSemanal([entradaPadrao({ horaInicio: '19:00', horaFim: '19:00', fimDiaOffset: 1 })])).toEqual([]);
+    expect(duracaoMinutosPadraoHorarioPlantaoDia({ horaInicio: '19:00', horaFim: '19:00', fimDiaOffset: 1 })).toBe(24 * 60);
+  });
+
+  it('9. 19:00 → 19:00 (+0 dia) é inválido — duração zero', () => {
+    const erros = validarPadraoHorarioSemanal([entradaPadrao({ horaInicio: '19:00', horaFim: '19:00', fimDiaOffset: 0 })]);
+    expect(erros.some((erro) => erro.includes('duração'))).toBe(true);
+  });
+
+  it('10. horário malformado é inválido', () => {
+    for (const malformado of ['7:00', '25:00', '19h00', '', '19:60', '23:5']) {
+      const erros = validarPadraoHorarioSemanal([entradaPadrao({ horaInicio: malformado })]);
+      expect(erros.length, `"${malformado}" deveria ser inválido`).toBeGreaterThan(0);
+    }
+  });
+
+  it('11. mais de 7 dias é inválido', () => {
+    const oitoDias = [0, 1, 2, 3, 4, 5, 6, 0].map((diaSemana, indice) =>
+      entradaPadrao({ diaSemana: (indice < 7 ? diaSemana : 0) as 0 }));
+    // Índice 7 repete diaSemana=0 só para forçar 8 elementos; o erro de
+    // tamanho já é suficiente para o teste (duplicidade também aparece).
+    const erros = validarPadraoHorarioSemanal(oitoDias);
+    expect(erros.some((erro) => erro.includes('não pode ter mais que'))).toBe(true);
+  });
+
+  it('12. grupo sem o campo (undefined) continua válido — backward compatibility', () => {
+    expect(validarGrupoPlantao(GRUPO_VALIDO)).toEqual([]);
+    expect('padraoHorarioSemanal' in GRUPO_VALIDO).toBe(false);
+  });
+
+  it('13. grupo com padrão inválido propaga o erro por validarGrupoPlantao', () => {
+    const erros = validarGrupoPlantao({ ...GRUPO_VALIDO, padraoHorarioSemanal: [entradaPadrao({ diaSemana: 9 as unknown as 0 })] });
+    expect(erros.some((erro) => erro.includes('dia da semana inválido'))).toBe(true);
+  });
+
+  it('14. grupo com padrão válido não gera nenhum erro', () => {
+    expect(validarGrupoPlantao({ ...GRUPO_VALIDO, padraoHorarioSemanal: [entradaPadrao()] })).toEqual([]);
+  });
+});
+
+describe('ordenarPadraoHorarioSemanal', () => {
+  it('sempre ordena Domingo(0) → Sábado(6), independente da ordem de entrada', () => {
+    const desordenado = [5, 0, 3, 6, 1].map((diaSemana) => entradaPadrao({ diaSemana: diaSemana as 0 | 1 | 3 | 5 | 6 }));
+    const ordenado = ordenarPadraoHorarioSemanal(desordenado);
+    expect(ordenado.map((entrada) => entrada.diaSemana)).toEqual([0, 1, 3, 5, 6]);
+  });
+});
+
+describe('horarioPlantaoValido', () => {
+  it('aceita HH:mm válido, 00–23/00–59', () => {
+    for (const valido of ['00:00', '07:00', '19:00', '23:30', '23:59']) {
+      expect(horarioPlantaoValido(valido), valido).toBe(true);
+    }
+  });
+
+  it('rejeita formato malformado', () => {
+    for (const invalido of ['7:00', '25:00', '19h00', '', '19:60', '24:00']) {
+      expect(horarioPlantaoValido(invalido), invalido).toBe(false);
+    }
+  });
+});
+
+describe('obterPadraoHorarioParaDia', () => {
+  const padrao: PadraoHorarioPlantaoDia[] = [
+    entradaPadrao({ diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 }),
+    entradaPadrao({ diaSemana: 5, horaInicio: '19:00', horaFim: '19:00', fimDiaOffset: 1 }),
+  ];
+
+  it.each([0, 1, 2, 3, 4, 5, 6] as const)('cobre o dia %i (encontrado ou null)', (diaSemana) => {
+    const resultado = obterPadraoHorarioParaDia(padrao, diaSemana);
+    if (diaSemana === 0 || diaSemana === 5) {
+      expect(resultado?.diaSemana).toBe(diaSemana);
+    } else {
+      expect(resultado).toBeNull();
+    }
+  });
+
+  it('dia sem padrão configurado retorna null', () => {
+    expect(obterPadraoHorarioParaDia([], 3)).toBeNull();
+  });
+
+  it('grupo sem o campo (undefined) retorna null para qualquer dia', () => {
+    expect(obterPadraoHorarioParaDia(undefined, 0)).toBeNull();
+  });
+});
+
+describe('diaSemanaCivil — determinístico, independente do timezone do runner', () => {
+  it.each([
+    ['2026-08-16', 0], // domingo
+    ['2026-08-17', 1], // segunda
+    ['2026-08-21', 5], // sexta
+    ['2026-08-22', 6], // sábado
+    ['2026-01-01', 4], // quinta
+  ] as const)('%s → dia %i', (data, esperado) => {
+    expect(diaSemanaCivil(data)).toBe(esperado);
+  });
+
+  it('data malformada lança erro', () => {
+    expect(() => diaSemanaCivil('16/08/2026')).toThrow();
+  });
+});
+
+describe('obterPadraoHorarioGrupoParaData', () => {
+  it('combina diaSemanaCivil + obterPadraoHorarioParaDia', () => {
+    const grupo = {
+      padraoHorarioSemanal: [entradaPadrao({ diaSemana: 1, horaInicio: '08:00', horaFim: '18:00', fimDiaOffset: 0 })],
+    };
+    expect(obterPadraoHorarioGrupoParaData(grupo, '2026-08-17')?.horaInicio).toBe('08:00'); // segunda
+    expect(obterPadraoHorarioGrupoParaData(grupo, '2026-08-16')).toBeNull(); // domingo, sem padrão
+  });
+});

@@ -709,6 +709,25 @@ exclusivamente o caminho de clique/toque (§ 30).
 
 ## 17. Padrão de horário por Grupo (domínio futuro configurável)
 
+> **Nota de implementação (PLANTAO-PADRAO-1)**: o schema REAL implementado
+> difere ligeiramente da proposta conceitual abaixo (que era ilustrativa,
+> não normativa, como já dito na época) — `GrupoPlantao.padraoHorarioSemanal?`
+> é diretamente `PadraoHorarioPlantaoDia[]` (sem o wrapper
+> `PadraoHorarioSemanal { dias: [] }`), e o campo de deslocamento de fim é
+> `fimDiaOffset: 0 | 1` (booleano-como-inteiro, persistido explicitamente),
+> não `diasAposInicio: number` (que sugeria suportar deslocamentos maiores
+> que 1 dia — nunca solicitado, nunca implementado). Todas as regras
+> permanentes desta seção (padrão pertence ao Grupo, opcional, nunca
+> aplicado automaticamente, nunca usado por Rules/autorização) foram
+> preservadas integralmente na implementação real. Ver
+> `CHECKPOINT-FASE-PLANTAO-PADRAO-1.md` e `docs/spec/PLANTOES.md` § 28
+> para o schema/helpers reais.
+>
+> Também confirmado por esta fase: **consulta-only não ganhou nenhum
+> poder novo** — configurar o padrão exige a MESMA autorização de sempre
+> para administrar o Grupo (`podeGerenciarGrupoPlantao()`), nunca uma
+> permissão separada.
+
 Confirmado no schema atual (`packages/contrato/src/modeloPlantaoPersistente.ts:65-77`):
 `GrupoPlantao` hoje tem `grupoId, nome, descricao?, equipeResponsavelId,
 equipesConsulta, timezone, ativo, schemaVersion, criadoPorLogin,
@@ -1520,8 +1539,8 @@ modelo de contexto novo por cima dela.
 | **ESCALAS-UX-2A.1** ✅ **implementada (escopo reduzido)** | `ContextoEscalaAtivo` (`lib/contextoEscala.ts`) + `ScheduleContextSwitcher`/`ScheduleCompetenceControl`/`ScheduleStatusBadge` no header + guarda de alterações não salvas (`UnsavedChangesDialog`) (§ 6/§ 7/§ 32). **NÃO incluiu** `NewScheduleDialog` nem "Criar vazia"/"Usar anterior" para Jornada 6x1 (§ 9/§ 10/§ 11, risco § 35.3) — permanece como follow-up. Ver `CHECKPOINT-FASE-ESCALAS-UX-2A1-CONTEXTO-ATIVO.md`. | ESCALAS-UX-2A |
 | **ESCALAS-UX-2A.1-FIX** ✅ **implementada** | Correção de 3 desvios do relatório final da 2A.1: (1) dirty de Plantão passou a ser um estado explícito (`plantaoPossuiAlteracoesNaoSalvas`), nunca mais `plantaoEditadoDesdeImportacao`; (2) dirty de Jornada (`jornadaPossuiAlteracoesNaoSalvas`, renomeado de `jornadaEditadaDesdeCarregamento`) passou a cobrir também os pontos de importação/reconciliação, não só `editarCelula()`; (3) o switcher de Plantão só lista para edição `gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao)` — grupos só-consultados deixaram de aparecer como contexto editável. Ver `CHECKPOINT-FASE-ESCALAS-UX-2A1-FIX-DIRTY.md`. | ESCALAS-UX-2A.1 |
 | *(follow-up, não nomeado ainda)* | `NewScheduleDialog` redesenhado + "Criar vazia"/"Usar anterior" para Jornada 6x1 — parte do § 36 original que ficou de fora da ESCALAS-UX-2A.1 real. | ESCALAS-UX-2A.1-FIX |
-| **PLANTAO-PADRAO-1** | Padrão semanal configurável por Grupo (§ 17/§ 18) — schema, Rules, UI de configuração em Administração → Grupos de Plantão, e o card "Padrão do grupo" no modal de criação. Fase isolada por causa do risco de schema (§ 35.5). | ESCALAS-UX-2A (para o novo local de Administração já existir) |
-| **ESCALAS-UX-2B** | Roster lateral (§ 14) substituindo "Resumo por pessoa"; interação rápida (clique+clique já existe, só reposiciona); drag-and-drop opcional (§ 16) como atalho adicional sobre o mesmo pipeline de criação. | ESCALAS-UX-2A.1 |
+| **PLANTAO-PADRAO-1** ✅ **implementada** | Padrão semanal configurável por Grupo (§ 17/§ 18) — `GrupoPlantao.padraoHorarioSemanal?` (opcional, retrocompatível), helpers puros de consulta/validação/duração em `@escala-ici/contrato`, Rules (create/update aceitam e validam o campo, leitura inalterada), seção "Padrão de horário" em `ModalGrupoPlantao` (`PadraoHorarioSemanalCampo`). **NÃO inclui** nenhum consumo pelo Editor (clicar/arrastar para preencher horário) — isso é ESCALAS-UX-2B. Ver `CHECKPOINT-FASE-PLANTAO-PADRAO-1.md`. | ESCALAS-UX-2A (para o novo local de Administração já existir) |
+| **ESCALAS-UX-2B** | Roster lateral (§ 14) substituindo "Resumo por pessoa"; interação rápida (clique+clique já existe, só reposiciona); drag-and-drop opcional (§ 16) como atalho adicional sobre o mesmo pipeline de criação; consumo real de `GrupoPlantao.padraoHorarioSemanal` (`obterPadraoHorarioGrupoParaData()`, já pronto desde `PLANTAO-PADRAO-1`) para sugerir horário ao criar uma nova atribuição. | ESCALAS-UX-2A.1, PLANTAO-PADRAO-1 |
 | **ESCALAS-UX-2C** | Contabilidade redesenhada (§ 25), Pendências como painel (§ 26), limpeza de Lista (§ 24)/Resumo (§ 23) como abas — remoção formal das abas antigas, atualização de boundary tests (risco § 35.6). | ESCALAS-UX-2A.1 |
 | **HOMOLOGAÇÃO VISUAL** | Validação end-to-end do novo workspace (desktop 1440/1024, mobile 412/390/360, light/dark) para os dois tipos de escala, com o usuário testando diretamente (sem emulador+Playwright autônomo, conforme preferência já registrada). | ESCALAS-UX-2A, 2A.1, 2B, 2C |
 | **PLANTÃO-3C** | Publicação/histórico de Plantão — só depois do workspace estabilizado, para a UI de publicação já nascer dentro do novo `ScheduleHeader`/status, nunca como mais uma tela solta. | HOMOLOGAÇÃO VISUAL |

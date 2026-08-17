@@ -155,6 +155,40 @@ describe('salvarGrupoPlantao', () => {
     await expect(salvarGrupoPlantao(grupoValido())).rejects.toThrow();
     expect(estado.operacoes).toHaveLength(0);
   });
+
+  // --- Fase PLANTAO-PADRAO-1 ---
+
+  it('persiste um Grupo com padrão semanal válido', async () => {
+    await salvarGrupoPlantao(grupoValido({
+      padraoHorarioSemanal: [{ diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 }],
+    }));
+    const [operacao] = estado.operacoes;
+    expect(operacao?.dados).toHaveProperty('padraoHorarioSemanal');
+    expect((operacao?.dados as { padraoHorarioSemanal?: unknown[] })?.padraoHorarioSemanal).toHaveLength(1);
+  });
+
+  it('rejeita padrão semanal com horário malformado antes de enviar ao Firestore', async () => {
+    await expect(salvarGrupoPlantao(grupoValido({
+      padraoHorarioSemanal: [{ diaSemana: 0, horaInicio: '7:00', horaFim: '07:00', fimDiaOffset: 1 }],
+    }))).rejects.toThrow();
+    expect(estado.operacoes).toHaveLength(0);
+  });
+
+  it('rejeita padrão semanal com dia duplicado antes de enviar ao Firestore', async () => {
+    await expect(salvarGrupoPlantao(grupoValido({
+      padraoHorarioSemanal: [
+        { diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 },
+        { diaSemana: 0, horaInicio: '08:00', horaFim: '18:00', fimDiaOffset: 0 },
+      ],
+    }))).rejects.toThrow();
+    expect(estado.operacoes).toHaveLength(0);
+  });
+
+  it('Grupo sem padraoHorarioSemanal continua válido (retrocompatibilidade)', async () => {
+    await salvarGrupoPlantao(grupoValido());
+    const [operacao] = estado.operacoes;
+    expect(operacao?.dados).not.toHaveProperty('padraoHorarioSemanal');
+  });
 });
 
 describe('salvarParticipantePlantao', () => {

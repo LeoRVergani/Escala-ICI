@@ -101,6 +101,21 @@ describe('obterGrupoPlantao', () => {
     const resultado = await obterGrupoPlantao('inexistente');
     expect(resultado).toBeNull();
   });
+
+  it('Fase PLANTAO-PADRAO-1 — leitura retorna padraoHorarioSemanal quando persistido, sem query nova', async () => {
+    estado.gruposPlantao = [{
+      id: 'PLANTAO_SEGURANCA',
+      data: grupo({ padraoHorarioSemanal: [{ diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 }] }),
+    }];
+    const resultado = await obterGrupoPlantao('PLANTAO_SEGURANCA');
+    expect(resultado?.padraoHorarioSemanal).toEqual([{ diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 }]);
+  });
+
+  it('Grupo sem padraoHorarioSemanal continua lido normalmente (retrocompatibilidade)', async () => {
+    estado.gruposPlantao = [{ id: 'PLANTAO_SEGURANCA', data: grupo({}) }];
+    const resultado = await obterGrupoPlantao('PLANTAO_SEGURANCA');
+    expect(resultado?.padraoHorarioSemanal).toBeUndefined();
+  });
 });
 
 describe('listarGruposPlantaoPermitidos', () => {

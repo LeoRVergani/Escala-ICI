@@ -39,6 +39,48 @@ export const ORIGENS_PLANTAO_VALIDAS: readonly OrigemPlantao[] = ['IMPORTADO', '
 export const PAPEIS_PLANTONISTA_VALIDOS: readonly PapelPlantonista[] = ['PRIMARIO', 'SECUNDARIO'];
 
 /**
+ * Fase PLANTAO-PADRAO-1 — mesmo índice de `Date#getUTCDay()` (0 = domingo),
+ * já usado internamente por `parserPlantao.ts` (`NOMES_DIA_SEMANA`, privado
+ * àquele arquivo) — reaproveitado aqui como a ÚNICA convenção pública de dia
+ * da semana do pacote, nunca uma segunda numeração.
+ */
+export type DiaSemana = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+export const DIAS_SEMANA: readonly DiaSemana[] = [0, 1, 2, 3, 4, 5, 6];
+
+/** Nomes curtos para exibição (UI) — nunca usados como fonte de verdade de identidade/ordenação. */
+export const NOMES_DIA_SEMANA: readonly string[] = [
+  'Domingo',
+  'Segunda',
+  'Terça',
+  'Quarta',
+  'Quinta',
+  'Sexta',
+  'Sábado',
+];
+
+export const MAXIMO_DIAS_PADRAO_HORARIO_SEMANAL = DIAS_SEMANA.length;
+
+/**
+ * Uma entrada do padrão semanal de um Grupo de Plantão — horário CIVIL
+ * recorrente para um dia da semana (`docs/spec/PLANTOES.md` seção 28).
+ * `fimDiaOffset` é persistido EXPLICITAMENTE (nunca inferido comparando
+ * `horaFim` com `horaInicio` numericamente) — `19:00 → 07:00` só significa
+ * "termina no dia seguinte" porque `fimDiaOffset = 1` diz isso, não porque
+ * `07:00 < 19:00`. Um turno de 24h é representável (`horaInicio ==
+ * horaFim` com `fimDiaOffset = 1`); o mesmo par com `fimDiaOffset = 0`
+ * resulta em duração zero e é inválido (`validarPadraoHorarioSemanal`).
+ * Ausência de entrada para um dia = "sem horário padrão configurado" —
+ * nunca uma entrada artificial `00:00 → 00:00`.
+ */
+export interface PadraoHorarioPlantaoDia {
+  diaSemana: DiaSemana;
+  horaInicio: string;
+  horaFim: string;
+  fimDiaOffset: 0 | 1;
+}
+
+/**
  * Contato operacional de um plantonista. `rotulo` é texto livre validado
  * (não um enum fechado — grupos diferentes podem precisar de rótulos
  * diferentes, ver seção 8 de `docs/spec/PLANTOES.md`), não
@@ -70,6 +112,17 @@ export interface GrupoPlantao {
   equipesConsulta: string[];
   timezone: string;
   ativo: boolean;
+  /**
+   * Fase PLANTAO-PADRAO-1 — horários recorrentes deste Grupo, por dia da
+   * semana (`docs/spec/PLANTOES.md` seção 28). OPCIONAL e retrocompatível:
+   * todo `GrupoPlantao` persistido antes desta fase não tem o campo (nunca
+   * migrado automaticamente) e continua 100% válido — ausência do campo é
+   * equivalente a array vazio ("nenhum padrão configurado"). Representa
+   * horário CIVIL do Grupo (mesmo `timezone` do campo acima) — puramente
+   * sugestivo para NOVAS atribuições futuras (consumido só a partir de
+   * ESCALAS-UX-2B); nunca recalcula/normaliza atribuições já existentes.
+   */
+  padraoHorarioSemanal?: PadraoHorarioPlantaoDia[];
   schemaVersion: number;
   criadoPorLogin: string;
   criadoEm: string;
@@ -343,6 +396,134 @@ export function converterInstanteUtcParaMomento(
 }
 
 // ---------------------------------------------------------------------------
+// Padrão semanal (Fase PLANTAO-PADRAO-1) — helpers puros, sem React/Firebase.
+// Consumo real (aplicar o padrão a uma nova atribuição) fica para
+// ESCALAS-UX-2B; aqui só a fonte de verdade e consultas.
+// ---------------------------------------------------------------------------
+
+/** `HH:mm`, 24h, 00–23/00–59, sempre dois dígitos — mesmo formato de `REGEX_HORARIO` (lib/lembretes.ts), reimplementado aqui porque `packages/contrato` não depende de `lib/`. */
+const REGEX_HORARIO_PLANTAO_VALIDO = /^([01]\d|2[0-3]):[0-5]\d$/u;
+
+export function horarioPlantaoValido(horario: string): boolean {
+  return REGEX_HORARIO_PLANTAO_VALIDO.test(horario);
+}
+
+function minutosDesdeMeiaNoite(horario: string): number {
+  const partes = horario.split(':');
+  return Number(partes[0] ?? 0) * 60 + Number(partes[1] ?? 0);
+}
+
+/**
+ * Duração em minutos de uma entrada do padrão semanal — sem `Date`,
+ * imune ao timezone da máquina (§ 12 do pedido). `horaInicio`/`horaFim`
+ * precisam já ser válidos (`horarioPlantaoValido`) — chamar depois de
+ * validar, nunca antes (comportamento indefinido com entrada malformada).
+ * `19:00→07:00 +1` = 720min (12h); `19:00→19:00 +1` = 1440min (24h);
+ * `19:00→19:00 +0` = 0min (inválido, ver `validarPadraoHorarioSemanal`).
+ */
+export function duracaoMinutosPadraoHorarioPlantaoDia(
+  entrada: Pick<PadraoHorarioPlantaoDia, 'horaInicio' | 'horaFim' | 'fimDiaOffset'>,
+): number {
+  const inicio = minutosDesdeMeiaNoite(entrada.horaInicio);
+  const fim = minutosDesdeMeiaNoite(entrada.horaFim) + entrada.fimDiaOffset * 1440;
+  return fim - inicio;
+}
+
+/** Sempre `Domingo, Segunda, ..., Sábado` (`DIAS_SEMANA`), independente da ordem de entrada/persistência. */
+export function ordenarPadraoHorarioSemanal(
+  padrao: readonly PadraoHorarioPlantaoDia[],
+): PadraoHorarioPlantaoDia[] {
+  return [...padrao].sort((a, b) => a.diaSemana - b.diaSemana);
+}
+
+/** `null` = nenhum horário padrão configurado para este dia — nunca uma entrada `00:00→00:00` fingida. */
+export function obterPadraoHorarioParaDia(
+  padraoHorarioSemanal: readonly PadraoHorarioPlantaoDia[] | undefined,
+  diaSemana: DiaSemana,
+): PadraoHorarioPlantaoDia | null {
+  return padraoHorarioSemanal?.find((entrada) => entrada.diaSemana === diaSemana) ?? null;
+}
+
+/**
+ * Dia da semana de uma data civil (`AAAA-MM-DD`), determinístico e
+ * independente do timezone da máquina que roda o código (§ 18 do pedido)
+ * — usa `Date.UTC` diretamente sobre os componentes já extraídos por
+ * regex, nunca `new Date("AAAA-MM-DD")` (sujeito a interpretação
+ * inconsistente entre ambientes). Mesma convenção de `Date#getUTCDay()`
+ * (0 = domingo) já usada por `NOMES_DIA_SEMANA`.
+ */
+export function diaSemanaCivil(dataCivil: string): DiaSemana {
+  const match = PADRAO_DATA_ISO.exec(dataCivil);
+  if (match === null) {
+    throw new Error(`Data civil inválida: "${dataCivil}" (esperado AAAA-MM-DD).`);
+  }
+  const [, anoTexto, mesTexto, diaTexto] = match;
+  const diaSemana = new Date(Date.UTC(Number(anoTexto), Number(mesTexto) - 1, Number(diaTexto))).getUTCDay();
+  return diaSemana as DiaSemana;
+}
+
+/**
+ * Combinação de `obterPadraoHorarioParaDia()` + `diaSemanaCivil()` — o
+ * helper reutilizável real para ESCALAS-UX-2B ("qual o padrão deste Grupo
+ * para o dia 2026-08-16?"). Não acopla a React nem a Firebase; recebe só
+ * o pedaço do `GrupoPlantao` de que precisa.
+ */
+export function obterPadraoHorarioGrupoParaData(
+  grupo: Pick<GrupoPlantao, 'padraoHorarioSemanal'>,
+  dataCivil: string,
+): PadraoHorarioPlantaoDia | null {
+  return obterPadraoHorarioParaDia(grupo.padraoHorarioSemanal, diaSemanaCivil(dataCivil));
+}
+
+/**
+ * Valida a estrutura E as regras de negócio explicitamente pedidas (dia
+ * 0..6 sem duplicidade, horários `HH:mm`, offset 0/1, duração > 0) — vazio
+ * é válido (nenhum padrão configurado). Nenhuma restrição adicional não
+ * solicitada (ex.: duração máxima) foi inventada — ver checkpoint desta
+ * fase.
+ */
+export function validarPadraoHorarioSemanal(padrao: readonly PadraoHorarioPlantaoDia[]): string[] {
+  const erros: string[] = [];
+
+  if (padrao.length > MAXIMO_DIAS_PADRAO_HORARIO_SEMANAL) {
+    erros.push(`O padrão semanal não pode ter mais que ${MAXIMO_DIAS_PADRAO_HORARIO_SEMANAL} dias.`);
+  }
+
+  const diasVistos = new Set<number>();
+  padrao.forEach((entrada, indice) => {
+    const rotulo = `Padrão semanal (item ${indice + 1})`;
+    const diaValido = Number.isInteger(entrada.diaSemana) && entrada.diaSemana >= 0 && entrada.diaSemana <= 6;
+    if (!diaValido) {
+      erros.push(`${rotulo}: dia da semana inválido.`);
+    } else if (diasVistos.has(entrada.diaSemana)) {
+      erros.push(`${rotulo}: dia da semana duplicado (${NOMES_DIA_SEMANA[entrada.diaSemana]}).`);
+    } else {
+      diasVistos.add(entrada.diaSemana);
+    }
+
+    const inicioValido = horarioPlantaoValido(entrada.horaInicio);
+    const fimValido = horarioPlantaoValido(entrada.horaFim);
+    if (!inicioValido) {
+      erros.push(`${rotulo}: horário de início inválido (use HH:mm).`);
+    }
+    if (!fimValido) {
+      erros.push(`${rotulo}: horário de fim inválido (use HH:mm).`);
+    }
+
+    const offsetValido = entrada.fimDiaOffset === 0 || entrada.fimDiaOffset === 1;
+    if (!offsetValido) {
+      erros.push(`${rotulo}: "termina no dia seguinte" inválido.`);
+    }
+
+    if (inicioValido && fimValido && offsetValido && duracaoMinutosPadraoHorarioPlantaoDia(entrada) <= 0) {
+      erros.push(`${rotulo}: duração precisa ser maior que zero.`);
+    }
+  });
+
+  return erros;
+}
+
+// ---------------------------------------------------------------------------
 // Validações puras (retornam a lista de erros; vazio = válido — mesmo
 // padrão de `validarEdicaoUsuario()` em lib/importUsers.ts)
 // ---------------------------------------------------------------------------
@@ -359,6 +540,7 @@ export function validarGrupoPlantao(grupo: {
   equipeResponsavelId: string;
   equipesConsulta: readonly string[];
   timezone: string;
+  padraoHorarioSemanal?: readonly PadraoHorarioPlantaoDia[];
 }): string[] {
   const erros: string[] = [];
 
@@ -383,6 +565,9 @@ export function validarGrupoPlantao(grupo: {
   }
   if (!timezoneValida(grupo.timezone)) {
     erros.push(`Timezone inválida: "${grupo.timezone}".`);
+  }
+  if (grupo.padraoHorarioSemanal !== undefined) {
+    erros.push(...validarPadraoHorarioSemanal(grupo.padraoHorarioSemanal));
   }
 
   return erros;

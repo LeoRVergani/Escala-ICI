@@ -4786,6 +4786,55 @@ fieldset.checkbox-card-list > legend {
 }
 
 /*
+ * Fase PLANTAO-PADRAO-1 — "Padrão de horário" em `ModalGrupoPlantao`
+ * (`PadraoHorarioSemanalCampo`). Cada dia é um card próprio na lista
+ * (nunca uma tabela horizontal — § 41 do pedido); inputs/checkbox
+ * reaproveitam `.admin-form-grid input`/`.checkbox-row` (mesma altura/
+ * cor de sempre), só o agrupamento "Início/Fim/dia seguinte" por card é
+ * novo, mesmo princípio de linha flex de `.contato-plantonista-linha`.
+ */
+.padrao-horario-semanal-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.padrao-horario-semanal-dia {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+.padrao-horario-semanal-campos {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.padrao-horario-semanal-campos label:not(.checkbox-row) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  flex: 1 1 120px;
+  min-width: 0;
+}
+.padrao-horario-semanal-campos .checkbox-row { flex: 1 1 180px; }
+.padrao-horario-semanal-campos > .admin-form-preview,
+.padrao-horario-semanal-campos > .admin-form-erro {
+  flex-basis: 100%;
+}
+
+@media (max-width: 560px) {
+  .padrao-horario-semanal-campos { flex-direction: column; align-items: stretch; }
+}
+
+/*
  * Fase ESCALAS-UX-1A — calendário do Editor de Plantão. Grade PRÓPRIA
  * (`.plantao-grid`), a TERCEIRA família paralela a `.calendar-grid`
  * (escala 6x1) e `.lembretes-grid` (Lembretes) — mesmo raciocínio já

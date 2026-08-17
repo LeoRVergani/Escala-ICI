@@ -2018,3 +2018,130 @@ decisão.
 
 Ver `CHECKPOINT-FASE-ESCALAS-UX-1C-FACILIDADES-DISTRIBUICAO.md` para o
 detalhamento completo desta fase.
+
+## 28. PLANTAO-PADRAO-1 — padrão semanal configurável por Grupo
+
+Entrega a FONTE DE VERDADE para "horários normalmente usados por este
+Grupo, por dia da semana" — nenhuma aplicação/consumo automático ainda
+(isso é ESCALAS-UX-2B). Motivação de negócio: um Grupo de Plantão pode ter
+horários recorrentes diferentes conforme o dia (ex.: um padrão de
+domingo–quinta e outro de sexta–sábado) — mas isso NUNCA pode virar regra
+hardcoded (`if COSI`, `if sexta`); é configuração real do Grupo,
+totalmente livre.
+
+### 28.1 Modelo — `GrupoPlantao.padraoHorarioSemanal`
+
+```ts
+type DiaSemana = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0 = domingo (mesmo Date#getUTCDay(), já usado internamente pelo parser)
+
+interface PadraoHorarioPlantaoDia {
+  diaSemana: DiaSemana;
+  horaInicio: string;  // "HH:mm", 24h
+  horaFim: string;     // "HH:mm", 24h
+  fimDiaOffset: 0 | 1; // 1 = termina no dia seguinte — NUNCA inferido comparando horaFim < horaInicio
+}
+
+interface GrupoPlantao {
+  // ...campos existentes (seção 20.3), inalterados
+  padraoHorarioSemanal?: PadraoHorarioPlantaoDia[]; // OPCIONAL — ausência = nenhum padrão configurado
+}
+```
+
+Array tipado (uma entrada por dia configurado), não um objeto com 7
+propriedades fixas por nome de dia — mais fácil de validar/ordenar/
+detectar duplicidade, e independente de idioma na persistência. Ausência
+de entrada para um dia é "sem horário padrão configurado", nunca uma
+entrada artificial `00:00 → 00:00`. Um turno de 24h é representável
+(`horaInicio == horaFim` com `fimDiaOffset = 1`); o mesmo par com
+`fimDiaOffset = 0` é inválido (duração zero).
+
+### 28.2 Backward compatibility
+
+O campo é 100% opcional — todo `GrupoPlantao` persistido antes desta fase
+continua válido sem nenhuma migração. Nenhum script de migração foi
+criado; nenhum documento existente foi tocado.
+
+### 28.3 Helpers puros (`packages/contrato`)
+
+- `horarioPlantaoValido(horario)` — `HH:mm`, 24h, 00–23/00–59.
+- `duracaoMinutosPadraoHorarioPlantaoDia(entrada)` — minutos desde
+  meia-noite + `fimDiaOffset * 1440`, sem `Date`, imune ao timezone da
+  máquina que roda o código.
+- `ordenarPadraoHorarioSemanal(padrao)` — sempre Domingo→Sábado.
+- `obterPadraoHorarioParaDia(padraoHorarioSemanal, diaSemana)` — `null` =
+  nenhum padrão para aquele dia.
+- `diaSemanaCivil(dataCivil)` — dia da semana de uma data `AAAA-MM-DD`,
+  determinístico via `Date.UTC` sobre os componentes extraídos por regex
+  (nunca `new Date("AAAA-MM-DD")`, sujeito a interpretação inconsistente).
+- `obterPadraoHorarioGrupoParaData(grupo, dataCivil)` — combinação das
+  duas anteriores; o ponto de entrada real para ESCALAS-UX-2B consumir.
+- `validarPadraoHorarioSemanal(padrao)` — dia 0..6 sem duplicidade,
+  horários válidos, offset 0/1, duração > 0; array vazio é válido.
+
+Nenhum destes helpers acopla a React ou Firebase.
+
+### 28.4 Timezone
+
+O padrão representa horário CIVIL do Grupo, no MESMO `timezone` que o
+Grupo já possuía (campo inalterado). "Domingo 19:00" significa 19:00 no
+fuso do Grupo — a conversão para instante UTC ao aplicar o padrão numa
+atribuição real fica para ESCALAS-UX-2B, reaproveitando
+`converterMomentoParaInstanteUtc()` já existente (seção 20.8), nunca uma
+segunda função de conversão.
+
+### 28.5 Nenhuma normalização de dados existentes
+
+O padrão é puramente sugestivo para NOVAS atribuições futuras — configurar
+ou alterar um padrão semanal NUNCA recalcula/altera rascunhos já
+existentes, atribuições já salvas, escalas importadas, ou qualquer
+intervalo atípico (ex.: 43h/5h de uma planilha real). `montarAtribuicoesPlantaoRascunho()`/
+`copiarAtribuicoesParaNovaCompetencia()` (seção 21) não conhecem o padrão
+semanal — confirmado por boundary test.
+
+### 28.6 Administração (Dashboard)
+
+Nova seção "Padrão de horário" dentro de `ModalGrupoPlantao` (criar/editar
+Grupo) — `components/plantao/PadraoHorarioSemanalCampo.tsx`, componente de
+apresentação puro. Um card por dia da semana (nunca uma tabela horizontal
+— mobile-friendly), cada um com toggle habilitar/desabilitar + horário de
+início/fim (`<input type="time">`) + "Termina no dia seguinte" +
+resumo humano (ex.: "19:00 → 07:00 (+1 dia) · 12h" — nunca expõe
+`fimDiaOffset` cru). Desabilitar um dia remove a entrada por completo
+(nunca um dado residual `ativo: false` guardado à parte). Grupo novo pode
+ser criado sem nenhum dia configurado; Grupo antigo sem o campo mostra a
+seção vazia, pronta para o gestor preencher.
+
+Autorização: a mesma de sempre (`podeGerenciarGrupoPlantao()`/
+`podeGerenciarEsteGrupoPlantao()`) — nenhuma permissão nova, nenhuma
+ampliação de acesso.
+
+### 28.7 Firestore Rules
+
+`gruposPlantao/{grupoId}` (create/update) passa a aceitar o campo
+opcional na allowlist de chaves e valida sua estrutura quando presente
+(`padraoHorarioSemanalValido()`/`padraoHorarioPlantaoDiaValido()`, mesmo
+nível de validação estrutural das demais Rules deste arquivo — tipos/
+faixas, não recálculo de negócio). Ausência do campo continua válida
+(retrocompatibilidade). Duplicidade de `diaSemana` entre elementos NÃO é
+validada pela Rule (exigiria comparação par-a-par de até 7 posições,
+avaliado como desproporcional frente à defesa real já existente
+client-side, `validarPadraoHorarioSemanal()`, que roda antes de qualquer
+escrita) — limitação documentada, não uma omissão silenciosa. Regra de
+LEITURA inalterada.
+
+### 28.8 O que esta fase explicitamente NÃO faz
+
+- Nenhum consumo pelo Editor (clicar no calendário → preencher horário,
+  drag pessoa → criar atribuição) — isso é ESCALAS-UX-2B.
+- Nenhuma normalização/recálculo de atribuições existentes.
+- Nenhuma publicação de Plantão (`publicarPlantao()` continua
+  inexistente — PLANTÃO-3C).
+- Nenhuma mudança em `ContextoEscalaAtivo`/`ScheduleContextSwitcher`/
+  `ScheduleCompetenceControl`/`ScheduleStatusBadge` (ESCALAS-UX-2A.1) nem
+  nos dirty guards (`jornadaPossuiAlteracoesNaoSalvas`/
+  `plantaoPossuiAlteracoesNaoSalvas`, ESCALAS-UX-2A.1-FIX).
+- Nenhuma regra de cobertura hardcoded por sigla de equipe/grupo
+  (COSI/SOC/NOC/CODB) ou por dia da semana em prosa.
+
+Ver `CHECKPOINT-FASE-PLANTAO-PADRAO-1.md` para o detalhamento completo
+desta fase.

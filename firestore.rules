@@ -179,6 +179,43 @@ service cloud.firestore {
         && (contatos.size() < 3 || contatoPlantonistaValido(contatos[2]));
     }
 
+    /**
+     * Fase PLANTAO-PADRAO-1 — uma entrada do padrão semanal de um Grupo de
+     * Plantão. Valida estrutura/tipos/faixas (mesmo nível das outras Rules
+     * deste arquivo, ex. `duracaoMinutos > 0` em atribuições, que também
+     * não recalcula fim-início) — NÃO valida duplicidade de `diaSemana`
+     * entre elementos (exigiria comparação par-a-par de até 7 posições,
+     * desproporcional ao ganho de defesa real já coberto pela validação
+     * client-side, `validarPadraoHorarioSemanal()`, que roda antes de
+     * qualquer escrita). `horaInicio`/`horaFim` no formato `HH:mm` (00–23/
+     * 00–59); `fimDiaOffset` só 0 ou 1.
+     */
+    function padraoHorarioPlantaoDiaValido(entrada) {
+      return entrada.keys().hasOnly(['diaSemana', 'horaInicio', 'horaFim', 'fimDiaOffset'])
+        && entrada.diaSemana is int && entrada.diaSemana >= 0 && entrada.diaSemana <= 6
+        && entrada.horaInicio is string && entrada.horaInicio.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && entrada.horaFim is string && entrada.horaFim.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && entrada.fimDiaOffset is int && entrada.fimDiaOffset in [0, 1];
+    }
+
+    /** Até 7 entradas (uma por dia da semana) — array vazio é válido (nenhum padrão configurado). */
+    function padraoHorarioSemanalValido(padrao) {
+      return padrao is list
+        && padrao.size() <= 7
+        && (padrao.size() < 1 || padraoHorarioPlantaoDiaValido(padrao[0]))
+        && (padrao.size() < 2 || padraoHorarioPlantaoDiaValido(padrao[1]))
+        && (padrao.size() < 3 || padraoHorarioPlantaoDiaValido(padrao[2]))
+        && (padrao.size() < 4 || padraoHorarioPlantaoDiaValido(padrao[3]))
+        && (padrao.size() < 5 || padraoHorarioPlantaoDiaValido(padrao[4]))
+        && (padrao.size() < 6 || padraoHorarioPlantaoDiaValido(padrao[5]))
+        && (padrao.size() < 7 || padraoHorarioPlantaoDiaValido(padrao[6]));
+    }
+
+    /** Campo opcional: ausente é válido (retrocompatibilidade — documentos antigos nunca têm o campo). */
+    function padraoHorarioSemanalDoRequestValido(dados) {
+      return !('padraoHorarioSemanal' in dados) || padraoHorarioSemanalValido(dados.padraoHorarioSemanal);
+    }
+
     match /config/{doc} {
       allow read: if true;
       allow write: if false;
@@ -783,9 +820,10 @@ service cloud.firestore {
         && request.resource.data.equipesConsulta is list && request.resource.data.equipesConsulta.size() > 0
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.criadoPorLogin == loginDoAuth()
+        && padraoHorarioSemanalDoRequestValido(request.resource.data)
         && request.resource.data.keys().hasOnly([
           'grupoId', 'nome', 'descricao', 'equipeResponsavelId', 'equipesConsulta',
-          'timezone', 'ativo', 'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
+          'timezone', 'ativo', 'padraoHorarioSemanal', 'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
         ]);
 
       allow update: if autenticado()
@@ -800,9 +838,10 @@ service cloud.firestore {
         && request.resource.data.timezone is string && request.resource.data.timezone.size() > 0
         && request.resource.data.equipesConsulta is list && request.resource.data.equipesConsulta.size() > 0
         && request.resource.data.schemaVersion in [1]
+        && padraoHorarioSemanalDoRequestValido(request.resource.data)
         && request.resource.data.keys().hasOnly([
           'grupoId', 'nome', 'descricao', 'equipeResponsavelId', 'equipesConsulta',
-          'timezone', 'ativo', 'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
+          'timezone', 'ativo', 'padraoHorarioSemanal', 'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
         ]);
 
       allow delete: if false;

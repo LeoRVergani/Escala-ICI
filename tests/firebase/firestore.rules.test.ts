@@ -2516,4 +2516,97 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       )));
     });
   });
+
+  describe('Fase PLANTAO-PADRAO-1 — padrão semanal do Grupo de Plantão', () => {
+    const ENTRADA_VALIDA = { diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 };
+
+    it('documento antigo sem o campo continua lido/atualizado normalmente (retrocompatibilidade)', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      const grupo = await assertSucceeds(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE')));
+      expect(grupo.data()?.padraoHorarioSemanal).toBeUndefined();
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { nome: 'Renomeado sem tocar o padrão' }));
+    });
+
+    it('gestor autorizado grava um padrão semanal válido (create e update)', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_NOVO_PADRAO'),
+        grupoPlantao({ grupoId: 'PLANTAO_NOVO_PADRAO', padraoHorarioSemanal: [ENTRADA_VALIDA] }),
+      ));
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), {
+        padraoHorarioSemanal: [ENTRADA_VALIDA, { diaSemana: 5, horaInicio: '19:00', horaFim: '19:00', fimDiaOffset: 1 }],
+      }));
+    });
+
+    it('gestor autorizado remove o padrão gravando array vazio', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { padraoHorarioSemanal: [] }));
+    });
+
+    it('rejeita horário inválido (fora de HH:mm 00-23/00-59)', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), {
+        padraoHorarioSemanal: [{ ...ENTRADA_VALIDA, horaInicio: '7:00' }],
+      }));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), {
+        padraoHorarioSemanal: [{ ...ENTRADA_VALIDA, horaFim: '25:00' }],
+      }));
+    });
+
+    it('rejeita diaSemana fora do intervalo 0..6', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), {
+        padraoHorarioSemanal: [{ ...ENTRADA_VALIDA, diaSemana: -1 }],
+      }));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), {
+        padraoHorarioSemanal: [{ ...ENTRADA_VALIDA, diaSemana: 7 }],
+      }));
+    });
+
+    it('rejeita fimDiaOffset fora de {0, 1}', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), {
+        padraoHorarioSemanal: [{ ...ENTRADA_VALIDA, fimDiaOffset: 2 }],
+      }));
+    });
+
+    it('rejeita campo extra dentro de uma entrada do padrão (allowlist de chaves)', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), {
+        padraoHorarioSemanal: [{ ...ENTRADA_VALIDA, extra: 'não deveria existir' }],
+      }));
+    });
+
+    it('rejeita mais de 7 entradas', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      const oitoEntradas = Array.from({ length: 8 }, (_valor, indice) => ({
+        ...ENTRADA_VALIDA,
+        diaSemana: indice % 7,
+      }));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { padraoHorarioSemanal: oitoEntradas }));
+    });
+
+    // Achado documentado (não uma falha de Rule): duplicidade de `diaSemana`
+    // entre elementos NÃO é validada pela Rule (exigiria comparação
+    // par-a-par de até 7 posições — avaliado como desproporcional; a defesa
+    // real já existe client-side em `validarPadraoHorarioSemanal()`, que
+    // roda antes de qualquer `setDoc`/`updateDoc`). Registrado aqui para
+    // nunca ser confundido com uma omissão silenciosa.
+    it('dia duplicado NÃO é bloqueado pela Rule (limitação documentada — client-side é quem valida isso)', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), {
+        padraoHorarioSemanal: [ENTRADA_VALIDA, { ...ENTRADA_VALIDA }],
+      }));
+    });
+
+    it('usuário não autorizado (fora do escopo da equipe responsável) não consegue gravar o padrão', async () => {
+      const db = autenticarComo(gestorForaEscopo);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { padraoHorarioSemanal: [ENTRADA_VALIDA] }));
+    });
+
+    it('consulta-only (equipe só em equipesConsulta, não é a responsável) não consegue editar o Grupo nem gravar o padrão', async () => {
+      const db = autenticarComo(usuarios.externo);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { padraoHorarioSemanal: [ENTRADA_VALIDA] }));
+    });
+  });
 });

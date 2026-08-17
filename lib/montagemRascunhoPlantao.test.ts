@@ -559,6 +559,92 @@ describe('montarGrupoPlantaoParaSalvar', () => {
     expect(grupo.criadoEm).toBe('2026-01-01T00:00:00.000Z');
     expect(grupo.atualizadoEm).toBe('2026-08-01T00:00:00.000Z');
   });
+
+  // --- Fase PLANTAO-PADRAO-1 ---
+
+  const OPCOES_BASE = {
+    grupoExistente: null as GrupoPlantao | null,
+    grupoId: 'PLANTAO_SEGURANCA',
+    nome: 'Plantão de Segurança',
+    descricao: '',
+    equipeResponsavelId: 'EQ_COSI',
+    equipesConsulta: ['EQ_COSI'],
+    timezone: 'America/Sao_Paulo',
+    ativo: true,
+    loginAtual: 'gestor1',
+    agoraIso: '2026-08-01T00:00:00.000Z',
+  };
+
+  it('criar grupo sem padrão — campo fica undefined', () => {
+    const grupo = montarGrupoPlantaoParaSalvar(OPCOES_BASE);
+    expect(grupo.padraoHorarioSemanal).toBeUndefined();
+  });
+
+  it('criar grupo com padrão — campo persistido e ordenado', () => {
+    const grupo = montarGrupoPlantaoParaSalvar({
+      ...OPCOES_BASE,
+      padraoHorarioSemanal: [
+        { diaSemana: 5, horaInicio: '19:00', horaFim: '19:00', fimDiaOffset: 1 },
+        { diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 },
+      ],
+    });
+    expect(grupo.padraoHorarioSemanal?.map((entrada) => entrada.diaSemana)).toEqual([0, 5]);
+  });
+
+  it('editar padrão — novo valor substitui o anterior', () => {
+    const existente: GrupoPlantao = {
+      ...OPCOES_BASE,
+      schemaVersion: 1,
+      criadoPorLogin: 'gestor-original',
+      criadoEm: '2026-01-01T00:00:00.000Z',
+      atualizadoEm: '2026-01-01T00:00:00.000Z',
+      padraoHorarioSemanal: [{ diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 }],
+    };
+    const grupo = montarGrupoPlantaoParaSalvar({
+      ...OPCOES_BASE,
+      grupoExistente: existente,
+      padraoHorarioSemanal: [{ diaSemana: 1, horaInicio: '08:00', horaFim: '18:00', fimDiaOffset: 0 }],
+    });
+    expect(grupo.padraoHorarioSemanal).toEqual([{ diaSemana: 1, horaInicio: '08:00', horaFim: '18:00', fimDiaOffset: 0 }]);
+  });
+
+  it('editar grupo SEM tocar o padrão (omitir o parâmetro) preserva o padrão existente', () => {
+    const existente: GrupoPlantao = {
+      ...OPCOES_BASE,
+      schemaVersion: 1,
+      criadoPorLogin: 'gestor-original',
+      criadoEm: '2026-01-01T00:00:00.000Z',
+      atualizadoEm: '2026-01-01T00:00:00.000Z',
+      padraoHorarioSemanal: [{ diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 }],
+    };
+    const grupo = montarGrupoPlantaoParaSalvar({ ...OPCOES_BASE, grupoExistente: existente, nome: 'Renomeado' });
+    expect(grupo.padraoHorarioSemanal).toEqual(existente.padraoHorarioSemanal);
+  });
+
+  it('remover padrão — passar [] explicitamente zera o campo (undefined)', () => {
+    const existente: GrupoPlantao = {
+      ...OPCOES_BASE,
+      schemaVersion: 1,
+      criadoPorLogin: 'gestor-original',
+      criadoEm: '2026-01-01T00:00:00.000Z',
+      atualizadoEm: '2026-01-01T00:00:00.000Z',
+      padraoHorarioSemanal: [{ diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 }],
+    };
+    const grupo = montarGrupoPlantaoParaSalvar({ ...OPCOES_BASE, grupoExistente: existente, padraoHorarioSemanal: [] });
+    expect(grupo.padraoHorarioSemanal).toBeUndefined();
+  });
+
+  it('preserva os demais campos ao adicionar um padrão (nenhum campo alheio é tocado)', () => {
+    const grupo = montarGrupoPlantaoParaSalvar({
+      ...OPCOES_BASE,
+      equipesConsulta: ['EQ_COSI', 'EQ_SOC'],
+      padraoHorarioSemanal: [{ diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 }],
+    });
+    expect(grupo.nome).toBe('Plantão de Segurança');
+    expect(grupo.equipesConsulta).toEqual(['EQ_COSI', 'EQ_SOC']);
+    expect(grupo.timezone).toBe('America/Sao_Paulo');
+    expect(grupo.ativo).toBe(true);
+  });
 });
 
 describe('CRÍTICO — unificação do Editor: IMPORTADO e MANUAL usam a MESMA working copy/helpers/payload (Fase ESCALAS-UX-1B)', () => {

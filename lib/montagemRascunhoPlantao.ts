@@ -5,11 +5,13 @@ import {
   converterMomentoParaInstanteUtc,
   idAtribuicaoPlantao,
   idCompetenciaPlantao,
+  ordenarPadraoHorarioSemanal,
   type AtribuicaoPlantaoBruta,
   type AtribuicaoPlantaoPersistida,
   type CompetenciaPlantao,
   type GrupoPlantao,
   type OrigemPlantao,
+  type PadraoHorarioPlantaoDia,
   type ParticipantePlantao,
   type ResultadoParsePlantao,
 } from '@escala-ici/contrato';
@@ -299,7 +301,15 @@ export function montarAtribuicoesPlantaoRascunho(opcoes: {
   });
 }
 
-/** Normaliza os campos de um `GrupoPlantao` antes de salvar — mesmo princípio de `equipesConsultaEfetivas()`. */
+/**
+ * Normaliza os campos de um `GrupoPlantao` antes de salvar — mesmo
+ * princípio de `equipesConsultaEfetivas()`. `padraoHorarioSemanal` é
+ * OPCIONAL (Fase PLANTAO-PADRAO-1): quando omitido, preserva o que já
+ * existia no grupo (edição sem tocar o padrão); passar explicitamente
+ * `[]` remove o padrão de vez. Sempre ordenado (`ordenarPadraoHorarioSemanal`)
+ * antes de gravar — a persistência nunca depende da ordem em que o
+ * formulário enviou as entradas.
+ */
 export function montarGrupoPlantaoParaSalvar(opcoes: {
   grupoExistente: GrupoPlantao | null;
   grupoId: string;
@@ -311,11 +321,13 @@ export function montarGrupoPlantaoParaSalvar(opcoes: {
   ativo: boolean;
   loginAtual: string;
   agoraIso: string;
+  padraoHorarioSemanal?: readonly PadraoHorarioPlantaoDia[];
 }): GrupoPlantao {
   const {
     grupoExistente, grupoId, nome, descricao, equipeResponsavelId, equipesConsulta,
-    timezone, ativo, loginAtual, agoraIso,
+    timezone, ativo, loginAtual, agoraIso, padraoHorarioSemanal,
   } = opcoes;
+  const padraoFinal = padraoHorarioSemanal ?? grupoExistente?.padraoHorarioSemanal;
   return {
     grupoId,
     nome,
@@ -324,6 +336,9 @@ export function montarGrupoPlantaoParaSalvar(opcoes: {
     equipesConsulta: [...equipesConsulta],
     timezone,
     ativo,
+    padraoHorarioSemanal: padraoFinal === undefined || padraoFinal.length === 0
+      ? undefined
+      : ordenarPadraoHorarioSemanal(padraoFinal),
     schemaVersion: 1,
     criadoPorLogin: grupoExistente?.criadoPorLogin ?? loginAtual,
     criadoEm: grupoExistente?.criadoEm ?? agoraIso,

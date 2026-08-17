@@ -286,20 +286,21 @@ test('20. o roster lateral, drag-and-drop, padrão de horário e importação in
     ler('components/escalas/ScheduleStatusBadge.tsx'),
     ler('components/escalas/UnsavedChangesDialog.tsx'),
   ]);
-  // Nenhum dos arquivos NOVOS desta fase pode ter drag-and-drop/roster/
-  // padrão de horário — o `onDragOver` pré-existente do dropzone de upload
-  // de planilha em DashboardApp.tsx (recurso anterior, não relacionado)
-  // fica de fora deste escopo de checagem.
+  // Nenhum dos arquivos NOVOS desta fase pode ter drag-and-drop/roster — o
+  // `onDragOver` pré-existente do dropzone de upload de planilha em
+  // DashboardApp.tsx (recurso anterior, não relacionado) fica de fora deste
+  // escopo de checagem. `padraoHorario`/`PadraoHorarioSemanal` deixaram de
+  // ser proibidos na Fase PLANTAO-PADRAO-1 (autorizada explicitamente a
+  // adicionar o campo em `GrupoPlantao` + Administração do Dashboard — ver
+  // `tests/plantao-padrao-horario-boundaries.test.mjs` para a cobertura
+  // dedicada); continuam proibidos SÓ nos componentes de contexto ativo
+  // desta fase (nunca devem conhecer Plantão além do que já conheciam).
   for (const fonteBruta of arquivos) {
     const fonte = semComentarios(fonteBruta);
     for (const proibido of ['ScheduleRoster', 'onDragStart', 'onDragOver', 'draggable', 'padraoHorario', 'PadraoHorarioSemanal']) {
-      assert.doesNotMatch(fonte, new RegExp(proibido, 'u'), `${proibido} pertence a uma fase futura`);
+      assert.doesNotMatch(fonte, new RegExp(proibido, 'u'), `${proibido} pertence a uma fase futura ou fora do escopo de ContextoEscalaAtivo`);
     }
   }
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  for (const proibido of ['ScheduleRoster', 'padraoHorario', 'PadraoHorarioSemanal']) {
-    assert.doesNotMatch(dashboard, new RegExp(proibido, 'u'), `${proibido} pertence a uma fase futura`);
-  }
-  const modelo = await ler('packages/contrato/src/modeloPlantaoPersistente.ts');
-  assert.doesNotMatch(modelo, /padraoHorario/u, 'nenhum campo novo em GrupoPlantao nesta fase');
+  assert.doesNotMatch(dashboard, /ScheduleRoster/u, 'ScheduleRoster pertence a ESCALAS-UX-2B');
 });
