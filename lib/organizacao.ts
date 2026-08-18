@@ -1,3 +1,5 @@
+import { normalizarTexto } from '@escala-ici/contrato';
+
 import type { Equipe, PerfilUsuario, UnidadeOrganizacional, Usuario } from './modelos';
 import { normalizarNome } from './nomes';
 import { equipesPermitidasEfetivas, perfilEfetivo, unidadesPermitidasEfetivas } from './sessao';
@@ -496,4 +498,27 @@ export function gestoresParaSimulacao(usuarios: Usuario[]): Usuario[] {
     }
   }
   return [...porNome.values()];
+}
+
+/**
+ * Fase ESCALAS-SIMPLES-1 — gera um ID técnico a partir do nome digitado na
+ * criação inline de equipe/Grupo de Plantão dentro do wizard "Nova escala"/
+ * "Importar escala" (§20/§24 do pedido: a via rápida não pergunta um ID
+ * técnico ao gestor — a Administração completa continua pedindo
+ * explicitamente). Puro slug (`normalizarTexto` + separador `_`) com
+ * desambiguação por sufixo numérico — NUNCA uma regra de negócio/
+ * autorização, só geração de identificador único.
+ */
+export function gerarIdSugerido(prefixo: string, nome: string, idsExistentes: readonly string[]): string {
+  const base = normalizarTexto(nome).replace(/[^A-Z0-9]+/gu, '_').replace(/^_+|_+$/gu, '');
+  const raiz = `${prefixo}${base || 'NOVO'}`;
+  const conhecidos = new Set(idsExistentes);
+  if (!conhecidos.has(raiz)) {
+    return raiz;
+  }
+  let sufixo = 2;
+  while (conhecidos.has(`${raiz}_${sufixo}`)) {
+    sufixo += 1;
+  }
+  return `${raiz}_${sufixo}`;
 }

@@ -732,3 +732,30 @@ espremer os três controles numa única linha comprimida).
 
 Ver `CHECKPOINT-FASE-ESCALAS-UX-2B2-HOMOLOGACAO.md` para o detalhamento
 completo desta fase.
+
+## Fase ESCALAS-SIMPLES-1 — chegar ao Editor sem perguntar o que já se sabe
+
+Antes de chegar neste Editor, o gestor passava por "+ Nova escala" (só
+Jornada) ou "Importar escala" (rota direta para a tela de importação,
+sem nenhuma pergunta de contexto antes). A partir desta fase, os dois
+botões abrem o MESMO wizard (`ModalIniciarEscala`,
+`docs/spec/REDESIGN_WORKSPACE_ESCALAS.md` § 38): tipo (Jornada/Plantão)
+→ destino (equipe/Grupo, resolvido automaticamente quando só existe uma
+opção administrável, ou criado inline quando não existe nenhuma) →
+Editor. O Editor em si (calendário, roster, atribuições editáveis,
+`atribuicoesEditaveisPlantao`) **não mudou nesta fase** — só o caminho
+até ele ficou mais curto.
+
+**Quick-add substitui o bloqueio "Nenhum padrão configurado" por três
+presets fixos.** A seção acima ("Quick-add sem padrão...") descreve o
+comportamento da ESCALAS-UX-2B.2, agora SUPERSEDIDO:
+`QuickAddPlantaoPopover` deixou de gatear em "há padrão?" — sempre
+mostra três atalhos fixos (12h/24h/5h, todos `19:00 → dia seguinte`,
+`PRESETS_HORARIO_QUICK_ADD_PLANTAO` em `lib/editorPlantao.ts`), com o
+padrão do Grupo aparecendo como quarta opção só quando diverge deles
+(`padraoDivergeDosPresetsQuickAdd`). "Configurar padrão"/"Informar
+horário manualmente" (e as funções `irConfigurarPadraoQuickAdd`/
+`informarHorarioManualmenteQuickAdd`) não existem mais — "Outro
+horário" é agora a única exceção, sempre disponível, sempre abrindo o
+editor completo com início/fim vazios (nunca mais derivado de um
+padrão). Ver `CHECKPOINT-FASE-ESCALAS-SIMPLES-1.md`.

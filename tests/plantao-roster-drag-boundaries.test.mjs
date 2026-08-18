@@ -60,7 +60,8 @@ test('6. quick-add nunca grava no Firestore — só altera a working copy em mem
     assert.doesNotMatch(popover, new RegExp(proibido.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'), proibido);
   }
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  const confirmar = /function confirmarQuickAddPlantao\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  // Fase ESCALAS-SIMPLES-1 — "Adicionar" agora recebe a opção escolhida (um dos três presets ou o padrão do Grupo).
+  const confirmar = /function confirmarQuickAddPlantao\(opcao: OpcaoHorarioQuickAddPlantao\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(confirmar, 'confirmarQuickAddPlantao precisa existir');
   assert.doesNotMatch(confirmar[1], /setDoc|updateDoc|salvarAtribuicoesPlantaoRascunho|salvarCompetenciaPlantaoRascunho|salvarGrupoPlantao|await /u, 'o quick-add nunca pode escrever no Firestore — só a working copy');
   assert.match(confirmar[1], /criarAtribuicaoPlantaoNaWorkingCopy\(/u);
@@ -95,53 +96,46 @@ test('8. sem padrão configurado, sempre abre o quick-add (nunca cai direto/sile
   assert.match(corpo[1], /setQuickAddPlantao\(\{ plantonistaNomeOriginal, dataIso, padrao \}\)/u, 'sempre abre o quick-add, com ou sem padrão — o popover decide o que mostrar');
 });
 
-test('8b. "Informar horário manualmente" (sem padrão) abre o editor completo com o mesmo participante/data, início/fim vazios', async () => {
+/**
+ * Fase ESCALAS-SIMPLES-1 (§41 do pedido) — reescrito. "Outro horário"
+ * deixou de ser condicionado a "só quando HÁ padrão" (agora é sempre uma
+ * opção, ao lado dos três presets) e deixou de derivar horário nenhum —
+ * abre o editor completo com pessoa/data pré-preenchidas e início/fim
+ * VAZIOS (a mesma função `abrirCriacaoAtribuicaoPlantao` de sempre),
+ * porque é explicitamente "nenhuma das opções oferecidas serve".
+ * `informarHorarioManualmenteQuickAdd`/`irConfigurarPadraoQuickAdd` (do
+ * antigo bloqueio "sem padrão") deixaram de existir.
+ */
+test('8b. as funções do antigo bloqueio "sem padrão" (informarHorarioManualmenteQuickAdd/irConfigurarPadraoQuickAdd) não existem mais', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  const corpo = /function informarHorarioManualmenteQuickAdd\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
-  assert.ok(corpo, 'informarHorarioManualmenteQuickAdd precisa existir');
-  assert.match(corpo[1], /setQuickAddPlantao\(null\)/u);
-  assert.match(corpo[1], /abrirCriacaoAtribuicaoPlantao\(estado\.dataIso, estado\.plantonistaNomeOriginal\)/u);
+  assert.doesNotMatch(dashboard, /function informarHorarioManualmenteQuickAdd\(/u, 'função do antigo bloqueio não pode mais existir');
+  assert.doesNotMatch(dashboard, /function irConfigurarPadraoQuickAdd\(/u, 'função do antigo bloqueio não pode mais existir');
 });
 
-/**
- * Fase ESCALAS-UX-2B.2 — § 28 do pedido: reescrito. "Outro horário" (só
- * aparece quando HÁ padrão) agora pré-preenche início/fim derivados do
- * padrão via `construirAtribuicaoDoPadraoHorario` — nunca mais campos
- * vazios obrigando o coordenador a redigitar tudo que o padrão já sabia.
- */
-test('9. "Outro horário" fecha o quick-add e abre o editor completo já pré-preenchido com o horário do padrão', async () => {
+test('9. "Outro horário" é sempre a exceção que abre o editor completo com início/fim vazios — nunca deriva de nenhum preset/padrão', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const corpo = /function abrirOutroHorarioQuickAddPlantao\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(corpo, 'abrirOutroHorarioQuickAddPlantao precisa existir');
   assert.match(corpo[1], /setQuickAddPlantao\(null\)/u);
-  assert.match(corpo[1], /construirAtribuicaoDoPadraoHorario\(/u, 'precisa derivar início/fim do padrão, nunca abrir vazio');
-  assert.match(corpo[1], /setModalAtribuicaoPlantao\(\{/u);
-  assert.doesNotMatch(corpo[1], /hora:\s*''/u, 'não pode mais forçar hora vazia quando há padrão para derivar');
+  assert.match(corpo[1], /abrirCriacaoAtribuicaoPlantao\(estado\.dataIso, estado\.plantonistaNomeOriginal\)/u, 'precisa abrir com horário vazio — nunca derivar de um preset/padrão');
+  assert.doesNotMatch(corpo[1], /construirAtribuicaoDoPadraoHorario/u, '"Outro horário" não deriva mais horário nenhum');
 });
 
-test('10. o preview do quick-add reaproveita previewPadraoHorarioPlantaoDia (mesmo cálculo já usado na Administração do Grupo) — nunca uma segunda implementação, nunca expõe fimDiaOffset cru', async () => {
+test('10. o preview do quick-add reaproveita previewPadraoHorarioPlantaoDia para cada opção (presets + padrão do Grupo) — nunca expõe fimDiaOffset cru', async () => {
   const popover = semComentarios(await ler('components/plantao/QuickAddPlantaoPopover.tsx'));
   assert.match(popover, /import \{ previewPadraoHorarioPlantaoDia \} from '\.\/PadraoHorarioSemanalCampo';/u);
-  assert.match(popover, /previewPadraoHorarioPlantaoDia\(padrao\)/u);
-  assert.doesNotMatch(popover, /fimDiaOffset/u, 'o popover nunca deve referenciar fimDiaOffset diretamente — só o texto já formatado');
+  assert.match(popover, /previewPadraoHorarioPlantaoDia\(\{ \.\.\.opcao, diaSemana: diaSemanaDaData \}\)/u);
+  assert.doesNotMatch(popover, /\bopcao\.fimDiaOffset\b/u, 'o popover nunca deve ler fimDiaOffset diretamente para exibição — só repassar para o preview já formatado');
 });
 
-/**
- * Fase ESCALAS-UX-2B.2 — a contagem esperada subiu de 1 para 2:
- * `confirmarQuickAddPlantao` (confirma o padrão como a atribuição) E
- * `abrirOutroHorarioQuickAddPlantao` (§ 28 do pedido — deriva o
- * pré-preenchimento do editor completo a partir do MESMO padrão) — ainda
- * uma ÚNICA função pura de construção, nunca um terceiro objeto manual
- * paralelo.
- */
-test('11. construção da atribuição pelo padrão é uma ÚNICA função pura (construirAtribuicaoDoPadraoHorario) — nenhum objeto manual paralelo em drag/click/quick-add', async () => {
+test('11. construção da atribuição pelo padrão continua sendo uma ÚNICA função pura (construirAtribuicaoDoPadraoHorario) — nenhum objeto manual paralelo', async () => {
   const editor = semComentarios(await ler('lib/editorPlantao.ts'));
   assert.match(editor, /export function construirAtribuicaoDoPadraoHorario/u);
   const ocorrenciasDefinicao = editor.match(/function construirAtribuicaoDoPadraoHorario\(/gu) ?? [];
   assert.equal(ocorrenciasDefinicao.length, 1, 'só pode existir UMA definição da função');
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const ocorrencias = dashboard.match(/construirAtribuicaoDoPadraoHorario\(/gu) ?? [];
-  assert.equal(ocorrencias.length, 2, 'só pode ser chamada de dois lugares (confirmarQuickAddPlantao e abrirOutroHorarioQuickAddPlantao) — nunca um terceiro construtor manual');
+  assert.equal(ocorrencias.length, 1, 'só pode ser chamada de um lugar (confirmarQuickAddPlantao) — "Outro horário" não deriva mais horário nenhum, nunca um construtor manual paralelo');
 });
 
 test('12. nenhuma atribuição existente é normalizada/recalculada ao adicionar uma nova pelo padrão — criarAtribuicaoPlantaoNaWorkingCopy só ACRESCENTA', async () => {

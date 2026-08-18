@@ -1588,6 +1588,7 @@ modelo de contexto novo por cima dela.
 | **ESCALAS-UX-2B** ✅ **implementada (escopo Plantão)** | Roster lateral (§ 14) substituindo "Resumo por pessoa" — `PlantaoRoster`; interação por clique reaproveitada (`plantonistaSelecionadoPlantao`); drag-and-drop nativo HTML5 (§ 16) como segundo gatilho para a MESMA operação de criação (`solicitarNovaAtribuicaoPlantao`); consumo real de `GrupoPlantao.padraoHorarioSemanal` via `obterPadraoHorarioGrupoParaData()` + popover de confirmação (`QuickAddPlantaoPopover`). **NÃO inclui** a Grade 6x1 (`ScheduleGrid` continua sem roster/drag — avaliação de como o mesmo princípio se aplica à Jornada fica para uma fase futura própria) nem o redesign de Resumo/Lista/Contabilidade/Vínculos (ESCALAS-UX-2C). Ver `CHECKPOINT-FASE-ESCALAS-UX-2B-ROSTER-DRAG.md`. | ESCALAS-UX-2A.1, PLANTAO-PADRAO-1 |
 | **ESCALAS-UX-2B.1** ✅ **implementada** | Microcorreção da 2B: gate definitivo `dataPertenceCompetencia()` — uma NOVA atribuição só pode INICIAR dentro de `periodoInicio..periodoFim` (26/07..25/08); o término pode ultrapassar livremente. Reforço de UI (omissão de "+ Adicionar"/drop em dias de contexto) além do gate real em `solicitarNovaAtribuicaoPlantao()`. Ver `CHECKPOINT-FASE-ESCALAS-UX-2B1-LIMITES-COMPETENCIA.md`. | ESCALAS-UX-2B |
 | **ESCALAS-UX-2B.2** ✅ **implementada** | Correções de 5 problemas confirmados em homologação real: (1) quick-add sempre abre (nunca mais cai silenciosamente no editor completo sem padrão — novo estado "Nenhum padrão configurado" com "Configurar padrão"/"Informar horário manualmente"); (2) cadastro de usuário inline a partir de Vínculos (nunca mais "Ir para Usuários"), com vínculo automático pós-cadastro; (3) `Usuario.equipeId` nunca mais inferido do operador logado nem do Grupo de Plantão — seletor real (`OrganizationTeamPicker`) obrigatório; (4) aba "Resumo" removida (conteúdo realocado para "Conferência do arquivo importado" dentro de Contabilidade) — adianta parte do escopo original da 2C; (5) respiro do header (`padding-block` no cluster, `.topbar` virou `min-height`). Ver `CHECKPOINT-FASE-ESCALAS-UX-2B2-HOMOLOGACAO.md`. | ESCALAS-UX-2B, ESCALAS-UX-2B.1 |
+| **ESCALAS-SIMPLES-1** ✅ **implementada** | Fora da sequência original — mudança de prioridade para SIMPLICIDADE (ver § 38): unifica "Nova escala"/"Importar escala" num único wizard (`ModalIniciarEscala`) com resolução automática de Área de gestão/equipe/Grupo de Plantão, criação inline quando não existe nenhum destino, e os três presets fixos do quick-add de Plantão substituindo o bloqueio "Nenhum padrão configurado". Ver `CHECKPOINT-FASE-ESCALAS-SIMPLES-1.md`. | ESCALAS-UX-2B.2 |
 | **ESCALAS-UX-2C** | Contabilidade redesenhada (§ 25), Pendências como painel (§ 26), limpeza de Lista (§ 24) — Resumo (§ 23) já foi removido na ESCALAS-UX-2B.2, adiantado do escopo original desta fase. Atualização de boundary tests remanescente (risco § 35.6). | ESCALAS-UX-2B.2 |
 | **HOMOLOGAÇÃO VISUAL** | Validação end-to-end do novo workspace (desktop 1440/1024, mobile 412/390/360, light/dark) para os dois tipos de escala, com o usuário testando diretamente (sem emulador+Playwright autônomo, conforme preferência já registrada). | ESCALAS-UX-2A, 2A.1, 2B, 2C |
 | **PLANTÃO-3C** | Publicação/histórico de Plantão — só depois do workspace estabilizado, para a UI de publicação já nascer dentro do novo `ScheduleHeader`/status, nunca como mais uma tela solta. | HOMOLOGAÇÃO VISUAL |
@@ -1609,3 +1610,67 @@ documentação foram criados: este documento
 (`docs/spec/REDESIGN_WORKSPACE_ESCALAS.md`) e
 `CHECKPOINT-FASE-ESCALAS-UX-2-REDESIGN-WORKSPACE.md`; `docs/README.md`
 foi atualizado para referenciar o novo documento.
+
+---
+
+## 38. Fase ESCALAS-SIMPLES-1 — simplificação de Novo/Importar
+
+Mudança explícita de prioridade: **SIMPLICIDADE** passa a vencer sobre
+"cobrir todo caso de uso visível" — "o sistema não pergunta o que já
+sabe". Escopo real (fora da sequência de microfases do § 36, aplicado
+diretamente sobre o estado da ESCALAS-UX-2B.2):
+
+1. **Área de gestão ativa** (`lib/areaGestaoAtiva.ts`, puro) — qual das
+   unidades já autorizadas (`unidadesPermitidasEfetivas`/todas para
+   ADMIN_SISTEMA) está em foco agora. Uma só disponível → automática,
+   sem perguntar nada; mais de uma → seletor discreto no header
+   (`.area-gestao-ativa-selector`), preferência de SESSÃO em
+   `localStorage` (lida/gravada só em `autenticar()`/
+   `encerrarSessao()`/`escolherAreaGestaoAtiva()` — nunca um `useEffect`
+   reativo). **Nunca concede autorização** — troca de área não altera
+   `Usuario.equipeId`/`unidadesPermitidas`/`equipesPermitidas`/`perfil`;
+   a autorização real continua exclusivamente em
+   `podeGerenciarEquipe`/`podeGerenciarGrupoPlantao`/`podeGerenciarUnidade`.
+2. **Resolução automática de destino** — `equipesAdministraveisNaArea`/
+   `gruposAdministraveisNaArea` (mesmo módulo): 1 opção → auto-seleciona
+   (sem pergunta); 2+ → mostra as opções (etapa `'equipe'` nova, ou o
+   `<select>` de Grupo já existente, agora filtrado pela área ativa); 0
+   → oferece criação inline. Nenhuma comparação por nome/sigla em
+   nenhum ponto — só os helpers reais de autorização.
+3. **Wizard único** (`ModalIniciarEscala`, renomeado de
+   `ModalNovaEscala`) — "+ Nova escala" e "Importar escala" abrem o
+   MESMO componente com `modo: 'NOVA' | 'IMPORTAR'`; a diferença fica só
+   no final: Jornada sempre termina em "Importar" (limitação
+   arquitetural pré-existente — Jornada não tem "criar vazia", ver
+   limitações abaixo); Plantão em NOVA mostra as 3 opções de sempre
+   ("Importar planilha"/"Usar período anterior"/"Criar escala vazia"),
+   em IMPORTAR pula direto para "Selecionar planilha".
+4. **Criação inline** — equipe (nome + sigla; unidade = área ativa; ID
+   técnico gerado via `gerarIdSugerido`, `lib/organizacao.ts`) e Grupo
+   de Plantão (nome + equipe responsável, com "+ Criar equipe" inline se
+   necessário) nunca saem do wizard nem navegam para Administração;
+   reaproveitam a MESMA escrita (`salvarEquipeDoModal`/
+   `salvarGrupoPlantaoDoModal`) já usada pela Administração completa —
+   nenhuma lógica de escrita duplicada. Criar equipe exige
+   `podeGerenciarUnidade` (mesma regra de `firestore.rules` da coleção
+   `equipes` — ADMIN_SISTEMA/GESTOR_UNIDADE, nunca um GESTOR_EQUIPE
+   comum); quando o usuário não tem essa autorização, o wizard mostra a
+   orientação de pedir a um gestor de unidade em vez de um formulário
+   que a Rule rejeitaria.
+5. **Quick-add de Plantão simplificado** (`QuickAddPlantaoPopover`,
+   `PRESETS_HORARIO_QUICK_ADD_PLANTAO` em `lib/editorPlantao.ts`) — três
+   atalhos fixos (19:00→07:00/12h, 19:00→19:00/24h, 19:00→00:00/5h)
+   SEMPRE disponíveis, com ou sem `padraoHorarioSemanal` configurado; o
+   padrão do Grupo só aparece como opção extra quando diverge dos três
+   presets (`padraoDivergeDosPresetsQuickAdd`). Substitui o bloqueio
+   "Nenhum padrão configurado" da ESCALAS-UX-2B.2 — "Outro horário"
+   continua a única exceção que abre o editor completo, agora sempre
+   com início/fim vazios (nunca mais derivado de um padrão).
+
+**Limitações conhecidas** (não resolvidas nesta fase, por estarem fora
+do escopo pedido): Jornada 6x1 continua sem um caminho de "criar escala
+vazia" — toda escala de Jornada nasce de uma planilha importada, mesmo
+quando o gestor entra por "+ Nova escala"; a tela "Importar" continua
+autodetectando o tipo do arquivo pelo conteúdo (o tipo escolhido no
+wizard não bloqueia ainda um arquivo do tipo oposto com um erro
+explícito — autodetecção continua sendo a validação real).

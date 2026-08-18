@@ -16,6 +16,8 @@ import {
   excluirAtribuicaoEditavel,
   indiceIdentidadePlantonista,
   nomeCurtoPlantonista,
+  padraoDivergeDosPresetsQuickAdd,
+  PRESETS_HORARIO_QUICK_ADD_PLANTAO,
   resumirPorPessoa,
   rotuloHorarioCartaoPlantao,
   validarAtribuicaoEditavel,
@@ -528,5 +530,36 @@ describe('construirAtribuicaoDoPadraoHorario', () => {
     expect(atribuicao43h?.duracaoMinutos).toBe(43 * 60);
     expect(atribuicao5h?.duracaoMinutos).toBe(5 * 60);
     expect(resultado).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fase ESCALAS-SIMPLES-1 — presets fixos do quick-add (§36-40 do pedido)
+// ---------------------------------------------------------------------------
+
+describe('PRESETS_HORARIO_QUICK_ADD_PLANTAO', () => {
+  it('são exatamente os três atalhos pedidos: 12h, 24h e 5h, todos 19:00 → dia seguinte', () => {
+    const duracoes = PRESETS_HORARIO_QUICK_ADD_PLANTAO.map((preset) => (
+      construirAtribuicaoDoPadraoHorario({ plantonistaNomeOriginal: 'X', dataCivil: '2026-08-16', padrao: { ...preset, diaSemana: 0 } })
+    )).map((resultado) => adicionarAtribuicaoEditavel([], { ...resultado, abaOrigem: 'quick-add' })[0]?.duracaoMinutos);
+    expect(duracoes).toEqual([12 * 60, 24 * 60, 5 * 60]);
+    expect(PRESETS_HORARIO_QUICK_ADD_PLANTAO.every((preset) => preset.horaInicio === '19:00')).toBe(true);
+    expect(PRESETS_HORARIO_QUICK_ADD_PLANTAO.every((preset) => preset.fimDiaOffset === 1)).toBe(true);
+  });
+});
+
+describe('padraoDivergeDosPresetsQuickAdd', () => {
+  it('padrão idêntico a um preset (mesmo valor) não diverge', () => {
+    expect(padraoDivergeDosPresetsQuickAdd({ horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 })).toBe(false);
+    expect(padraoDivergeDosPresetsQuickAdd({ horaInicio: '19:00', horaFim: '19:00', fimDiaOffset: 1 })).toBe(false);
+    expect(padraoDivergeDosPresetsQuickAdd({ horaInicio: '19:00', horaFim: '00:00', fimDiaOffset: 1 })).toBe(false);
+  });
+
+  it('padrão diferente (ex.: 18:00 → 06:00) diverge e deve aparecer como opção extra', () => {
+    expect(padraoDivergeDosPresetsQuickAdd({ horaInicio: '18:00', horaFim: '06:00', fimDiaOffset: 1 })).toBe(true);
+  });
+
+  it('mesmo horário mas fimDiaOffset diferente ainda diverge (0 vs 1 não são o mesmo turno)', () => {
+    expect(padraoDivergeDosPresetsQuickAdd({ horaInicio: '19:00', horaFim: '19:00', fimDiaOffset: 0 })).toBe(true);
   });
 });

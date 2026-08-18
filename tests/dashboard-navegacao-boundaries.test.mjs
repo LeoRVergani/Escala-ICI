@@ -67,11 +67,16 @@ test('7. o item ativo da sidebar usa areaNavegacaoDaTela(tela), nunca a tela cru
   assert.doesNotMatch(dashboard, /ativo=\{tela\}/u, 'nenhum ponto pode voltar a passar `tela` crua como item ativo da sidebar');
 });
 
-test('8. "Escalas" oferece pontes explícitas para Importar e para Grade — nunca escondidas', async () => {
+// Fase ESCALAS-SIMPLES-1 — "Escalas" agora tem só DUAS ações primárias
+// ("+ Nova escala"/"Importar escala", as duas abrindo o mesmo wizard
+// `ModalIniciarEscala`) — "Abrir grade" saiu das ações primárias (§11-§13
+// do pedido), mas a ponte para "Grade" continua existindo como ação
+// secundária ("Revisar grade" no card da escala atual), nunca escondida.
+test('8. "Escalas" oferece pontes explícitas para o wizard de Importar e para Grade — nunca escondidas', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const bloco = /\{tela === 'escalas' && \(([\s\S]*?)\n {6}\)\}/u.exec(dashboard);
   assert.ok(bloco, 'o bloco de "escalas" precisa existir');
-  assert.match(bloco[1], /onClick=\{\(\) => setTela\('importar'\)\}/u, '"Escalas" precisa oferecer uma ponte para "Importar"');
+  assert.match(bloco[1], /onClick=\{abrirImportarEscala\}/u, '"Escalas" precisa oferecer uma ponte para o wizard de Importar');
   assert.match(bloco[1], /onClick=\{\(\) => setTela\('grade'\)\}/u, '"Escalas" precisa oferecer uma ponte para "Grade"');
 });
 

@@ -2221,3 +2221,31 @@ Nenhuma mudança de schema Firestore, nenhuma Rule nova, nenhuma
 publicação de Plantão introduzida. Ver
 `CHECKPOINT-FASE-ESCALAS-UX-2B2-HOMOLOGACAO.md` e
 `docs/spec/EDITOR_ESCALAS.md` §12.11 para o detalhamento completo.
+
+## 31. ESCALAS-SIMPLES-1 — resolução automática de destino + quick-add com presets fixos
+
+Duas mudanças relevantes para o domínio de Plantão, complementando o §30:
+
+1. **Resolução de Grupo de Plantão sem perguntar o que já se sabe.**
+   `gruposAdministraveisNaArea()` (`lib/areaGestaoAtiva.ts`) filtra
+   `gruposPlantaoAdmin` por `podeGerenciarGrupoPlantao` (nunca
+   `equipesConsulta`/pertencimento — mesma regra permanente do § 20 e de
+   `HIERARQUIA_ORGANIZACIONAL.md` § 7) E pela unidade da equipe
+   responsável coincidir com a "Área de gestão ativa"
+   (`docs/spec/REDESIGN_WORKSPACE_ESCALAS.md` § 38). Um só Grupo
+   administrável → o wizard segue direto para competência, sem
+   perguntar; nenhum → oferece criar um Grupo novo inline (nome + equipe
+   responsável, mesmos padrões sensatos de `abrirNovoGrupoPlantao`:
+   `equipesConsulta: [equipeResponsavelId]`, `timezone:
+   'America/Sao_Paulo'`, sem `padraoHorarioSemanal`) sem sair do wizard
+   nem navegar para Administração.
+2. **Quick-add: presets fixos substituem o bloqueio "sem padrão" do
+   §30.1.** `PRESETS_HORARIO_QUICK_ADD_PLANTAO` (`lib/editorPlantao.ts`)
+   — três atalhos sempre disponíveis (12h/24h/5h, todos `19:00 → dia
+   seguinte`) — nunca substituem `padraoHorarioSemanal` como conceito
+   (o campo do Grupo continua existindo e continua sendo sugerido
+   quando diverge dos presets), são só maneiras rápidas de preencher uma
+   atribuição NOVA. Nenhuma atribuição existente/importada é
+   recalculada; nenhum "tipo de turno" novo foi persistido no schema.
+
+Ver `CHECKPOINT-FASE-ESCALAS-SIMPLES-1.md`.

@@ -212,6 +212,42 @@ export function construirAtribuicaoDoPadraoHorario(opcoes: {
   };
 }
 
+export interface OpcaoHorarioQuickAddPlantao {
+  id: string;
+  horaInicio: string;
+  horaFim: string;
+  fimDiaOffset: 0 | 1;
+}
+
+/**
+ * Fase ESCALAS-SIMPLES-1 (§36-40 do pedido) — três atalhos fixos de horário
+ * para o quick-add de Plantão, sempre disponíveis, com ou sem
+ * `padraoHorarioSemanal` configurado no Grupo (§39: ausência de padrão não
+ * bloqueia mais o quick-add). São SÓ atalhos de UI: nunca substituem
+ * `padraoHorarioSemanal`, nunca alteram atribuições existentes/importadas,
+ * nunca viram um "tipo de turno" novo persistido no schema (§38).
+ */
+export const PRESETS_HORARIO_QUICK_ADD_PLANTAO: readonly OpcaoHorarioQuickAddPlantao[] = [
+  { id: '12H', horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 },
+  { id: '24H', horaInicio: '19:00', horaFim: '19:00', fimDiaOffset: 1 },
+  { id: '5H', horaInicio: '19:00', horaFim: '00:00', fimDiaOffset: 1 },
+];
+
+/**
+ * O padrão do Grupo só aparece como opção EXTRA no quick-add quando
+ * DIFERE dos três presets fixos (§40) — comparação por valor, nunca
+ * duplicando uma opção já oferecida.
+ */
+export function padraoDivergeDosPresetsQuickAdd(
+  padrao: Pick<PadraoHorarioPlantaoDia, 'horaInicio' | 'horaFim' | 'fimDiaOffset'>,
+): boolean {
+  return !PRESETS_HORARIO_QUICK_ADD_PLANTAO.some((preset) => (
+    preset.horaInicio === padrao.horaInicio
+    && preset.horaFim === padrao.horaFim
+    && preset.fimDiaOffset === padrao.fimDiaOffset
+  ));
+}
+
 /**
  * Só erros OBJETIVOS bloqueiam (Fase ESCALAS-UX-1A, seção 18): plantonista
  * vazio, data inicial/final vazia, fim &lt;= início. Duração atípica (nem

@@ -15,6 +15,7 @@ import {
   construirArvoreUnidades,
   ehUsuarioTecnicoOuFake,
   formariaCiclo,
+  gerarIdSugerido,
   gestoresParaSimulacao,
   nosVisiveisNaArvoreOrganizacional,
   raizesComEquipesSemUnidade,
@@ -523,5 +524,25 @@ describe('alternarSelecaoMultipla — seleção do OrganizationTeamPicker (Fase 
     const resultado = alternarSelecaoMultipla(original, 'EQ_B');
     expect(original.has('EQ_B')).toBe(false);
     expect(resultado).not.toBe(original);
+  });
+});
+
+describe('gerarIdSugerido — Fase ESCALAS-SIMPLES-1 (criação inline no wizard)', () => {
+  it('gera um slug em maiúsculas, sem acento, com o prefixo pedido', () => {
+    expect(gerarIdSugerido('EQ_', 'Segurança da Informação', [])).toBe('EQ_SEGURANCA_DA_INFORMACAO');
+  });
+
+  it('em colisão, desambigua com sufixo numérico crescente', () => {
+    expect(gerarIdSugerido('EQ_', 'SOC', ['EQ_SOC'])).toBe('EQ_SOC_2');
+    expect(gerarIdSugerido('EQ_', 'SOC', ['EQ_SOC', 'EQ_SOC_2'])).toBe('EQ_SOC_3');
+  });
+
+  it('nome vazio ou só pontuação nunca produz um ID vazio', () => {
+    expect(gerarIdSugerido('GRUPO_', '   ', [])).toBe('GRUPO_NOVO');
+    expect(gerarIdSugerido('GRUPO_', '!!!', [])).toBe('GRUPO_NOVO');
+  });
+
+  it('sem colisão, o ID cru (sem sufixo) é usado', () => {
+    expect(gerarIdSugerido('GRUPO_', 'Plantão COSI', ['GRUPO_OUTRO'])).toBe('GRUPO_PLANTAO_COSI');
   });
 });

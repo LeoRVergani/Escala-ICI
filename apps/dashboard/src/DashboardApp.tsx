@@ -5,6 +5,7 @@ import {
   calcularTotais,
   conferirContabilidadePlantao,
   dataIsoLocal,
+  diaSemanaCivil,
   equipesConsultaEfetivas,
   formatarCompetencia,
   formatarData,
@@ -45,7 +46,6 @@ import {
   ChevronRight,
   FileSpreadsheet,
   Filter,
-  Grid3X3,
   HelpCircle,
   Link2,
   LoaderCircle,
@@ -171,6 +171,7 @@ import {
   excluirAtribuicaoEditavel,
   resumirPorPessoa,
   type AtribuicaoPlantaoEditavel,
+  type OpcaoHorarioQuickAddPlantao,
 } from '@/lib/editorPlantao';
 import { PlantaoCalendario } from '@/components/plantao/PlantaoCalendario';
 import { PlantaoRoster } from '@/components/plantao/PlantaoRoster';
@@ -221,9 +222,16 @@ import {
   equipesPermitidasEfetivas,
   perfilEfetivo,
   podeGerenciarGrupoPlantao,
+  podeGerenciarUnidade,
   souGestorDePlantao,
   unidadesPermitidasEfetivas,
 } from '@/lib/sessao';
+import {
+  areaGestaoInicial,
+  equipesAdministraveisNaArea,
+  gruposAdministraveisNaArea,
+  unidadesDisponiveisParaGestao,
+} from '@/lib/areaGestaoAtiva';
 import {
   achatarArvore,
   achatarArvoreOrganizacional,
@@ -235,11 +243,13 @@ import {
   construirArvoreUnidades,
   ehUsuarioTecnicoOuFake,
   formariaCiclo,
+  gerarIdSugerido,
   gestoresParaSimulacao,
   type NoArvoreOrganizacional,
   raizesComEquipesSemUnidade,
   rotuloGestorParaSimulacao,
   rotuloOpcaoUnidade,
+  rotuloUnidadePorId,
   trechoFinalCaminho,
 } from '@/lib/organizacao';
 import { OrganizationBreadcrumb } from '@/components/organizacao/OrganizationBreadcrumb';
@@ -2217,23 +2227,37 @@ function AdministracaoSubnav({
 }
 
 /**
- * Fase ESCALAS-UX-1B — "+ Nova escala". Duas etapas num único modal (nunca
- * dois diálogos separados, para caber na "regra dos três passos" do § 43
- * da fase: 1. escolha o tipo, 2. escolha grupo/competência, 3. o Editor em
- * si). Etapa `'tipo'`: Escala de jornada (roteia para "Importar", fluxo 6x1
- * já existente, sem nenhum código novo de 6x1) ou Plantão (avança para a
- * etapa `'plantao'`). Etapa `'plantao'`: Grupo (só os que o usuário
- * administra) + Competência (AAAA-MM, janela 26→25) + "Como começar?"
- * (Criar escala vazia ou Importar planilha — as duas terminam no MESMO
- * Editor). Nunca pede timezone/ACL/contatos aqui — isso é configuração do
- * Grupo, não da escala mensal (§ 9/§ 11 da fase).
+ * Fase ESCALAS-UX-1B — "+ Nova escala"; unificado com "Importar escala" na
+ * Fase ESCALAS-SIMPLES-1 (§15 do pedido: um ÚNICO wizard, `modo` diferencia
+ * só o final do fluxo — nunca dois componentes paralelos). Etapas:
+ * `'tipo'` (Jornada ou Plantão) → `'equipe'`/`'plantao'` (destino, só
+ * quando há AMBIGUIDADE — uma só opção administrável já resolve sozinho,
+ * §5/§16 do pedido) → `'criar-equipe'`/`'criar-plantao'` (só quando ZERO
+ * opções administráveis existem, criação inline sem sair do wizard, §20/
+ * §24) → Editor (Jornada sempre via "Importar" — Plantão via "Importar
+ * planilha"/"Usar período anterior"/"Criar escala vazia" em NOVA, ou
+ * direto para "Importar planilha" em IMPORTAR — §29/§30). Nunca pede
+ * timezone/ACL/contatos aqui — isso é configuração do Grupo, não da escala
+ * mensal.
  */
-function ModalNovaEscala({
+function ModalIniciarEscala({
+  modo,
   etapa,
   onFechar,
   onEscolherJornada,
   onEscolherPlantao,
   podeAcessarPlantoes,
+  areaGestaoRotulo,
+  equipesCandidatas,
+  podeCriarEquipe,
+  onSelecionarEquipe,
+  criarEquipeNome,
+  onMudarCriarEquipeNome,
+  criarEquipeSigla,
+  onMudarCriarEquipeSigla,
+  criarEquipeErro,
+  criarEquipeSalvando,
+  onCriarEquipe,
   gruposDisponiveis,
   equipes,
   participantesPorGrupo,
@@ -2249,12 +2273,34 @@ function ModalNovaEscala({
   onImportarPlanilha,
   onCriarVazia,
   onUsarPeriodoAnterior,
+  criarPlantaoNome,
+  onMudarCriarPlantaoNome,
+  criarPlantaoEquipeId,
+  onMudarCriarPlantaoEquipeId,
+  criarPlantaoErro,
+  criarPlantaoSalvando,
+  onCriarPlantao,
+  onCriarEquipeDentroDoPlantao,
 }: {
-  etapa: 'tipo' | 'plantao';
+  modo: 'NOVA' | 'IMPORTAR';
+  etapa: 'tipo' | 'equipe' | 'criar-equipe' | 'plantao' | 'criar-plantao';
   onFechar: () => void;
   onEscolherJornada: () => void;
   onEscolherPlantao: () => void;
   podeAcessarPlantoes: boolean;
+  /** `null` = usuário sem nenhuma unidade resolvida ainda (sem filtro de área). */
+  areaGestaoRotulo: string | null;
+  equipesCandidatas: Equipe[];
+  /** `podeGerenciarUnidade` na área ativa — só quem pode CRIAR equipe (ADMIN_SISTEMA/GESTOR_UNIDADE) vê o formulário inline; os demais veem a orientação de pedir a um gestor de unidade. */
+  podeCriarEquipe: boolean;
+  onSelecionarEquipe: (equipeId: string) => void;
+  criarEquipeNome: string;
+  onMudarCriarEquipeNome: (valor: string) => void;
+  criarEquipeSigla: string;
+  onMudarCriarEquipeSigla: (valor: string) => void;
+  criarEquipeErro: string;
+  criarEquipeSalvando: boolean;
+  onCriarEquipe: () => void | Promise<void>;
   gruposDisponiveis: GrupoPlantao[];
   equipes: Equipe[];
   participantesPorGrupo: Record<string, ParticipantePlantao[]>;
@@ -2270,6 +2316,14 @@ function ModalNovaEscala({
   onImportarPlanilha: () => void;
   onCriarVazia: () => void;
   onUsarPeriodoAnterior: () => void | Promise<void>;
+  criarPlantaoNome: string;
+  onMudarCriarPlantaoNome: (valor: string) => void;
+  criarPlantaoEquipeId: string;
+  onMudarCriarPlantaoEquipeId: (valor: string) => void;
+  criarPlantaoErro: string;
+  criarPlantaoSalvando: boolean;
+  onCriarPlantao: () => void | Promise<void>;
+  onCriarEquipeDentroDoPlantao: () => void;
 }) {
   useTeclaEsc(onFechar);
   const grupoEscolhido = gruposDisponiveis.find((item) => item.grupoId === grupoId) ?? null;
@@ -2290,6 +2344,14 @@ function ModalNovaEscala({
     ? null
     : (rascunhosPorGrupo[grupoEscolhido.grupoId] ?? []).find((item) => item.competencia === labelCompetenciaAnterior) ?? null;
 
+  const titulos: Record<typeof etapa, string> = {
+    tipo: 'O que você quer criar?',
+    equipe: 'Qual equipe?',
+    'criar-equipe': 'Criar equipe',
+    plantao: modo === 'IMPORTAR' ? 'Importar Plantão' : 'Novo Plantão',
+    'criar-plantao': 'Criar Plantão',
+  };
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
       <section
@@ -2301,7 +2363,7 @@ function ModalNovaEscala({
       >
         <div className="panel-title">
           <div>
-            <h2 id="nova-escala-modal-title">{etapa === 'tipo' ? 'O que você quer criar?' : 'Novo Plantão'}</h2>
+            <h2 id="nova-escala-modal-title">{titulos[etapa]}</h2>
           </div>
           <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
             <X size={18} />
@@ -2312,8 +2374,8 @@ function ModalNovaEscala({
           <div className="nova-escala-tipos">
             <button type="button" className="nova-escala-tipo-card" onClick={onEscolherJornada}>
               <CalendarDays size={22} />
-              <strong>Escala de jornada</strong>
-              <span>Turnos 6x1 por colaborador — usa a importação e a grade já existentes.</span>
+              <strong>Jornada 6x1</strong>
+              <span>Escala regular da equipe — turnos por colaborador.</span>
             </button>
             <button
               type="button"
@@ -2323,12 +2385,77 @@ function ModalNovaEscala({
             >
               <Radio size={22} />
               <strong>Plantão</strong>
-              <span>Intervalos de plantão por grupo — crie uma escala vazia ou importe uma planilha.</span>
+              <span>Cobertura de Plantão — intervalos por grupo.</span>
             </button>
             {!podeAcessarPlantoes && (
               <p className="admin-form-preview">Você não administra nenhum Grupo de Plantão.</p>
             )}
           </div>
+        )}
+
+        {etapa === 'equipe' && (
+          <>
+            <p className="admin-form-preview">Mais de uma equipe disponível em {areaGestaoRotulo ?? 'sua área'} — escolha uma.</p>
+            <div className="nova-escala-tipos">
+              {equipesCandidatas.map((equipe) => (
+                <button key={equipe.id} type="button" className="nova-escala-tipo-card" onClick={() => onSelecionarEquipe(equipe.id)}>
+                  <CalendarDays size={20} />
+                  <strong>{equipe.nome}</strong>
+                  <span>{equipe.sigla}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {etapa === 'criar-equipe' && (
+          <>
+            <p className="admin-form-preview">Nenhuma equipe encontrada em {areaGestaoRotulo ?? 'sua área'}.</p>
+            {podeCriarEquipe ? (
+              <>
+                <div className="admin-form-grid">
+                  <label htmlFor="wizard-criar-equipe-nome">
+                    Nome
+                    <input
+                      id="wizard-criar-equipe-nome"
+                      autoFocus
+                      placeholder="Ex.: Equipe de Segurança"
+                      value={criarEquipeNome}
+                      onChange={(evento) => onMudarCriarEquipeNome(evento.target.value)}
+                    />
+                  </label>
+                  <label htmlFor="wizard-criar-equipe-sigla">
+                    Sigla
+                    <input
+                      id="wizard-criar-equipe-sigla"
+                      placeholder="Ex.: SEG"
+                      value={criarEquipeSigla}
+                      onChange={(evento) => onMudarCriarEquipeSigla(evento.target.value)}
+                    />
+                  </label>
+                </div>
+                {criarEquipeErro !== '' && <p className="admin-form-erro">{criarEquipeErro}</p>}
+                <div className="rollback-actions">
+                  <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
+                  <button className="primary-button" type="button" disabled={criarEquipeSalvando} onClick={() => void onCriarEquipe()}>
+                    {criarEquipeSalvando ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} Criar equipe
+                  </button>
+                </div>
+              </>
+            ) : (
+              /*
+               * Fase ESCALAS-SIMPLES-1 — criar equipe exige `podeGerenciarUnidade`
+               * (ADMIN_SISTEMA/GESTOR_UNIDADE); um GESTOR_EQUIPE comum nunca vê
+               * este formulário — a Rule de `equipes` rejeitaria a escrita.
+               */
+              <>
+                <p>Peça a um gestor de unidade ou administrador do sistema para criar uma equipe nesta área.</p>
+                <div className="rollback-actions">
+                  <button className="secondary-button" type="button" onClick={onFechar}>Fechar</button>
+                </div>
+              </>
+            )}
+          </>
         )}
 
         {etapa === 'plantao' && (
@@ -2377,30 +2504,88 @@ function ModalNovaEscala({
               </div>
             )}
             {erro !== '' && <p className="admin-form-erro">{erro}</p>}
-            <p className="nova-escala-como-comecar-titulo">Como começar?</p>
+            {modo === 'IMPORTAR' ? (
+              // Fase ESCALAS-SIMPLES-1 (§14/§30 do pedido) — em IMPORTAR o
+              // tipo/destino já foram escolhidos explicitamente para
+              // importar: nenhuma pergunta extra de "como começar", só a
+              // planilha.
+              <div className="rollback-actions">
+                <button className="primary-button" type="button" disabled={!podeCriar} onClick={onImportarPlanilha}>
+                  <UploadCloud size={16} /> Selecionar planilha
+                </button>
+              </div>
+            ) : (
+              <>
+                <p className="nova-escala-como-comecar-titulo">Como começar?</p>
+                <div className="rollback-actions">
+                  <button className="secondary-button" type="button" onClick={onImportarPlanilha}>
+                    <UploadCloud size={16} /> Importar planilha
+                  </button>
+                  {/*
+                   * Fase ESCALAS-UX-1C — terceira forma de começar (§7/§11):
+                   * só habilitada quando a competência EXATAMENTE anterior já
+                   * tem um rascunho persistido para este Grupo — nunca cria
+                   * uma escala vazia disfarçada quando não existe anterior.
+                   */}
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={!podeCriar || competenciaAnteriorEncontrada === null}
+                    onClick={() => void onUsarPeriodoAnterior()}
+                    title={competenciaAnteriorEncontrada === null
+                      ? 'Não existe uma escala anterior para este Plantão.'
+                      : `Copia a estrutura de ${labelCompetenciaAnterior}`}
+                  >
+                    {criando ? <LoaderCircle className="spin" size={16} /> : <RotateCcw size={16} />} Usar período anterior
+                  </button>
+                  <button className="primary-button" type="button" disabled={!podeCriar} onClick={onCriarVazia}>
+                    {criando ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} Criar escala vazia
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {etapa === 'criar-plantao' && (
+          <>
+            <p className="admin-form-preview">Nenhum Plantão administrável em {areaGestaoRotulo ?? 'sua área'}.</p>
+            <div className="admin-form-grid">
+              <label htmlFor="wizard-criar-plantao-nome">
+                Nome
+                <input
+                  id="wizard-criar-plantao-nome"
+                  autoFocus
+                  placeholder="Ex.: Plantão Segurança"
+                  value={criarPlantaoNome}
+                  onChange={(evento) => onMudarCriarPlantaoNome(evento.target.value)}
+                />
+              </label>
+              <label htmlFor="wizard-criar-plantao-equipe">
+                Equipe responsável
+                <select
+                  id="wizard-criar-plantao-equipe"
+                  value={criarPlantaoEquipeId}
+                  onChange={(evento) => onMudarCriarPlantaoEquipeId(evento.target.value)}
+                >
+                  <option value="">Selecione uma equipe</option>
+                  {equipesCandidatas.map((equipe) => <option key={equipe.id} value={equipe.id}>{equipe.nome}</option>)}
+                </select>
+              </label>
+            </div>
+            {equipesCandidatas.length === 0 && podeCriarEquipe && (
+              <button className="secondary-button compact-button" type="button" onClick={onCriarEquipeDentroDoPlantao}>
+                <Plus size={14} /> Criar equipe
+              </button>
+            )}
+            {equipesCandidatas.length === 0 && !podeCriarEquipe && (
+              <p className="admin-form-preview">Peça a um gestor de unidade para criar uma equipe responsável nesta área.</p>
+            )}
+            {criarPlantaoErro !== '' && <p className="admin-form-erro">{criarPlantaoErro}</p>}
             <div className="rollback-actions">
-              <button className="secondary-button" type="button" onClick={onImportarPlanilha}>
-                <UploadCloud size={16} /> Importar planilha
-              </button>
-              {/*
-               * Fase ESCALAS-UX-1C — terceira forma de começar (§7/§11):
-               * só habilitada quando a competência EXATAMENTE anterior já
-               * tem um rascunho persistido para este Grupo — nunca cria
-               * uma escala vazia disfarçada quando não existe anterior.
-               */}
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={!podeCriar || competenciaAnteriorEncontrada === null}
-                onClick={() => void onUsarPeriodoAnterior()}
-                title={competenciaAnteriorEncontrada === null
-                  ? 'Não existe uma escala anterior para este Plantão.'
-                  : `Copia a estrutura de ${labelCompetenciaAnterior}`}
-              >
-                {criando ? <LoaderCircle className="spin" size={16} /> : <RotateCcw size={16} />} Usar período anterior
-              </button>
-              <button className="primary-button" type="button" disabled={!podeCriar} onClick={onCriarVazia}>
-                {criando ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} Criar escala vazia
+              <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
+              <button className="primary-button" type="button" disabled={criarPlantaoSalvando} onClick={() => void onCriarPlantao()}>
+                {criarPlantaoSalvando ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} Criar Plantão
               </button>
             </div>
           </>
@@ -3085,9 +3270,11 @@ export function DashboardApp() {
    * pedido): antes, sem padrão configurado para o dia, a função caía
    * SILENCIOSAMENTE no editor completo — o coordenador via o modal grande
    * aparecer sem entender por quê, sem diferenciar de um bug de drag.
-   * Agora o próprio popover mostra "Nenhum padrão configurado" com as
-   * ações "Configurar padrão"/"Informar horário manualmente" — nunca mais
-   * uma queda silenciosa para o modal grande.
+   *
+   * Fase ESCALAS-SIMPLES-1 (§36-40 do pedido) — o popover agora sempre
+   * oferece os três presets fixos (12h/24h/5h), com ou sem `padrao`; este
+   * campo só decide se uma QUARTA opção ("Padrão do grupo") também
+   * aparece. Nunca mais um estado bloqueante de "nenhum padrão".
    */
   const [quickAddPlantao, setQuickAddPlantao] = useState<
     { plantonistaNomeOriginal: string; dataIso: string; padrao: PadraoHorarioPlantaoDia | null } | null
@@ -3128,8 +3315,30 @@ export function DashboardApp() {
    * trocar de competência, nunca dois sistemas separados.
    */
   const [intencaoTrocaEscalaPendente, setIntencaoTrocaEscalaPendente] = useState<IntencaoTrocaEscala | null>(null);
-  // --- "+ Nova escala" (Fase ESCALAS-UX-1B) — escolher tipo, depois grupo/competência de Plantão ---
-  const [novaEscalaEtapa, setNovaEscalaEtapa] = useState<'tipo' | 'plantao' | null>(null);
+  /**
+   * Fase ESCALAS-SIMPLES-1 — "Área de gestão ativa" (`lib/areaGestaoAtiva.ts`,
+   * §7-§10 do pedido). NUNCA concede autorização — só decide qual das
+   * unidades já autorizadas está em foco na UI agora (resolução automática
+   * de equipe/Grupo de Plantão do wizard, seletor discreto no header).
+   * Preferência de SESSÃO apenas (localStorage por login, nunca Firestore —
+   * §10): lida uma única vez quando o login muda, nunca usada como fonte de
+   * autorização em nenhum guard (essa continua exclusivamente em
+   * `podeGerenciarEquipe`/`podeGerenciarGrupoPlantao`).
+   */
+  const [areaGestaoEscolhaManual, setAreaGestaoEscolhaManual] = useState<string | null>(null);
+  // --- "Nova escala"/"Importar escala" (Fase ESCALAS-UX-1B, unificado na ESCALAS-SIMPLES-1) ---
+  const [wizardEscalaModo, setWizardEscalaModo] = useState<'NOVA' | 'IMPORTAR'>('NOVA');
+  const [novaEscalaEtapa, setNovaEscalaEtapa] = useState<'tipo' | 'equipe' | 'criar-equipe' | 'plantao' | 'criar-plantao' | null>(null);
+  const [wizardCriarEquipeNome, setWizardCriarEquipeNome] = useState('');
+  const [wizardCriarEquipeSigla, setWizardCriarEquipeSigla] = useState('');
+  const [wizardCriarEquipeErro, setWizardCriarEquipeErro] = useState('');
+  const [wizardCriarEquipeSalvando, setWizardCriarEquipeSalvando] = useState(false);
+  const [wizardCriarPlantaoNome, setWizardCriarPlantaoNome] = useState('');
+  const [wizardCriarPlantaoEquipeId, setWizardCriarPlantaoEquipeId] = useState('');
+  const [wizardCriarPlantaoErro, setWizardCriarPlantaoErro] = useState('');
+  const [wizardCriarPlantaoSalvando, setWizardCriarPlantaoSalvando] = useState(false);
+  /** Fase ESCALAS-SIMPLES-1 (§25) — de onde a etapa `'criar-equipe'` foi aberta, para "voltar" para o lugar certo depois de criar. */
+  const [wizardCriarEquipeOrigem, setWizardCriarEquipeOrigem] = useState<'JORNADA' | 'PLANTAO'>('JORNADA');
   const [novoPlantaoGrupoId, setNovoPlantaoGrupoId] = useState('');
   const [novoPlantaoCompetencia, setNovoPlantaoCompetencia] = useState('');
   const [novoPlantaoErro, setNovoPlantaoErro] = useState('');
@@ -3345,6 +3554,42 @@ export function DashboardApp() {
   const podeAcessarPlantoes = usuarioReal !== null && souGestorDePlantao(usuarioReal);
   const carregandoEquipesPlantaoParaExibir = carregandoEquipesPlantao && podeAcessarPlantoes && !modoDemo;
   const minhasEquipesPermitidas = usuarioReal !== null ? equipesPermitidasEfetivas(usuarioReal) : [];
+  /**
+   * Fase ESCALAS-SIMPLES-1 — "Área de gestão ativa" (`lib/areaGestaoAtiva.ts`).
+   * Disponíveis: ADMIN_SISTEMA entre todas as unidades cadastradas
+   * (`unidadesAdmin`, já carregada para quem administra Plantão/visitou
+   * Administração); os demais, só `unidadesPermitidasEfetivas` (não depende
+   * de `unidadesAdmin` estar carregada). Ativa: a preferência salva quando
+   * ainda válida, senão a única disponível, senão a primeira (nunca uma
+   * pergunta bloqueante — o seletor do header continua sempre visível e
+   * corrigível quando há mais de uma).
+   */
+  const unidadesGestaoDisponiveis = usuarioReal === null
+    ? []
+    : unidadesDisponiveisParaGestao(usuarioReal, unidadesAdmin.map((item) => item.unidadeId));
+  const areaGestaoAtivaId = areaGestaoInicial(unidadesGestaoDisponiveis, areaGestaoEscolhaManual)
+    ?? unidadesGestaoDisponiveis[0]
+    ?? null;
+  const equipesGestaoAtivas = usuarioReal === null
+    ? []
+    : equipesAdministraveisNaArea(usuarioReal, equipesAdmin, areaGestaoAtivaId);
+  const gruposGestaoAtivos = usuarioReal === null
+    ? []
+    : gruposAdministraveisNaArea(usuarioReal, gruposPlantaoAdmin, equipesAdmin, areaGestaoAtivaId);
+  /**
+   * Fase ESCALAS-SIMPLES-1 — criar uma Equipe exige `podeGerenciarUnidade`
+   * (ADMIN_SISTEMA ou GESTOR_UNIDADE com a unidade em escopo — mesma regra
+   * de `firestore.rules`, coleção `equipes`, nunca `podeGerenciarEquipe`,
+   * que só autoriza operar sobre uma equipe JÁ existente). Um GESTOR_EQUIPE
+   * comum nunca pode criar equipe nova, mesmo sem nenhuma equipe
+   * administrável na área — a criação inline (§20 do pedido) só é
+   * oferecida quando isto é `true`; caso contrário, a UI mostra a mensagem
+   * "peça a um gestor de unidade", nunca um formulário que a Rule for
+   * rejeitar.
+   */
+  const podeCriarEquipeNaAreaAtiva = usuarioReal !== null
+    && areaGestaoAtivaId !== null
+    && podeGerenciarUnidade(usuarioReal, areaGestaoAtivaId);
   // Fase ESCALAS-UX-2A — 'plantoes' não é mais um id presente em NAVEGACAO
   // (ver comentário acima do array); só 'administracao' precisa de gate.
   const navegacaoVisivel = NAVEGACAO.filter((item) => (item.id === 'administracao' ? podeAcessarAdministracao : true));
@@ -3569,6 +3814,15 @@ export function DashboardApp() {
   async function autenticar(autenticado: Usuario, demonstracao: boolean) {
     setUsuarioReal(autenticado);
     setModoDemo(demonstracao);
+    /**
+     * Fase ESCALAS-SIMPLES-1 — carrega a preferência de "Área de gestão
+     * ativa" salva localmente (§10 do pedido: nunca Firestore, nunca
+     * autorização) no momento do login em si, nunca num `useEffect`
+     * reativo genérico (mesmo princípio já estabelecido para
+     * `ContextoEscalaAtivo` — "derived state" pertence ao corpo da própria
+     * ação, não a um efeito separado).
+     */
+    setAreaGestaoEscolhaManual(typeof window === 'undefined' ? null : window.localStorage.getItem(`escala-ici-area-gestao-${autenticado.login}`));
     if (demonstracao) {
       // Fase ESCALAS-UX-2A.1 — laboratório local sem Firestore: semeia
       // `equipesAdmin` com a mesma equipe fixa de sempre (`EQUIPE_DEMO`)
@@ -4080,76 +4334,38 @@ export function DashboardApp() {
     setQuickAddPlantao(null);
   }
 
-  /** "Adicionar" do quick-add — confirma o padrão do Grupo como a nova atribuição. Só age quando há padrão. */
-  function confirmarQuickAddPlantao() {
+  /**
+   * "Adicionar" do quick-add (Fase ESCALAS-SIMPLES-1, §36-40) — confirma a
+   * opção escolhida pelo coordenador no popover (um dos três presets fixos
+   * ou o padrão do Grupo, quando divergente) como a nova atribuição.
+   * Sempre disponível — nunca mais gated por `estado.padrao !== null`.
+   */
+  function confirmarQuickAddPlantao(opcao: OpcaoHorarioQuickAddPlantao) {
     const estado = quickAddPlantao;
-    if (estado === null || estado.padrao === null) {
+    if (estado === null) {
       return;
     }
     criarAtribuicaoPlantaoNaWorkingCopy(construirAtribuicaoDoPadraoHorario({
       plantonistaNomeOriginal: estado.plantonistaNomeOriginal,
       dataCivil: estado.dataIso,
-      padrao: estado.padrao,
+      padrao: { ...opcao, diaSemana: diaSemanaCivil(estado.dataIso) },
     }));
     setQuickAddPlantao(null);
   }
 
   /**
-   * "Outro horário" do quick-add (só aparece quando HÁ padrão) — fecha o
-   * popover e abre o editor completo já pré-preenchido com o horário do
-   * padrão (§ 28 do pedido: nunca obrigar a redigitar tudo quando o
-   * padrão já é um bom ponto de partida) — o coordenador ainda pode
-   * ajustar qualquer campo livremente antes de salvar.
+   * "Outro horário" do quick-add — sempre disponível (Fase
+   * ESCALAS-SIMPLES-1, §41), abre o editor completo com pessoa/data
+   * pré-preenchidas e horário vazio (nada a derivar de nenhum preset —
+   * é a exceção explícita "nenhuma das opções serve").
    */
   function abrirOutroHorarioQuickAddPlantao() {
-    const estado = quickAddPlantao;
-    if (estado === null || estado.padrao === null) {
-      return;
-    }
-    setQuickAddPlantao(null);
-    const derivado = construirAtribuicaoDoPadraoHorario({
-      plantonistaNomeOriginal: estado.plantonistaNomeOriginal,
-      dataCivil: estado.dataIso,
-      padrao: estado.padrao,
-    });
-    setModalAtribuicaoPlantao({
-      modo: 'criar',
-      idLocal: null,
-      valoresIniciais: {
-        plantonistaNomeOriginal: derivado.plantonistaNomeOriginal,
-        inicio: derivado.inicio,
-        fim: derivado.fim,
-      },
-    });
-  }
-
-  /**
-   * "Informar horário manualmente" do quick-add (só aparece quando NÃO há
-   * padrão) — mesmo editor completo de sempre, início/fim vazios (nada a
-   * derivar de um padrão inexistente — nunca inventa horário).
-   */
-  function informarHorarioManualmenteQuickAdd() {
     const estado = quickAddPlantao;
     if (estado === null) {
       return;
     }
     setQuickAddPlantao(null);
     abrirCriacaoAtribuicaoPlantao(estado.dataIso, estado.plantonistaNomeOriginal);
-  }
-
-  /**
-   * "Configurar padrão" do quick-add (só aparece quando NÃO há padrão) —
-   * leva para Administração → Grupos de Plantão → o Grupo atual, já
-   * aberto para edição (§ 26 do pedido: nunca configurar padrão dentro do
-   * calendário, nunca salvar nada automaticamente).
-   */
-  function irConfigurarPadraoQuickAdd() {
-    setQuickAddPlantao(null);
-    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === grupoRascunhoEscolhido);
-    setTela('plantoes');
-    if (grupo !== undefined) {
-      abrirEdicaoGrupoPlantao(grupo);
-    }
   }
 
   function excluirModalAtribuicaoPlantao() {
@@ -4189,16 +4405,44 @@ export function DashboardApp() {
     return participantes;
   }
 
-  function abrirNovaEscala() {
+  /**
+   * Fase ESCALAS-SIMPLES-1 (§15 do pedido) — ponto único de entrada do
+   * wizard "Nova escala"/"Importar escala": os dois botões abrem o MESMO
+   * fluxo, `modo` só diferencia o final (§29/§30). Competência já nasce
+   * com um valor padrão (a do contexto ativo, ou `COMPETENCIA_ATUAL` — §28:
+   * nunca reimplementa a janela 26→25, só herda o valor já em uso).
+   */
+  function abrirWizardEscala(modo: 'NOVA' | 'IMPORTAR') {
+    setWizardEscalaModo(modo);
     setNovaEscalaEtapa('tipo');
+    setWizardCriarEquipeNome('');
+    setWizardCriarEquipeSigla('');
+    setWizardCriarEquipeErro('');
+    setWizardCriarPlantaoNome('');
+    setWizardCriarPlantaoEquipeId('');
+    setWizardCriarPlantaoErro('');
     setNovoPlantaoGrupoId('');
-    setNovoPlantaoCompetencia('');
+    setNovoPlantaoCompetencia(contextoEscalaAtivo?.competencia ?? COMPETENCIA_ATUAL);
     setNovoPlantaoErro('');
     setNovoPlantaoRascunhoExistente(null);
   }
 
+  function abrirNovaEscala() {
+    abrirWizardEscala('NOVA');
+  }
+
+  function abrirImportarEscala() {
+    abrirWizardEscala('IMPORTAR');
+  }
+
   function fecharNovaEscala() {
     setNovaEscalaEtapa(null);
+    setWizardCriarEquipeNome('');
+    setWizardCriarEquipeSigla('');
+    setWizardCriarEquipeErro('');
+    setWizardCriarPlantaoNome('');
+    setWizardCriarPlantaoEquipeId('');
+    setWizardCriarPlantaoErro('');
     setNovoPlantaoGrupoId('');
     setNovoPlantaoCompetencia('');
     setNovoPlantaoErro('');
@@ -4206,23 +4450,89 @@ export function DashboardApp() {
   }
 
   /**
-   * "Escala de jornada" (6x1) e "Importar planilha" (Plantão) levam ao MESMO
-   * lugar: a tela "Importar" já existente — nenhum parser/fluxo novo, só
-   * roteamento (§8/§37 desta fase: nenhuma refatoração ampla só para
-   * eliminar um item de navegação).
+   * Fase ESCALAS-SIMPLES-1 (§17/§34 do pedido) — equipe resolvida (auto,
+   * escolhida ou recém-criada): atualiza o header (`ContextoEscalaAtivo`)
+   * IMEDIATAMENTE e segue para "Importar" — Jornada não tem "criar vazia"
+   * (limitação arquitetural existente, fora de escopo desta fase: toda
+   * escala de Jornada nasce de uma planilha, em NOVA e em IMPORTAR).
+   */
+  function selecionarEquipeWizard(equipeId: string) {
+    setContextoEscalaAtivo({ tipo: 'JORNADA', equipeId, competencia: contextoEscalaAtivo?.competencia ?? COMPETENCIA_ATUAL });
+    fecharNovaEscala();
+    setTela('importar');
+  }
+
+  /**
+   * "Escala de jornada" (6x1) — Fase ESCALAS-SIMPLES-1 (§17): resolve a
+   * equipe automaticamente dentro da Área de gestão ativa. Uma só
+   * administrável → segue sozinho; várias → pergunta; nenhuma → oferece
+   * criação inline (§20) — nunca um hardcode de sigla decidindo por conta
+   * própria (§18).
    */
   function escolherJornadaNovaEscala() {
-    fecharNovaEscala();
-    setTela('importar');
+    if (equipesGestaoAtivas.length === 1) {
+      selecionarEquipeWizard(equipesGestaoAtivas[0].id);
+      return;
+    }
+    if (equipesGestaoAtivas.length === 0) {
+      setWizardCriarEquipeOrigem('JORNADA');
+      setWizardCriarEquipeNome('');
+      setWizardCriarEquipeSigla('');
+      setWizardCriarEquipeErro('');
+      setNovaEscalaEtapa('criar-equipe');
+      return;
+    }
+    setNovaEscalaEtapa('equipe');
   }
 
-  function escolherPlantaoNovaEscala() {
-    setNovaEscalaEtapa('plantao');
-  }
-
-  function importarPlanilhaNovoPlantao() {
-    fecharNovaEscala();
-    setTela('importar');
+  /**
+   * Fase ESCALAS-SIMPLES-1 (§20/§21 do pedido) — criação inline de equipe
+   * dentro do próprio wizard, nunca navegando para Administração. Reusa a
+   * MESMA escrita/validação de `salvarEquipeDoModal` (nenhuma lógica
+   * administrativa duplicada) — só um formulário mais simples em volta
+   * (nome + sigla; unidade é a Área de gestão ativa, ID gerado a partir do
+   * nome via `gerarIdSugerido`). Depois de criada: some à lista, já
+   * selecionada, o fluxo continua (§21) — nunca fecha o wizard nem força
+   * reiniciar.
+   */
+  async function criarEquipeWizardAcao() {
+    if (usuarioReal === null || !podeCriarEquipeNaAreaAtiva) {
+      return;
+    }
+    const nome = wizardCriarEquipeNome.trim();
+    if (nome === '') {
+      setWizardCriarEquipeErro('Informe o nome da equipe.');
+      return;
+    }
+    const sigla = wizardCriarEquipeSigla.trim();
+    if (sigla === '') {
+      setWizardCriarEquipeErro('Informe a sigla da equipe.');
+      return;
+    }
+    const unidadeAtiva = areaGestaoAtivaId !== null ? unidadesAdmin.find((item) => item.unidadeId === areaGestaoAtivaId) : undefined;
+    const novaEquipe: Equipe = {
+      id: gerarIdSugerido('EQ_', nome, equipesAdmin.map((item) => item.id)),
+      nome,
+      sigla,
+      ativa: true,
+      unidadeId: areaGestaoAtivaId ?? undefined,
+      caminhoUnidade: unidadeAtiva?.caminho,
+    };
+    setWizardCriarEquipeSalvando(true);
+    setWizardCriarEquipeErro('');
+    try {
+      await salvarEquipeDoModal(novaEquipe);
+      if (wizardCriarEquipeOrigem === 'PLANTAO') {
+        setWizardCriarPlantaoEquipeId(novaEquipe.id);
+        setNovaEscalaEtapa('criar-plantao');
+      } else {
+        selecionarEquipeWizard(novaEquipe.id);
+      }
+    } catch (falha) {
+      setWizardCriarEquipeErro(falha instanceof Error ? falha.message : 'Não foi possível criar a equipe.');
+    } finally {
+      setWizardCriarEquipeSalvando(false);
+    }
   }
 
   async function mudarGrupoNovoPlantao(grupoId: string) {
@@ -4239,6 +4549,102 @@ export function DashboardApp() {
         garantirRascunhosDoGrupoCarregados(grupoId),
       ]);
     }
+  }
+
+  /** Fase ESCALAS-SIMPLES-1 (§22/§34) — grupo resolvido: carrega dados + atualiza o header imediatamente. */
+  async function selecionarGrupoWizard(grupoId: string) {
+    await mudarGrupoNovoPlantao(grupoId);
+    setContextoEscalaAtivo({ tipo: 'PLANTAO', grupoId, competencia: novoPlantaoCompetencia || COMPETENCIA_ATUAL });
+    setNovaEscalaEtapa('plantao');
+  }
+
+  /**
+   * "Plantão" — Fase ESCALAS-SIMPLES-1 (§22/§23): resolve o Grupo de
+   * Plantão automaticamente dentro da Área de gestão ativa, usando SÓ
+   * grupos que o usuário realmente ADMINISTRA (nunca consulta-only — ver
+   * `gruposAdministraveisNaArea`). Um só → segue sozinho; vários →
+   * pergunta; nenhum → oferece criação inline (§24).
+   */
+  function escolherPlantaoNovaEscala() {
+    if (gruposGestaoAtivos.length === 1) {
+      void selecionarGrupoWizard(gruposGestaoAtivos[0].grupoId);
+      return;
+    }
+    if (gruposGestaoAtivos.length === 0) {
+      setWizardCriarPlantaoNome('');
+      setWizardCriarPlantaoEquipeId(equipesGestaoAtivas[0]?.id ?? '');
+      setWizardCriarPlantaoErro('');
+      setNovaEscalaEtapa('criar-plantao');
+      return;
+    }
+    setNovaEscalaEtapa('plantao');
+  }
+
+  /** Fase ESCALAS-SIMPLES-1 (§25) — dentro da criação de Plantão, "+ Criar equipe" sem sair do wizard. */
+  function abrirCriarEquipeDentroDoPlantaoWizard() {
+    setWizardCriarEquipeOrigem('PLANTAO');
+    setWizardCriarEquipeNome('');
+    setWizardCriarEquipeSigla('');
+    setWizardCriarEquipeErro('');
+    setNovaEscalaEtapa('criar-equipe');
+  }
+
+  /**
+   * Fase ESCALAS-SIMPLES-1 (§24/§25 do pedido) — criação inline de Grupo de
+   * Plantão: só nome + equipe responsável (nenhuma configuração avançada —
+   * `equipesConsulta`/`timezone`/`padraoHorarioSemanal` recebem os mesmos
+   * padrões sensatos de `abrirNovoGrupoPlantao`; configuração avançada
+   * continua em Administração). Reusa `salvarGrupoPlantaoDoModal` — mesma
+   * escrita/validação administrativa, nenhuma lógica duplicada.
+   */
+  async function criarPlantaoWizardAcao() {
+    if (usuarioReal === null) {
+      return;
+    }
+    const nome = wizardCriarPlantaoNome.trim();
+    if (nome === '') {
+      setWizardCriarPlantaoErro('Informe o nome do Plantão.');
+      return;
+    }
+    const equipeResponsavelId = wizardCriarPlantaoEquipeId;
+    if (equipeResponsavelId === '') {
+      setWizardCriarPlantaoErro('Selecione a equipe responsável.');
+      return;
+    }
+    const novoGrupo: GrupoPlantao = {
+      grupoId: gerarIdSugerido('PLANTAO_', nome, gruposPlantaoAdmin.map((item) => item.grupoId)),
+      nome,
+      descricao: undefined,
+      equipeResponsavelId,
+      equipesConsulta: [equipeResponsavelId],
+      timezone: 'America/Sao_Paulo',
+      ativo: true,
+      padraoHorarioSemanal: undefined,
+      schemaVersion: 1,
+      criadoPorLogin: usuarioReal.login,
+      criadoEm: '',
+      atualizadoEm: '',
+    };
+    setWizardCriarPlantaoSalvando(true);
+    setWizardCriarPlantaoErro('');
+    try {
+      await salvarGrupoPlantaoDoModal(novoGrupo);
+      await selecionarGrupoWizard(novoGrupo.grupoId);
+    } catch (falha) {
+      setWizardCriarPlantaoErro(falha instanceof Error ? falha.message : 'Não foi possível criar o Plantão.');
+    } finally {
+      setWizardCriarPlantaoSalvando(false);
+    }
+  }
+
+  /**
+   * Fase ESCALAS-SIMPLES-1 (§30 do pedido) — "Importar planilha" do wizard
+   * (tipo/destino/competência já resolvidos): fecha o wizard e vai para a
+   * tela "Importar" já existente, nenhum parser/fluxo novo.
+   */
+  function importarPlanilhaNovoPlantao() {
+    fecharNovaEscala();
+    setTela('importar');
   }
 
   /**
@@ -5921,6 +6327,14 @@ export function DashboardApp() {
     };
   }, [modoDemo, usuarioReal, equipesAdmin.length]);
 
+  /** Troca a área de gestão ativa — preferência de sessão, nunca concede nenhuma autorização nova (§7/§10 do pedido). */
+  function escolherAreaGestaoAtiva(unidadeId: string) {
+    setAreaGestaoEscolhaManual(unidadeId);
+    if (usuarioReal !== null && typeof window !== 'undefined') {
+      window.localStorage.setItem(`escala-ici-area-gestao-${usuarioReal.login}`, unidadeId);
+    }
+  }
+
   /**
    * Fase ESCALAS-UX-2A.1 — sincronização do contexto ativo a partir de
    * evidência inequívoca já existente (§ 13 do redesign). Feita como
@@ -6090,6 +6504,7 @@ export function DashboardApp() {
   async function encerrarSessao() {
     await sair();
     setUsuarioReal(null);
+    setAreaGestaoEscolhaManual(null);
     setSimulando(null);
     setResultado(null);
     setJornadaPossuiAlteracoesNaoSalvas(false);
@@ -6193,6 +6608,27 @@ export function DashboardApp() {
       produtoHref={import.meta.env.VITE_EMPLOYEE_APP_URL ?? '/app'}
       contextoEscala={(
         <div className="schedule-context-cluster">
+          {/*
+           * Fase ESCALAS-SIMPLES-1 (§7/§8 do pedido) — "Área de gestão
+           * ativa": só aparece quando há MAIS DE UMA unidade disponível
+           * (uma só já é resolvida automaticamente, sem seletor nenhum).
+           * Preferência de sessão apenas — nunca concede nenhuma
+           * autorização nova, só decide qual unidade já autorizada está em
+           * foco na resolução de equipe/Grupo do wizard.
+           */}
+          {unidadesGestaoDisponiveis.length > 1 && (
+            <label className="area-gestao-ativa-selector">
+              <span>Área de gestão</span>
+              <select
+                value={areaGestaoAtivaId ?? ''}
+                onChange={(evento) => escolherAreaGestaoAtiva(evento.target.value)}
+              >
+                {unidadesGestaoDisponiveis.map((unidadeId) => (
+                  <option key={unidadeId} value={unidadeId}>{rotuloUnidadePorId(unidadeId, unidadesAdmin)}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <ScheduleContextSwitcher
             contextoAtivo={contextoEscalaAtivo}
             rotuloContextoAtivo={rotuloContextoAtivo}
@@ -6530,8 +6966,6 @@ export function DashboardApp() {
               padrao={quickAddPlantao.padrao}
               onAdicionar={confirmarQuickAddPlantao}
               onOutroHorario={abrirOutroHorarioQuickAddPlantao}
-              onConfigurarPadrao={irConfigurarPadraoQuickAdd}
-              onInformarManualmente={informarHorarioManualmenteQuickAdd}
               onFechar={fecharQuickAddPlantao}
             />
           )}
@@ -6841,19 +7275,17 @@ export function DashboardApp() {
           <header className="page-heading">
             <div><p className="eyebrow">Competências</p><h1>Escalas</h1><p>Rascunhos e publicações disponíveis para a equipe.</p></div>
             {/*
-             * Fase ESCALAS-UX-2A — "Escalas" vira o hub operacional
-             * principal enquanto o workspace unificado (ESCALAS-UX-2A.1)
-             * não existe: "Nova escala" é a ação primária; "Importar
-             * escala" e "Abrir grade" são pontes explícitas para as telas
-             * internas que saíram da sidebar (`docs/spec/REDESIGN_WORKSPACE_ESCALAS.md`
-             * § 6/§ 9), nunca escondidas atrás de nenhum menu extra.
+             * Fase ESCALAS-SIMPLES-1 (§11-§13 do pedido) — só DUAS ações
+             * primárias na tela "Escalas": "+ Nova escala" e "Importar
+             * escala", as duas abrindo o MESMO wizard (`ModalIniciarEscala`,
+             * `modo` diferente). "Abrir grade" saiu das ações primárias
+             * (a funcionalidade continua existindo — "Revisar grade" no
+             * card da escala atual, logo abaixo — nunca foi removida, só
+             * deixou de competir por atenção aqui no topo).
              */}
             <div className="grade-header-actions">
-              <button className="secondary-button" type="button" onClick={() => setTela('importar')}>
+              <button className="secondary-button" type="button" onClick={abrirImportarEscala}>
                 <UploadCloud size={17} /> Importar escala
-              </button>
-              <button className="secondary-button" type="button" onClick={() => setTela('grade')}>
-                <Grid3X3 size={17} /> Abrir grade
               </button>
               <button className="primary-button" type="button" onClick={abrirNovaEscala}>
                 <Plus size={17} /> Nova escala
@@ -7886,18 +8318,30 @@ export function DashboardApp() {
       )}
 
       {novaEscalaEtapa !== null && (
-        <ModalNovaEscala
+        <ModalIniciarEscala
+          modo={wizardEscalaModo}
           etapa={novaEscalaEtapa}
           onFechar={fecharNovaEscala}
           onEscolherJornada={escolherJornadaNovaEscala}
           onEscolherPlantao={escolherPlantaoNovaEscala}
           podeAcessarPlantoes={podeAcessarPlantoes}
-          gruposDisponiveis={gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao)}
+          areaGestaoRotulo={areaGestaoAtivaId !== null ? rotuloUnidadePorId(areaGestaoAtivaId, unidadesAdmin) : null}
+          equipesCandidatas={equipesGestaoAtivas}
+          podeCriarEquipe={podeCriarEquipeNaAreaAtiva}
+          onSelecionarEquipe={selecionarEquipeWizard}
+          criarEquipeNome={wizardCriarEquipeNome}
+          onMudarCriarEquipeNome={setWizardCriarEquipeNome}
+          criarEquipeSigla={wizardCriarEquipeSigla}
+          onMudarCriarEquipeSigla={setWizardCriarEquipeSigla}
+          criarEquipeErro={wizardCriarEquipeErro}
+          criarEquipeSalvando={wizardCriarEquipeSalvando}
+          onCriarEquipe={() => void criarEquipeWizardAcao()}
+          gruposDisponiveis={gruposGestaoAtivos}
           equipes={equipesAdmin}
           participantesPorGrupo={participantesPorGrupoPlantao}
           rascunhosPorGrupo={rascunhosPlantaoPorGrupo}
           grupoId={novoPlantaoGrupoId}
-          onMudarGrupo={(grupoId) => void mudarGrupoNovoPlantao(grupoId)}
+          onMudarGrupo={(grupoId) => void (grupoId === '' ? mudarGrupoNovoPlantao(grupoId) : selecionarGrupoWizard(grupoId))}
           competencia={novoPlantaoCompetencia}
           onMudarCompetencia={setNovoPlantaoCompetencia}
           erro={novoPlantaoErro}
@@ -7907,6 +8351,14 @@ export function DashboardApp() {
           onImportarPlanilha={importarPlanilhaNovoPlantao}
           onCriarVazia={() => void criarPlantaoEmBrancoAcao()}
           onUsarPeriodoAnterior={() => void usarPeriodoAnteriorAcao()}
+          criarPlantaoNome={wizardCriarPlantaoNome}
+          onMudarCriarPlantaoNome={setWizardCriarPlantaoNome}
+          criarPlantaoEquipeId={wizardCriarPlantaoEquipeId}
+          onMudarCriarPlantaoEquipeId={setWizardCriarPlantaoEquipeId}
+          criarPlantaoErro={wizardCriarPlantaoErro}
+          criarPlantaoSalvando={wizardCriarPlantaoSalvando}
+          onCriarPlantao={() => void criarPlantaoWizardAcao()}
+          onCriarEquipeDentroDoPlantao={abrirCriarEquipeDentroDoPlantaoWizard}
         />
       )}
 

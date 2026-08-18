@@ -136,32 +136,38 @@ test('15. fecharFormularioUsuario/abrirNovoUsuario/abrirEdicaoUsuario sempre zer
 
 // --- § 23-28/§ 50: quick-add sem padrão ---
 
-test('16. QuickAddPlantaoPopover aceita padrao=null e mostra "Nenhum padrão configurado" com duas ações explícitas', async () => {
+// Fase ESCALAS-SIMPLES-1 (§36-41 do pedido) — os testes 16-19 desta fase
+// (ESCALAS-UX-2B.2) verificavam o bloqueio "Nenhum padrão configurado" +
+// "Configurar padrão"/"Informar horário manualmente", explicitamente
+// substituído pelos três presets fixos (sempre disponíveis, com ou sem
+// padrão) + "Outro horário" como única exceção. Ver
+// lib/editorPlantao.test.ts (PRESETS_HORARIO_QUICK_ADD_PLANTAO/
+// padraoDivergeDosPresetsQuickAdd) para a cobertura da nova lógica pura.
+
+test('16. QuickAddPlantaoPopover sempre oferece os três presets fixos (12h/24h/5h), com ou sem padrão do Grupo — nunca mais bloqueia com "Nenhum padrão configurado"', async () => {
   const popover = semComentarios(await ler('components/plantao/QuickAddPlantaoPopover.tsx'));
   assert.match(popover, /padrao:\s*PadraoHorarioPlantaoDia \| null/u);
-  assert.match(popover, /Nenhum padrão configurado/u);
-  assert.match(popover, /onConfigurarPadrao/u);
-  assert.match(popover, /onInformarManualmente/u);
+  assert.match(popover, /PRESETS_HORARIO_QUICK_ADD_PLANTAO/u);
+  assert.doesNotMatch(popover, /Nenhum padrão configurado/u, 'o bloqueio antigo não pode mais existir');
+  assert.doesNotMatch(popover, /onConfigurarPadrao|onInformarManualmente/u, 'as ações do bloqueio antigo foram substituídas pelos presets');
 });
 
-test('17. "Configurar padrão" nunca salva nada automaticamente — só navega e abre o modal de edição do Grupo já existente', async () => {
-  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  const corpo = /function irConfigurarPadraoQuickAdd\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
-  assert.ok(corpo, 'irConfigurarPadraoQuickAdd precisa existir');
-  assert.match(corpo[1], /setTela\('plantoes'\)/u);
-  assert.match(corpo[1], /abrirEdicaoGrupoPlantao\(grupo\)/u);
-  assert.doesNotMatch(corpo[1], /salvarGrupoPlantao|setDoc|updateDoc/u, 'nunca pode gravar nada — só abre o formulário já existente');
+test('17. o padrão do Grupo só aparece como opção EXTRA quando diverge dos três presets fixos — nunca duplicado', async () => {
+  const popover = semComentarios(await ler('components/plantao/QuickAddPlantaoPopover.tsx'));
+  assert.match(popover, /padraoDivergeDosPresetsQuickAdd/u, 'precisa reaproveitar a mesma função pura de comparação');
 });
 
-test('18. "Informar horário manualmente" nunca inventa horário — início/fim continuam vazios', async () => {
+test('18. "Outro horário" continua a única exceção que abre o editor completo — nunca inventa horário (início/fim vazios)', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  assert.match(dashboard, /function informarHorarioManualmenteQuickAdd\(\) \{/u);
+  const corpo = /function abrirOutroHorarioQuickAddPlantao\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(corpo, 'abrirOutroHorarioQuickAddPlantao precisa existir');
+  assert.match(corpo[1], /abrirCriacaoAtribuicaoPlantao\(estado\.dataIso, estado\.plantonistaNomeOriginal\)/u);
 });
 
-test('19. quick-add (com ou sem padrão) nunca grava no Firestore diretamente — confirmado para os dois novos handlers', async () => {
+test('19. quick-add nunca grava no Firestore diretamente — confirmado para "Adicionar" (presets) e "Outro horário"', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  for (const nomeFuncao of ['irConfigurarPadraoQuickAdd', 'informarHorarioManualmenteQuickAdd']) {
-    const corpo = new RegExp(`function ${nomeFuncao}\\(\\) \\{([\\s\\S]*?)\\n {2}\\}`, 'u').exec(dashboard);
+  for (const nomeFuncao of ['confirmarQuickAddPlantao', 'abrirOutroHorarioQuickAddPlantao']) {
+    const corpo = new RegExp(`function ${nomeFuncao}\\([^)]*\\) \\{([\\s\\S]*?)\\n {2}\\}`, 'u').exec(dashboard);
     assert.ok(corpo, `${nomeFuncao} precisa existir`);
     assert.doesNotMatch(corpo[1], /setDoc|updateDoc|salvarAtribuicoesPlantaoRascunho|salvarCompetenciaPlantaoRascunho|await /u);
   }
