@@ -239,7 +239,7 @@ export type EscopoUsuario = 'GLOBAL' | 'EQUIPE' | 'UNIDADE';
 | Perfil | Escopo real | Fonte |
 | --- | --- | --- |
 | `ADMIN_SISTEMA` | Leitura/escrita em todas as equipes e unidades do ambiente. | `souAdminSistema()`, `firestore.rules:47-49` |
-| `GESTOR_UNIDADE` | Poderes de gestor restritos a `unidadesPermitidas`/`equipesPermitidas` — pode criar unidades/equipes **abaixo** das unidades permitidas. | `podeOperarNaUnidade()`, `firestore.rules:107-110` |
+| `GESTOR_UNIDADE` | Poderes de gestor restritos a `unidadesPermitidas`/`equipesPermitidas` — pode criar unidades/equipes **abaixo** das unidades permitidas (match exato ou subárvore, via caminho materializado). Desde a Fase ESCOPO-GESTOR-UNIDADE-1, também administra Grupo de Plantão cuja unidade responsável esteja no escopo — ver `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md` (mudança de regra aprovada; § 7 abaixo descrevia o comportamento anterior). | `podeOperarNaUnidade()`/`podeOperarNaUnidadeOuDescendente()`, `firestore.rules` |
 | `GESTOR_EQUIPE` | Poderes de gestor restritos à própria equipe (ou `equipesPermitidas` explícito). | `podeOperarNaEquipe()` |
 | `SUPERVISOR_EQUIPE` | **Mesmo alcance de `GESTOR_EQUIPE`** — nome distinto só para refletir o cargo real na hierarquia, nenhuma diferença de poder. | `ADMINISTRACAO_E_HIERARQUIA.md` |
 | `ANALISTA_SOC` / `ANALISTA_SUPORTE` | Colaborador comum — mesmo alcance entre si, nomes distintos só para refletir o cargo real. | — |
@@ -306,10 +306,17 @@ dois**, nunca usa `podeOperarNaEquipe()` isolada para autorizar escrita:
 
 ```
 souGestor() && podeOperarNaEquipe(equipeId)     // turnosMes, rascunhosTurnosMes, etc.
-podeGerenciarGrupoPlantao() = souGestor() && podeOperarNaEquipe(equipeResponsavelId)
+
+// Fase ESCOPO-GESTOR-UNIDADE-1 (docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md)
+// acrescentou um segundo caminho, OR — nunca substituindo o primeiro:
+podeGerenciarGrupoPlantao() =
+     (souGestor() && podeOperarNaEquipe(equipeResponsavelId))
+  || (souGestorUnidade() && unidadeResponsavelId dentro de unidadesPermitidas())
 ```
 
-A regra em prosa:
+Cada um dos dois caminhos continua exigindo pertencimento/escopo **e**
+perfil de gestor — nenhum dos dois vira `podeOperarNaEquipe()`/
+`podeOperarNaUnidade()` isolada. A regra em prosa:
 
 ```
 pertencimento/escopo  +  autorização administrativa (perfil de gestor)  =  poder de escrita
@@ -458,6 +465,13 @@ GrupoPlantao
 
 `participantes` ≠ `equipesConsulta` ≠ "administradores" (não existe esse
 terceiro conceito — administração vem do modelo organizacional, § 9).
+
+**Uma `Equipe` existir não implica que um `GrupoPlantao` existe apontando
+para ela** — nem mesmo quando o nome da equipe sugere Plantão (proibição
+permanente de inferir por nome/sigla, § 16). O provisionamento oficial de
+`GrupoPlantao` (pela UI ou por seed idempotente, nunca pelo Console do
+Firestore) é normativo em
+`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md` § 9.
 
 ---
 

@@ -52,7 +52,10 @@ type PerfilUsuario =
   ambiente.
 - **`GESTOR_UNIDADE`** — poderes de gestor restritos às unidades e equipes
   presentes em `unidadesPermitidas`/`equipesPermitidas`; pode criar unidades e
-  equipes abaixo das unidades permitidas.
+  equipes abaixo das unidades permitidas. Desde a Fase ESCOPO-GESTOR-UNIDADE-1
+  (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`), também administra Grupo
+  de Plantão cuja unidade responsável esteja dentro desse mesmo escopo —
+  antes dessa fase, `GESTOR_UNIDADE` nunca administrava Plantão.
 - **`GESTOR_EQUIPE`** e **`SUPERVISOR_EQUIPE`** — mesmo alcance entre si:
   poderes de gestor restritos à própria equipe.
 - **`ANALISTA_SOC`** e **`ANALISTA_SUPORTE`** — colaborador comum.
@@ -121,6 +124,15 @@ Guards puros usados nessas decisões:
 - No Dashboard: `podeAcessarAdministracao = souAdmin || souGestorUnidade` é o
   gate de exibição da aba "Administração"; o painel "Usuários"/"Simular
   gestor" é restrito a `ADMIN_SISTEMA` (`GESTOR_UNIDADE` não usa esse painel).
+- **Administração → Grupos de Plantão** (`tela === 'plantoes'`, sub-aba de
+  Administração) — CRUD completo de `GrupoPlantao` (`ModalGrupoPlantao`):
+  criar, editar (nome, descrição, equipe responsável, equipes que
+  consultam, timezone, ativo/inativo, padrão semanal), sem exclusão física
+  (`ativo: false`). Desde a Fase PROVISIONAMENTO-GRUPO-PLANTAO-1
+  (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md` § 9), este é um dos
+  dois caminhos oficiais para provisionar um Grupo — o outro é o Wizard
+  (`criarGrupoWizard()`) — nenhuma versão estável depende do Console do
+  Firestore para isso.
 
 ## Campos de escopo
 
@@ -210,8 +222,14 @@ bloqueando o acesso ao Dashboard.
   `delete` — só admin.
 - `equipes/{equipeId}`: `read` livre para autenticados; `create`/`update` —
   admin sempre, ou `GESTOR_UNIDADE` se a `unidadeId` do documento estiver em
-  `podeOperarNaUnidade`; `delete` sempre `false` (sem exclusão de equipe no
-  MVP, só `ativa: false`).
+  `podeOperarNaUnidade` (match exato) ou se `caminhoUnidade` contiver uma
+  unidade permitida como ancestral (`podeOperarNaUnidadeOuDescendente()`,
+  Fase ESCOPO-GESTOR-UNIDADE-1); `delete` sempre `false` (sem exclusão de
+  equipe no MVP, só `ativa: false`). `update` exige ORIGEM **e** DESTINO
+  (`unidadeId` do payload) dentro do escopo — antes dessa fase só a
+  origem era checada, o que permitia migrar uma equipe para fora do
+  escopo do gestor sem barreira (corrigido nesta fase, ver
+  `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md` § 6.2).
 - `setores/{setorId}`: `read` autenticado; `create`/`update` só admin;
   `delete` `false`.
 - `unidadesOrganizacionais/{unidadeId}`: `read` autenticado; `create` exige

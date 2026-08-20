@@ -10,6 +10,7 @@ import {
   estadoInicialSessao,
   nivelPermiteDashboard,
   perfilEfetivo,
+  podeAutoVincularConsultaPlantao,
   podeGerenciarEquipe,
   podeGerenciarGrupoPlantao,
   podeGerenciarUnidade,
@@ -234,8 +235,12 @@ describe('souGestorDePlantao', () => {
     expect(souGestorDePlantao(usuarioBase({ perfil: 'GESTOR_EQUIPE' }))).toBe(true);
   });
 
-  it('false para GESTOR_UNIDADE — Plantão não é administrado por quem gerencia a unidade', () => {
-    expect(souGestorDePlantao(usuarioBase({ perfil: 'GESTOR_UNIDADE' }))).toBe(false);
+  it('true para GESTOR_UNIDADE — mudança de regra aprovada na Fase ESCOPO-GESTOR-UNIDADE-1: só gate de VISIBILIDADE de tela, a autorização real por Grupo continua em podeGerenciarGrupoPlantao()', () => {
+    expect(souGestorDePlantao(usuarioBase({ perfil: 'GESTOR_UNIDADE' }))).toBe(true);
+  });
+
+  it('true para SUPERVISOR_EQUIPE (Fase ESCOPO-CONSULTA-PLANTAO-1 — mesmo alcance de GESTOR_EQUIPE, senão Wanessa/NOC nunca carregaria gruposPlantao para configurar Plantões monitorados)', () => {
+    expect(souGestorDePlantao(usuarioBase({ perfil: 'SUPERVISOR_EQUIPE' }))).toBe(true);
   });
 
   it('false para ANALISTA_SOC', () => {
@@ -245,22 +250,88 @@ describe('souGestorDePlantao', () => {
 
 describe('podeGerenciarGrupoPlantao', () => {
   it('admin sempre pode, mesmo sem pertencer à equipe responsável', () => {
-    expect(podeGerenciarGrupoPlantao(usuarioBase({ perfil: 'ADMIN_SISTEMA', equipeId: 'EQ_OUTRA' }), 'EQ_SOC')).toBe(true);
+    expect(podeGerenciarGrupoPlantao(
+      usuarioBase({ perfil: 'ADMIN_SISTEMA', equipeId: 'EQ_OUTRA' }),
+      { equipeResponsavelId: 'EQ_SOC' },
+    )).toBe(true);
   });
 
   it('GESTOR_EQUIPE só pode dentro de equipesPermitidasEfetivas', () => {
     const gestor = usuarioBase({ perfil: 'GESTOR_EQUIPE', equipeId: 'EQ_SOC', equipesPermitidas: ['EQ_SOC', 'EQ_PLANTAO_COSI'] });
-    expect(podeGerenciarGrupoPlantao(gestor, 'EQ_PLANTAO_COSI')).toBe(true);
-    expect(podeGerenciarGrupoPlantao(gestor, 'EQ_NOC')).toBe(false);
+    expect(podeGerenciarGrupoPlantao(gestor, { equipeResponsavelId: 'EQ_PLANTAO_COSI' })).toBe(true);
+    expect(podeGerenciarGrupoPlantao(gestor, { equipeResponsavelId: 'EQ_NOC' })).toBe(false);
   });
 
   it('pertencer à equipe responsável NÃO basta sem ser GESTOR_EQUIPE/ADMIN_SISTEMA — mesmo bug corrigido nas Rules na Fase PLANTÃO-3A', () => {
     const analista = usuarioBase({ perfil: 'ANALISTA_SOC', equipeId: 'EQ_SOC' });
-    expect(podeGerenciarGrupoPlantao(analista, 'EQ_SOC')).toBe(false);
+    expect(podeGerenciarGrupoPlantao(analista, { equipeResponsavelId: 'EQ_SOC' })).toBe(false);
   });
 
-  it('GESTOR_UNIDADE não administra Plantão mesmo com a equipe em unidadesPermitidas', () => {
+  it('GESTOR_UNIDADE administra o Grupo quando unidadeResponsavelId está em unidadesPermitidasEfetivas (Fase ESCOPO-GESTOR-UNIDADE-1)', () => {
     const gestorUnidade = usuarioBase({ perfil: 'GESTOR_UNIDADE', equipeId: 'EQ_SOC', unidadesPermitidas: ['COSI'] });
-    expect(podeGerenciarGrupoPlantao(gestorUnidade, 'EQ_SOC')).toBe(false);
+    expect(podeGerenciarGrupoPlantao(gestorUnidade, {
+      equipeResponsavelId: 'EQ_PLANTAO_COSI',
+      unidadeResponsavelId: 'COSI',
+    })).toBe(true);
+  });
+
+  it('GESTOR_UNIDADE administra via unidade ANCESTRAL, usando caminhoUnidadeResponsavel materializado (sem travessia de parentId)', () => {
+    const gestorUnidade = usuarioBase({ perfil: 'GESTOR_UNIDADE', equipeId: 'EQ_SOC', unidadesPermitidas: ['COSI'] });
+    expect(podeGerenciarGrupoPlantao(gestorUnidade, {
+      equipeResponsavelId: 'EQ_PLANTAO_COSI_SUL',
+      unidadeResponsavelId: 'COSI_SUL',
+      caminhoUnidadeResponsavel: ['COSI', 'COSI_SUL'],
+    })).toBe(true);
+  });
+
+  it('GESTOR_UNIDADE não administra Grupo fora do escopo, nem Grupo sem unidadeResponsavelId (documento antigo, retrocompatível)', () => {
+    const gestorUnidade = usuarioBase({ perfil: 'GESTOR_UNIDADE', equipeId: 'EQ_SOC', unidadesPermitidas: ['COSI'] });
+    expect(podeGerenciarGrupoPlantao(gestorUnidade, {
+      equipeResponsavelId: 'EQ_NOC',
+      unidadeResponsavelId: 'CODB',
+    })).toBe(false);
+    expect(podeGerenciarGrupoPlantao(gestorUnidade, { equipeResponsavelId: 'EQ_SOC' })).toBe(false);
+  });
+});
+
+describe('podeAutoVincularConsultaPlantao — Fase ESCOPO-CONSULTA-PLANTAO-1 (Plantões monitorados por equipe)', () => {
+  it('SUPERVISOR_EQUIPE/GESTOR_EQUIPE adiciona a própria equipe em equipesConsulta de um Grupo que não administra', () => {
+    const wanessa = usuarioBase({ perfil: 'SUPERVISOR_EQUIPE', equipeId: 'EQ_NOC', equipesPermitidas: ['EQ_NOC'] });
+    expect(podeAutoVincularConsultaPlantao(wanessa, ['EQ_PLANTAO_COSI'], ['EQ_PLANTAO_COSI', 'EQ_NOC'], 'EQ_PLANTAO_COSI')).toBe(true);
+    const gestorEquipe = usuarioBase({ perfil: 'GESTOR_EQUIPE', equipeId: 'EQ_NOC', equipesPermitidas: ['EQ_NOC'] });
+    expect(podeAutoVincularConsultaPlantao(gestorEquipe, ['EQ_PLANTAO_CODB'], ['EQ_PLANTAO_CODB', 'EQ_NOC'], 'EQ_PLANTAO_CODB')).toBe(true);
+  });
+
+  it('remove a própria equipe (desmonitorar)', () => {
+    const wanessa = usuarioBase({ perfil: 'SUPERVISOR_EQUIPE', equipeId: 'EQ_NOC', equipesPermitidas: ['EQ_NOC'] });
+    expect(podeAutoVincularConsultaPlantao(wanessa, ['EQ_PLANTAO_COSI', 'EQ_NOC'], ['EQ_PLANTAO_COSI'], 'EQ_PLANTAO_COSI')).toBe(true);
+  });
+
+  it('não consegue adicionar/remover outra equipe que não administra', () => {
+    const wanessa = usuarioBase({ perfil: 'SUPERVISOR_EQUIPE', equipeId: 'EQ_NOC', equipesPermitidas: ['EQ_NOC'] });
+    expect(podeAutoVincularConsultaPlantao(wanessa, ['EQ_PLANTAO_COSI'], ['EQ_PLANTAO_COSI', 'EQ_SOC'], 'EQ_PLANTAO_COSI')).toBe(false);
+  });
+
+  it('equipeResponsavelId nunca pode sair de equipesConsulta, mesmo se o usuário administrasse essa equipe', () => {
+    const gestorMultiEquipe = usuarioBase({ perfil: 'GESTOR_EQUIPE', equipeId: 'EQ_NOC', equipesPermitidas: ['EQ_NOC', 'EQ_PLANTAO_COSI'] });
+    expect(podeAutoVincularConsultaPlantao(gestorMultiEquipe, ['EQ_PLANTAO_COSI', 'EQ_NOC'], ['EQ_NOC'], 'EQ_PLANTAO_COSI')).toBe(false);
+  });
+
+  it('duas mudanças na mesma chamada é negado — só uma equipe por vez', () => {
+    const wanessa = usuarioBase({ perfil: 'SUPERVISOR_EQUIPE', equipeId: 'EQ_NOC', equipesPermitidas: ['EQ_NOC'] });
+    expect(podeAutoVincularConsultaPlantao(wanessa, ['EQ_PLANTAO_COSI'], ['EQ_PLANTAO_COSI', 'EQ_NOC', 'EQ_SOC'], 'EQ_PLANTAO_COSI')).toBe(false);
+  });
+
+  it('analista comum não consegue, mesmo pertencendo à equipe', () => {
+    const analista = usuarioBase({ perfil: 'ANALISTA_SOC', equipeId: 'EQ_NOC' });
+    expect(podeAutoVincularConsultaPlantao(analista, ['EQ_PLANTAO_COSI'], ['EQ_PLANTAO_COSI', 'EQ_NOC'], 'EQ_PLANTAO_COSI')).toBe(false);
+  });
+
+  it('ADMIN_SISTEMA não precisa deste caminho — já tem podeGerenciarGrupoPlantao() livre (esta função não precisa retornar true para admin)', () => {
+    const admin = usuarioBase({ perfil: 'ADMIN_SISTEMA', equipeId: 'EQ_OUTRA' });
+    // ADMIN_SISTEMA não é GESTOR_EQUIPE/SUPERVISOR_EQUIPE, então este
+    // caminho específico retorna false — mas o admin já passa livremente
+    // por podeGerenciarGrupoPlantao(), então nada fica bloqueado de fato.
+    expect(podeAutoVincularConsultaPlantao(admin, ['EQ_PLANTAO_COSI'], ['EQ_PLANTAO_COSI', 'EQ_NOC'], 'EQ_PLANTAO_COSI')).toBe(false);
   });
 });

@@ -116,14 +116,15 @@ test('9. nenhuma publicação de Plantão foi introduzida — publicarPlantao co
   assert.match(rules, /allow create, update, delete: if false;/u, 'escrita de competenciasPlantao continua bloqueada');
 });
 
-test('10. Firestore Rules: leitura de gruposPlantao permanece inalterada (só create/update passam a aceitar o campo novo)', async () => {
+test('10. Firestore Rules: leitura de gruposPlantao continua incluindo o caminho de equipesConsulta (Fase ESCOPO-CONSULTA-PLANTAO-1 só ACRESCENTOU caminhos novos, nunca removeu este); nenhum deles menciona o campo de padrão semanal', async () => {
   const rules = await ler('firestore.rules');
   const bloco = /match \/gruposPlantao\/\{grupoId\} \{([\s\S]*?)\n {4}\}/u.exec(rules);
   assert.ok(bloco, 'bloco de Rules de gruposPlantao precisa existir');
   const leitura = /allow read: if ([\s\S]*?);/u.exec(bloco[1]);
   assert.ok(leitura, 'allow read precisa existir');
   assert.match(leitura[1], /autenticado\(\)/u);
-  assert.match(leitura[1], /souAdminSistema\(\) \|\| minhaEquipe\(\) in resource\.data\.equipesConsulta/u);
+  assert.match(leitura[1], /souAdminSistema\(\)/u);
+  assert.match(leitura[1], /minhaEquipe\(\)\s+in\s+resource\.data\.equipesConsulta/u);
   assert.doesNotMatch(leitura[1], /padraoHorarioSemanal/u, 'a regra de leitura não precisa (e não deve) mencionar o campo novo');
 });
 

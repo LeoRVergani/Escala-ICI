@@ -67,12 +67,13 @@ test('7. o item ativo da sidebar usa areaNavegacaoDaTela(tela), nunca a tela cru
   assert.doesNotMatch(dashboard, /ativo=\{tela\}/u, 'nenhum ponto pode voltar a passar `tela` crua como item ativo da sidebar');
 });
 
-test('8. "Escalas" oferece pontes explícitas para Importar e para Grade — nunca escondidas', async () => {
+test('8. "Escalas" oferece apenas Nova escala e Importar escala como ações primárias; a Grade permanece contextual', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const bloco = /\{tela === 'escalas' && \(([\s\S]*?)\n {6}\)\}/u.exec(dashboard);
   assert.ok(bloco, 'o bloco de "escalas" precisa existir');
-  assert.match(bloco[1], /onClick=\{\(\) => setTela\('importar'\)\}/u, '"Escalas" precisa oferecer uma ponte para "Importar"');
-  assert.match(bloco[1], /onClick=\{\(\) => setTela\('grade'\)\}/u, '"Escalas" precisa oferecer uma ponte para "Grade"');
+  assert.match(bloco[1], /onClick=\{abrirImportarEscala\}/u, '"Escalas" precisa abrir o wizard de Importar');
+  assert.match(bloco[1], /onClick=\{abrirNovaEscala\}/u, '"Escalas" precisa abrir o wizard de Nova escala');
+  assert.doesNotMatch(bloco[1], />\s*(?:<[^>]+>\s*)?Abrir grade\b/u, '"Abrir grade" não pode ser uma ação primária da tela Escalas');
 });
 
 test('9. "Administração" oferece a sub-navegação Organização/Grupos de Plantão, e "Plantões" (Grupos de Plantão) referencia a mesma sub-navegação', async () => {
@@ -127,8 +128,8 @@ test('13. AppFrame continua sem nenhum conceito de contexto de escala — só re
   assert.doesNotMatch(appFrame, /GrupoPlantao|CompetenciaPlantao|AtribuicaoPlantao/u, 'AppFrame continua genérico — nunca importa tipos de domínio de Plantão');
 });
 
-test('14. os breadcrumbs transitórios de "Importar"/"Grade" voltam para "Escalas", nunca para uma tela removida', async () => {
+test('14. os breadcrumbs transitórios de "Importar"/"Grade" voltam para "Escalas" usando o botão compacto aprovado', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  const ocorrencias = dashboard.match(/className="link-button" onClick=\{\(\) => setTela\('escalas'\)\}/gu) ?? [];
-  assert.equal(ocorrencias.length, 2, 'tanto "Importar" quanto "Grade" precisam de um botão de volta para Escalas');
+  const ocorrencias = dashboard.match(/className="screen-back-button" onClick=\{\(\) => setTela\('escalas'\)\}/gu) ?? [];
+  assert.equal(ocorrencias.length, 2, 'tanto "Importar" quanto "Grade" precisam de um botão compacto de volta para Escalas');
 });

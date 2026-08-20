@@ -909,6 +909,39 @@ campo).
 `equipeResponsavelId` é imutável após a criação (seção 20.6) — reatribuir
 o grupo a outra equipe é decisão adiada.
 
+#### 20.3-A `unidadeResponsavelId`/`caminhoUnidadeResponsavel` (Fase ESCOPO-GESTOR-UNIDADE-1)
+
+Dois campos novos, **opcionais e retrocompatíveis**:
+
+```ts
+interface GrupoPlantao {
+  // ...campos de 20.3, inalterados...
+  unidadeResponsavelId?: string;       // Equipe.unidadeId da equipe responsável, copiado na criação/edição
+  caminhoUnidadeResponsavel?: string[]; // Equipe.caminhoUnidade da equipe responsável, idem
+}
+```
+
+Denormalizados para autorizar `GESTOR_UNIDADE` sem exigir `get()` na
+`Equipe` a cada avaliação de Rule (mesmo padrão de `destinatarioEquipeId`
+em `lembretesAtribuidos`). Diferente de `equipeResponsavelId` (imutável),
+estes dois campos são **mutáveis** — se a equipe responsável migrar de
+unidade depois, alguém com poder de gestor sobre o Grupo precisa
+atualizá-los manualmente; não há recálculo automático. Detalhe completo
+em `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md` § 5.
+
+**Fase PROVISIONAMENTO-GRUPO-PLANTAO-1**: `firestore.rules`
+`gruposPlantao.update` passou a checar `podeGerenciarGrupoPlantao()` tanto
+sobre o estado atual quanto sobre o estado novo do documento — antes,
+`unidadeResponsavelId` podia migrar livremente para fora do escopo do
+gestor que fez a edição (mesma classe de gap corrigida para `equipes` na
+Fase ESCOPO-GESTOR-UNIDADE-1, agora fechada aqui também). A derivação
+desses dois campos a partir da `Equipe` responsável NUNCA é feita à mão
+pelo usuário nem duplicada em dois lugares — `lib/gruposPlantaoProvisionamento.ts`
+(`construirGrupoPlantaoOficial()`/`derivarUnidadeResponsavelDoGrupoPlantao()`)
+é a única fonte, usada tanto por `ModalGrupoPlantao` (Administração) quanto
+por `criarGrupoWizard()` (Wizard) — ver
+`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md` § 9.
+
 ### 20.4 Por que RASCUNHO e PUBLICADA são coleções separadas
 
 Mesmo padrão de `rascunhosTurnosMes`/`turnosMes`: nunca um único campo
@@ -1134,6 +1167,15 @@ leitura permitida e escrita sempre bloqueada), e 8 testes de fronteira
   equipe — hoje imutável, decisão aceita para não abrir uma via de
   transferência de poder administrativo sem revisão dedicada.
 
+> **Atualização — Fase PROVISIONAMENTO-GRUPO-PLANTAO-1**
+> (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md` § 9): "Integração real"
+> item acima foi concluído — `ModalGrupoPlantao`/`criarGrupoWizard()`
+> (Dashboard) chamam `plantaoWriteRepository`/`plantaoReadRepository` de
+> verdade; nenhuma versão estável pode mais depender de criar
+> `gruposPlantao/{grupoId}` manualmente pelo Console do Firestore. Ver essa
+> seção para o detalhe completo do provisionamento oficial (Wizard,
+> Administração, e seed idempotente).
+
 ## 21. PLANTÃO-3B — administração e rascunho no Dashboard
 
 Integra no Dashboard tudo que a PLANTÃO-3A construiu sem UI: uma tela
@@ -1158,13 +1200,29 @@ de `firestore.rules` — **GESTOR_UNIDADE nunca vê a tela**, porque não
 administra Plantão em nenhuma circunstância (a Rule já garantia isso desde a
 PLANTÃO-3A; esta fase só faz o Dashboard refletir a mesma fronteira).
 
+> **Atualização — Fase ESCOPO-GESTOR-UNIDADE-1
+> (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`), mudança de regra
+> aprovada**: o parágrafo acima descreve o comportamento **até** essa fase.
+> A partir dela, `souGestorDePlantao()` também é `true` para
+> `GESTOR_UNIDADE` (gate de VISIBILIDADE da tela/seletor superior), e
+> `podeGerenciarGrupoPlantao()` ganhou um segundo caminho de autorização:
+> `GESTOR_UNIDADE` administra um Grupo cuja `unidadeResponsavelId`
+> (campo novo, opcional/retrocompatível, seção 20.3-A) esteja dentro de
+> `unidadesPermitidasEfetivas()`. Um coordenador de unidade que administra
+> uma equipe dedicada a Plantão (ex.: "Plantão COSI") passa a administrar
+> o Grupo correspondente, sem precisar de `equipesPermitidas` explícito.
+> Grupo antigo sem o campo continua fora do alcance de qualquer
+> `GESTOR_UNIDADE` — só do `GESTOR_EQUIPE`/`ADMIN_SISTEMA` de sempre.
+
 Dentro da tela, cada Grupo listado mostra um badge "Você só consulta este
 grupo" e esconde os botões de administração quando
 `podeGerenciarGrupoPlantao(usuarioReal, grupo.equipeResponsavelId)` — nova
 função-espelho de `lib/sessao.ts`, mesma composição `souGestorDePlantao() &&
 (admin || equipeResponsavelId em equipesPermitidasEfetivas())` que a Rule já
 usava — é `false`. Isso é só UX: a Rule continua sendo a fronteira real (ver
-§21.7).
+§21.7). Desde a Fase ESCOPO-GESTOR-UNIDADE-1, `podeGerenciarGrupoPlantao()`
+passou a receber o Grupo inteiro (não só `equipeResponsavelId`), para também
+avaliar o caminho de `GESTOR_UNIDADE` descrito acima.
 
 ### 21.2 `ModalGrupoPlantao` — criar/editar Grupo
 

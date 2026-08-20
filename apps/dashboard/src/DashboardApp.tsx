@@ -30,11 +30,11 @@ import {
   type ParticipantePlantao,
   type ResultadoParse,
   type ResultadoParsePlantao,
-  type TipoTurno,
   type TurnosMes,
 } from '@escala-ici/contrato';
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowLeftRight,
   ArrowUpRight,
   Ban,
@@ -45,7 +45,6 @@ import {
   ChevronRight,
   FileSpreadsheet,
   Filter,
-  Grid3X3,
   HelpCircle,
   Link2,
   LoaderCircle,
@@ -72,6 +71,7 @@ import * as XLSX from 'xlsx';
 import { AppFrame, type ItemNavegacao } from '@/components/AppFrame';
 import { LoginPanel } from '@/components/LoginPanel';
 import { ScheduleGrid } from '@/components/ScheduleGrid';
+import { ScheduleImportReview } from '@/components/ScheduleImportReview';
 import { ScheduleLegend } from '@/components/ScheduleLegend';
 import {
   conciliarPlanilha,
@@ -102,7 +102,15 @@ import {
 } from '@/lib/conciliacaoPlantoes';
 import { processarArquivoImportado } from '@/lib/importadorPlanilha';
 import {
+  calcularCicloInicialJornada6x1,
+  mensagemCicloInicialJornada6x1,
+} from '@/lib/cicloJornada6x1';
+import {
   EQUIPE_DEMO,
+  EQUIPE_PLANTAO_DEMO,
+  GRUPO_PLANTAO_DEMO,
+  PARTICIPANTES_PLANTAO_DEMO,
+  UNIDADE_COSI_DEMO,
   USUARIOS_DEMO,
   carregarEscalaDemonstracao,
 } from '@/lib/demo';
@@ -138,11 +146,13 @@ import {
   listarAtribuicoesPlantaoRascunho,
   listarCompetenciasPlantaoRascunho,
   listarGruposPlantaoPermitidos,
+  listarGruposPlantaoPorUnidadeResponsavel,
   listarParticipantesPlantao,
   listarTodosGruposPlantao,
   obterCompetenciaPlantaoRascunho,
 } from '@/lib/firebase/plantaoReadRepository';
 import {
+  atualizarEquipeConsultaPlantao,
   desativarParticipantePlantao,
   salvarAtribuicoesPlantaoRascunho,
   salvarCompetenciaPlantaoRascunho,
@@ -180,6 +190,7 @@ import {
   type FormularioAtribuicaoPlantao,
 } from '@/components/plantao/ModalEditarAtribuicaoPlantao';
 import { PadraoHorarioSemanalCampo } from '@/components/plantao/PadraoHorarioSemanalCampo';
+import { derivarPadroesHorarioPlantao } from '@/components/plantao/horariosPlantao';
 import {
   excluirEscalaPublicada,
   excluirUsuario,
@@ -215,6 +226,7 @@ import { ScheduleContextSwitcher, type OpcaoContextoEscala } from '@/components/
 import { ScheduleCompetenceControl } from '@/components/escalas/ScheduleCompetenceControl';
 import { ScheduleStatusBadge, type StatusContextoEscala } from '@/components/escalas/ScheduleStatusBadge';
 import { UnsavedChangesDialog } from '@/components/escalas/UnsavedChangesDialog';
+import { ScheduleStartWizard, type ScheduleStartWizardProps } from '@/components/escalas/ScheduleStartWizard';
 import {
   COMPETENCIA_ATUAL,
   ehAdminSistema,
@@ -269,6 +281,27 @@ import {
 } from '@/lib/gradeMembros';
 import { mapaLogins, normalizarAliasesPlanilha, novoUsuario, validarEdicaoUsuario } from '@/lib/importUsers';
 import {
+  areasParaExibicaoNoWizard,
+  identificadorGrupoPlantaoDaEquipe,
+  normalizarIdentificadorTecnico,
+  resolverAreaAtiva,
+  resolverEquipeParaJornada,
+  resolverEquipeResponsavelParaPlantao,
+  resolverGrupoParaPlantao,
+  unidadesAdministraveis,
+  equipesAdministraveisNaUnidade,
+  equipesCandidatasParaPlantao,
+  gruposPlantaoAdministraveis,
+  validarCadastroInline,
+} from '@/lib/inicioEscala';
+import {
+  plantoesDisponiveisParaMonitoramento,
+  plantoesMonitoradosPelaEquipe,
+  resolverEscoposOperacionais,
+  type EscoposOperacionais,
+} from '@/lib/escoposOperacionais';
+import { construirGrupoPlantaoOficial, derivarUnidadeResponsavelDoGrupoPlantao } from '@/lib/gruposPlantaoProvisionamento';
+import {
   LIMITE_DESCRICAO_LEMBRETE,
   LIMITE_TITULO_LEMBRETE,
   criarOcorrenciasSerie,
@@ -298,6 +331,12 @@ import type {
 } from '@/lib/modelos';
 
 type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao';
+type OpcoesInicioImportacao = {
+  tipoEsperado?: 'ESCALA_6X1' | 'PLANTAO';
+  equipeId?: string;
+  grupoId?: string;
+  competencia?: string;
+};
 
 /**
  * Fase ESCALAS-UX-2A.1 — a intenção de troca (contexto OU competência)
@@ -461,46 +500,6 @@ function montarAlertasVisiveis(
     : [];
 
   return [...doMonitoramento, ...publicacaoIncompleta];
-}
-
-interface CargaColaborador {
-  login: string;
-  nome: string;
-  turnoPadrao: string;
-  diasTrabalhados: number;
-  folgas: number;
-  minutos: number;
-}
-
-/**
- * Carga por colaborador — reaproveita `calcularTotais` (mesma função que
- * já alimenta "Horas planejadas" no metric-grid) para cada documento em
- * memória, sem nenhuma consulta nova. "Trabalhados" e "folgas" seguem a
- * mesma semântica de `Totais`: trabalhados = dias de categoria TRABALHO
- * (MD/M/T/N no catálogo atual — X e AFA não contam, por serem AUSENCIA);
- * folgas = DF + DU. BH (COMPENSACAO) e X (AUSENCIA) não entram em nenhuma
- * das duas colunas — ambíguo demais pra inventar uma terceira categoria
- * agora (ver Totais em packages/contrato/src/totais.ts).
- */
-function montarCargaColaboradores(
-  documentos: TurnosMes[],
-  usuarios: Usuario[],
-  catalogo: Record<string, TipoTurno>,
-): CargaColaborador[] {
-  const nomes = Object.fromEntries(usuarios.map((usuario) => [usuario.login, usuario.nome]));
-  return documentos
-    .map((documento): CargaColaborador => {
-      const totais = calcularTotais(documento.dias, catalogo);
-      return {
-        login: documento.login,
-        nome: nomes[documento.login] ?? documento.login,
-        turnoPadrao: documento.turnoPadrao,
-        diasTrabalhados: totais.diasTrabalhados,
-        folgas: totais.df + totais.du,
-        minutos: totais.min,
-      };
-    })
-    .sort((a, b) => b.minutos - a.minutos || a.nome.localeCompare(b.nome));
 }
 
 interface AlertasOperacionaisBellProps {
@@ -698,6 +697,26 @@ const NAVEGACAO: ItemNavegacao[] = [
   { id: 'usuarios', rotulo: 'Usuários', icone: 'users' },
   { id: 'administracao', rotulo: 'Administração', icone: 'admin' },
 ];
+
+/**
+ * Fase ESCOPO-CONSULTA-PLANTAO-1 — no-op estável (referência única, nunca
+ * recriada a cada render) para os callbacks de escrita de Plantão
+ * (`onEditarAtribuicao`/`onSolicitarNovaAtribuicao`) quando o contexto
+ * ativo é só consultável. Defesa em profundidade: mesmo que algum botão
+ * do calendário (`modo="consulta"`) escapasse do bloqueio visual, o
+ * clique não teria efeito nenhum.
+ */
+function NAO_OPERAR_PLANTAO_CONSULTA(): void {}
+
+/** Estado neutro de `resolverEscoposOperacionais()` enquanto `usuarioReal` ainda é `null` (sessão não resolvida). */
+const ESCOPOS_OPERACIONAIS_VAZIOS: EscoposOperacionais = {
+  unidadesAdministraveis: [],
+  equipesAdministraveis: [],
+  jornadasAdministraveis: [],
+  gruposPlantaoAdministraveis: [],
+  plantoesAdministraveis: [],
+  plantoesConsultaveis: [],
+};
 
 interface CelulaEditando {
   documento: TurnosMes;
@@ -1133,9 +1152,26 @@ function ModalGrupoPlantao({
       setErro('Já existe um grupo de Plantão com esse identificador.');
       return;
     }
+    /**
+     * Fase PROVISIONAMENTO-GRUPO-PLANTAO-1 — `unidadeResponsavelId`/
+     * `caminhoUnidadeResponsavel` NUNCA digitados pelo usuário: sempre
+     * copiados da equipe responsável já escolhida no picker acima
+     * (`equipeResponsavelAtual`), mesma fonte/mesma função usada por
+     * `criarGrupoWizard()` no Wizard (`lib/gruposPlantaoProvisionamento.ts`,
+     * única fonte da derivação). Sem isso, um `GESTOR_UNIDADE` salvando por
+     * este modal (em vez do fluxo inline do Wizard) teria o `create`/
+     * `update` negado pelas Rules — o segundo caminho de autorização
+     * (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md` § 5) exige esses
+     * campos preenchidos. Se a equipe não for encontrada (raro — lista
+     * ainda carregando), preserva o valor já existente no formulário em vez
+     * de apagá-lo silenciosamente.
+     */
+    const unidadeDerivada = derivarUnidadeResponsavelDoGrupoPlantao(equipeResponsavelAtual);
     const candidato: GrupoPlantao = {
       ...form,
       equipesConsulta: equipesConsultaEfetivas(form.equipeResponsavelId, form.equipesConsulta),
+      unidadeResponsavelId: unidadeDerivada.unidadeResponsavelId ?? form.unidadeResponsavelId,
+      caminhoUnidadeResponsavel: unidadeDerivada.caminhoUnidadeResponsavel ?? form.caminhoUnidadeResponsavel,
       // Fase PLANTAO-PADRAO-1 — sempre ordenado (Domingo→Sábado) antes de
       // salvar; array vazio equivale a "nenhum padrão configurado", nunca
       // persistido como `[]` (mesmo princípio de `descricao` em branco
@@ -2220,188 +2256,6 @@ function AdministracaoSubnav({
  * Editor). Nunca pede timezone/ACL/contatos aqui — isso é configuração do
  * Grupo, não da escala mensal (§ 9/§ 11 da fase).
  */
-function ModalNovaEscala({
-  etapa,
-  onFechar,
-  onEscolherJornada,
-  onEscolherPlantao,
-  podeAcessarPlantoes,
-  gruposDisponiveis,
-  equipes,
-  participantesPorGrupo,
-  rascunhosPorGrupo,
-  grupoId,
-  onMudarGrupo,
-  competencia,
-  onMudarCompetencia,
-  erro,
-  criando,
-  rascunhoExistente,
-  onAbrirRascunhoExistente,
-  onImportarPlanilha,
-  onCriarVazia,
-  onUsarPeriodoAnterior,
-}: {
-  etapa: 'tipo' | 'plantao';
-  onFechar: () => void;
-  onEscolherJornada: () => void;
-  onEscolherPlantao: () => void;
-  podeAcessarPlantoes: boolean;
-  gruposDisponiveis: GrupoPlantao[];
-  equipes: Equipe[];
-  participantesPorGrupo: Record<string, ParticipantePlantao[]>;
-  rascunhosPorGrupo: Record<string, CompetenciaPlantao[]>;
-  grupoId: string;
-  onMudarGrupo: (grupoId: string) => void;
-  competencia: string;
-  onMudarCompetencia: (competencia: string) => void;
-  erro: string;
-  criando: boolean;
-  rascunhoExistente: CompetenciaPlantao | null;
-  onAbrirRascunhoExistente: () => void | Promise<void>;
-  onImportarPlanilha: () => void;
-  onCriarVazia: () => void;
-  onUsarPeriodoAnterior: () => void | Promise<void>;
-}) {
-  useTeclaEsc(onFechar);
-  const grupoEscolhido = gruposDisponiveis.find((item) => item.grupoId === grupoId) ?? null;
-  const equipeResponsavelNome = grupoEscolhido === null
-    ? ''
-    : (equipes.find((item) => item.id === grupoEscolhido.equipeResponsavelId)?.nome ?? grupoEscolhido.equipeResponsavelId);
-  const participantesAtivos = grupoEscolhido === null
-    ? []
-    : (participantesPorGrupo[grupoEscolhido.grupoId] ?? []).filter((item) => item.ativo);
-  const competenciaNormalizada = competencia.trim();
-  const periodoPreview = /^\d{4}-\d{2}$/u.test(competenciaNormalizada) ? periodoDaCompetencia(competenciaNormalizada) : null;
-  const podeCriar = grupoEscolhido !== null && periodoPreview !== null && !criando;
-  // Fase ESCALAS-UX-1C — "Usar período anterior" só fica disponível quando
-  // a competência EXATAMENTE anterior (nunca "a mais recente que existir")
-  // já tem um rascunho salvo para este Grupo.
-  const labelCompetenciaAnterior = periodoPreview !== null ? competenciaAnterior(competenciaNormalizada) : null;
-  const competenciaAnteriorEncontrada = grupoEscolhido === null || labelCompetenciaAnterior === null
-    ? null
-    : (rascunhosPorGrupo[grupoEscolhido.grupoId] ?? []).find((item) => item.competencia === labelCompetenciaAnterior) ?? null;
-
-  return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
-      <section
-        className="edit-modal admin-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="nova-escala-modal-title"
-        onMouseDown={(evento) => evento.stopPropagation()}
-      >
-        <div className="panel-title">
-          <div>
-            <h2 id="nova-escala-modal-title">{etapa === 'tipo' ? 'O que você quer criar?' : 'Novo Plantão'}</h2>
-          </div>
-          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
-            <X size={18} />
-          </button>
-        </div>
-
-        {etapa === 'tipo' && (
-          <div className="nova-escala-tipos">
-            <button type="button" className="nova-escala-tipo-card" onClick={onEscolherJornada}>
-              <CalendarDays size={22} />
-              <strong>Escala de jornada</strong>
-              <span>Turnos 6x1 por colaborador — usa a importação e a grade já existentes.</span>
-            </button>
-            <button
-              type="button"
-              className="nova-escala-tipo-card"
-              onClick={onEscolherPlantao}
-              disabled={!podeAcessarPlantoes}
-            >
-              <Radio size={22} />
-              <strong>Plantão</strong>
-              <span>Intervalos de plantão por grupo — crie uma escala vazia ou importe uma planilha.</span>
-            </button>
-            {!podeAcessarPlantoes && (
-              <p className="admin-form-preview">Você não administra nenhum Grupo de Plantão.</p>
-            )}
-          </div>
-        )}
-
-        {etapa === 'plantao' && (
-          <>
-            <label htmlFor="nova-escala-grupo">
-              Grupo de Plantão
-              <select id="nova-escala-grupo" value={grupoId} onChange={(evento) => onMudarGrupo(evento.target.value)}>
-                <option value="">Selecione um grupo que você administra</option>
-                {gruposDisponiveis.map((grupo) => <option key={grupo.grupoId} value={grupo.grupoId}>{grupo.nome}</option>)}
-              </select>
-            </label>
-            {grupoEscolhido !== null && (
-              <div className="nova-escala-grupo-resumo">
-                <strong>{grupoEscolhido.nome}</strong>
-                <span>Equipe responsável: {equipeResponsavelNome}</span>
-                <span>Participantes ativos: {participantesAtivos.length}</span>
-              </div>
-            )}
-            <label htmlFor="nova-escala-competencia">
-              Competência (AAAA-MM)
-              <input
-                id="nova-escala-competencia"
-                placeholder="2026-08"
-                value={competencia}
-                onChange={(evento) => onMudarCompetencia(evento.target.value)}
-              />
-            </label>
-            {periodoPreview !== null && (
-              <p className="admin-form-preview">
-                {formatarData(periodoPreview.periodoInicio, { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                {' → '}
-                {formatarData(periodoPreview.periodoFim, { day: '2-digit', month: '2-digit', year: 'numeric' })}
-              </p>
-            )}
-            {rascunhoExistente !== null && (
-              <div className="warning-panel-inline">
-                <span className="status-badge warning">Já existe um rascunho para este Plantão e competência.</span>
-                <button
-                  className="secondary-button compact-button"
-                  type="button"
-                  disabled={criando}
-                  onClick={() => void onAbrirRascunhoExistente()}
-                >
-                  {criando ? <LoaderCircle className="spin" size={14} /> : null} Abrir rascunho existente
-                </button>
-              </div>
-            )}
-            {erro !== '' && <p className="admin-form-erro">{erro}</p>}
-            <p className="nova-escala-como-comecar-titulo">Como começar?</p>
-            <div className="rollback-actions">
-              <button className="secondary-button" type="button" onClick={onImportarPlanilha}>
-                <UploadCloud size={16} /> Importar planilha
-              </button>
-              {/*
-               * Fase ESCALAS-UX-1C — terceira forma de começar (§7/§11):
-               * só habilitada quando a competência EXATAMENTE anterior já
-               * tem um rascunho persistido para este Grupo — nunca cria
-               * uma escala vazia disfarçada quando não existe anterior.
-               */}
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={!podeCriar || competenciaAnteriorEncontrada === null}
-                onClick={() => void onUsarPeriodoAnterior()}
-                title={competenciaAnteriorEncontrada === null
-                  ? 'Não existe uma escala anterior para este Plantão.'
-                  : `Copia a estrutura de ${labelCompetenciaAnterior}`}
-              >
-                {criando ? <LoaderCircle className="spin" size={16} /> : <RotateCcw size={16} />} Usar período anterior
-              </button>
-              <button className="primary-button" type="button" disabled={!podeCriar} onClick={onCriarVazia}>
-                {criando ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} Criar escala vazia
-              </button>
-            </div>
-          </>
-        )}
-      </section>
-    </div>
-  );
-}
-
 type AbaPreviaPlantao = 'calendario' | 'resumo' | 'plantoes' | 'contabilidade' | 'vinculos';
 
 interface PreviewPlantaoProps {
@@ -2456,6 +2310,16 @@ interface PreviewPlantaoProps {
   onSolicitarNovaAtribuicao: (plantonistaNomeOriginal: string, dataIso: string) => void;
   /** Nomes normalizados (`normalizarNome`) de participantes inativos referenciados por alguma atribuição — para o roster mostrar "Inativo" sem esconder a escala. */
   nomesInativosPlantao: ReadonlySet<string>;
+  /**
+   * Fase ESCOPO-CONSULTA-PLANTAO-1 — `true` quando o Plantão em contexto é
+   * só consultável pela equipe (autovínculo de consulta, nunca
+   * administração). Além de repassar `modo="consulta"` ao calendário
+   * (bloqueia clique em atribuição/criação — ver `PlantaoCalendario`), os
+   * CALLBACKS de escrita (`onEditarAtribuicao`/`onSolicitarNovaAtribuicao`)
+   * já chegam como no-op do chamador quando isto é `true` — dupla
+   * proteção, nunca uma escrita alcança este componente por engano.
+   */
+  somenteConsulta?: boolean;
 }
 
 /**
@@ -2497,6 +2361,7 @@ function PreviewPlantao({
   onSelecionarPlantonista,
   onSolicitarNovaAtribuicao,
   nomesInativosPlantao,
+  somenteConsulta = false,
 }: PreviewPlantaoProps) {
   const vinculoPorParticipante = new Map(vinculos.map((vinculo) => [vinculo.participanteNomeOriginal, vinculo]));
   const nomesPendentesPlantao = new Set(
@@ -2530,6 +2395,11 @@ function PreviewPlantao({
           {resultado !== null && (
             <span className={`status-badge ${resultado.ok ? 'success' : 'danger'}`}>
               {resultado.ok ? 'Sem erros estruturais' : `${resultado.erros.length} erro(s)`}
+            </span>
+          )}
+          {somenteConsulta && (
+            <span className="status-badge warning" title="Sua equipe monitora este Plantão — só consulta, sem poder de edição/importação/publicação">
+              Somente consulta
             </span>
           )}
         </div>
@@ -2676,14 +2546,16 @@ function PreviewPlantao({
              * mesma informação (`resumoPorPessoa`, nenhum recálculo) agora
              * vive ao lado, sempre visível, sem duplicar a lista embaixo.
              */}
-            <div className="plantao-editor-layout">
-              <PlantaoRoster
-                pessoas={resumoPorPessoa}
-                plantonistaSelecionado={plantonistaSelecionado}
-                onSelecionarPlantonista={onSelecionarPlantonista}
-                nomesInativos={nomesInativosPlantao}
-                nomesPendentes={nomesPendentesPlantao}
-              />
+            <div className={`plantao-editor-layout${resultado !== null ? ' plantao-editor-layout-importacao' : ''}`}>
+              {resultado === null && (
+                <PlantaoRoster
+                  pessoas={resumoPorPessoa}
+                  plantonistaSelecionado={plantonistaSelecionado}
+                  onSelecionarPlantonista={onSelecionarPlantonista}
+                  nomesInativos={nomesInativosPlantao}
+                  nomesPendentes={nomesPendentesPlantao}
+                />
+              )}
               <div className="plantao-editor-central">
                 {periodoInicio !== '' && periodoFim !== '' ? (
                   <PlantaoCalendario
@@ -2694,6 +2566,7 @@ function PreviewPlantao({
                     atribuicoes={atribuicoesEditaveis}
                     onEditarAtribuicao={onEditarAtribuicao}
                     plantonistaSelecionado={plantonistaSelecionado}
+                    modo={somenteConsulta ? 'consulta' : (resultado !== null ? 'importacao' : 'editor')}
                     onSolicitarNovaAtribuicao={onSolicitarNovaAtribuicao}
                   />
                 ) : (
@@ -2960,7 +2833,7 @@ export function DashboardApp() {
   const [simulando, setSimulando] = useState<Usuario | null>(null);
   const usuarioEfetivo = simulando ?? usuarioReal;
   const [modoDemo, setModoDemo] = useState(true);
-  const [tela, setTela] = useState<Tela>('importar');
+  const [tela, setTela] = useState<Tela>('escalas');
   const [usuarios, setUsuarios] = useState<Usuario[]>(USUARIOS_DEMO);
   const [catalogo, setCatalogo] = useState(CATALOGO_SOC);
   const [resultado, setResultado] = useState<ResultadoParse | null>(null);
@@ -2973,6 +2846,7 @@ export function DashboardApp() {
   const [filtroTurno, setFiltroTurno] = useState('TODOS');
   const [buscaUsuario, setBuscaUsuario] = useState('');
   const [celulaEditando, setCelulaEditando] = useState<CelulaEditando | null>(null);
+  const [cicloInicial6x1Ativo, setCicloInicial6x1Ativo] = useState(false);
   const [historico, setHistorico] = useState<PublicacaoEscala[]>([]);
   const [revisaoAtual, setRevisaoAtual] = useState(0);
   const [revisaoParaRestaurar, setRevisaoParaRestaurar] = useState<PublicacaoEscala | null>(null);
@@ -3083,17 +2957,23 @@ export function DashboardApp() {
    */
   const [intencaoTrocaEscalaPendente, setIntencaoTrocaEscalaPendente] = useState<IntencaoTrocaEscala | null>(null);
   // --- "+ Nova escala" (Fase ESCALAS-UX-1B) — escolher tipo, depois grupo/competência de Plantão ---
-  const [novaEscalaEtapa, setNovaEscalaEtapa] = useState<'tipo' | 'plantao' | null>(null);
-  const [novoPlantaoGrupoId, setNovoPlantaoGrupoId] = useState('');
-  const [novoPlantaoCompetencia, setNovoPlantaoCompetencia] = useState('');
-  const [novoPlantaoErro, setNovoPlantaoErro] = useState('');
-  const [novoPlantaoCriando, setNovoPlantaoCriando] = useState(false);
-  const [novoPlantaoRascunhoExistente, setNovoPlantaoRascunhoExistente] = useState<CompetenciaPlantao | null>(null);
+  // Wizard único de início: Nova e Importar compartilham o mesmo contexto.
+  const [wizardInicio, setWizardInicio] = useState<ScheduleStartWizardProps['modo'] | null>(null);
+  const [wizardTipo, setWizardTipo] = useState<ScheduleStartWizardProps['tipo']>(null);
+  const [wizardAreaId, setWizardAreaId] = useState('');
+  const [wizardEquipeId, setWizardEquipeId] = useState('');
+  const [wizardGrupoId, setWizardGrupoId] = useState('');
+  const [wizardCompetencia, setWizardCompetencia] = useState(COMPETENCIA_ATUAL);
+  const [wizardArquivoNome, setWizardArquivoNome] = useState('');
+  const [wizardErro, setWizardErro] = useState('');
+  const [wizardProcessando, setWizardProcessando] = useState(false);
   // --- Administração de Plantão (Fase PLANTÃO-3B) — Grupos/participantes/contatos/rascunho ---
   const [gruposPlantaoAdmin, setGruposPlantaoAdmin] = useState<GrupoPlantao[]>([]);
   const [participantesPorGrupoPlantao, setParticipantesPorGrupoPlantao] = useState<Record<string, ParticipantePlantao[]>>({});
   const [grupoPlantaoExpandido, setGrupoPlantaoExpandido] = useState<string | null>(null);
   const [erroPlantaoAdmin, setErroPlantaoAdmin] = useState('');
+  /** Fase ESCOPO-CONSULTA-PLANTAO-1 — grupoId em processamento ao marcar/desmarcar um Plantão monitorado pela equipe (nunca dois ao mesmo tempo). */
+  const [processandoConsultaPlantao, setProcessandoConsultaPlantao] = useState<string | null>(null);
   // --- Reabrir rascunho (Fase ESCALAS-UX-1B.1) ---
   const [rascunhosPlantaoPorGrupo, setRascunhosPlantaoPorGrupo] = useState<Record<string, CompetenciaPlantao[]>>({});
   /**
@@ -3235,6 +3115,11 @@ export function DashboardApp() {
       && nomesReferenciados.has(normalizarNome(nomeParticipantePlantao(item, usuarios))));
     return consolidarParticipantesGrupoPlantao([...ativos, ...inativosReferenciados], usuarios, atribuicoesEditaveisPlantao);
   }, [resultadoPlantao, atribuicoesEditaveisPlantao, participantesPorGrupoPlantao, grupoRascunhoEscolhido, usuarios]);
+  const padroesHorarioModalPlantao = useMemo(() => {
+    const grupoAtual = gruposPlantaoAdmin.find((item) => item.grupoId === grupoRascunhoEscolhido);
+    return derivarPadroesHorarioPlantao(grupoAtual?.padraoHorarioSemanal);
+  }, [gruposPlantaoAdmin, grupoRascunhoEscolhido]);
+
   /**
    * Fase ESCALAS-UX-2B — nomes normalizados dos participantes inativos
    * ainda referenciados por alguma atribuição da working copy, para o
@@ -3273,18 +3158,47 @@ export function DashboardApp() {
    */
   const souGestorUnidade = usuarioReal !== null && perfilEfetivo(usuarioReal) === 'GESTOR_UNIDADE';
   const podeAcessarAdministracao = souAdmin || souGestorUnidade;
-  const minhasUnidadesPermitidas = usuarioReal !== null ? unidadesPermitidasEfetivas(usuarioReal) : [];
   /**
-   * Gate na identidade REAL — espelha `souGestor()` de firestore.rules
-   * (ADMIN_SISTEMA ou GESTOR_EQUIPE). Deliberadamente diferente de
-   * `podeAcessarAdministracao`: GESTOR_UNIDADE NÃO administra Plantão (ver
-   * `podeGerenciarGrupoPlantao` em firestore.rules e
-   * docs/spec/HIERARQUIA_ORGANIZACIONAL.md § 7) — só pode ver a tela se a
-   * própria equipe consultar algum grupo, nunca administrar um.
+   * Fase ESCOPO-GESTOR-UNIDADE-1 — `lib/escoposOperacionais.ts` é a fonte
+   * única do escopo administrativo do usuário (Administração, Escalas,
+   * Jornada 6x1, Plantão e o seletor superior consomem daqui, nunca
+   * reimplementam a mesma regra). `minhasUnidadesPermitidas`/
+   * `minhasEquipesPermitidas` continuam com esses nomes para não reescrever
+   * todo o restante do arquivo, mas agora vêm do resolver — que, diferente
+   * de `unidadesPermitidasEfetivas()`/`equipesPermitidasEfetivas()` puras,
+   * já filtra por `ativa` e já inclui a subárvore (`caminho`/
+   * `caminhoUnidade` materializados) e a equipe administrável por unidade
+   * de um `GESTOR_UNIDADE`, não só o pertencimento explícito por
+   * `equipesPermitidas`.
+   */
+  const escoposOperacionais = usuarioReal !== null
+    ? resolverEscoposOperacionais(usuarioReal, unidadesAdmin, equipesAdmin, gruposPlantaoAdmin)
+    : ESCOPOS_OPERACIONAIS_VAZIOS;
+  const minhasUnidadesPermitidas = escoposOperacionais.unidadesAdministraveis.map((item) => item.unidadeId);
+  /**
+   * Gate na identidade REAL — espelha `souGestorDePlantao()` de
+   * `lib/sessao.ts`. Mudança de regra aprovada na Fase
+   * ESCOPO-GESTOR-UNIDADE-1: até essa fase, `GESTOR_UNIDADE` nunca via essa
+   * tela como administrador (só como consulta, se a própria equipe
+   * estivesse em `equipesConsulta`) — agora também controla a
+   * VISIBILIDADE da aba/seletor para `GESTOR_UNIDADE`; a autorização real
+   * de cada Grupo específico continua em `podeGerenciarEsteGrupoPlantao()`
+   * abaixo (que já reflete o escopo de unidade — ver
+   * `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`).
    */
   const podeAcessarPlantoes = usuarioReal !== null && souGestorDePlantao(usuarioReal);
   const carregandoEquipesPlantaoParaExibir = carregandoEquipesPlantao && podeAcessarPlantoes && !modoDemo;
-  const minhasEquipesPermitidas = usuarioReal !== null ? equipesPermitidasEfetivas(usuarioReal) : [];
+  const minhasEquipesPermitidas = escoposOperacionais.equipesAdministraveis.map((item) => item.id);
+  const minhasEquipesDeJornadaPermitidas = escoposOperacionais.jornadasAdministraveis.map((item) => item.id);
+  /**
+   * Fase CORRECAO-WIZARD-PLANTAO-EQUIPE-1 — a equipe da Jornada ATIVA
+   * agora (se houver) nunca deve ser oferecida/escolhida silenciosamente
+   * como "equipe responsável" de um Plantão novo no Wizard — ver
+   * `equipesCandidatasParaPlantao()` (`lib/inicioEscala.ts`).
+   */
+  const equipeJornadaReferenciaId = contextoEhJornada(contextoEscalaAtivo)
+    ? contextoEscalaAtivo.equipeId
+    : usuarioReal?.equipeId ?? null;
   // Fase ESCALAS-UX-2A — 'plantoes' não é mais um id presente em NAVEGACAO
   // (ver comentário acima do array); só 'administracao' precisa de gate.
   const navegacaoVisivel = NAVEGACAO.filter((item) => (item.id === 'administracao' ? podeAcessarAdministracao : true));
@@ -3351,10 +3265,6 @@ export function DashboardApp() {
     () => montarAlertasVisiveis(alertasOperacionais, usuarios, documentos, publicados),
     [alertasOperacionais, usuarios, documentos, publicados],
   );
-  const cargaColaboradores = useMemo(
-    () => montarCargaColaboradores(documentos, usuarios, catalogo),
-    [documentos, usuarios, catalogo],
-  );
   const trocasPendentesGestor = trocas.filter((item) => item.status === 'PENDENTE_GESTOR');
   const trocasAprovadas = trocas.filter((item) => item.status === 'APROVADA_PUBLICADA');
   const trocasRecusadas = trocas.filter((item) => item.status === 'RECUSADA_GESTOR' || item.status === 'RECUSADA_USUARIO');
@@ -3375,8 +3285,78 @@ export function DashboardApp() {
     };
   }, [catalogo, documentos, resultado?.totalDias]);
 
+  /**
+   * Resumo operacional da Visão geral — usa os mesmos estados já consumidos
+   * pelos editores. Não cria uma segunda fonte de dados nem lê/escreve um
+   * novo schema: Jornada vem de `documentos`; Plantão vem da competência em
+   * cache/working copy e dos participantes já carregados.
+   */
+  const equipeJornadaDashboard = contextoEhJornada(contextoEscalaAtivo)
+    ? contextoEscalaAtivo.equipeId
+    : resultado?.equipeNome ?? minhasEquipesPermitidas[0] ?? EQUIPE_DEMO.id;
+  const competenciaDashboard = contextoEscalaAtivo?.competencia ?? COMPETENCIA_ATUAL;
+  const grupoPlantaoDashboard = gruposPlantaoAdmin.find((grupo) =>
+    contextoEhPlantao(contextoEscalaAtivo) && grupo.grupoId === contextoEscalaAtivo.grupoId,
+  ) ?? gruposPlantaoAdmin.find((grupo) => podeGerenciarEsteGrupoPlantao(grupo)) ?? gruposPlantaoAdmin[0] ?? null;
+  const rascunhosPlantaoDashboard = grupoPlantaoDashboard === null
+    ? []
+    : (rascunhosPlantaoPorGrupo[grupoPlantaoDashboard.grupoId] ?? []);
+  const competenciaPlantaoDashboard = rascunhosPlantaoDashboard.find((item) => item.competencia === competenciaDashboard)
+    ?? rascunhosPlantaoDashboard.slice().sort((a, b) => b.competencia.localeCompare(a.competencia))[0]
+    ?? null;
+  const plantaoEmContextoDashboard = grupoPlantaoDashboard !== null
+    && contextoEhPlantao(contextoEscalaAtivo)
+    && contextoEscalaAtivo.grupoId === grupoPlantaoDashboard.grupoId;
+  const plantaoTotalBrutoDashboard = plantaoEmContextoDashboard && resultadoPlantao !== null
+    ? resultadoPlantao.totalBrutoCalculado
+    : competenciaPlantaoDashboard?.totalBruto ?? null;
+  const participantesPlantaoDashboard = grupoPlantaoDashboard === null
+    ? (plantaoEmContextoDashboard ? participantesPlantao.length : 0)
+    : plantaoEmContextoDashboard
+      ? participantesPlantao.length
+      : (participantesPorGrupoPlantao[grupoPlantaoDashboard.grupoId] ?? []).length;
+  const plantaoPossuiEscalaDashboard = plantaoTotalBrutoDashboard !== null
+    || (plantaoEmContextoDashboard && atribuicoesEditaveisPlantao.length > 0);
+  const plantaoAlertasDashboard = plantaoEmContextoDashboard && resultadoPlantao !== null
+    ? resultadoPlantao.erros.length + resultadoPlantao.avisos.length + pendenciasVinculoPlantao
+    : 0;
+  const plantaoStatusDashboard: 'stable' | 'attention' | 'empty' = !plantaoPossuiEscalaDashboard
+    ? 'empty'
+    : plantaoAlertasDashboard > 0
+      ? 'attention'
+      : 'stable';
+  const socStatusDashboard: 'stable' | 'attention' | 'empty' = documentos.length === 0
+    ? 'empty'
+    : alertasVisiveis.length > 0
+      ? 'attention'
+      : 'stable';
+  const colaboradoresOperacoesDashboard = totaisGerais.pessoas + participantesPlantaoDashboard;
+  const pendenciasDashboard = alertasVisiveis.length + plantaoAlertasDashboard + trocasPendentesGestor.length;
+  const healthBarSoc = documentos.length === 0
+    ? 12
+    : Math.max(18, 100 - Math.min(82, alertasVisiveis.length * 8));
+  const healthBarPlantao = plantaoStatusDashboard === 'empty'
+    ? 12
+    : Math.max(18, 100 - Math.min(82, plantaoAlertasDashboard * 12));
+  const rotuloSaudeDashboard = (status: 'stable' | 'attention' | 'empty') =>
+    status === 'stable' ? 'Operação estável' : status === 'attention' ? 'Revisão necessária' : 'Sem escala';
+  const nomePlantaoDashboard = grupoPlantaoDashboard?.nome ?? 'Plantão';
+  const opcoesDataResumoDashboard = { day: '2-digit', month: '2-digit', year: 'numeric' } as const;
+  const periodoJornadaDashboard = resultado === null
+    ? 'Sem competência carregada'
+    : `${formatarData(resultado.periodoInicio, opcoesDataResumoDashboard)} — ${formatarData(resultado.periodoFim, opcoesDataResumoDashboard)}`;
+  const periodoPlantaoDashboard = competenciaPlantaoDashboard === null
+    ? 'Sem competência criada'
+    : `${formatarData(competenciaPlantaoDashboard.periodoInicio, opcoesDataResumoDashboard)} — ${formatarData(competenciaPlantaoDashboard.periodoFim, opcoesDataResumoDashboard)}`;
+  const plantaoMetricasDashboard = plantaoPossuiEscalaDashboard
+    ? `${participantesPlantaoDashboard} ${participantesPlantaoDashboard === 1 ? 'participante' : 'participantes'} · ${plantaoTotalBrutoDashboard?.quantidade ?? 0} ${plantaoTotalBrutoDashboard?.quantidade === 1 ? 'plantão' : 'plantões'}`
+    : `${participantesPlantaoDashboard} ${participantesPlantaoDashboard === 1 ? 'participante' : 'participantes'} · nenhum rascunho`;
+
   useEffect(() => {
-    if (usuarioEfetivo === null || !modoDemo || resultado !== null) {
+    // O demo hidrata SOC apenas quando não existe outra prévia ativa. Sem
+    // esta guarda, importar Plantão limpa `resultado` da Jornada e o efeito
+    // relê o XLS demo em paralelo, sobrescrevendo o contexto PLANTAO.
+    if (usuarioEfetivo === null || !modoDemo || resultado !== null || resultadoPlantao !== null || tipoArquivoDetectado === 'PLANTAO') {
       return;
     }
     let cancelado = false;
@@ -3416,7 +3396,7 @@ export function DashboardApp() {
     return () => {
       cancelado = true;
     };
-  }, [modoDemo, resultado, usuarioEfetivo]);
+  }, [modoDemo, resultado, resultadoPlantao, tipoArquivoDetectado, usuarioEfetivo]);
 
   async function carregarDemo() {
     setProcessando(true);
@@ -3510,10 +3490,19 @@ export function DashboardApp() {
     setUsuarioReal(autenticado);
     setModoDemo(demonstracao);
     if (demonstracao) {
-      // Fase ESCALAS-UX-2A.1 — laboratório local sem Firestore: semeia
-      // `equipesAdmin` com a mesma equipe fixa de sempre (`EQUIPE_DEMO`)
-      // para o ScheduleContextSwitcher resolver o rótulo da Jornada demo.
-      setEquipesAdmin([EQUIPE_DEMO]);
+      // Laboratório local sem Firestore: semeia os dois contextos do COSI.
+      // SOC é a Jornada 6x1; Plantão é uma equipe/grupo independente, para
+      // que o seletor superior alterne entre os dois sem reutilizar EQ_SOC.
+      // Fase ESCOPO-GESTOR-UNIDADE-1 — `unidadesAdmin` também precisa da
+      // unidade COSI: sem ela, `resolverEscoposOperacionais()` não teria
+      // nenhuma unidade para casar contra `unidadesPermitidas` do
+      // coordenador (`GESTOR_DEMO`), e o escopo inteiro ficaria vazio.
+      setUnidadesAdmin([UNIDADE_COSI_DEMO]);
+      setEquipesAdmin([EQUIPE_DEMO, EQUIPE_PLANTAO_DEMO]);
+      setGruposPlantaoAdmin([GRUPO_PLANTAO_DEMO]);
+      setParticipantesPorGrupoPlantao({
+        [GRUPO_PLANTAO_DEMO.grupoId]: PARTICIPANTES_PLANTAO_DEMO,
+      });
     } else {
       await carregarDadosDaEquipe(autenticado);
     }
@@ -3776,10 +3765,14 @@ export function DashboardApp() {
     return cancelar;
   }, [modoDemo, usuarioEfetivo]);
 
-  function reparsear(buffer: ArrayBuffer, loginParaUid: Record<string, string>): ResultadoParse {
+  function reparsear(
+    buffer: ArrayBuffer,
+    loginParaUid: Record<string, string>,
+    opcoes: OpcoesInicioImportacao = {},
+  ): ResultadoParse {
     return parsePlanilhaEscala(buffer, {
-      equipeId: usuarioEfetivo?.equipeId ?? EQUIPE_DEMO.id,
-      competencia: '2026-08',
+      equipeId: opcoes.equipeId ?? usuarioEfetivo?.equipeId ?? EQUIPE_DEMO.id,
+      competencia: opcoes.competencia ?? '2026-08',
       catalogo,
       loginParaUid,
     });
@@ -3796,34 +3789,34 @@ export function DashboardApp() {
    * `jornadaPossuiAlteracoesNaoSalvas` precisa ficar `true`, nunca `false`
    * — importar não é salvar.
    */
-  function aplicarConciliacao(buffer: ArrayBuffer, linhas: LinhaConciliacao[]) {
+  function aplicarConciliacao(buffer: ArrayBuffer, linhas: LinhaConciliacao[], opcoes: OpcoesInicioImportacao = {}) {
     setLinhasConciliacao(linhas);
     const parseado = linhas.some((linha) => linha.login !== null)
-      ? reparsear(buffer, loginParaUidComConciliacao(mapaLogins(usuarios), linhas))
-      : reparsear(buffer, mapaLogins(usuarios));
+      ? reparsear(buffer, loginParaUidComConciliacao(mapaLogins(usuarios), linhas), opcoes)
+      : reparsear(buffer, mapaLogins(usuarios), opcoes);
     setResultado(parseado);
     setJornadaPossuiAlteracoesNaoSalvas(true);
     return parseado;
   }
 
-  function interpretar(buffer: ArrayBuffer, nome: string) {
+  function interpretar(buffer: ArrayBuffer, nome: string, opcoes: OpcoesInicioImportacao = {}) {
     setProcessando(true);
     setMensagem('');
     try {
-      const primeiraLeitura = reparsear(buffer, mapaLogins(usuarios));
+      const primeiraLeitura = reparsear(buffer, mapaLogins(usuarios), opcoes);
       const linhas = conciliarPlanilha(
         primeiraLeitura.documentos.map((documento) => documento.login),
         usuarios,
       );
       setArquivo(buffer);
       setNomeArquivo(nome);
-      const parseado = aplicarConciliacao(buffer, linhas);
+      const parseado = aplicarConciliacao(buffer, linhas, opcoes);
       setCorrecoes({});
       if (usuarioEfetivo !== null) {
         setContextoEscalaAtivo({
           tipo: 'JORNADA',
-          equipeId: usuarioEfetivo.equipeId,
-          competencia: parseado.documentos[0]?.competencia ?? '2026-08',
+          equipeId: opcoes.equipeId ?? usuarioEfetivo.equipeId,
+          competencia: opcoes.competencia ?? parseado.documentos[0]?.competencia ?? '2026-08',
         });
         setContextoSemEscala(false);
       }
@@ -3845,7 +3838,7 @@ export function DashboardApp() {
    * (nunca com login preenchido automaticamente, ver
    * `iniciarVinculosPlantao`).
    */
-  function interpretarPlantao(buffer: ArrayBuffer, nome: string, resultado: ResultadoParsePlantao) {
+  function interpretarPlantao(buffer: ArrayBuffer, nome: string, resultado: ResultadoParsePlantao, opcoes: OpcoesInicioImportacao = {}) {
     setArquivo(buffer);
     setNomeArquivo(nome);
     setResultadoPlantao(resultado);
@@ -3860,17 +3853,24 @@ export function DashboardApp() {
     setAbaPreviaPlantao('calendario');
     setBuscaVinculoPlantao({});
     setPlantonistaSelecionadoPlantao(null);
-    setGrupoRascunhoEscolhido('');
+    const grupoIdEscolhido = opcoes.grupoId?.trim() ?? '';
+    setGrupoRascunhoEscolhido(grupoIdEscolhido);
     // Fase ESCALAS-UX-1A — sugerida já na importação (não só ao validar a
     // prévia), para o calendário destacar a janela 26→25 antes mesmo dos
     // vínculos serem resolvidos (vínculo pendente nunca bloqueia a
     // visualização, só o "Salvar rascunho").
     const sugestao = sugerirCompetenciaPlantao(resultado.atribuicoes);
-    setCompetenciaRascunho(sugestao?.competencia ?? '');
-    setPeriodoInicioRascunho(sugestao?.periodoInicio ?? '');
-    setPeriodoFimRascunho(sugestao?.periodoFim ?? '');
+    const competenciaEscolhida = opcoes.competencia ?? sugestao?.competencia ?? '';
+    const periodoEscolhido = competenciaEscolhida === '' ? null : periodoDaCompetencia(competenciaEscolhida);
+    setCompetenciaRascunho(competenciaEscolhida);
+    setPeriodoInicioRascunho(periodoEscolhido?.periodoInicio ?? sugestao?.periodoInicio ?? '');
+    setPeriodoFimRascunho(periodoEscolhido?.periodoFim ?? sugestao?.periodoFim ?? '');
     setErroRascunhoPlantao('');
     setRascunhoPlantaoSalvoEm(null);
+    if (usuarioEfetivo !== null && grupoIdEscolhido !== '') {
+      setContextoEscalaAtivo({ tipo: 'PLANTAO', grupoId: grupoIdEscolhido, competencia: competenciaEscolhida });
+      setContextoSemEscala(false);
+    }
     setMensagem(resultado.ok
       ? ''
       : `${resultado.erros.length} problema(s) encontrado(s) na planilha de Plantão.`);
@@ -4082,82 +4082,338 @@ export function DashboardApp() {
     return participantes;
   }
 
-  function abrirNovaEscala() {
-    setNovaEscalaEtapa('tipo');
-    setNovoPlantaoGrupoId('');
-    setNovoPlantaoCompetencia('');
-    setNovoPlantaoErro('');
-    setNovoPlantaoRascunhoExistente(null);
+    function abrirNovaEscala() {
+    abrirWizardEscala('NOVA');
   }
-
-  function fecharNovaEscala() {
-    setNovaEscalaEtapa(null);
-    setNovoPlantaoGrupoId('');
-    setNovoPlantaoCompetencia('');
-    setNovoPlantaoErro('');
-    setNovoPlantaoRascunhoExistente(null);
+  function abrirImportarEscala() {
+    abrirWizardEscala('IMPORTAR');
   }
-
-  /**
-   * "Escala de jornada" (6x1) e "Importar planilha" (Plantão) levam ao MESMO
-   * lugar: a tela "Importar" já existente — nenhum parser/fluxo novo, só
-   * roteamento (§8/§37 desta fase: nenhuma refatoração ampla só para
-   * eliminar um item de navegação).
-   */
-  function escolherJornadaNovaEscala() {
-    fecharNovaEscala();
-    setTela('importar');
-  }
-
-  function escolherPlantaoNovaEscala() {
-    setNovaEscalaEtapa('plantao');
-  }
-
-  function importarPlanilhaNovoPlantao() {
-    fecharNovaEscala();
-    setTela('importar');
-  }
-
-  async function mudarGrupoNovoPlantao(grupoId: string) {
-    setNovoPlantaoGrupoId(grupoId);
-    setNovoPlantaoRascunhoExistente(null);
-    setNovoPlantaoErro('');
-    if (grupoId !== '') {
-      // Fase ESCALAS-UX-1C — carrega os rascunhos do grupo já ao escolher o
-      // Grupo, para "Usar período anterior" saber se a competência
-      // exatamente anterior existe assim que a competência é digitada
-      // (mesmo cache de `garantirRascunhosDoGrupoCarregados`, sem query nova).
-      await Promise.all([
-        garantirParticipantesDoGrupoCarregados(grupoId),
-        garantirRascunhosDoGrupoCarregados(grupoId),
-      ]);
-    }
-  }
-
-  /**
-   * Fase ESCALAS-UX-1B.1 — quando "+ Nova escala" detecta que já existe um
-   * rascunho para o Grupo/competência escolhidos, esta ação abre esse
-   * rascunho DIRETO no Editor (`abrirRascunhoNoEditorAcao`), sem exigir
-   * navegação indireta pela tela "Plantões" (§ 35 da fase — antes desta
-   * fase, essa era a única opção, registrada como limitação na
-   * ESCALAS-UX-1B). Nunca sobrescreve nem cria um segundo rascunho.
-   */
-  async function abrirRascunhoExistenteNovoPlantao() {
-    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === novoPlantaoGrupoId);
-    const competenciaExistente = novoPlantaoRascunhoExistente;
-    if (grupo === undefined || competenciaExistente === null) {
+  function abrirOperacaoDoDashboard(tipo: 'JORNADA' | 'PLANTAO') {
+    if (tipo === 'JORNADA') {
+      const alvo: ContextoEscalaAtivo = {
+        tipo: 'JORNADA',
+        equipeId: equipeJornadaDashboard,
+        competencia: competenciaDashboard,
+      };
+      if (contextosEscalaIguais(contextoEscalaAtivo, alvo)) {
+        setTela('grade');
+        return;
+      }
+      solicitarTrocaContexto(alvo);
       return;
     }
-    setNovoPlantaoCriando(true);
-    setNovoPlantaoErro('');
-    const resultado = await abrirRascunhoNoEditorAcao(grupo, competenciaExistente);
-    setNovoPlantaoCriando(false);
-    if (resultado.ok) {
-      fecharNovaEscala();
-    } else if (resultado.motivo === 'erro') {
-      setNovoPlantaoErro(resultado.mensagem);
+    if (grupoPlantaoDashboard === null) {
+      setTela('escalas');
+      return;
+    }
+    const alvo: ContextoEscalaAtivo = {
+      tipo: 'PLANTAO',
+      grupoId: grupoPlantaoDashboard.grupoId,
+      competencia: competenciaPlantaoDashboard?.competencia ?? competenciaDashboard,
+    };
+    if (contextosEscalaIguais(contextoEscalaAtivo, alvo)) {
+      setTela(plantaoPossuiEscalaDashboard ? 'importar' : 'escalas');
+      return;
+    }
+    solicitarTrocaContexto(alvo);
+  }
+  function abrirTrocasDoDashboard() {
+    setTela('trocas');
+    setTrocaSelecionadaId(trocasPendentesGestor[0]?.trocaId ?? null);
+  }
+  function fecharNovaEscala() {
+    setWizardInicio(null);
+    setWizardTipo(null);
+    setWizardAreaId('');
+    setWizardEquipeId('');
+    setWizardGrupoId('');
+    setWizardArquivoNome('');
+    setWizardErro('');
+  }
+  function abrirWizardEscala(modo: ScheduleStartWizardProps['modo']) {
+    const resolucaoArea = resolverAreaAtiva(unidadesAdmin, minhasUnidadesPermitidas, souAdmin);
+    const areaInicial = resolucaoArea.estado === 'RESOLVIDO' ? resolucaoArea.valor.unidadeId : '';
+    setWizardInicio(modo);
+    setWizardTipo(null);
+    setWizardAreaId(areaInicial);
+    setWizardEquipeId('');
+    setWizardGrupoId('');
+    setWizardCompetencia(contextoEscalaAtivo?.competencia ?? COMPETENCIA_ATUAL);
+    setWizardArquivoNome('');
+    setWizardErro('');
+    setWizardProcessando(false);
+  }
+  function selecionarTipoWizard(tipo: ScheduleStartWizardProps['tipo']) {
+    if (tipo === null) {
+      setWizardTipo(null);
+      setWizardEquipeId('');
+      setWizardGrupoId('');
+      setWizardArquivoNome('');
+      setWizardErro('');
+      return;
+    }
+    const areaId = wizardAreaId || (unidadesAdministraveis(unidadesAdmin, minhasUnidadesPermitidas, souAdmin).length === 1
+      ? unidadesAdministraveis(unidadesAdmin, minhasUnidadesPermitidas, souAdmin)[0]?.unidadeId ?? ''
+      : '');
+    setWizardTipo(tipo);
+    setWizardAreaId(areaId);
+    setWizardErro('');
+    /**
+     * Fase ESCOPO-GESTOR-UNIDADE-1 — Jornada 6x1 só oferece
+     * `jornadasAdministraveis` (nunca uma equipe que já é responsável por
+     * um Grupo de Plantão); Plantão continua usando
+     * `minhasEquipesPermitidas` completo (precisa enxergar essa mesma
+     * equipe como candidata a equipe responsável de um Grupo novo).
+     */
+    const equipes = equipesAdministraveisNaUnidade(equipesAdmin, areaId || null, minhasEquipesPermitidas, souAdmin);
+    if (tipo === 'JORNADA') {
+      const resolucao = resolverEquipeParaJornada(
+        equipesAdmin,
+        areaId || null,
+        minhasEquipesDeJornadaPermitidas,
+        souAdmin,
+        equipeJornadaReferenciaId,
+      );
+      setWizardEquipeId(resolucao.estado === 'RESOLVIDO' ? resolucao.valor.id : '');
+      setWizardGrupoId('');
     } else {
-      setNovoPlantaoErro('Rascunho não encontrado — ele pode ter sido removido. Volte e tente novamente.');
+      const resolucao = resolverGrupoParaPlantao(
+        gruposPlantaoAdmin.filter((grupo) => equipes.some((equipe) => equipe.id === grupo.equipeResponsavelId)),
+        podeGerenciarEsteGrupoPlantao,
+      );
+      const resolucaoEquipe = resolverEquipeResponsavelParaPlantao(equipes, equipeJornadaReferenciaId);
+      setWizardGrupoId(resolucao.estado === 'RESOLVIDO' ? resolucao.valor.grupoId : '');
+      setWizardEquipeId(
+        resolucao.estado === 'RESOLVIDO'
+          ? resolucao.valor.equipeResponsavelId
+          : resolucaoEquipe.estado === 'RESOLVIDO' ? resolucaoEquipe.valor.id : '',
+      );
+    }
+  }
+  function mudarAreaWizard(areaId: string) {
+    setWizardAreaId(areaId);
+    const equipes = equipesAdministraveisNaUnidade(equipesAdmin, areaId || null, minhasEquipesPermitidas, souAdmin);
+    if (wizardTipo === 'JORNADA') {
+      const resolucao = resolverEquipeParaJornada(
+        equipesAdmin,
+        areaId || null,
+        minhasEquipesDeJornadaPermitidas,
+        souAdmin,
+        equipeJornadaReferenciaId,
+      );
+      setWizardEquipeId(resolucao.estado === 'RESOLVIDO' ? resolucao.valor.id : '');
+      setWizardGrupoId('');
+    } else if (wizardTipo === 'PLANTAO') {
+      const resolucao = resolverGrupoParaPlantao(
+        gruposPlantaoAdmin.filter((grupo) => equipes.some((equipe) => equipe.id === grupo.equipeResponsavelId)),
+        podeGerenciarEsteGrupoPlantao,
+      );
+      const resolucaoEquipe = resolverEquipeResponsavelParaPlantao(equipes, equipeJornadaReferenciaId);
+      setWizardGrupoId(resolucao.estado === 'RESOLVIDO' ? resolucao.valor.grupoId : '');
+      setWizardEquipeId(
+        resolucao.estado === 'RESOLVIDO'
+          ? resolucao.valor.equipeResponsavelId
+          : resolucaoEquipe.estado === 'RESOLVIDO' ? resolucaoEquipe.valor.id : '',
+      );
+    }
+    setWizardErro('');
+  }
+  function mudarEquipeWizard(equipeId: string) {
+    setWizardEquipeId(equipeId);
+    if (wizardTipo === 'PLANTAO') {
+      const grupo = gruposPlantaoAdmin.find((item) => item.equipeResponsavelId === equipeId && podeGerenciarEsteGrupoPlantao(item));
+      if (grupo !== undefined) setWizardGrupoId(grupo.grupoId);
+    }
+  }
+  function mudarGrupoWizard(grupoId: string) {
+    setWizardGrupoId(grupoId);
+    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === grupoId);
+    if (grupo !== undefined) setWizardEquipeId(grupo.equipeResponsavelId);
+  }
+  async function criarEquipeWizard(nome: string, sigla: string) {
+    const erros = validarCadastroInline(nome, sigla);
+    const unidadeId = wizardAreaId || undefined;
+    if (!souAdmin && (unidadeId === undefined || !minhasUnidadesPermitidas.includes(unidadeId))) {
+      erros.push('Você só pode criar uma equipe dentro de uma área que administra.');
+    }
+    const id = normalizarIdentificadorTecnico(sigla);
+    if (id === '' || equipesAdmin.some((item) => item.id === id)) {
+      erros.push('Já existe uma equipe com esse identificador ou a sigla não é válida.');
+    }
+    if (erros.length > 0) {
+      setWizardErro(erros.join(' '));
+      return;
+    }
+    const unidade = unidadesAdmin.find((item) => item.unidadeId === unidadeId);
+    setWizardProcessando(true);
+    setWizardErro('');
+    try {
+      const equipe: Equipe = {
+        id,
+        nome: nome.trim(),
+        sigla: sigla.trim(),
+        ativa: true,
+        unidadeId,
+        caminhoUnidade: unidade?.caminho,
+      };
+      await salvarEquipeDoModal(equipe);
+      setWizardEquipeId(equipe.id);
+      setWizardErro('Equipe criada e selecionada.');
+    } catch (falha) {
+      setWizardErro(falha instanceof Error ? falha.message : 'Não foi possível criar a equipe.');
+    } finally {
+      setWizardProcessando(false);
+    }
+  }
+  async function criarGrupoWizard(nome: string, equipeId: string) {
+    const equipeResponsavel = equipesAdmin.find((item) => item.id === equipeId);
+    if (equipeResponsavel === undefined) {
+      setWizardErro('Selecione uma equipe responsável cadastrada para este Plantão.');
+      return;
+    }
+    if (
+      usuarioReal === null
+      || !podeGerenciarGrupoPlantao(usuarioReal, {
+        equipeResponsavelId: equipeId,
+        unidadeResponsavelId: equipeResponsavel?.unidadeId,
+        caminhoUnidadeResponsavel: equipeResponsavel?.caminhoUnidade,
+      })
+    ) {
+      setWizardErro('Você não administra a equipe responsável por este Plantão.');
+      return;
+    }
+    const identificador = identificadorGrupoPlantaoDaEquipe(equipeResponsavel);
+    const erros = validarCadastroInline(nome, identificador);
+    if (gruposPlantaoAdmin.some((item) => item.grupoId === identificador)) {
+      erros.push('Já existe um Grupo de Plantão com esse identificador.');
+    }
+    if (erros.length > 0) {
+      setWizardErro(erros.join(' '));
+      return;
+    }
+    setWizardProcessando(true);
+    setWizardErro('');
+    try {
+      const agora = new Date().toISOString();
+      const grupo = construirGrupoPlantaoOficial({
+        grupoId: identificador,
+        nome: nome.trim(),
+        equipeResponsavel,
+        criadoPorLogin: usuarioReal.login,
+        criadoEm: agora,
+      });
+      const errosGrupo = validarGrupoPlantao(grupo);
+      if (errosGrupo.length > 0) {
+        setWizardErro(errosGrupo.join(' '));
+        return;
+      }
+      await salvarGrupoPlantaoDoModal(grupo);
+      setWizardGrupoId(grupo.grupoId);
+      setWizardEquipeId(grupo.equipeResponsavelId);
+      setWizardErro('Plantão criado e selecionado.');
+    } catch (falha) {
+      setWizardErro(falha instanceof Error ? falha.message : 'Não foi possível criar o Plantão.');
+    } finally {
+      setWizardProcessando(false);
+    }
+  }
+  async function selecionarArquivoWizard(file: File) {
+    if (wizardTipo === null) {
+      setWizardErro('Escolha Jornada 6x1 ou Plantão antes de selecionar o arquivo.');
+      return;
+    }
+    setWizardArquivoNome(file.name);
+    setWizardProcessando(true);
+    setWizardErro('');
+    const sucesso = await receberArquivo(file, {
+      tipoEsperado: wizardTipo === 'JORNADA' ? 'ESCALA_6X1' : 'PLANTAO',
+      equipeId: wizardEquipeId,
+      grupoId: wizardGrupoId,
+      competencia: wizardCompetencia,
+    });
+    setWizardProcessando(false);
+    if (sucesso) {
+      fecharNovaEscala();
+      setTela(wizardTipo === 'JORNADA' ? 'grade' : 'importar');
+    }
+  }
+  async function continuarWizard() {
+    if (wizardTipo === null) {
+      setWizardErro('Escolha o tipo de escala.');
+      return;
+    }
+    const periodo = periodoDaCompetencia(wizardCompetencia.trim());
+    if (periodo === null) {
+      setWizardErro('Informe a competência no formato AAAA-MM.');
+      return;
+    }
+    if (wizardTipo === 'JORNADA' && wizardEquipeId === '') {
+      setWizardErro('Selecione ou crie uma equipe compatível com a área ativa.');
+      return;
+    }
+    if (wizardTipo === 'PLANTAO' && wizardGrupoId === '') {
+      setWizardErro('Selecione ou crie um Grupo de Plantão administrável.');
+      return;
+    }
+    if (wizardInicio === 'IMPORTAR') {
+      if (wizardArquivoNome === '') {
+        setWizardErro('Selecione o arquivo depois de definir tipo, destino e competência.');
+      }
+      return;
+    }
+    if (wizardTipo === 'JORNADA') {
+      const equipe = equipesAdmin.find((item) => item.id === wizardEquipeId);
+      const colaboradores = usuarios.filter((usuario) => usuario.ativo && usuario.equipeId === wizardEquipeId);
+      const documentosNovos = colaboradores.map((colaborador) => criarMembroGrade(
+        colaborador,
+        colaborador.turnoPadrao,
+        { equipeId: wizardEquipeId, competencia: wizardCompetencia, periodoInicio: periodo.periodoInicio, periodoFim: periodo.periodoFim },
+        catalogo,
+      ));
+      setResultado({
+        ok: true,
+        equipeNome: equipe?.nome ?? wizardEquipeId,
+        periodoInicio: periodo.periodoInicio,
+        periodoFim: periodo.periodoFim,
+        totalDias: documentosNovos.length > 0 ? Object.keys(documentosNovos[0].dias).length : 0,
+        documentos: documentosNovos,
+        erros: [],
+        avisos: ['Escala criada vazia. Preencha os turnos no editor antes de salvar.'],
+      });
+      setLinhasConciliacao([]);
+      setJornadaPossuiAlteracoesNaoSalvas(true);
+      setContextoEscalaAtivo({ tipo: 'JORNADA', equipeId: wizardEquipeId, competencia: wizardCompetencia });
+      setContextoSemEscala(false);
+      fecharNovaEscala();
+      setTela('grade');
+      return;
+    }
+    setWizardProcessando(true);
+    try {
+      await criarPlantaoEmBrancoAcao(wizardGrupoId, wizardCompetencia);
+    } finally {
+      setWizardProcessando(false);
+    }
+  }
+  async function abrirRascunhoWizard() {
+    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === wizardGrupoId);
+    const existente = grupo === undefined ? undefined : (rascunhosPlantaoPorGrupo[grupo.grupoId] ?? []).find((item) => item.competencia === wizardCompetencia);
+    if (grupo === undefined || existente === undefined) {
+      setWizardErro('Rascunho não encontrado. Atualize a lista e tente novamente.');
+      return;
+    }
+    setWizardProcessando(true);
+    try {
+      const resultadoAbertura = await abrirRascunhoNoEditorAcao(grupo, existente);
+      if (resultadoAbertura.ok) {
+        fecharNovaEscala();
+      } else {
+        setWizardErro(resultadoAbertura.motivo === 'erro'
+          ? resultadoAbertura.mensagem
+          : 'Rascunho não encontrado. Atualize a lista e tente novamente.');
+      }
+    } finally {
+      setWizardProcessando(false);
     }
   }
 
@@ -4169,39 +4425,39 @@ export function DashboardApp() {
    * participante ativo do grupo é uma pessoa real por login, nunca um nome
    * de planilha a conciliar.
    */
-  async function criarPlantaoEmBrancoAcao() {
+  async function criarPlantaoEmBrancoAcao(grupoIdArg = '', competenciaArg = '') {
     if (usuarioReal === null) {
       return;
     }
-    const competencia = novoPlantaoCompetencia.trim();
-    const errosValidacao = validarNovoPlantaoEmBranco({ grupoId: novoPlantaoGrupoId, competencia });
+    const grupoId = grupoIdArg;
+    const competencia = competenciaArg.trim();
+    const errosValidacao = validarNovoPlantaoEmBranco({ grupoId, competencia });
     if (errosValidacao.length > 0) {
-      setNovoPlantaoErro(errosValidacao.join(' '));
+      setWizardErro(errosValidacao.join(' '));
       return;
     }
-    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === novoPlantaoGrupoId);
+    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === grupoId);
     if (grupo === undefined) {
-      setNovoPlantaoErro('Selecione um Grupo de Plantão.');
+      setWizardErro('Selecione um Grupo de Plantão.');
       return;
     }
     if (!podeGerenciarEsteGrupoPlantao(grupo)) {
-      setNovoPlantaoErro('Você não administra este grupo de Plantão.');
+      setWizardErro('Você não administra este grupo de Plantão.');
       return;
     }
     const periodo = periodoDaCompetencia(competencia);
     if (periodo === null) {
-      setNovoPlantaoErro('Informe a competência no formato AAAA-MM.');
+      setWizardErro('Informe a competência no formato AAAA-MM.');
       return;
     }
 
-    setNovoPlantaoCriando(true);
-    setNovoPlantaoErro('');
+    setWizardProcessando(true);
+    setWizardErro('');
     try {
       if (!modoDemo) {
         const existente = await obterCompetenciaPlantaoRascunho(grupo.grupoId, competencia);
         if (existente !== null) {
-          setNovoPlantaoRascunhoExistente(existente);
-          return;
+                return;
         }
       }
       const participantesAtivos = (await garantirParticipantesDoGrupoCarregados(grupo.grupoId))
@@ -4235,9 +4491,9 @@ export function DashboardApp() {
       fecharNovaEscala();
       setTela('importar');
     } catch (falha) {
-      setNovoPlantaoErro(mensagemErroFirebase(falha, 'Não foi possível criar a escala de Plantão.', ambienteFirebaseAtual));
+      setWizardErro(mensagemErroFirebase(falha, 'Não foi possível criar a escala de Plantão.', ambienteFirebaseAtual));
     } finally {
-      setNovoPlantaoCriando(false);
+      setWizardProcessando(false);
     }
   }
 
@@ -4255,51 +4511,51 @@ export function DashboardApp() {
    * Mesma checagem de duplicata de `criarPlantaoEmBrancoAcao`: nunca
    * sobrescreve um rascunho já existente na competência NOVA.
    */
-  async function usarPeriodoAnteriorAcao() {
+  async function usarPeriodoAnteriorAcao(grupoIdArg = '', competenciaArg = '') {
     if (usuarioReal === null) {
       return;
     }
-    const competencia = novoPlantaoCompetencia.trim();
-    const errosValidacao = validarNovoPlantaoEmBranco({ grupoId: novoPlantaoGrupoId, competencia });
+    const grupoId = grupoIdArg;
+    const competencia = competenciaArg.trim();
+    const errosValidacao = validarNovoPlantaoEmBranco({ grupoId, competencia });
     if (errosValidacao.length > 0) {
-      setNovoPlantaoErro(errosValidacao.join(' '));
+      setWizardErro(errosValidacao.join(' '));
       return;
     }
-    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === novoPlantaoGrupoId);
+    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === grupoId);
     if (grupo === undefined) {
-      setNovoPlantaoErro('Selecione um Grupo de Plantão.');
+      setWizardErro('Selecione um Grupo de Plantão.');
       return;
     }
     if (!podeGerenciarEsteGrupoPlantao(grupo)) {
-      setNovoPlantaoErro('Você não administra este grupo de Plantão.');
+      setWizardErro('Você não administra este grupo de Plantão.');
       return;
     }
     const periodo = periodoDaCompetencia(competencia);
     if (periodo === null) {
-      setNovoPlantaoErro('Informe a competência no formato AAAA-MM.');
+      setWizardErro('Informe a competência no formato AAAA-MM.');
       return;
     }
     const labelAnterior = competenciaAnterior(competencia);
     const periodoAnterior = labelAnterior === null ? null : periodoDaCompetencia(labelAnterior);
     if (labelAnterior === null || periodoAnterior === null) {
-      setNovoPlantaoErro('Informe a competência no formato AAAA-MM.');
+      setWizardErro('Informe a competência no formato AAAA-MM.');
       return;
     }
 
-    setNovoPlantaoCriando(true);
-    setNovoPlantaoErro('');
+    setWizardProcessando(true);
+    setWizardErro('');
     try {
       if (!modoDemo) {
         const existente = await obterCompetenciaPlantaoRascunho(grupo.grupoId, competencia);
         if (existente !== null) {
-          setNovoPlantaoRascunhoExistente(existente);
-          return;
+                return;
         }
       }
       const rascunhosDoGrupo = await garantirRascunhosDoGrupoCarregados(grupo.grupoId);
       const competenciaAnteriorPersistida = rascunhosDoGrupo.find((item) => item.competencia === labelAnterior);
       if (competenciaAnteriorPersistida === undefined) {
-        setNovoPlantaoErro('Não existe uma escala anterior para este Plantão.');
+        setWizardErro('Não existe uma escala anterior para este Plantão.');
         return;
       }
 
@@ -4348,9 +4604,9 @@ export function DashboardApp() {
       fecharNovaEscala();
       setTela('importar');
     } catch (falha) {
-      setNovoPlantaoErro(mensagemErroFirebase(falha, 'Não foi possível usar o período anterior.', ambienteFirebaseAtual));
+      setWizardErro(mensagemErroFirebase(falha, 'Não foi possível usar o período anterior.', ambienteFirebaseAtual));
     } finally {
-      setNovoPlantaoCriando(false);
+      setWizardProcessando(false);
     }
   }
 
@@ -4420,25 +4676,30 @@ export function DashboardApp() {
    * comportamento 6x1; uma estrutura não reconhecida só avisa — nunca
    * tenta nenhum dos dois parsers "na sorte".
    */
-  async function receberArquivo(file: File | undefined) {
+  async function receberArquivo(file: File | undefined, opcoes: OpcoesInicioImportacao = {}): Promise<boolean> {
     if (file === undefined) {
-      return;
+      return false;
     }
     const extensaoValida = /\.(xls|xlsx)$/iu.test(file.name);
     if (!extensaoValida) {
       setMensagem('Selecione um arquivo XLS ou XLSX.');
-      return;
+      return false;
     }
 
     const buffer = await file.arrayBuffer();
     const processado = processarArquivoImportado(buffer, {
-      equipeId: usuarioEfetivo?.equipeId ?? EQUIPE_DEMO.id,
-      competencia: '2026-08',
+      equipeId: opcoes.equipeId ?? usuarioEfetivo?.equipeId ?? EQUIPE_DEMO.id,
+      competencia: opcoes.competencia ?? '2026-08',
       catalogo,
       loginParaUid: mapaLogins(usuarios),
     });
     setTipoArquivoDetectado(processado.tipo);
-
+    if (opcoes.tipoEsperado !== undefined && processado.tipo !== opcoes.tipoEsperado) {
+      const esperado = opcoes.tipoEsperado === 'PLANTAO' ? 'Plantão' : 'Jornada 6x1';
+      const encontrado = processado.tipo === 'PLANTAO' ? 'Plantão' : processado.tipo === 'ESCALA_6X1' ? 'Jornada 6x1' : 'estrutura desconhecida';
+      setMensagem(`O arquivo escolhido não corresponde ao tipo selecionado. Esperado: ${esperado}. Encontrado: ${encontrado}.`);
+      return false;
+    }
     if (processado.tipo === 'DESCONHECIDA') {
       setResultado(null);
       setJornadaPossuiAlteracoesNaoSalvas(false);
@@ -4449,20 +4710,29 @@ export function DashboardApp() {
       setNomeArquivo(file.name);
       setMotivoArquivoDesconhecido(processado.motivo);
       setMensagem(processado.motivo);
-      return;
+      return false;
     }
-
     if (processado.tipo === 'PLANTAO') {
+      const grupoAtual = contextoEhPlantao(contextoEscalaAtivo) ? contextoEscalaAtivo.grupoId : '';
+      const opcoesPlantao = {
+        ...opcoes,
+        grupoId: opcoes.grupoId ?? (grupoAtual || undefined),
+        competencia: opcoes.competencia ?? (contextoEhPlantao(contextoEscalaAtivo) ? contextoEscalaAtivo.competencia : undefined),
+      };
+      if (opcoesPlantao.grupoId === undefined || opcoesPlantao.grupoId.trim() === '') {
+        setMensagem('Selecione o contexto Plantão no topo ou use o fluxo de importação para definir o Grupo de Plantão antes de carregar o arquivo.');
+        return false;
+      }
       setResultado(null);
       setJornadaPossuiAlteracoesNaoSalvas(false);
       setLinhasConciliacao([]);
-      interpretarPlantao(buffer, file.name, processado.resultado);
-      return;
+      interpretarPlantao(buffer, file.name, processado.resultado, opcoesPlantao);
+      return true;
     }
-
     setResultadoPlantao(null);
     setVinculosPlantao([]);
-    interpretar(buffer, file.name);
+    interpretar(buffer, file.name, opcoes);
+    return true;
   }
 
   function soltar(evento: DragEvent<HTMLDivElement>) {
@@ -4762,6 +5032,11 @@ export function DashboardApp() {
     }
   }
 
+  function abrirCelulaParaEdicao(documento: TurnosMes, data: string, dia: Dia) {
+    setCicloInicial6x1Ativo(!dia.c);
+    setCelulaEditando({ documento, data, dia });
+  }
+
   function editarCelula(codigo: string) {
     if (celulaEditando === null || resultado === null) {
       return;
@@ -4781,11 +5056,31 @@ export function DashboardApp() {
         }
       : { c: tipo.codigo };
 
+    const documentoAlvo = resultado.documentos.find(
+      (documento) => documento.usuarioUid === celulaEditando.documento.usuarioUid,
+    );
+    if (documentoAlvo === undefined) {
+      return;
+    }
+    const ciclo = cicloInicial6x1Ativo && tipo.categoria === 'TRABALHO'
+      ? calcularCicloInicialJornada6x1({
+          dataInicial: celulaEditando.data,
+          periodoFim: documentoAlvo.periodoFim,
+          dias: documentoAlvo.dias,
+        })
+      : { datasAplicadas: [celulaEditando.data], datasIgnoradas: [] };
+    const datasAplicadas = new Set(ciclo.datasAplicadas);
+    const dias = { ...documentoAlvo.dias };
+    for (const data of datasAplicadas) {
+      if (data === celulaEditando.data || !dias[data]?.c) {
+        dias[data] = { ...novoDia, seq: 1 };
+      }
+    }
+
     const atualizados = resultado.documentos.map((documento) => {
       if (documento.usuarioUid !== celulaEditando.documento.usuarioUid) {
         return documento;
       }
-      const dias = { ...documento.dias, [celulaEditando.data]: novoDia };
       return { ...documento, dias, totais: calcularTotais(dias, catalogo) };
     });
     setResultado({ ...resultado, documentos: atualizados });
@@ -4793,7 +5088,14 @@ export function DashboardApp() {
     // ver comentário do estado `jornadaPossuiAlteracoesNaoSalvas`.
     setJornadaPossuiAlteracoesNaoSalvas(true);
     setCelulaEditando(null);
-    setMensagem('Célula atualizada no rascunho local. Salve para persistir.');
+    setCicloInicial6x1Ativo(false);
+    if (cicloInicial6x1Ativo && tipo.categoria === 'TRABALHO') {
+      setMensagem(mensagemCicloInicialJornada6x1(ciclo, codigo));
+    } else if (cicloInicial6x1Ativo && tipo.categoria !== 'TRABALHO') {
+      setMensagem(`${codigo} aplicado somente neste dia; o preenchimento 6x1 automático vale para turnos de trabalho.`);
+    } else {
+      setMensagem('Célula atualizada no rascunho local. Salve para persistir.');
+    }
   }
 
   function abrirNovoUsuario() {
@@ -5081,7 +5383,7 @@ export function DashboardApp() {
   // --- Administração de Plantão (Fase PLANTÃO-3B) ---
 
   function podeGerenciarEsteGrupoPlantao(grupo: GrupoPlantao): boolean {
-    return usuarioReal !== null && podeGerenciarGrupoPlantao(usuarioReal, grupo.equipeResponsavelId);
+    return usuarioReal !== null && podeGerenciarGrupoPlantao(usuarioReal, grupo);
   }
 
   function abrirNovoGrupoPlantao() {
@@ -5122,6 +5424,37 @@ export function DashboardApp() {
       setModalGrupoPlantao(null);
     } catch (falha) {
       throw new Error(mensagemErroFirebase(falha, 'Não foi possível salvar o grupo de Plantão.', ambienteFirebaseAtual));
+    }
+  }
+
+  /**
+   * Fase ESCOPO-CONSULTA-PLANTAO-1 — "Plantões monitorados pela equipe":
+   * autovínculo de CONSULTA, nunca administração. Só altera
+   * `equipesConsulta` (via `atualizarEquipeConsultaPlantao()`, que nunca
+   * reaproveita `salvarGrupoPlantao()` genérico) — a autorização real
+   * (`podeAutoVincularConsultaPlantao()` em `firestore.rules`) garante que
+   * só a própria equipe administrada pode ser adicionada/removida.
+   */
+  async function alternarPlantaoMonitoradoPelaEquipe(grupoId: string, equipeId: string, acao: 'ADICIONAR' | 'REMOVER') {
+    setProcessandoConsultaPlantao(grupoId);
+    setErroPlantaoAdmin('');
+    try {
+      if (!modoDemo) {
+        await atualizarEquipeConsultaPlantao(grupoId, equipeId, acao);
+      }
+      setGruposPlantaoAdmin((atuais) => atuais.map((grupo) => {
+        if (grupo.grupoId !== grupoId) {
+          return grupo;
+        }
+        const equipesConsulta = acao === 'ADICIONAR'
+          ? [...new Set([...grupo.equipesConsulta, equipeId])]
+          : grupo.equipesConsulta.filter((item) => item !== equipeId);
+        return { ...grupo, equipesConsulta, atualizadoEm: new Date().toISOString() };
+      }));
+    } catch (falha) {
+      setErroPlantaoAdmin(mensagemErroFirebase(falha, 'Não foi possível atualizar os Plantões monitorados.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoConsultaPlantao(null);
     }
   }
 
@@ -5672,9 +6005,37 @@ export function DashboardApp() {
       return undefined;
     }
     let cancelado = false;
+    /**
+     * Fase ESCOPO-GESTOR-UNIDADE-1 — `equipesConsulta` é visibilidade
+     * OPERACIONAL, não administrativa (regra 8 do resolver, ver
+     * `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`): um `GESTOR_UNIDADE`
+     * cuja equipe pessoal não esteja em `equipesConsulta` de nenhum Grupo
+     * nunca apareceria em `listarGruposPlantaoPermitidos()` sozinha, mesmo
+     * administrando o Grupo pela unidade. Por isso, além da consulta por
+     * equipe de sempre, também busca por `unidadeResponsavelId` para cada
+     * unidade permitida — `podeGerenciarEsteGrupoPlantao()` continua sendo
+     * quem decide o que é editável a partir da lista combinada.
+     */
+    /**
+     * Fase ESCOPO-CONSULTA-PLANTAO-1 — `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE`
+     * também chamam `listarTodosGruposPlantao()` (a Rule de leitura passou
+     * a permitir isso para qualquer gestor, não só admin — ver
+     * `firestore.rules`, `match /gruposPlantao`): precisam DESCOBRIR
+     * Grupos que a própria equipe ainda não consulta/administra, para
+     * poder oferecer "Plantões monitorados" (autovínculo de consulta) na
+     * Administração, sem depender de já ter alguma relação prévia com o
+     * Grupo.
+     */
+    const ehGestorDeEquipe = perfilEfetivo(usuarioReal) === 'GESTOR_EQUIPE' || perfilEfetivo(usuarioReal) === 'SUPERVISOR_EQUIPE';
     const carregarGrupos = souAdmin
       ? listarTodosGruposPlantao()
-      : Promise.all(equipesPermitidasEfetivas(usuarioReal).map((equipeId) => listarGruposPlantaoPermitidos(equipeId)))
+      : Promise.all([
+        ...equipesPermitidasEfetivas(usuarioReal).map((equipeId) => listarGruposPlantaoPermitidos(equipeId)),
+        ...(souGestorUnidade
+          ? unidadesPermitidasEfetivas(usuarioReal).map((unidadeId) => listarGruposPlantaoPorUnidadeResponsavel(unidadeId))
+          : []),
+        ...(ehGestorDeEquipe ? [listarTodosGruposPlantao()] : []),
+      ])
         .then((listas) => {
           const porId = new Map<string, GrupoPlantao>();
           for (const lista of listas) {
@@ -5719,7 +6080,7 @@ export function DashboardApp() {
     return () => {
       cancelado = true;
     };
-  }, [podeAcessarPlantoes, souAdmin, modoDemo, usuarioReal]);
+  }, [podeAcessarPlantoes, souAdmin, souGestorUnidade, modoDemo, usuarioReal]);
 
   /**
    * Fase ESCALAS-UX-2A.1 — `equipesAdmin` precisa estar disponível para o
@@ -5951,8 +6312,74 @@ export function DashboardApp() {
    * contexto ativo (ou o único valor hoje hardcoded no restante do
    * Dashboard, `'2026-08'`, se nenhum contexto foi selecionado ainda).
    */
+  const areasWizard = unidadesAdministraveis(unidadesAdmin, minhasUnidadesPermitidas, souAdmin);
+  const areaWizardEfetiva = wizardAreaId || (areasWizard.length === 1 ? areasWizard[0].unidadeId : null);
+  /**
+   * Fase ESCOPO-GESTOR-UNIDADE-1 — `equipesWizardCompletas` alimenta o
+   * filtro de `gruposWizard` (precisa reconhecer a equipe responsável de
+   * um Plantão como candidata) e o seletor de
+   * "equipe responsável" ao criar um Grupo novo; `equipesWizard` (o que de
+   * fato vai para o `<select>` de Jornada 6x1) usa `jornadasAdministraveis`
+   * quando o tipo é Jornada — nunca oferece uma equipe que já é
+   * responsável por um Grupo de Plantão como destino de Jornada.
+   *
+   * Fase CORRECAO-WIZARD-PLANTAO-EQUIPE-1 — para Plantão, `equipesWizard`
+   * também exclui a equipe da Jornada ATIVA agora
+   * (`equipesCandidatasParaPlantao`) — nunca oferece a equipe que já está
+   * em uso real de Jornada como "equipe responsável" de um Plantão novo.
+   * `gruposWizard` continua usando `equipesWizardCompletas` (sem essa
+   * exclusão) para não deixar de reconhecer um Grupo já existente cuja
+   * equipe responsável, por acaso, coincida com a Jornada ativa.
+   */
+  const equipesWizardCompletas = equipesAdministraveisNaUnidade(
+    equipesAdmin,
+    areaWizardEfetiva,
+    minhasEquipesPermitidas,
+    souAdmin,
+  );
+  const equipesWizard = wizardTipo === 'JORNADA'
+    ? equipesAdministraveisNaUnidade(equipesAdmin, areaWizardEfetiva, minhasEquipesDeJornadaPermitidas, souAdmin)
+    : equipesCandidatasParaPlantao(equipesWizardCompletas, equipeJornadaReferenciaId);
+  const gruposWizard = gruposPlantaoAdministraveis(
+    gruposPlantaoAdmin.filter((grupo) => equipesWizardCompletas.some((equipe) => equipe.id === grupo.equipeResponsavelId)),
+    podeGerenciarEsteGrupoPlantao,
+  );
+  /**
+   * Fase CORRECAO-WIZARD-PLANTAO-EQUIPE-1 — "área de gestão" a EXIBIR no
+   * Wizard nunca deveria dizer "não cadastrada" quando a equipe já
+   * resolvida (`wizardEquipeId`) carrega, ela mesma, uma unidade real —
+   * mesmo que o usuário não administre nenhuma `UnidadeOrganizacional`
+   * diretamente (ex.: `GESTOR_EQUIPE` comum, sem `GESTOR_UNIDADE`). Nunca
+   * amplia autorização — `areasWizard` continua a fonte usada para
+   * `mudarAreaWizard`/`criarEquipeWizard`; isto só afeta o que é MOSTRADO.
+   */
+  const equipeWizardResolvida = equipesAdmin.find((item) => item.id === wizardEquipeId);
+  const areasWizardParaExibir = areasParaExibicaoNoWizard(areasWizard, unidadesAdmin, equipeWizardResolvida);
+  const rascunhoWizardExistente = wizardGrupoId !== ''
+    && (rascunhosPlantaoPorGrupo[wizardGrupoId] ?? []).some((item) => item.competencia === wizardCompetencia);
+  const competenciaAnteriorWizard = wizardCompetencia.trim() === '' ? null : competenciaAnterior(wizardCompetencia.trim());
+  const periodoAnteriorWizardDisponivel = wizardGrupoId !== ''
+    && competenciaAnteriorWizard !== null
+    && (rascunhosPlantaoPorGrupo[wizardGrupoId] ?? []).some((item) => item.competencia === competenciaAnteriorWizard);
   const competenciaParaNovasOpcoes = contextoEscalaAtivo?.competencia ?? '2026-08';
-  const opcoesContextoJornada: OpcaoContextoEscala[] = minhasEquipesPermitidas.map((equipeId) => ({
+  /**
+   * Uma equipe responsável exclusivamente por um Grupo de Plantão não é uma
+   * Jornada 6x1 adicional. O coordenador do COSI pode ter EQ_SOC e
+   * EQ_PLANTAO_COSI nas permissões; o topo deve mostrar SOC em Jornadas e o
+   * Grupo Plantão em Plantões, sem transformar a equipe técnica de Plantão em
+   * uma segunda Jornada. Se no futuro a mesma equipe tiver os dois produtos,
+   * o contexto Jornada já ativo continua preservado.
+   */
+  const equipesResponsaveisExclusivasPlantao = new Set(
+    gruposPlantaoAdmin
+      .filter(podeGerenciarEsteGrupoPlantao)
+      .map((grupo) => grupo.equipeResponsavelId),
+  );
+  const equipesComJornadaVisivel = minhasEquipesPermitidas.filter((equipeId) =>
+    !equipesResponsaveisExclusivasPlantao.has(equipeId)
+      || (contextoEhJornada(contextoEscalaAtivo) && contextoEscalaAtivo.equipeId === equipeId),
+  );
+  const opcoesContextoJornada: OpcaoContextoEscala[] = equipesComJornadaVisivel.map((equipeId) => ({
     contexto: {
       tipo: 'JORNADA',
       equipeId,
@@ -5989,10 +6416,42 @@ export function DashboardApp() {
       rotuloPrincipal: grupo.nome,
       rotuloSecundario: equipesAdmin.find((item) => item.id === grupo.equipeResponsavelId)?.nome ?? grupo.equipeResponsavelId,
     }));
+  /**
+   * Fase ESCOPO-CONSULTA-PLANTAO-1 — seção separada de "Plantões
+   * monitorados" no seletor superior: Grupos que a equipe do usuário só
+   * CONSULTA (`plantoesConsultaveis`), nunca administra. Nunca aparece
+   * misturado com `opcoesContextoPlantao` (administráveis) — consulta não
+   * é administração.
+   */
+  const opcoesContextoPlantaoMonitorados: OpcaoContextoEscala[] = escoposOperacionais.plantoesConsultaveis
+    .map((grupo) => ({
+      contexto: {
+        tipo: 'PLANTAO' as const,
+        grupoId: grupo.grupoId,
+        competencia: contextoEhPlantao(contextoEscalaAtivo) && contextoEscalaAtivo.grupoId === grupo.grupoId
+          ? contextoEscalaAtivo.competencia
+          : competenciaParaNovasOpcoes,
+      },
+      rotuloPrincipal: grupo.nome,
+      rotuloSecundario: equipesAdmin.find((item) => item.id === grupo.equipeResponsavelId)?.nome ?? grupo.equipeResponsavelId,
+    }));
+  /**
+   * `true` quando o contexto de Plantão ativo agora é só consultável (o
+   * grupo está em `plantoesConsultaveis`, nunca em `plantoesAdministraveis`)
+   * — gate único usado para esconder/desabilitar toda ação de escrita
+   * (editar, importar, salvar rascunho, publicar, configurar grupo, editar
+   * participantes, usar período anterior) e mostrar o aviso "Somente
+   * consulta".
+   */
+  const contextoPlantaoSomenteConsulta = contextoEhPlantao(contextoEscalaAtivo)
+    && escoposOperacionais.plantoesConsultaveis.some((grupo) => grupo.grupoId === contextoEscalaAtivo.grupoId);
   const rotuloContextoAtivo = contextoEscalaAtivo === null
     ? 'Selecionar escala'
     : contextoEhJornada(contextoEscalaAtivo)
-      ? (equipesAdmin.find((item) => item.id === contextoEscalaAtivo.equipeId)?.nome ?? contextoEscalaAtivo.equipeId)
+      ? ((equipesAdmin.find((item) => item.id === contextoEscalaAtivo.equipeId)?.nome ?? contextoEscalaAtivo.equipeId)
+        .split('>')
+        .at(-1)
+        ?.trim() || contextoEscalaAtivo.equipeId)
       : (gruposPlantaoAdmin.find((item) => item.grupoId === contextoEscalaAtivo.grupoId)?.nome ?? contextoEscalaAtivo.grupoId);
   /**
    * Status contextual (§ 17/§ 18 do redesign): "Publicada" para Jornada só
@@ -6007,8 +6466,6 @@ export function DashboardApp() {
       : (contextoEhJornada(contextoEscalaAtivo) && documentos.length > 0 && publicados.length === documentos.length)
         ? 'publicada'
         : 'rascunho';
-  const periodoContextoAtivo = contextoEscalaAtivo === null ? null : periodoDaCompetencia(contextoEscalaAtivo.competencia);
-
   return (
     <AppFrame
       produto="dashboard"
@@ -6026,13 +6483,12 @@ export function DashboardApp() {
             rotuloContextoAtivo={rotuloContextoAtivo}
             opcoesJornada={opcoesContextoJornada}
             opcoesPlantao={opcoesContextoPlantao}
+            opcoesPlantaoMonitorados={opcoesContextoPlantaoMonitorados}
             onSelecionar={solicitarTrocaContexto}
             carregando={carregandoContexto}
           />
           <ScheduleCompetenceControl
             competencia={contextoEscalaAtivo?.competencia ?? null}
-            periodoInicio={periodoContextoAtivo?.periodoInicio ?? null}
-            periodoFim={periodoContextoAtivo?.periodoFim ?? null}
             onMudarCompetencia={solicitarTrocaCompetencia}
           />
           <ScheduleStatusBadge status={statusContextoAtivo} />
@@ -6075,139 +6531,103 @@ export function DashboardApp() {
       )}
 
       {tela === 'visao' && (
-        <section className="overview-dashboard">
-          <header className="page-heading">
-            <div><p className="eyebrow">Operação SOC</p><h1>Visão geral</h1></div>
-            <button className="primary-button" type="button" onClick={() => setTela('importar')}>
-              <Plus size={17} /> Nova importação
-            </button>
+        <section className="overview-dashboard overview-operations">
+          <header className="page-heading overview-page-heading">
+            <div>
+              <p className="eyebrow">Operação integrada</p>
+              <h1>Visão geral</h1>
+              <p className="overview-subtitle">Acompanhe as duas operações em um só lugar.</p>
+            </div>
+              <div className="overview-header-actions">
+                <button className="secondary-button" type="button" onClick={abrirNovaEscala}>
+                  <Plus size={17} /> Nova escala
+                </button>
+                <button className="primary-button" type="button" onClick={abrirImportarEscala}>
+                  <Plus size={17} /> Importar escala
+                </button>
+              </div>
           </header>
-          <div className="metric-grid">
-            <article><span>Competência ativa</span><strong>Agosto 2026</strong><small>26 jul – 25 ago</small></article>
-            <article><span>Colaboradores</span><strong>{totaisGerais.pessoas}</strong><small>vinculados ao SOC</small></article>
-            <article><span>Dias no período</span><strong>{totaisGerais.dias}</strong><small>fechamento 26 → 25</small></article>
-            <article><span>Horas planejadas</span><strong>{totaisGerais.horas}</strong><small>recalculadas dos dias</small></article>
+
+          <div className="overview-operation-grid">
+            <button
+              className={`overview-operation-card ${socStatusDashboard}`}
+              type="button"
+              onClick={() => abrirOperacaoDoDashboard('JORNADA')}
+            >
+              <span className="overview-operation-card-heading">
+                <span className="overview-operation-icon"><ShieldCheck size={22} /></span>
+                <span className="overview-operation-title"><strong>SOC</strong><small>{rotuloSaudeDashboard(socStatusDashboard)}</small></span>
+                <ChevronRight size={19} />
+              </span>
+              <span className="overview-operation-meta">
+                <span><CalendarDays size={16} /><small>Competência ativa</small><strong>{formatarCompetencia(competenciaDashboard)}</strong><em>{periodoJornadaDashboard}</em></span>
+                <span><Users size={16} /><small>Pessoas</small><strong>{totaisGerais.pessoas}</strong><em>colaboradores</em></span>
+                <span><AlertTriangle size={16} /><small>Alertas</small><strong>{alertasVisiveis.length}</strong><em>{alertasVisiveis.length > 0 ? 'necessitam atenção' : 'nenhum pendente'}</em></span>
+              </span>
+              <span className="overview-operation-health"><i style={{ width: `${healthBarSoc}%` }} /></span>
+              <span className="overview-operation-action"><Pencil size={15} /> Abrir operação SOC <ArrowUpRight size={16} /></span>
+            </button>
+
+            <button
+              className={`overview-operation-card ${plantaoStatusDashboard}`}
+              type="button"
+              onClick={() => abrirOperacaoDoDashboard('PLANTAO')}
+            >
+              <span className="overview-operation-card-heading">
+                <span className="overview-operation-icon plantao"><Radio size={22} /></span>
+                <span className="overview-operation-title"><strong>{nomePlantaoDashboard}</strong><small>{rotuloSaudeDashboard(plantaoStatusDashboard)}</small></span>
+                <ChevronRight size={19} />
+              </span>
+              <span className="overview-operation-meta">
+                <span><CalendarDays size={16} /><small>Competência ativa</small><strong>{formatarCompetencia(competenciaPlantaoDashboard?.competencia ?? competenciaDashboard)}</strong><em>{periodoPlantaoDashboard}</em></span>
+                <span><Users size={16} /><small>Pessoas</small><strong>{participantesPlantaoDashboard}</strong><em>participantes</em></span>
+                <span><AlertTriangle size={16} /><small>Alertas</small><strong>{plantaoAlertasDashboard}</strong><em>{plantaoPossuiEscalaDashboard ? 'na operação' : 'nenhuma escala criada'}</em></span>
+              </span>
+              <span className="overview-operation-health"><i style={{ width: `${healthBarPlantao}%` }} /></span>
+              <span className="overview-operation-action"><Radio size={15} /> Abrir operação Plantão <ArrowUpRight size={16} /></span>
+            </button>
           </div>
-          <div className="overview-grid">
-            <article className="panel overview-span-8">
+
+          <div className="metric-grid overview-summary-metrics">
+            <article><span>Colaboradores</span><strong>{colaboradoresOperacoesDashboard}</strong><small>ativos nas duas operações</small></article>
+            <article><span>Dias no período</span><strong>{totaisGerais.dias || 31}</strong><small>{formatarCompetencia(competenciaDashboard)}</small></article>
+            <article className="overview-health-summary">
+              <div className="overview-health-summary-heading"><span>Saúde das escalas</span><ShieldCheck size={18} /></div>
+              <div className="overview-health-row"><strong>SOC</strong><small className={socStatusDashboard}>{rotuloSaudeDashboard(socStatusDashboard)}</small><b>{healthBarSoc}%</b><i><em style={{ width: `${healthBarSoc}%` }} /></i></div>
+              <div className="overview-health-row"><strong>Plantão</strong><small className={plantaoStatusDashboard}>{rotuloSaudeDashboard(plantaoStatusDashboard)}</small><b>{healthBarPlantao}%</b><i><em style={{ width: `${healthBarPlantao}%` }} /></i></div>
+              <small className="overview-health-note">{pendenciasDashboard > 0 ? `${pendenciasDashboard} ${pendenciasDashboard === 1 ? 'pendência requer' : 'pendências requerem'} atenção` : 'Nenhuma pendência operacional'}</small>
+            </article>
+            <article><span>Pendências</span><strong>{pendenciasDashboard}</strong><small>requerem atenção</small></article>
+          </div>
+
+          <div className="overview-grid overview-secondary-grid">
+            <article className="panel overview-span-4 overview-publication-card">
               <div className="panel-title"><div><h2>Publicação da escala</h2><p>Disponibilidade no aplicativo</p></div><ShieldCheck /></div>
-              <div className={`publication-progress ${resumoPublicacao.estado}`}>
-                <strong>{resumoPublicacao.titulo}</strong>
-                <p>{resumoPublicacao.descricao}</p>
-                <div><i style={{ width: documentos.length ? `${(publicados.length / documentos.length) * 100}%` : '0%' }} /></div>
+              <div className="overview-operation-list">
+                <button type="button" onClick={() => abrirOperacaoDoDashboard('JORNADA')}><ShieldCheck size={18} /><span><strong>SOC</strong><small>{resumoPublicacao.titulo}</small></span><em className={resumoPublicacao.estado}>{publicados.length}/{documentos.length || 0}</em><ChevronRight size={15} /></button>
+                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>Plantão</strong><small>{plantaoPossuiEscalaDashboard ? 'Rascunho disponível' : 'Nenhuma escala criada'}</small></span><em className={plantaoPossuiEscalaDashboard ? 'parcial' : 'vazio'}>{plantaoPossuiEscalaDashboard ? 'Rascunho' : 'Sem escala'}</em><ChevronRight size={15} /></button>
               </div>
+              <button className="overview-card-link" type="button" onClick={() => setTela('escalas')}>Ver escalas e histórico <ChevronRight size={16} /></button>
             </article>
-            <article className="panel quick-actions overview-span-4">
-              <div className="panel-title"><div><h2>Próximas ações</h2><p>Fluxo recomendado</p></div></div>
-              <button type="button" onClick={() => setTela('importar')}><UploadCloud /> Validar nova planilha <ArrowUpRight /></button>
-              <button type="button" onClick={() => setTela('grade')}><Pencil /> Revisar a grade <ArrowUpRight /></button>
-            </article>
-          </div>
-          <div className="overview-grid">
-            <article className="panel grid-panel overview-span-4">
-              <div className="panel-title">
-                <div><h2>Alertas da escala</h2><p>Pontos que merecem atenção do gestor</p></div>
-                <AlertTriangle />
+
+            <article className="panel overview-span-4 overview-alerts-card">
+              <div className="panel-title"><div><h2>Alertas por operação</h2><p>Pontos que merecem atenção do gestor</p></div><Bell size={18} /></div>
+              <div className="overview-operation-list">
+                <button type="button" onClick={() => abrirOperacaoDoDashboard('JORNADA')}><ShieldCheck size={18} /><span><strong>SOC</strong><small>Jornada 6x1</small></span><em className={socStatusDashboard}>{alertasVisiveis.length}</em><ChevronRight size={15} /></button>
+                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>Plantão</strong><small>{plantaoMetricasDashboard}</small></span><em className={plantaoStatusDashboard}>{plantaoAlertasDashboard}</em><ChevronRight size={15} /></button>
               </div>
-              {alertasVisiveis.length === 0 ? (
-                <div className="notification-empty alert-summary-empty">
-                  <ShieldCheck size={18} />
-                  <strong>Nenhum alerta encontrado</strong>
-                  <span>A escala atual não possui inconsistências conhecidas.</span>
-                </div>
-              ) : (
-                <>
-                  <p className="alert-summary-count">
-                    {alertasVisiveis.length} {alertasVisiveis.length === 1 ? 'alerta encontrado' : 'alertas encontrados'}
-                  </p>
-                  <div className="alert-summary-list">
-                    {alertasVisiveis.map((alerta) => (
-                      <button
-                        key={alerta.id}
-                        type="button"
-                        className="alert-item alert-item-button"
-                        onClick={() => setAlertaSelecionado(alerta)}
-                      >
-                        <AlertTriangle
-                          size={15}
-                          className={alerta.severidade === 'critico' ? 'alert-icon-critico' : 'alert-icon-aviso'}
-                        />
-                        <div>
-                          <strong>{alerta.colaborador ? `${alerta.colaborador} — ${alerta.titulo}` : alerta.titulo}</strong>
-                          <small>{alerta.tipo}{alerta.data ? ` · ${formatarDataCurta(alerta.data)}` : ''}</small>
-                        </div>
-                        <ChevronRight size={16} />
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
+              <button className="overview-card-link" type="button" onClick={() => setAlertaSelecionado(alertasVisiveis[0] ?? null)}>Ver alertas do SOC <ChevronRight size={16} /></button>
             </article>
-            <article className="panel grid-panel overview-span-4">
-              <div className="panel-title">
-                <div><h2>Carga por colaborador</h2><p>Distribuição de dias e horas no período</p></div>
-                <Users />
+
+            <article className="panel overview-span-4 overview-swaps-card">
+              <div className="panel-title"><div><h2>Trocas pendentes</h2><p>Aguardando decisão do gestor</p></div><ArrowLeftRight size={18} /></div>
+              <button className="overview-swaps-summary" type="button" onClick={abrirTrocasDoDashboard}><strong>{trocasPendentesGestor.length}</strong><span>{trocasPendentesGestor.length === 1 ? 'troca aguarda' : 'trocas aguardam'} sua decisão.</span><ChevronRight size={16} /></button>
+              <div className="overview-swap-preview">
+                {trocasPendentesGestor.slice(0, 2).map((troca) => (
+                  <button key={troca.trocaId} type="button" onClick={() => { setTela('trocas'); setTrocaSelecionadaId(troca.trocaId); }}><ArrowLeftRight size={15} /><span><strong>{troca.solicitanteNome} ⇄ {troca.destinatarioNome}</strong><small>{formatarDataCurta(troca.data)} · {troca.turnoSolicitanteAntes} ⇄ {troca.turnoDestinatarioAntes}</small></span><ChevronRight size={14} /></button>
+                ))}
               </div>
-              {cargaColaboradores.length === 0 ? (
-                <div className="notification-empty">
-                  <Users size={18} />
-                  <span>Nenhum colaborador na grade deste período.</span>
-                </div>
-              ) : (
-                <div className="carga-colaborador-list">
-                  {(() => {
-                    const maiorMinutos = Math.max(...cargaColaboradores.map((item) => item.minutos), 1);
-                    return cargaColaboradores.map((item, indice) => (
-                      <div key={item.login} className="carga-colaborador-item">
-                        <div className="carga-colaborador-info">
-                          <span className="carga-colaborador-rank">{indice + 1}</span>
-                          <div>
-                            <strong>{item.nome}</strong>
-                            <small>
-                              {item.diasTrabalhados} {item.diasTrabalhados === 1 ? 'dia trabalhado' : 'dias trabalhados'}
-                              {' · '}{item.folgas} {item.folgas === 1 ? 'folga' : 'folgas'}
-                              {' · '}{formatarMinutos(item.minutos)}
-                            </small>
-                          </div>
-                        </div>
-                        <div className="carga-colaborador-bar">
-                          <i style={{ width: `${(item.minutos / maiorMinutos) * 100}%` }} />
-                        </div>
-                      </div>
-                    ));
-                  })()}
-                </div>
-              )}
-            </article>
-            <article className="panel grid-panel overview-span-4">
-              <div className="panel-title">
-                <div><h2>Trocas pendentes</h2><p>Aguardando decisão do gestor</p></div>
-                <ArrowLeftRight />
-              </div>
-              {trocasPendentesGestor.length === 0 ? (
-                <div className="notification-empty">
-                  <ArrowLeftRight size={18} />
-                  <span>Nenhuma troca aguardando decisão agora.</span>
-                </div>
-              ) : (
-                <div className="alert-summary-list">
-                  {trocasPendentesGestor.map((troca) => (
-                    <button
-                      key={troca.trocaId}
-                      type="button"
-                      className="alert-item alert-item-button"
-                      onClick={() => { setTela('trocas'); setTrocaSelecionadaId(troca.trocaId); }}
-                    >
-                      <ArrowLeftRight size={15} className="alert-icon-aviso" />
-                      <div>
-                        <strong>{troca.solicitanteNome} ⇄ {troca.destinatarioNome}</strong>
-                        <small>{formatarDataCurta(troca.data)} · {troca.turnoSolicitanteAntes} ⇄ {troca.turnoDestinatarioAntes}</small>
-                      </div>
-                      <ChevronRight size={16} />
-                    </button>
-                  ))}
-                </div>
-              )}
+              <button className="overview-card-link" type="button" onClick={abrirTrocasDoDashboard}>Gerenciar trocas <ChevronRight size={16} /></button>
             </article>
           </div>
         </section>
@@ -6217,10 +6637,13 @@ export function DashboardApp() {
         <section>
           <header className="page-heading">
             <div>
-              {/* Fase ESCALAS-UX-2A — "Importar" saiu da sidebar principal (§ 8/§ 18 do redesign); este breadcrumb transitório evita que o usuário se sinta perdido. */}
-              <p className="tela-breadcrumb">
-                <button type="button" className="link-button" onClick={() => setTela('escalas')}>← Voltar para Escalas</button>
-              </p>
+              {/* Navegação interna: usar controle de ação, nunca hiperlink sublinhado, para retornar à listagem de escalas. */}
+              <div className="tela-breadcrumb">
+                <button type="button" className="screen-back-button" onClick={() => setTela('escalas')} aria-label="Voltar para Escalas">
+                  <ArrowLeft size={16} strokeWidth={2.2} aria-hidden="true" />
+                  <span>Escalas</span>
+                </button>
+              </div>
               <p className="eyebrow">Importação segura</p><h1>Importar escala</h1><p>O arquivo é processado somente na memória deste navegador.</p>
             </div>
           </header>
@@ -6331,11 +6754,12 @@ export function DashboardApp() {
               periodoFim={periodoFimRascunho}
               dataHoje={dataIsoLocal(new Date())}
               editadoDesdeImportacao={plantaoEditadoDesdeImportacao}
-              onEditarAtribuicao={abrirEdicaoAtribuicaoPlantao}
+              onEditarAtribuicao={contextoPlantaoSomenteConsulta ? NAO_OPERAR_PLANTAO_CONSULTA : abrirEdicaoAtribuicaoPlantao}
               plantonistaSelecionado={plantonistaSelecionadoPlantao}
               onSelecionarPlantonista={alternarPlantonistaSelecionado}
-              onSolicitarNovaAtribuicao={solicitarNovaAtribuicaoPlantao}
+              onSolicitarNovaAtribuicao={contextoPlantaoSomenteConsulta ? NAO_OPERAR_PLANTAO_CONSULTA : solicitarNovaAtribuicaoPlantao}
               nomesInativosPlantao={nomesInativosReferenciadosPlantao}
+              somenteConsulta={contextoPlantaoSomenteConsulta}
             />
           )}
 
@@ -6345,6 +6769,7 @@ export function DashboardApp() {
               valoresIniciais={modalAtribuicaoPlantao.valoresIniciais}
               modo={modalAtribuicaoPlantao.modo}
               participantesConhecidos={participantesPlantao.map((participante) => participante.nomeOriginal)}
+              padroesDisponiveis={padroesHorarioModalPlantao}
               onFechar={fecharModalAtribuicaoPlantao}
               onSalvar={salvarModalAtribuicaoPlantao}
               onExcluir={modalAtribuicaoPlantao.modo === 'editar' ? excluirModalAtribuicaoPlantao : undefined}
@@ -6362,7 +6787,24 @@ export function DashboardApp() {
             />
           )}
 
-          {tipoArquivoDetectado === 'PLANTAO' && origemPlantaoAtual !== null && previaPlantaoValidada && (
+          {/*
+           * Fase ESCOPO-CONSULTA-PLANTAO-1 — um contexto só consultável
+           * nunca mostra o painel de escrita "Salvar como rascunho",
+           * mesmo que os vínculos já estejam resolvidos
+           * (`previaPlantaoValidada`) — consulta nunca é administração.
+           */}
+          {tipoArquivoDetectado === 'PLANTAO' && origemPlantaoAtual !== null && contextoPlantaoSomenteConsulta && (
+            <article className="panel">
+              <div className="panel-title">
+                <div><h2>Somente consulta</h2></div>
+              </div>
+              <p className="admin-form-preview">
+                Sua equipe monitora este Plantão — a edição, importação e publicação continuam restritas ao
+                responsável pelo Plantão.
+              </p>
+            </article>
+          )}
+          {tipoArquivoDetectado === 'PLANTAO' && origemPlantaoAtual !== null && previaPlantaoValidada && !contextoPlantaoSomenteConsulta && (
             <article className="panel">
               <div className="panel-title">
                 <div>
@@ -6638,24 +7080,14 @@ export function DashboardApp() {
             )}
 
             {resultado && resultado.documentos.length > 0 && (
-              <article className="panel grid-panel">
-                <div className="panel-title">
-                  <div><h2>Prévia da escala</h2><p>{resultado.equipeNome} · {resultado.periodoInicio} a {resultado.periodoFim}</p></div>
-                  <span className={`status-badge ${resultado.ok ? 'success' : 'danger'}`}>
-                    {resultado.ok ? 'Sem erros' : `${resultado.erros.length} erros`}
-                  </span>
-                </div>
-                <ScheduleGrid
-                  documentos={resultado.documentos}
-                  usuarios={usuarios}
-                  catalogo={catalogo}
-                  indiceAlertas={indiceAlertasGrade}
-                  compacta
-                />
-              </article>
-            )}
-            {resultado && resultado.documentos.length > 0 && (
-              <ScheduleLegend catalogo={catalogo} />
+              <ScheduleImportReview
+                resultado={resultado}
+                nomeArquivo={nomeArquivo}
+                usuarios={usuarios}
+                catalogo={catalogo}
+                indiceAlertas={indiceAlertasGrade}
+                linhasConciliacao={linhasConciliacao}
+              />
             )}
             </>
           )}
@@ -6665,21 +7097,10 @@ export function DashboardApp() {
       {tela === 'escalas' && (
         <section>
           <header className="page-heading">
-            <div><p className="eyebrow">Competências</p><h1>Escalas</h1><p>Rascunhos e publicações disponíveis para a equipe.</p></div>
-            {/*
-             * Fase ESCALAS-UX-2A — "Escalas" vira o hub operacional
-             * principal enquanto o workspace unificado (ESCALAS-UX-2A.1)
-             * não existe: "Nova escala" é a ação primária; "Importar
-             * escala" e "Abrir grade" são pontes explícitas para as telas
-             * internas que saíram da sidebar (`docs/spec/REDESIGN_WORKSPACE_ESCALAS.md`
-             * § 6/§ 9), nunca escondidas atrás de nenhum menu extra.
-             */}
+            <div><h1>Escalas</h1><p>Rascunhos e publicações disponíveis para a equipe.</p></div>
             <div className="grade-header-actions">
-              <button className="secondary-button" type="button" onClick={() => setTela('importar')}>
+              <button className="secondary-button" type="button" onClick={abrirImportarEscala}>
                 <UploadCloud size={17} /> Importar escala
-              </button>
-              <button className="secondary-button" type="button" onClick={() => setTela('grade')}>
-                <Grid3X3 size={17} /> Abrir grade
               </button>
               <button className="primary-button" type="button" onClick={abrirNovaEscala}>
                 <Plus size={17} /> Nova escala
@@ -6715,7 +7136,7 @@ export function DashboardApp() {
                 {revisaoAtual > 0 && <span className="revision-label">Revisão ativa {revisaoAtual}</span>}
               </div>
               <div className="scale-actions">
-                <button className="secondary-button" type="button" onClick={() => setTela('grade')}>Revisar grade</button>
+                <button className="secondary-button" type="button" onClick={() => setTela('grade')}>Abrir editor</button>
                 {documentos.length > 0 && publicados.length !== documentos.length && (
                   <button
                     className="secondary-button danger-button"
@@ -6849,59 +7270,78 @@ export function DashboardApp() {
 
       {tela === 'grade' && (
         <section>
-          <header className="page-heading">
-            <div>
-              {/* Fase ESCALAS-UX-2A — "Grade" saiu da sidebar principal (§ 9/§ 18 do redesign); breadcrumb transitório de volta para "Escalas". */}
-              <p className="tela-breadcrumb">
-                <button type="button" className="link-button" onClick={() => setTela('escalas')}>← Voltar para Escalas</button>
-              </p>
-              <p className="eyebrow">Revisão completa</p>
-              <h1>Grade da equipe</h1>
-              <p>Clique em uma célula para editar o rascunho.</p>
-            </div>
-            <div className="grade-header-actions">
-              <span className={`status-badge ${publicados.length === documentos.length && documentos.length ? 'success' : 'warning'}`}>
-                {publicados.length === documentos.length && documentos.length ? 'Revisão publicada' : 'Rascunho não publicado'}
-              </span>
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={escritaBloqueada || !usuarios.length}
-                onClick={abrirAdicionarMembroGrade}
-              >
-                <UserPlus size={16} /> Adicionar colaborador
-              </button>
-              <button
-                className="primary-button"
-                type="button"
-                disabled={!documentos.length || escritaBloqueada}
-                onClick={() => void salvar()}
-              >
-                <Save size={16} /> Salvar alterações
-              </button>
-            </div>
-          </header>
-          <article className="panel grid-panel">
-            <div className="toolbar">
-              <label><Filter size={16} /><select value={filtroTurno} onChange={(evento) => setFiltroTurno(evento.target.value)}>
-                <option value="TODOS">Todos os turnos</option>
-                <option value="MD">Madrugada</option><option value="M">Manhã</option>
-                <option value="T">Tarde</option><option value="N">Noite</option>
-              </select></label>
-              <span>{documentos.filter((documento) => filtroTurno === 'TODOS' || documento.turnoPadrao === filtroTurno).length} colaboradores</span>
-            </div>
-            <ScheduleGrid
-              documentos={documentos}
+          {resultado && arquivo !== null ? (
+            <ScheduleImportReview
+              resultado={resultado}
+              nomeArquivo={nomeArquivo}
               usuarios={usuarios}
               catalogo={catalogo}
-              filtroTurno={filtroTurno}
-              agruparPorPeriodo
               indiceAlertas={indiceAlertasGrade}
-              onEditar={(documento, data, dia) => setCelulaEditando({ documento, data, dia })}
+              linhasConciliacao={linhasConciliacao}
+              onVoltar={() => setTela('escalas')}
+              onEditar={abrirCelulaParaEdicao}
               onRemover={(documento) => setRemoverMembroPendente(documento)}
+              headerActions={(
+                <>
+                  <button className="secondary-button" type="button" disabled={escritaBloqueada || !usuarios.length} onClick={abrirAdicionarMembroGrade}>
+                    <UserPlus size={15} /> Adicionar colaborador
+                  </button>
+                  <button className="primary-button" type="button" disabled={!documentos.length || escritaBloqueada} onClick={() => void salvar()}>
+                    <Save size={15} /> Salvar alterações
+                  </button>
+                </>
+              )}
             />
-          </article>
-          <ScheduleLegend catalogo={catalogo} />
+          ) : (
+            <>
+              <header className="page-heading">
+                <div>
+                  {/* Navegação interna: usar controle de ação, nunca hiperlink sublinhado, para retornar à listagem de escalas. */}
+                  <div className="tela-breadcrumb">
+                    <button type="button" className="screen-back-button" onClick={() => setTela('escalas')} aria-label="Voltar para Escalas">
+                      <ArrowLeft size={16} strokeWidth={2.2} aria-hidden="true" />
+                      <span>Escalas</span>
+                    </button>
+                  </div>
+                  <p className="eyebrow">Revisão completa</p>
+                  <h1>Grade da equipe</h1>
+                  <p>Clique em uma célula para editar o rascunho.</p>
+                </div>
+                <div className="grade-header-actions">
+                  <span className={`status-badge ${publicados.length === documentos.length && documentos.length ? 'success' : 'warning'}`}>
+                    {publicados.length === documentos.length && documentos.length ? 'Revisão publicada' : 'Rascunho não publicado'}
+                  </span>
+                  <button className="secondary-button" type="button" disabled={escritaBloqueada || !usuarios.length} onClick={abrirAdicionarMembroGrade}>
+                    <UserPlus size={16} /> Adicionar colaborador
+                  </button>
+                  <button className="primary-button" type="button" disabled={!documentos.length || escritaBloqueada} onClick={() => void salvar()}>
+                    <Save size={16} /> Salvar alterações
+                  </button>
+                </div>
+              </header>
+              <article className="panel grid-panel">
+                <div className="toolbar">
+                  <label><Filter size={16} /><select value={filtroTurno} onChange={(evento) => setFiltroTurno(evento.target.value)}>
+                    <option value="TODOS">Todos os turnos</option>
+                    <option value="MD">Madrugada</option><option value="M">Manhã</option>
+                    <option value="T">Tarde</option><option value="N">Noite</option>
+                  </select></label>
+                  <span>{documentos.filter((documento) => filtroTurno === 'TODOS' || documento.turnoPadrao === filtroTurno).length} colaboradores</span>
+                </div>
+                <ScheduleGrid
+                  documentos={documentos}
+                  usuarios={usuarios}
+                  catalogo={catalogo}
+                  filtroTurno={filtroTurno}
+                  agruparPorPeriodo
+                  indiceAlertas={indiceAlertasGrade}
+                  onEditar={abrirCelulaParaEdicao}
+                  onRemover={(documento) => setRemoverMembroPendente(documento)}
+                />
+              </article>
+              <ScheduleLegend catalogo={catalogo} />
+            </>
+          )}
         </section>
       )}
 
@@ -7416,6 +7856,95 @@ export function DashboardApp() {
                       <dl className="organization-detail-lista">
                         <div><dt>Identificador</dt><dd><code className="login-code">{item.id}</code></dd></div>
                       </dl>
+                      {/*
+                       * Fase PROVISIONAMENTO-GRUPO-PLANTAO-1 — deixa
+                       * explícito, na própria árvore de Administração, que
+                       * uma Equipe (mesmo com "Plantão" no nome) não é o
+                       * destino da escala de Plantão — o destino real é o
+                       * GrupoPlantao vinculado (`equipeResponsavelId`),
+                       * nunca inferido por nome. Sem Grupo vinculado, a
+                       * equipe segue disponível para Jornada 6x1 ou para
+                       * futuramente virar responsável de um Grupo novo.
+                       */}
+                      {(() => {
+                        const grupoVinculado = gruposPlantaoAdmin.find((grupo) => grupo.equipeResponsavelId === item.id);
+                        return grupoVinculado ? (
+                          <p className="admin-form-preview">
+                            <Radio size={14} aria-hidden="true" /> Equipe responsável do Grupo de Plantão <strong>{grupoVinculado.nome}</strong> — a escala de Plantão é montada/importada sobre esse Grupo, nunca diretamente sobre esta equipe.
+                          </p>
+                        ) : (
+                          <p className="admin-form-preview">Nenhum Grupo de Plantão vinculado a esta equipe ainda — disponível para Jornada 6x1 ou para se tornar equipe responsável de um novo Grupo de Plantão.</p>
+                        );
+                      })()}
+                      {/*
+                       * Fase ESCOPO-CONSULTA-PLANTAO-1 — "Plantões
+                       * monitorados pela equipe": autovínculo direto de
+                       * CONSULTA, sem depender de aprovação do coordenador
+                       * responsável pelo Plantão. Visível para quem
+                       * ADMINISTRA esta equipe (`minhasEquipesPermitidas`,
+                       * inclui GESTOR_EQUIPE/SUPERVISOR_EQUIPE — não só
+                       * `podeEditar`, que é o poder mais estrito de editar
+                       * a própria Equipe, restrito a ADMIN/GESTOR_UNIDADE).
+                       */}
+                      {(souAdmin || minhasEquipesPermitidas.includes(item.id)) && (() => {
+                        const monitorados = plantoesMonitoradosPelaEquipe(gruposPlantaoAdmin, item.id);
+                        const disponiveis = plantoesDisponiveisParaMonitoramento(gruposPlantaoAdmin, item.id)
+                          .filter((grupo) => grupo.equipeResponsavelId !== item.id);
+                        return (
+                          <div className="organization-plantoes-monitorados">
+                            <h4>Plantões monitorados</h4>
+                            <p className="admin-form-preview">
+                              Esta configuração libera somente consulta. A edição, importação e publicação continuam restritas ao responsável pelo Plantão.
+                            </p>
+                            {monitorados.length === 0 ? (
+                              <p className="empty-inline">Nenhum Plantão monitorado por esta equipe ainda.</p>
+                            ) : (
+                              <ul className="organization-team-picker-resumo">
+                                {monitorados.map((grupo) => (
+                                  <li key={grupo.grupoId}>
+                                    <div><strong>{grupo.nome}</strong></div>
+                                    {grupo.equipeResponsavelId === item.id ? (
+                                      <span className="status-badge neutral">responsável — sempre monitorado</span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        className="icon-button"
+                                        title="Parar de monitorar"
+                                        aria-label={`Parar de monitorar ${grupo.nome}`}
+                                        disabled={processandoConsultaPlantao === grupo.grupoId}
+                                        onClick={() => void alternarPlantaoMonitoradoPelaEquipe(grupo.grupoId, item.id, 'REMOVER')}
+                                      >
+                                        <X size={14} />
+                                      </button>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                            {disponiveis.length > 0 && (
+                              <div className="wizard-inline-fields">
+                                <label htmlFor={`plantoes-disponiveis-${item.id}`}>
+                                  Adicionar Plantão monitorado
+                                  <select
+                                    id={`plantoes-disponiveis-${item.id}`}
+                                    value=""
+                                    disabled={processandoConsultaPlantao !== null}
+                                    onChange={(evento) => {
+                                      const grupoId = evento.target.value;
+                                      if (grupoId !== '') {
+                                        void alternarPlantaoMonitoradoPelaEquipe(grupoId, item.id, 'ADICIONAR');
+                                      }
+                                    }}
+                                  >
+                                    <option value="">Selecione um Plantão para monitorar</option>
+                                    {disponiveis.map((grupo) => <option key={grupo.grupoId} value={grupo.grupoId}>{grupo.nome}</option>)}
+                                  </select>
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {podeEditar && (
                         <button className="secondary-button" type="button" onClick={() => abrirEdicaoEquipe(item)}>
                           <Pencil size={14} /> Editar equipe
@@ -7458,15 +7987,33 @@ export function DashboardApp() {
             </div>
             <div className="table-scroll">
               <table className="data-table">
-                <thead><tr><th>ID</th><th>Nome</th><th>Sigla</th><th>Unidade</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>ID</th><th>Nome</th><th>Sigla</th><th>Unidade</th><th>Destino operacional</th><th>Status</th><th></th></tr></thead>
                 <tbody>
-                  {equipesAdmin.map((item) => (
+                  {equipesAdmin.map((item) => {
+                    /**
+                     * Fase PROVISIONAMENTO-GRUPO-PLANTAO-1 — mesma
+                     * distinção do painel de detalhe da árvore acima,
+                     * agora visível para toda a lista sem precisar
+                     * selecionar cada equipe: nunca inferida por nome,
+                     * sempre pela relação real `equipeResponsavelId`.
+                     */
+                    const grupoVinculado = gruposPlantaoAdmin.find((grupo) => grupo.equipeResponsavelId === item.id);
+                    return (
                     <tr key={item.id}>
                       <td><code className="login-code">{item.id}</code></td>
                       <td>{item.nome}</td>
                       <td>{item.sigla}</td>
                       <td title={item.caminhoUnidade ? caminhoLegivel(item.caminhoUnidade, unidadesAdmin) : undefined}>
                         {item.caminhoUnidade ? caminhoCurto(item.caminhoUnidade, unidadesAdmin, 2) : '—'}
+                      </td>
+                      <td>
+                        {grupoVinculado ? (
+                          <span className="status-badge warning" title={`Equipe responsável do Grupo de Plantão ${grupoVinculado.nome}`}>
+                            <Radio size={12} aria-hidden="true" /> Plantão · {grupoVinculado.nome}
+                          </span>
+                        ) : (
+                          <span className="status-badge neutral">Jornada 6x1</span>
+                        )}
                       </td>
                       <td><span className={`status-badge ${item.ativa ? 'success' : 'neutral'}`}>{item.ativa ? 'Ativa' : 'Inativa'}</span></td>
                       <td>
@@ -7483,7 +8030,8 @@ export function DashboardApp() {
                         )}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -7711,28 +8259,39 @@ export function DashboardApp() {
         />
       )}
 
-      {novaEscalaEtapa !== null && (
-        <ModalNovaEscala
-          etapa={novaEscalaEtapa}
+      {wizardInicio !== null && (
+        <ScheduleStartWizard
+          modo={wizardInicio}
+          tipo={wizardTipo}
           onFechar={fecharNovaEscala}
-          onEscolherJornada={escolherJornadaNovaEscala}
-          onEscolherPlantao={escolherPlantaoNovaEscala}
-          podeAcessarPlantoes={podeAcessarPlantoes}
-          gruposDisponiveis={gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao)}
-          equipes={equipesAdmin}
-          participantesPorGrupo={participantesPorGrupoPlantao}
-          rascunhosPorGrupo={rascunhosPlantaoPorGrupo}
-          grupoId={novoPlantaoGrupoId}
-          onMudarGrupo={(grupoId) => void mudarGrupoNovoPlantao(grupoId)}
-          competencia={novoPlantaoCompetencia}
-          onMudarCompetencia={setNovoPlantaoCompetencia}
-          erro={novoPlantaoErro}
-          criando={novoPlantaoCriando}
-          rascunhoExistente={novoPlantaoRascunhoExistente}
-          onAbrirRascunhoExistente={abrirRascunhoExistenteNovoPlantao}
-          onImportarPlanilha={importarPlanilhaNovoPlantao}
-          onCriarVazia={() => void criarPlantaoEmBrancoAcao()}
-          onUsarPeriodoAnterior={() => void usarPeriodoAnteriorAcao()}
+          onEscolherTipo={selecionarTipoWizard}
+          areas={areasWizardParaExibir}
+          areaId={wizardAreaId}
+          onMudarArea={mudarAreaWizard}
+          equipes={equipesWizard}
+          equipeId={wizardEquipeId}
+          onMudarEquipe={mudarEquipeWizard}
+          grupos={gruposWizard}
+          grupoId={wizardGrupoId}
+          onMudarGrupo={mudarGrupoWizard}
+          competencia={wizardCompetencia}
+          onMudarCompetencia={(competencia) => {
+            setWizardCompetencia(competencia);
+            setWizardErro('');
+          }}
+          arquivoNome={wizardArquivoNome}
+          onSelecionarArquivo={(arquivo) => void selecionarArquivoWizard(arquivo)}
+          onContinuar={() => void continuarWizard()}
+          onAbrirRascunhoExistente={wizardTipo === 'PLANTAO' ? abrirRascunhoWizard : undefined}
+          rascunhoExistente={wizardTipo === 'PLANTAO' ? rascunhoWizardExistente : false}
+          onCriarEquipe={criarEquipeWizard}
+          onCriarGrupo={criarGrupoWizard}
+          onUsarPeriodoAnterior={wizardTipo === 'PLANTAO'
+            ? () => void usarPeriodoAnteriorAcao(wizardGrupoId, wizardCompetencia)
+            : undefined}
+          periodoAnteriorDisponivel={periodoAnteriorWizardDisponivel}
+          erro={wizardErro}
+          processando={wizardProcessando}
         />
       )}
 
@@ -7930,7 +8489,20 @@ export function DashboardApp() {
               <div><p className="eyebrow">{celulaEditando.data}</p><h2 id="edit-title">Editar célula</h2><p>{celulaEditando.documento.login}</p></div>
               <button className="icon-button" type="button" onClick={() => setCelulaEditando(null)} aria-label="Fechar"><X size={18} /></button>
             </div>
-            <div className="code-picker">
+              {!celulaEditando.dia.c && (
+                <label className="cycle-assist-toggle">
+                  <input
+                    type="checkbox"
+                    checked={cicloInicial6x1Ativo}
+                    onChange={(evento) => setCicloInicial6x1Ativo(evento.target.checked)}
+                  />
+                  <span>
+                    <strong>Preencher ciclo inicial 6x1</strong>
+                    <small>Ao escolher um turno de trabalho, replica o mesmo código nos próximos 5 dias livres. Cada dia continua editável.</small>
+                  </span>
+                </label>
+              )}
+              <div className="code-picker">
               {Object.values(catalogo).map((tipo) => (
                 <button key={tipo.codigo} type="button" data-code={tipo.codigo} onClick={() => editarCelula(tipo.codigo)}>
                   <span className="shift-chip" data-code={tipo.codigo}>{tipo.codigo}</span>

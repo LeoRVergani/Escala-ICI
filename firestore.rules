@@ -110,6 +110,23 @@ service cloud.firestore {
     }
 
     /**
+     * Fase ESCOPO-GESTOR-UNIDADE-1 — variante de `podeOperarNaUnidade()` que
+     * também aceita subárvore: além do match exato, aceita quando `caminho`
+     * (o caminho materializado raiz -> nó, calculado uma única vez na
+     * criação — NUNCA travessia de `parentId` em tempo de leitura) contém
+     * alguma unidade permitida como ancestral. Usada só onde o documento já
+     * carrega esse caminho materializado (`Equipe.caminhoUnidade`,
+     * `GrupoPlantao.caminhoUnidadeResponsavel`) — nunca substitui
+     * `podeOperarNaUnidade()`, que continua a checagem canônica de match
+     * exato usada por `unidadesOrganizacionais` (ver
+     * `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`).
+     */
+    function podeOperarNaUnidadeOuDescendente(unidadeId, caminho) {
+      return podeOperarNaUnidade(unidadeId)
+        || (autenticado() && souGestorUnidade() && caminho is list && caminho.hasAny(minhasUnidadesPermitidas()));
+    }
+
+    /**
      * Busca o documento real de outro usuário por login — usado só para
      * validar o destinatário verdadeiro de um Lembrete Atribuído. Nunca
      * confiar em `destinatarioEquipeId` do payload do cliente sem checar
@@ -158,9 +175,66 @@ service cloud.firestore {
      * podeOperarNaEquipe(...)` que toda regra de escrita 6x1 já usa
      * (`turnosMes`/`rascunhosTurnosMes` acima) — `podeOperarNaEquipe()`
      * sozinha só verifica pertencimento à equipe, não perfil.
+     *
+     * Fase ESCOPO-GESTOR-UNIDADE-1 (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`)
+     * — mudança de regra aprovada: até esta fase, `GESTOR_UNIDADE` NUNCA
+     * administrava Plantão, mesmo sendo coordenador da unidade dona da
+     * equipe responsável. Agora, um segundo caminho de autorização (OR,
+     * nunca substituindo o primeiro) aceita `GESTOR_UNIDADE` quando o
+     * Grupo carrega `unidadeResponsavelId` (campo opcional/retrocompatível
+     * de `GrupoPlantao`, `@escala-ici/contrato`) dentro de
+     * `unidadesPermitidas` — ou de uma unidade ANCESTRAL, via
+     * `caminhoUnidadeResponsavel` materializado (nunca travessia de
+     * `parentId`). Um Grupo antigo sem esse campo simplesmente não é
+     * administrável por nenhum `GESTOR_UNIDADE` — só pelo
+     * `GESTOR_EQUIPE`/`ADMIN_SISTEMA` de sempre, o mesmo comportamento de
+     * antes desta fase (retrocompatibilidade real, não só de schema).
      */
     function podeGerenciarGrupoPlantao(grupoDoc) {
-      return souGestor() && podeOperarNaEquipe(grupoDoc.equipeResponsavelId);
+      return (souGestor() && podeOperarNaEquipe(grupoDoc.equipeResponsavelId))
+        || (
+          souGestorUnidade()
+          && grupoDoc.get('unidadeResponsavelId', null) != null
+          && (
+            grupoDoc.unidadeResponsavelId in minhasUnidadesPermitidas()
+            || (
+              grupoDoc.get('caminhoUnidadeResponsavel', []) is list
+              && grupoDoc.get('caminhoUnidadeResponsavel', []).hasAny(minhasUnidadesPermitidas())
+            )
+          )
+        );
+    }
+
+    /**
+     * Fase ESCOPO-CONSULTA-PLANTAO-1
+     * (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`, seção "Plantões
+     * monitorados por equipe") — autovínculo de CONSULTA: um
+     * `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` pode adicionar ou remover a
+     * PRÓPRIA equipe administrada em `equipesConsulta` de um Grupo que ele
+     * NÃO administra (ex.: a supervisora do NOC vinculando o NOC ao
+     * Plantão de outra coordenação) — sem depender de
+     * `podeGerenciarGrupoPlantao()`, que continua exigindo poder sobre a
+     * equipe/unidade RESPONSÁVEL, nunca sobre a equipe consultante.
+     *
+     * Nunca abre write genérico: exige que a mudança entre `antigo` e
+     * `novo` seja EXATAMENTE uma equipe adicionada OU removida (nunca as
+     * duas ao mesmo tempo, nunca mais de uma), que essa equipe esteja em
+     * `minhasEquipesPermitidas()` (nunca a de terceiros), e que
+     * `equipeResponsavelId` nunca saia de `equipesConsulta` — mesmo que o
+     * usuário também tivesse permissão sobre a equipe responsável (ver
+     * "GESTOR_EQUIPE com equipesPermitidas explícito" nos testes).
+     * `ADMIN_SISTEMA` não precisa deste caminho — já tem o `update` livre
+     * via `podeGerenciarGrupoPlantao()`.
+     */
+    function podeAutoVincularConsultaPlantao(antigo, novo, equipeResponsavelId) {
+      return autenticado()
+        && meuPerfil() in ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE']
+        && equipeResponsavelId in novo
+        && (novo.removeAll(antigo).size() + antigo.removeAll(novo).size()) == 1
+        && (
+          (novo.removeAll(antigo).size() == 1 && novo.removeAll(antigo)[0] in minhasEquipesPermitidas())
+          || (antigo.removeAll(novo).size() == 1 && antigo.removeAll(novo)[0] in minhasEquipesPermitidas())
+        );
     }
 
     /** Até 3 contatos por plantonista; cada um com rótulo/número não vazios e sem campo extra. */
@@ -438,9 +512,26 @@ service cloud.firestore {
       // (`request.resource.data`/`resource.data`), então não é preciso
       // nenhum `get()` extra nem travessia de `parentId`.
       allow create: if souAdminSistema()
-        || (request.resource.data.get('unidadeId', null) != null && podeOperarNaUnidade(request.resource.data.unidadeId));
+        || (
+          request.resource.data.get('unidadeId', null) != null
+          && podeOperarNaUnidadeOuDescendente(request.resource.data.unidadeId, request.resource.data.get('caminhoUnidade', null))
+        );
+      /**
+       * Fase ESCOPO-GESTOR-UNIDADE-1 — migração de equipe entre unidades:
+       * antes desta fase, só a unidade ATUAL (`resource.data.unidadeId`)
+       * era checada, então nada impedia mover a equipe para FORA do escopo
+       * do gestor (o novo `unidadeId` do payload nunca era validado). Agora
+       * exige que a unidade de origem E a de destino estejam dentro do
+       * escopo permitido (ou de uma unidade ancestral, via
+       * `caminhoUnidade`) — nunca só uma das duas pontas.
+       */
       allow update: if souAdminSistema()
-        || (resource.data.get('unidadeId', null) != null && podeOperarNaUnidade(resource.data.unidadeId));
+        || (
+          resource.data.get('unidadeId', null) != null
+          && podeOperarNaUnidadeOuDescendente(resource.data.unidadeId, resource.data.get('caminhoUnidade', null))
+          && request.resource.data.get('unidadeId', null) != null
+          && podeOperarNaUnidadeOuDescendente(request.resource.data.unidadeId, request.resource.data.get('caminhoUnidade', null))
+        );
       // Sem delete no MVP: nada no app hoje apaga equipe; desativar é
       // `ativa: false`. Dezenas de outras coleções referenciam o ID.
       allow delete: if false;
@@ -806,16 +897,65 @@ service cloud.firestore {
      * `unidadesOrganizacionais`, desativar é `ativo: false`.
      */
     match /gruposPlantao/{grupoId} {
+      /**
+       * Fase ESCOPO-GESTOR-UNIDADE-1 — `podeGerenciarGrupoPlantao(resource.data)`
+       * entra como um terceiro caminho de leitura (OR, nunca substituindo
+       * `equipesConsulta`): quem ADMINISTRA um Grupo (`GESTOR_EQUIPE`/
+       * `ADMIN_SISTEMA` da equipe responsável, ou `GESTOR_UNIDADE` da
+       * unidade responsável/ancestral) sempre consegue LER esse Grupo,
+       * mesmo que a própria equipe do gestor não esteja em
+       * `equipesConsulta` — administração nunca deveria depender de uma
+       * ACL de consulta (`equipesConsulta` é visibilidade OPERACIONAL, não
+       * administrativa — ver `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`).
+       *
+       * Fase ESCOPO-CONSULTA-PLANTAO-1 — `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE`
+       * também leem qualquer Grupo (mesmo fora de `equipesConsulta` e sem
+       * administrá-lo), para poder DESCOBRIR quais Grupos existem antes de
+       * decidir vincular a própria equipe (autovínculo de consulta, seção
+       * "Plantões monitorados por equipe"). Só metadado do Grupo é exposto
+       * aqui (nome, descrição, equipe/unidade responsável, timezone,
+       * `equipesConsulta`, padrão semanal) — contatos de plantonista
+       * continuam protegidos pela regra própria da subcoleção
+       * `participantes` (`podeConsultarGrupoPlantao()`), inalterada.
+       */
       allow read: if autenticado()
-        && (souAdminSistema() || minhaEquipe() in resource.data.equipesConsulta);
+        && (
+          souAdminSistema()
+          || minhaEquipe() in resource.data.equipesConsulta
+          || podeGerenciarGrupoPlantao(resource.data)
+          || meuPerfil() in ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE']
+        );
 
+      /**
+       * Fase ESCOPO-GESTOR-UNIDADE-1 — criação passa a aceitar dois
+       * caminhos de autorização (OR): o de sempre (`souGestor() &&
+       * podeOperarNaEquipe(...)`, GESTOR_EQUIPE/ADMIN_SISTEMA sobre a
+       * equipe responsável) OU `GESTOR_UNIDADE` cuja unidade permitida
+       * contenha `unidadeResponsavelId` do payload (ou uma unidade
+       * ancestral dela, via `caminhoUnidadeResponsavel`). `souAdminSistema()`
+       * já está coberto pelo primeiro ramo (`souGestor()` inclui admin).
+       */
       allow create: if autenticado()
-        && souGestor()
         && request.resource.data.grupoId == grupoId
         && request.resource.data.equipeResponsavelId in request.resource.data.equipesConsulta
-        && podeOperarNaEquipe(request.resource.data.equipeResponsavelId)
+        && (
+          (souGestor() && podeOperarNaEquipe(request.resource.data.equipeResponsavelId))
+          || (
+            souGestorUnidade()
+            && request.resource.data.get('unidadeResponsavelId', null) != null
+            && (
+              request.resource.data.unidadeResponsavelId in minhasUnidadesPermitidas()
+              || (
+                request.resource.data.get('caminhoUnidadeResponsavel', []) is list
+                && request.resource.data.get('caminhoUnidadeResponsavel', []).hasAny(minhasUnidadesPermitidas())
+              )
+            )
+          )
+        )
         && request.resource.data.nome is string && request.resource.data.nome.size() > 0
         && request.resource.data.ativo is bool
+        && (request.resource.data.get('unidadeResponsavelId', null) == null || request.resource.data.unidadeResponsavelId is string)
+        && (request.resource.data.get('caminhoUnidadeResponsavel', null) == null || request.resource.data.caminhoUnidadeResponsavel is list)
         && request.resource.data.timezone is string && request.resource.data.timezone.size() > 0
         && request.resource.data.equipesConsulta is list && request.resource.data.equipesConsulta.size() > 0
         && request.resource.data.schemaVersion in [1]
@@ -823,26 +963,62 @@ service cloud.firestore {
         && padraoHorarioSemanalDoRequestValido(request.resource.data)
         && request.resource.data.keys().hasOnly([
           'grupoId', 'nome', 'descricao', 'equipeResponsavelId', 'equipesConsulta',
+          'unidadeResponsavelId', 'caminhoUnidadeResponsavel',
           'timezone', 'ativo', 'padraoHorarioSemanal', 'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
         ]);
 
+      /**
+       * Fase PROVISIONAMENTO-GRUPO-PLANTAO-1 — `podeGerenciarGrupoPlantao()`
+       * é checada tanto sobre `resource.data` (estado atual) quanto sobre
+       * `request.resource.data` (estado novo): a primeira checagem sozinha
+       * deixava `unidadeResponsavelId` migrar livremente para FORA do
+       * escopo do gestor (mesma classe de gap corrigida para `equipes` na
+       * Fase ESCOPO-GESTOR-UNIDADE-1 — origem OK não bastava, faltava
+       * checar o destino). Não afeta o caminho `GESTOR_EQUIPE`
+       * (`equipeResponsavelId` já é imutável, então a checagem em cima do
+       * estado novo é equivalente à de cima do estado atual nesse caso).
+       */
       allow update: if autenticado()
-        && podeGerenciarGrupoPlantao(resource.data)
-        && request.resource.data.grupoId == resource.data.grupoId
-        && request.resource.data.equipeResponsavelId == resource.data.equipeResponsavelId
-        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
-        && request.resource.data.criadoEm == resource.data.criadoEm
-        && request.resource.data.equipeResponsavelId in request.resource.data.equipesConsulta
-        && request.resource.data.nome is string && request.resource.data.nome.size() > 0
-        && request.resource.data.ativo is bool
-        && request.resource.data.timezone is string && request.resource.data.timezone.size() > 0
-        && request.resource.data.equipesConsulta is list && request.resource.data.equipesConsulta.size() > 0
-        && request.resource.data.schemaVersion in [1]
-        && padraoHorarioSemanalDoRequestValido(request.resource.data)
-        && request.resource.data.keys().hasOnly([
-          'grupoId', 'nome', 'descricao', 'equipeResponsavelId', 'equipesConsulta',
-          'timezone', 'ativo', 'padraoHorarioSemanal', 'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
-        ]);
+        && (
+          (
+            podeGerenciarGrupoPlantao(resource.data)
+            && podeGerenciarGrupoPlantao(request.resource.data)
+            && request.resource.data.grupoId == resource.data.grupoId
+            && request.resource.data.equipeResponsavelId == resource.data.equipeResponsavelId
+            && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
+            && request.resource.data.criadoEm == resource.data.criadoEm
+            && request.resource.data.equipeResponsavelId in request.resource.data.equipesConsulta
+            && request.resource.data.nome is string && request.resource.data.nome.size() > 0
+            && request.resource.data.ativo is bool
+            && (request.resource.data.get('unidadeResponsavelId', null) == null || request.resource.data.unidadeResponsavelId is string)
+            && (request.resource.data.get('caminhoUnidadeResponsavel', null) == null || request.resource.data.caminhoUnidadeResponsavel is list)
+            && request.resource.data.timezone is string && request.resource.data.timezone.size() > 0
+            && request.resource.data.equipesConsulta is list && request.resource.data.equipesConsulta.size() > 0
+            && request.resource.data.schemaVersion in [1]
+            && padraoHorarioSemanalDoRequestValido(request.resource.data)
+            && request.resource.data.keys().hasOnly([
+              'grupoId', 'nome', 'descricao', 'equipeResponsavelId', 'equipesConsulta',
+              'unidadeResponsavelId', 'caminhoUnidadeResponsavel',
+              'timezone', 'ativo', 'padraoHorarioSemanal', 'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
+            ])
+          )
+          || (
+            /**
+             * Fase ESCOPO-CONSULTA-PLANTAO-1 — autovínculo de consulta:
+             * caminho totalmente separado do bloco acima, NUNCA exige
+             * `podeGerenciarGrupoPlantao()` (a supervisora do NOC não
+             * administra o Plantão de outra coordenação). Restrito a
+             * alterar somente `equipesConsulta` (+ `atualizadoEm`) —
+             * `diff().affectedKeys().hasOnly(...)` garante que nenhum
+             * outro campo (nome, descrição, equipe/unidade responsável,
+             * timezone, ativo, padrão semanal, participantes/competências
+             * — que nem fazem parte deste documento) muda nesta operação.
+             */
+            podeAutoVincularConsultaPlantao(resource.data.equipesConsulta, request.resource.data.equipesConsulta, resource.data.equipeResponsavelId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['equipesConsulta', 'atualizadoEm'])
+            && request.resource.data.equipesConsulta is list
+          )
+        );
 
       allow delete: if false;
     }

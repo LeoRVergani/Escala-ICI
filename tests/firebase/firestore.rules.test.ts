@@ -1492,6 +1492,51 @@ describe('unidadesOrganizacionais e equipes — escopo GESTOR_UNIDADE', () => {
     await assertFails(updateDoc(doc(gestorUnidade, 'equipes', 'EQ_FORA_EXISTENTE'), { nome: 'hackeado' }));
   });
 
+  it('GESTOR_UNIDADE cria/edita equipe numa SUBUNIDADE (caminhoUnidade contém a unidade permitida como ancestral, sem travessia de parentId)', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'unidadesOrganizacionais', 'GEDSI_SUL'), {
+        unidadeId: 'GEDSI_SUL', nome: 'GEDSI Sul', sigla: 'GEDSI_SUL', tipo: 'SUPERVISAO',
+        parentId: 'GEDSI', caminho: ['GEDSI', 'GEDSI_SUL'], ativa: true, criadoPorLogin: usuarios.admin.login,
+      });
+    });
+    const gestorUnidade = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(setDoc(doc(gestorUnidade, 'equipes', 'EQ_GEDSI_SUL_SOC'), {
+      id: 'EQ_GEDSI_SUL_SOC', nome: 'SOC Sul', sigla: 'SOC_SUL', ativa: true,
+      unidadeId: 'GEDSI_SUL', caminhoUnidade: ['GEDSI', 'GEDSI_SUL'],
+    }));
+    await assertSucceeds(updateDoc(doc(gestorUnidade, 'equipes', 'EQ_GEDSI_SUL_SOC'), { nome: 'SOC Sul renomeada' }));
+  });
+
+  /**
+   * Fase ESCOPO-GESTOR-UNIDADE-1 — antes desta fase, `update` só checava a
+   * unidade ATUAL da equipe (`resource.data.unidadeId`); o `unidadeId` do
+   * PAYLOAD (destino da migração) nunca era validado, então nada impedia
+   * mover uma equipe para uma unidade fora do escopo do gestor. Corrigido:
+   * agora a migração exige origem E destino dentro do escopo permitido.
+   */
+  it('migração de equipe: sucesso entre duas unidades permitidas, falha quando o destino está fora do escopo', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(doc(db, 'unidadesOrganizacionais', 'GEDSI_SUL'), {
+        unidadeId: 'GEDSI_SUL', nome: 'GEDSI Sul', sigla: 'GEDSI_SUL', tipo: 'SUPERVISAO',
+        parentId: 'GEDSI', caminho: ['GEDSI', 'GEDSI_SUL'], ativa: true, criadoPorLogin: usuarios.admin.login,
+      });
+      await setDoc(doc(db, 'equipes', 'EQ_MIGRAVEL'), {
+        id: 'EQ_MIGRAVEL', nome: 'Equipe migrável', sigla: 'MIG', ativa: true,
+        unidadeId: 'GEDSI', caminhoUnidade: ['GEDSI'],
+      });
+    });
+    const gestorUnidade = autenticarComo(usuarios.gestorUnidade);
+    // Origem (GEDSI) e destino (GEDSI_SUL, subárvore de GEDSI) dentro do escopo — sucesso.
+    await assertSucceeds(updateDoc(doc(gestorUnidade, 'equipes', 'EQ_MIGRAVEL'), {
+      unidadeId: 'GEDSI_SUL', caminhoUnidade: ['GEDSI', 'GEDSI_SUL'],
+    }));
+    // De volta a uma unidade fora do escopo — negado, mesmo a equipe já estando (antes) dentro do escopo.
+    await assertFails(updateDoc(doc(gestorUnidade, 'equipes', 'EQ_MIGRAVEL'), {
+      unidadeId: 'OUTRA_UNIDADE', caminhoUnidade: ['OUTRA_UNIDADE'],
+    }));
+  });
+
   it('GESTOR_EQUIPE comum (sem GESTOR_UNIDADE) não cria unidade nem equipe — regressão', async () => {
     const gestor = autenticarComo(usuarios.gestor);
     await assertFails(setDoc(doc(gestor, 'unidadesOrganizacionais', 'QUALQUER'), {
@@ -2337,8 +2382,13 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
    * Fase PLANTÃO-3B — cenários exercitados pela Administração de Plantão no
    * Dashboard: `listarTodosGruposPlantao()` (query sem `where`, só
    * ADMIN_SISTEMA), `equipesPermitidas` explícito de GESTOR_EQUIPE,
-   * GESTOR_UNIDADE continua fora do domínio, desativação nunca é exclusão
-   * física, e regravação idempotente do rascunho não duplica documento.
+   * desativação nunca é exclusão física, e regravação idempotente do
+   * rascunho não duplica documento. `GESTOR_UNIDADE` passou a administrar
+   * Plantão dentro do escopo de unidade desde a Fase
+   * ESCOPO-GESTOR-UNIDADE-1 (ver describe dedicado mais abaixo); `list`
+   * sem `where` também passou a ser permitido para
+   * `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` desde a Fase
+   * ESCOPO-CONSULTA-PLANTAO-1 (descoberta para autovínculo de consulta).
    */
   describe('Fase PLANTÃO-3B — administração via Dashboard', () => {
     it('ADMIN_SISTEMA lista gruposPlantao sem where (equivalente de listarTodosGruposPlantao) mesmo com um grupo fora de sua equipesConsulta', async () => {
@@ -2353,7 +2403,18 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       expect(resultado.docs.map((item) => item.id).sort()).toEqual(['PLANTAO_OUTRO_TIME', 'PLANTAO_TESTE']);
     });
 
-    it('quem não é ADMIN_SISTEMA não consegue listar gruposPlantao sem where quando existe um grupo fora de sua equipesConsulta', async () => {
+    /**
+     * Fase ESCOPO-CONSULTA-PLANTAO-1 — mudança de regra aprovada: até essa
+     * fase, só `ADMIN_SISTEMA` conseguia listar `gruposPlantao` sem
+     * `where`; agora `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` também conseguem
+     * — precisam DESCOBRIR quais Grupos existem (nome, equipe responsável)
+     * antes de decidir vincular a própria equipe em `equipesConsulta`
+     * (autovínculo de consulta, "Plantões monitorados por equipe"), sem
+     * depender de já estar em `equipesConsulta`/administrar o Grupo.
+     * `ANALISTA_SOC`/`ANALISTA_SUPORTE` continuam sem esse acesso — só
+     * gestores decidem o que a própria equipe monitora.
+     */
+    it('GESTOR_EQUIPE/SUPERVISOR_EQUIPE conseguem listar gruposPlantao sem where (descoberta para autovínculo de consulta); analista comum continua sem esse acesso', async () => {
       await ambiente.withSecurityRulesDisabled(async (contexto) => {
         await setDoc(
           doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_OUTRO_TIME'),
@@ -2361,12 +2422,16 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
         );
       });
       const db = autenticarComo(usuarios.gestor);
-      await assertFails(getDocs(collection(db, 'gruposPlantao')));
-      // A mesma consulta, filtrada por `array-contains` na própria equipe
-      // (o que `listarGruposPlantaoPermitidos()` de fato faz), continua
-      // funcionando — só a versão SEM filtro exige ser admin.
+      const resultado = await assertSucceeds(getDocs(collection(db, 'gruposPlantao')));
+      expect(resultado.docs.map((item) => item.id).sort()).toEqual(['PLANTAO_OUTRO_TIME', 'PLANTAO_TESTE']);
+
+      const analistaDb = autenticarComo(usuarios.colaborador);
+      await assertFails(getDocs(collection(analistaDb, 'gruposPlantao')));
+      // A consulta filtrada por `array-contains` na própria equipe (o que
+      // `listarGruposPlantaoPermitidos()` de fato faz) continua funcionando
+      // para o analista comum, mesmo sem o acesso amplo de descoberta.
       const filtrada = await assertSucceeds(getDocs(
-        query(collection(db, 'gruposPlantao'), where('equipesConsulta', 'array-contains', usuarios.gestor.equipeId)),
+        query(collection(analistaDb, 'gruposPlantao'), where('equipesConsulta', 'array-contains', usuarios.colaborador.equipeId)),
       ));
       expect(filtrada.docs.map((item) => item.id)).toEqual(['PLANTAO_TESTE']);
     });
@@ -2388,19 +2453,89 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { nome: 'Renomeado por gestor multi-equipe' }));
     });
 
-    it('GESTOR_UNIDADE nunca administra Plantão, mesmo quando a equipe responsável é a própria equipeId dele', async () => {
+    /**
+     * Fase ESCOPO-GESTOR-UNIDADE-1 (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`)
+     * — mudança de regra aprovada nesta fase: até aqui, `GESTOR_UNIDADE`
+     * nunca administrava Plantão, nem quando a equipe responsável era a
+     * própria unidade dele (o teste anterior deste describe afirmava
+     * exatamente isso). O coordenador de uma unidade real (ex.: COSI) que
+     * também é dono da equipe "Plantão COSI" não conseguia administrar o
+     * próprio Grupo — bug de produto confirmado, corrigido aqui. A
+     * autorização continua exigindo o campo denormalizado
+     * `unidadeResponsavelId` (retrocompatível: Grupo sem o campo continua
+     * fora do alcance de qualquer `GESTOR_UNIDADE`).
+     */
+    it('GESTOR_UNIDADE administra Plantão quando unidadeResponsavelId está em unidadesPermitidas — cria, edita, e continua fora do escopo de outra unidade', async () => {
       const db = autenticarComo(usuarios.gestorUnidade);
-      await assertFails(setDoc(
+      await assertSucceeds(setDoc(
         doc(db, 'gruposPlantao', 'PLANTAO_DA_UNIDADE'),
-        grupoPlantao({ grupoId: 'PLANTAO_DA_UNIDADE', equipeResponsavelId: usuarios.gestorUnidade.equipeId, equipesConsulta: [usuarios.gestorUnidade.equipeId] }),
+        grupoPlantao({
+          grupoId: 'PLANTAO_DA_UNIDADE',
+          equipeResponsavelId: 'EQ_GEDSI_PLANTAO',
+          equipesConsulta: ['EQ_GEDSI_PLANTAO'],
+          unidadeResponsavelId: 'GEDSI',
+          criadoPorLogin: usuarios.gestorUnidade.login,
+        }),
       ));
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_DA_UNIDADE'), { nome: 'Renomeado pelo gestor de unidade' }));
+
+      // Grupo cuja unidade responsável NÃO está em unidadesPermitidas continua negado.
+      await assertFails(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_FORA_DA_UNIDADE'),
+        grupoPlantao({
+          grupoId: 'PLANTAO_FORA_DA_UNIDADE',
+          equipeResponsavelId: 'EQ_OUTRA_UNIDADE_PLANTAO',
+          equipesConsulta: ['EQ_OUTRA_UNIDADE_PLANTAO'],
+          unidadeResponsavelId: 'OUTRA_UNIDADE',
+          criadoPorLogin: usuarios.gestorUnidade.login,
+        }),
+      ));
+    });
+
+    it('GESTOR_UNIDADE administra Plantão de uma unidade ANCESTRAL via caminhoUnidadeResponsavel materializado (subárvore, sem travessia de parentId)', async () => {
+      const db = autenticarComo(usuarios.gestorUnidade);
+      await assertSucceeds(setDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_SUBUNIDADE'),
+        grupoPlantao({
+          grupoId: 'PLANTAO_SUBUNIDADE',
+          equipeResponsavelId: 'EQ_GEDSI_SUL_PLANTAO',
+          equipesConsulta: ['EQ_GEDSI_SUL_PLANTAO'],
+          unidadeResponsavelId: 'GEDSI_SUL',
+          caminhoUnidadeResponsavel: ['GEDSI', 'GEDSI_SUL'],
+          criadoPorLogin: usuarios.gestorUnidade.login,
+        }),
+      ));
+    });
+
+    it('Grupo de Plantão sem unidadeResponsavelId (documento antigo) continua fora do alcance de GESTOR_UNIDADE', async () => {
       await ambiente.withSecurityRulesDisabled(async (contexto) => {
         await setDoc(
-          doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_DA_UNIDADE'),
-          grupoPlantao({ grupoId: 'PLANTAO_DA_UNIDADE', equipeResponsavelId: usuarios.gestorUnidade.equipeId, equipesConsulta: [usuarios.gestorUnidade.equipeId] }),
+          doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_ANTIGO'),
+          grupoPlantao({
+            grupoId: 'PLANTAO_ANTIGO',
+            equipeResponsavelId: usuarios.gestorUnidade.equipeId,
+            equipesConsulta: [usuarios.gestorUnidade.equipeId],
+          }),
         );
       });
-      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_DA_UNIDADE'), { nome: 'Hackeado pelo gestor de unidade' }));
+      const db = autenticarComo(usuarios.gestorUnidade);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_ANTIGO'), { nome: 'Hackeado pelo gestor de unidade' }));
+    });
+
+    it('ANALISTA_SOC da equipe responsável não administra Plantão mesmo com unidadeResponsavelId preenchido', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_ANALISTA'),
+          grupoPlantao({
+            grupoId: 'PLANTAO_ANALISTA',
+            equipeResponsavelId: analistaSemPermissao.equipeId,
+            equipesConsulta: [analistaSemPermissao.equipeId],
+            unidadeResponsavelId: 'GEDSI',
+          }),
+        );
+      });
+      const db = autenticarComo(analistaSemPermissao);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_ANALISTA'), { nome: 'Hackeado' }));
     });
 
     it('novo Grupo é negado quando equipeResponsavelId não está em equipesConsulta já na criação', async () => {
@@ -2433,9 +2568,31 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       // describe 'analista não autorizado' logo abaixo); depois de incluída, passa a conseguir.
       const analistaDb = autenticarComo(analistaSemPermissao);
       await assertSucceeds(getDoc(doc(analistaDb, 'gruposPlantao', 'PLANTAO_TESTE')));
-      // gestorForaEscopo é EQ_CODB_NOC — estava na lista original e foi removida acima, então perde o acesso.
+      /**
+       * `usuarios.externo` é ANALISTA_SOC de EQ_CODB_NOC — estava na lista
+       * original e foi removida acima, então perde o acesso por
+       * `equipesConsulta`. Diferente de um perfil `GESTOR_EQUIPE`/
+       * `SUPERVISOR_EQUIPE` (ver teste dedicado logo abaixo, Fase
+       * ESCOPO-CONSULTA-PLANTAO-1): analista comum não tem o caminho de
+       * leitura de descoberta, só o de `equipesConsulta`.
+       */
+      const externoDb = autenticarComo(usuarios.externo);
+      await assertFails(getDoc(doc(externoDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+      /**
+       * Fase ESCOPO-CONSULTA-PLANTAO-1 — `gestorForaEscopo` é
+       * `GESTOR_EQUIPE` (perfil de gestor, mesmo que de outra equipe) e
+       * MANTÉM leitura mesmo depois de EQ_CODB_NOC sair de
+       * `equipesConsulta` — não por consulta, mas pelo caminho de
+       * descoberta concedido a qualquer `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE`
+       * (ver "Plantões monitorados por equipe",
+       * `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`). Isso NUNCA
+       * concede administração — só leitura de metadado, para decidir se
+       * vincula a própria equipe.
+       */
       const foraDeEscopoDb = autenticarComo(gestorForaEscopo);
-      await assertFails(getDoc(doc(foraDeEscopoDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+      const documento = await assertSucceeds(getDoc(doc(foraDeEscopoDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+      expect(documento.data()?.equipesConsulta).toEqual(['EQ_COSI_SOC', 'EQ_GEDSI_ADM']);
+      await assertFails(updateDoc(doc(foraDeEscopoDb, 'gruposPlantao', 'PLANTAO_TESTE'), { nome: 'Hackeado' }));
     });
 
     it('marcar o grupo como inativo (ativo:false) não tira o poder de administração do gestor responsável — ele consegue reativar depois', async () => {
@@ -2514,6 +2671,309 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
         collection(foraDeEscopoDb, 'rascunhosCompetenciasPlantao'),
         where('grupoId', '==', 'PLANTAO_TESTE'),
       )));
+    });
+  });
+
+  /**
+   * Fase PROVISIONAMENTO-GRUPO-PLANTAO-1 — cenário real observado em
+   * staging (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`, seção
+   * "Provisionamento de Grupo de Plantão"): a equipe "Plantão COSI" existe
+   * dentro da unidade COSI, mas o Grupo de Plantão operacional
+   * (`gruposPlantao/PLANTAO_COSI`) precisa ser criável pelo próprio
+   * `GESTOR_UNIDADE` de COSI, nunca só pelo Console do Firestore.
+   */
+  describe('Fase PROVISIONAMENTO-GRUPO-PLANTAO-1 — GrupoPlantao Plantão COSI, provisionado pelo produto', () => {
+    const gestorUnidadeCosi = {
+      login: 'coordenadora.cosi',
+      nome: 'Coordenadora COSI',
+      email: 'coordenadora.cosi@teste.local',
+      equipeId: 'EQ_COSI_COORD',
+      nivelHierarquico: 4,
+      perfil: 'GESTOR_UNIDADE',
+      escopo: 'UNIDADE',
+      unidadeId: 'COSI',
+      unidadesPermitidas: ['COSI'],
+    };
+    const gestorUnidadeOutra = {
+      login: 'coordenador.outra',
+      nome: 'Coordenador Outra Unidade',
+      email: 'coordenador.outra@teste.local',
+      equipeId: 'EQ_OUTRA_COORD',
+      nivelHierarquico: 4,
+      perfil: 'GESTOR_UNIDADE',
+      escopo: 'UNIDADE',
+      unidadeId: 'OUTRA_UNIDADE',
+      unidadesPermitidas: ['OUTRA_UNIDADE'],
+    };
+
+    function grupoPlantaoCosi(ajustes: Record<string, unknown> = {}) {
+      return grupoPlantao({
+        grupoId: 'PLANTAO_COSI',
+        nome: 'Plantão COSI',
+        equipeResponsavelId: 'EQ_PLANTAO_COSI',
+        equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_SOC'],
+        unidadeResponsavelId: 'COSI',
+        caminhoUnidadeResponsavel: ['GEDSI', 'COSI'],
+        criadoPorLogin: gestorUnidadeCosi.login,
+        ...ajustes,
+      });
+    }
+
+    beforeEach(async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        const db = contexto.firestore();
+        await Promise.all([
+          setDoc(doc(db, 'usuarios', gestorUnidadeCosi.login), gestorUnidadeCosi),
+          setDoc(doc(db, 'usuarios', gestorUnidadeOutra.login), gestorUnidadeOutra),
+        ]);
+      });
+    });
+
+    it('GESTOR_UNIDADE de COSI cria o Grupo Plantão COSI (equipe responsável, unidade e caminho corretos)', async () => {
+      const db = autenticarComo(gestorUnidadeCosi);
+      await assertSucceeds(setDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoCosi()));
+    });
+
+    it('GESTOR_UNIDADE de outra unidade NÃO cria o Grupo Plantão COSI (equipe responsável de COSI, fora do seu escopo)', async () => {
+      const db = autenticarComo(gestorUnidadeOutra);
+      await assertFails(setDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoCosi()));
+    });
+
+    it('create sem unidadeResponsavelId/caminhoUnidadeResponsavel: GESTOR_UNIDADE não consegue (retrocompatibilidade — só GESTOR_EQUIPE/ADMIN_SISTEMA administram Grupo sem esses campos)', async () => {
+      const db = autenticarComo(gestorUnidadeCosi);
+      const semUnidade: Record<string, unknown> = grupoPlantaoCosi();
+      delete semUnidade.unidadeResponsavelId;
+      delete semUnidade.caminhoUnidadeResponsavel;
+      await assertFails(setDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), semUnidade));
+    });
+
+    it('GESTOR_UNIDADE de COSI edita o Grupo já existente (nome, ativo, equipesConsulta)', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoCosi());
+      });
+      const db = autenticarComo(gestorUnidadeCosi);
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { nome: 'Plantão COSI renomeado' }));
+    });
+
+    it('update migrando unidadeResponsavelId para FORA do escopo é negado, mesmo pelo gestor que administrava o Grupo antes da migração', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoCosi());
+      });
+      const db = autenticarComo(gestorUnidadeCosi);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), {
+        unidadeResponsavelId: 'OUTRA_UNIDADE',
+        caminhoUnidadeResponsavel: ['OUTRA_UNIDADE'],
+      }));
+    });
+
+    it('read/list administrativo: GESTOR_UNIDADE de COSI lê o Grupo mesmo com a própria equipe fora de equipesConsulta, só por administrar a unidade responsável', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        // equipesConsulta não inclui EQ_COSI_COORD (a equipe pessoal da coordenadora) — só a leitura via unidade deve autorizar.
+        await setDoc(doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoCosi({ equipesConsulta: ['EQ_PLANTAO_COSI'] }));
+      });
+      const db = autenticarComo(gestorUnidadeCosi);
+      const documento = await assertSucceeds(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI')));
+      expect(documento.data()?.grupoId).toBe('PLANTAO_COSI');
+    });
+
+    it('analista comum da equipe responsável não administra o Grupo Plantão COSI', async () => {
+      const analistaCosi = {
+        login: 'analista.cosi',
+        nome: 'Analista COSI',
+        email: 'analista.cosi@teste.local',
+        equipeId: 'EQ_PLANTAO_COSI',
+        nivelHierarquico: 6,
+      };
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        const db = contexto.firestore();
+        await setDoc(doc(db, 'usuarios', analistaCosi.login), analistaCosi);
+        await setDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoCosi());
+      });
+      const db = autenticarComo(analistaCosi);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { nome: 'Hackeado' }));
+    });
+
+    it('ADMIN_SISTEMA cria e edita o Grupo Plantão COSI livremente; delete físico continua negado', async () => {
+      const db = autenticarComo(usuarios.admin);
+      await assertSucceeds(setDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoCosi({ criadoPorLogin: usuarios.admin.login })));
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { nome: 'Plantão COSI (admin)' }));
+      await assertFails(deleteDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI')));
+    });
+  });
+
+  /**
+   * Fase ESCOPO-CONSULTA-PLANTAO-1 — "Plantões monitorados por equipe":
+   * Wanessa (`SUPERVISOR_EQUIPE`/`GESTOR_EQUIPE` do NOC) precisa poder
+   * vincular a própria equipe (EQ_NOC) à consulta de Plantões que ela NÃO
+   * administra (Plantão COSI, Plantão CODB), sem depender de aprovação do
+   * coordenador responsável por cada um — ver
+   * `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`, seção "Plantões
+   * monitorados por equipe".
+   */
+  describe('Fase ESCOPO-CONSULTA-PLANTAO-1 — autovínculo de consulta (Plantões monitorados pela equipe)', () => {
+    const wanessaSupervisoraNoc = {
+      login: 'wanessa.supervisora',
+      nome: 'Wanessa Supervisora',
+      email: 'wanessa.supervisora@teste.local',
+      equipeId: 'EQ_NOC',
+      nivelHierarquico: 4,
+      perfil: 'SUPERVISOR_EQUIPE',
+      equipesPermitidas: ['EQ_NOC'],
+    };
+    const analistaNoc = {
+      login: 'analista.noc',
+      nome: 'Analista NOC',
+      email: 'analista.noc@teste.local',
+      equipeId: 'EQ_NOC',
+      nivelHierarquico: 6,
+    };
+
+    function grupoPlantaoSemNoc(ajustes: Record<string, unknown> = {}) {
+      return grupoPlantao({
+        grupoId: 'PLANTAO_COSI',
+        nome: 'Plantão COSI',
+        equipeResponsavelId: 'EQ_PLANTAO_COSI',
+        equipesConsulta: ['EQ_PLANTAO_COSI'],
+        unidadeResponsavelId: 'COSI',
+        criadoPorLogin: usuarios.gestor.login,
+        ...ajustes,
+      });
+    }
+
+    beforeEach(async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        const db = contexto.firestore();
+        await Promise.all([
+          setDoc(doc(db, 'usuarios', wanessaSupervisoraNoc.login), wanessaSupervisoraNoc),
+          setDoc(doc(db, 'usuarios', analistaNoc.login), analistaNoc),
+          setDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoSemNoc()),
+          setDoc(doc(db, 'gruposPlantao', 'PLANTAO_CODB'), grupoPlantaoSemNoc({
+            grupoId: 'PLANTAO_CODB',
+            nome: 'Plantão CODB',
+            equipeResponsavelId: 'EQ_PLANTAO_CODB',
+            equipesConsulta: ['EQ_PLANTAO_CODB'],
+            unidadeResponsavelId: 'CODB',
+          })),
+        ]);
+      });
+    });
+
+    it('Wanessa (SUPERVISOR_EQUIPE do NOC) adiciona EQ_NOC em equipesConsulta do Plantão COSI e do Plantão CODB, sem administrar nenhum dos dois', async () => {
+      const db = autenticarComo(wanessaSupervisoraNoc);
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), {
+        equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_NOC'],
+        atualizadoEm: '2026-08-20T00:00:00.000Z',
+      }));
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_CODB'), {
+        equipesConsulta: ['EQ_PLANTAO_CODB', 'EQ_NOC'],
+        atualizadoEm: '2026-08-20T00:00:00.000Z',
+      }));
+      // Continua sem administrar: não consegue mudar nenhum outro campo.
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { nome: 'Hackeado pela Wanessa' }));
+    });
+
+    it('remover EQ_NOC de equipesConsulta também é permitido (desmonitorar)', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoSemNoc({ equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_NOC'] }));
+      });
+      const db = autenticarComo(wanessaSupervisoraNoc);
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { equipesConsulta: ['EQ_PLANTAO_COSI'] }));
+    });
+
+    it('Wanessa NÃO consegue adicionar outra equipe (só a própria administrada, EQ_NOC)', async () => {
+      const db = autenticarComo(wanessaSupervisoraNoc);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), {
+        equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_SOC'],
+      }));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), {
+        equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_CODB_NOC'],
+      }));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), {
+        equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_PLANTAO_CODB'],
+      }));
+    });
+
+    it('Wanessa NÃO consegue alterar nome/descrição/timezone/ativo/equipeResponsavelId/unidadeResponsavelId/caminhoUnidadeResponsavel/padraoHorarioSemanal — nem junto com equipesConsulta, nem sozinho', async () => {
+      const db = autenticarComo(wanessaSupervisoraNoc);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), {
+        equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_NOC'],
+        nome: 'Renomeado',
+      }));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { descricao: 'Nova descrição' }));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { timezone: 'UTC' }));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { ativo: false }));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { equipeResponsavelId: 'EQ_NOC' }));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { unidadeResponsavelId: 'CODB' }));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { caminhoUnidadeResponsavel: ['CODB'] }));
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), {
+        padraoHorarioSemanal: [{ diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 }],
+      }));
+    });
+
+    it('analista comum do NOC não consegue alterar equipesConsulta', async () => {
+      const db = autenticarComo(analistaNoc);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), {
+        equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_NOC'],
+      }));
+    });
+
+    it('equipeResponsavelId nunca pode sair de equipesConsulta, mesmo pelo próprio administrador da equipe responsável usando o caminho de autovínculo', async () => {
+      // usuarios.gestor administra EQ_COSI_SOC, a equipeResponsavelId de PLANTAO_TESTE.
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), {
+        equipesConsulta: ['EQ_CODB_NOC'],
+      }));
+    });
+
+    it('duas mudanças na mesma escrita (uma equipe entra, outra sai) é negado — autovínculo só move uma equipe por vez', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoSemNoc({ equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_NOC'] }));
+      });
+      const outroSupervisorNoc = { ...wanessaSupervisoraNoc, login: 'outro.supervisor.noc' };
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'usuarios', outroSupervisorNoc.login), outroSupervisorNoc);
+      });
+      const db = autenticarComo(wanessaSupervisoraNoc);
+      // Tenta remover EQ_NOC e simular a entrada de outra equipe na mesma escrita.
+      await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), {
+        equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_SOC'],
+      }));
+    });
+
+    it('coordenador responsável pelo Plantão COSI continua administrando normalmente (não fica restrito ao autovínculo)', async () => {
+      const gestorUnidadeCosi = {
+        login: 'coordenadora.cosi.consulta',
+        nome: 'Coordenadora COSI',
+        email: 'coordenadora.cosi.consulta@teste.local',
+        equipeId: 'EQ_COSI_COORD',
+        nivelHierarquico: 4,
+        perfil: 'GESTOR_UNIDADE',
+        escopo: 'UNIDADE',
+        unidadeId: 'COSI',
+        unidadesPermitidas: ['COSI'],
+      };
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'usuarios', gestorUnidadeCosi.login), gestorUnidadeCosi);
+      });
+      const db = autenticarComo(gestorUnidadeCosi);
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { nome: 'Plantão COSI renomeado pelo coordenador' }));
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), {
+        equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_NOC', 'EQ_SOC'],
+      }));
+    });
+
+    it('ADMIN_SISTEMA continua podendo gerenciar qualquer grupo, inclusive equipesConsulta livremente', async () => {
+      const db = autenticarComo(usuarios.admin);
+      await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), {
+        equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_NOC', 'EQ_SOC', 'EQ_CODB_NOC'],
+      }));
+    });
+
+    it('delete físico continua negado, mesmo para quem administra ou para quem só autovincula consulta', async () => {
+      const gestorDb = autenticarComo(usuarios.gestor);
+      await assertFails(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+      const wanessaDb = autenticarComo(wanessaSupervisoraNoc);
+      await assertFails(deleteDoc(doc(wanessaDb, 'gruposPlantao', 'PLANTAO_COSI')));
     });
   });
 

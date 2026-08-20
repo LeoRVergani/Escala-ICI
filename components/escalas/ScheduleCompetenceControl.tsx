@@ -1,8 +1,8 @@
 'use client';
 
-import { ChevronDown } from 'lucide-react';
+import { CalendarRange, ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { formatarCompetencia, formatarData } from '@escala-ici/contrato';
+import { formatarCompetencia } from '@escala-ici/contrato';
 
 /**
  * Fase ESCALAS-UX-2A.1 — controle real de competência no header
@@ -18,15 +18,11 @@ import { formatarCompetencia, formatarData } from '@escala-ici/contrato';
  */
 export interface ScheduleCompetenceControlProps {
   competencia: string | null;
-  periodoInicio: string | null;
-  periodoFim: string | null;
   onMudarCompetencia: (novaCompetencia: string) => void;
 }
 
 export function ScheduleCompetenceControl({
   competencia,
-  periodoInicio,
-  periodoFim,
   onMudarCompetencia,
 }: ScheduleCompetenceControlProps) {
   const [aberto, setAberto] = useState(false);
@@ -60,26 +56,20 @@ export function ScheduleCompetenceControl({
 
   return (
     <div className="escala-competencia-control" ref={containerRef}>
-      <span>Competência</span>
       <button
         ref={gatilhoRef}
         type="button"
         className={`escala-context-trigger ${aberto ? 'open' : ''}`}
         disabled={desabilitado}
         onClick={() => setAberto((atual) => !atual)}
+        aria-label="Selecionar competência"
         aria-haspopup="menu"
         aria-expanded={aberto}
       >
+        <CalendarRange size={15} aria-hidden="true" />
         <strong>{competencia === null ? 'Selecione uma escala' : formatarCompetencia(competencia)}</strong>
         <ChevronDown size={16} />
       </button>
-      {periodoInicio !== null && periodoFim !== null && (
-        <p className="escala-competencia-periodo">
-          {formatarData(periodoInicio, { day: '2-digit', month: '2-digit', year: 'numeric' })}
-          {' → '}
-          {formatarData(periodoFim, { day: '2-digit', month: '2-digit', year: 'numeric' })}
-        </p>
-      )}
       {aberto && competencia !== null && (
         <div className="escala-context-popover escala-competencia-popover" role="menu" aria-label="Selecionar competência">
           <label htmlFor="escala-competencia-input">Escolher mês</label>

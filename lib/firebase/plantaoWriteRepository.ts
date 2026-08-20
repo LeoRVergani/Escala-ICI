@@ -8,7 +8,7 @@ import {
   type GrupoPlantao,
   type ParticipantePlantao,
 } from '@escala-ici/contrato';
-import { collection, doc, getDocs, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 
 import { fatiarEmLotes } from './batches';
 import { removerUndefined } from './sanitizar';
@@ -37,6 +37,47 @@ export async function salvarGrupoPlantao(grupo: GrupoPlantao): Promise<void> {
   }
   const { db } = exigirFirebase();
   await setDoc(doc(db, 'gruposPlantao', grupo.grupoId), removerUndefined(grupo));
+}
+
+/**
+ * Fase ESCOPO-CONSULTA-PLANTAO-1
+ * (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`, seção "Plantões
+ * monitorados por equipe") — autovínculo de CONSULTA: adiciona/remove
+ * UMA equipe de `GrupoPlantao.equipesConsulta`, sem tocar em nenhum
+ * outro campo. Deliberadamente separada de `salvarGrupoPlantao()`
+ * (write genérico, exige administrar o Grupo inteiro) — esta função
+ * autoriza um `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` a vincular a PRÓPRIA
+ * equipe a um Grupo que ele não administra (`podeAutoVincularConsultaPlantao()`
+ * em `firestore.rules`/`lib/sessao.ts` é quem valida isso de fato — esta
+ * função só monta o payload mínimo e correto).
+ *
+ * Nunca remove `equipeResponsavelId` de `equipesConsulta` (lança erro
+ * client-side antes mesmo de tentar — a Rule também nunca aceitaria).
+ */
+export async function atualizarEquipeConsultaPlantao(
+  grupoId: string,
+  equipeId: string,
+  acao: 'ADICIONAR' | 'REMOVER',
+): Promise<void> {
+  exigirEscritaAdministrativaHabilitada();
+  const { db } = exigirFirebase();
+  const referencia = doc(db, 'gruposPlantao', grupoId);
+  const snapshot = await getDoc(referencia);
+  if (!snapshot.exists()) {
+    throw new Error(`Grupo de Plantão "${grupoId}" não encontrado.`);
+  }
+  const grupo = snapshot.data() as GrupoPlantao;
+  if (acao === 'REMOVER' && equipeId === grupo.equipeResponsavelId) {
+    throw new Error('A equipe responsável pelo Plantão não pode ser removida das equipes que consultam.');
+  }
+  const equipesConsultaAtual = grupo.equipesConsulta ?? [];
+  const equipesConsultaNova = acao === 'ADICIONAR'
+    ? [...new Set([...equipesConsultaAtual, equipeId])]
+    : equipesConsultaAtual.filter((item) => item !== equipeId);
+  await updateDoc(referencia, removerUndefined({
+    equipesConsulta: equipesConsultaNova,
+    atualizadoEm: new Date().toISOString(),
+  }));
 }
 
 export async function salvarParticipantePlantao(participante: ParticipantePlantao): Promise<void> {

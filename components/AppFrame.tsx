@@ -3,9 +3,10 @@
 import {
   ArrowLeftRight,
   CalendarDays,
+  CalendarRange,
   ChevronDown,
-  Grid3X3,
-  Home,
+  LayoutDashboard,
+  Table2,
   LogOut,
   Menu,
   PanelLeftClose,
@@ -14,7 +15,7 @@ import {
   ShieldCheck,
   UploadCloud,
   UserRound,
-  Users,
+  UsersRound,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -31,11 +32,11 @@ export interface ItemNavegacao {
 }
 
 const ICONES: Record<ItemNavegacao['icone'], LucideIcon> = {
-  home: Home,
+  home: LayoutDashboard,
   upload: UploadCloud,
-  calendar: CalendarDays,
-  grid: Grid3X3,
-  users: Users,
+  calendar: CalendarRange,
+  grid: Table2,
+  users: UsersRound,
   user: UserRound,
   trocas: ArrowLeftRight,
   admin: ShieldCheck,

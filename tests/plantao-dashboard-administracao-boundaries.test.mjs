@@ -26,15 +26,25 @@ test('2. podeGerenciarGrupoPlantao() continua exigindo souGestor() && podeOperar
   assert.match(match[1], /podeOperarNaEquipe\(/u, 'precisa checar podeOperarNaEquipe()');
 });
 
-test('3. o mirror client-side (lib/sessao.ts) também exige ser gestor, nunca só pertencer à equipe', async () => {
+/**
+ * Fase ESCOPO-GESTOR-UNIDADE-1 — mudança de regra aprovada
+ * (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`): até essa fase,
+ * `GESTOR_UNIDADE` nunca aparecia em `souGestorDePlantao()`. Agora aparece
+ * (gate de VISIBILIDADE de tela), mas a autorização real de cada Grupo
+ * (`podeGerenciarGrupoPlantao()`) continua exigindo `souGestor()` (via
+ * `podeOperarNaEquipe()`) OU um caminho novo e igualmente restrito por
+ * escopo: `GESTOR_UNIDADE` só quando `unidadeResponsavelId` do Grupo está
+ * em `unidadesPermitidasEfetivas()` — nunca "qualquer GESTOR_UNIDADE
+ * administra qualquer Plantão".
+ */
+test('3. o mirror client-side (lib/sessao.ts) também exige ser gestor OU unidade responsável em escopo — nunca só pertencer à equipe', async () => {
   const sessao = await ler('lib/sessao.ts');
   assert.match(sessao, /export function podeGerenciarGrupoPlantao/u);
   assert.match(sessao, /export function souGestorDePlantao/u);
-  // GESTOR_UNIDADE não pode aparecer dentro da definição de souGestorDePlantao —
-  // só ADMIN_SISTEMA/GESTOR_EQUIPE administram Plantão (§7 de
-  // HIERARQUIA_ORGANIZACIONAL.md).
-  const corpo = /export function souGestorDePlantao\(usuario: Usuario\): boolean \{([\s\S]*?)\n\}/u.exec(sessao)?.[1] ?? '';
-  assert.doesNotMatch(corpo, /GESTOR_UNIDADE/u, 'GESTOR_UNIDADE não administra Plantão');
+  assert.match(sessao, /perfil === 'GESTOR_UNIDADE'/u, 'GESTOR_UNIDADE precisa ter um caminho de autorização explícito');
+  const corpoPode = /export function podeGerenciarGrupoPlantao\([\s\S]*?\n\): boolean \{([\s\S]*?)\n\}/u.exec(sessao)?.[1] ?? '';
+  assert.match(corpoPode, /unidadeResponsavelId/u, 'GESTOR_UNIDADE só administra via unidadeResponsavelId, nunca sem escopo');
+  assert.match(corpoPode, /unidadesPermitidasEfetivas\(/u, 'o escopo de unidade continua vindo de unidadesPermitidasEfetivas()');
 });
 
 test('4. Equipe (lib/modelos.ts) nunca ganha um array inverso de ACL de Plantão — equipesConsulta vive só em GrupoPlantao', async () => {

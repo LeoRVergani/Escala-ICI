@@ -12,9 +12,18 @@ import {
 
 export {
   EQUIPE_DEMO,
+  EQUIPE_NOC_DEMO,
+  EQUIPE_PLANTAO_CODB_DEMO,
+  EQUIPE_PLANTAO_DEMO,
+  GRUPO_PLANTAO_CODB_DEMO,
+  GRUPO_PLANTAO_DEMO,
   GESTOR_DEMO,
   LOGIN_PARA_LOGIN,
+  PARTICIPANTES_PLANTAO_DEMO,
+  UNIDADE_CODB_DEMO,
+  UNIDADE_COSI_DEMO,
   USUARIOS_DEMO,
+  WANESSA_DEMO,
 } from './demoIdentidades';
 
 export async function carregarEscalaDemonstracao(): Promise<ResultadoParse> {

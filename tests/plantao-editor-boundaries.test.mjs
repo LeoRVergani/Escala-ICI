@@ -361,7 +361,7 @@ test('30. drag-and-drop não vazou para os módulos de domínio puro (montagem/c
 
 test('31. "Usar período anterior" só lê a competência anterior (nunca a reidrata como working copy nem grava nela) — usarPeriodoAnteriorAcao nunca chama salvarAtribuicoesPlantaoRascunho/salvarCompetenciaPlantaoRascunho com a competência anterior', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  const corpo = /async function usarPeriodoAnteriorAcao\(\) \{([\s\S]*?)\n {2}\}\n/u.exec(dashboard);
+  const corpo = /async function usarPeriodoAnteriorAcao\([^)]*\) \{([\s\S]*?)\n {2}\}\n/u.exec(dashboard);
   assert.ok(corpo, 'usarPeriodoAnteriorAcao precisa existir');
   assert.doesNotMatch(corpo[1], /salvarAtribuicoesPlantaoRascunho|salvarCompetenciaPlantaoRascunho|salvarParticipantePlantao/u, 'a leitura da competência anterior nunca pode gravar nada');
   assert.match(corpo[1], /listarAtribuicoesPlantaoRascunho\(grupo\.grupoId,\s*labelAnterior\)/u, 'as atribuições anteriores precisam ser só lidas (leitura pura)');

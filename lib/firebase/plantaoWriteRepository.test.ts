@@ -11,6 +11,8 @@ const estado = vi.hoisted(() => ({
   operacoes: [] as Array<{ tipo: 'set' | 'update' | 'delete'; colecao: string; id: string; dados?: Record<string, unknown> }>,
   /** Fase ESCALAS-UX-1B.1 — simula o que já existe no Firestore antes de `salvarAtribuicoesPlantaoRascunho()` rodar, para testar a limpeza de documentos órfãos. */
   atribuicoesJaPersistidas: [] as Array<{ id: string; grupoId: string }>,
+  /** Fase ESCOPO-CONSULTA-PLANTAO-1 — Grupos já existentes, para `atualizarEquipeConsultaPlantao()` ler antes de escrever. */
+  gruposExistentes: {} as Record<string, GrupoPlantao | undefined>,
 }));
 
 vi.mock('./shared', () => ({
@@ -27,6 +29,10 @@ vi.mock('firebase/firestore', () => ({
   doc: (_db: unknown, ...segmentos: string[]) => ({ __colecao: segmentos.at(-2), __id: segmentos.at(-1) }),
   query: (colecaoRef: { __colecao: string }, ...filtros: unknown[]) => ({ __colecaoRef: colecaoRef, __filtros: filtros }),
   where: (campo: string, operador: string, valor: unknown) => ({ __tipo: 'where', campo, operador, valor }),
+  getDoc: async (ref: { __colecao: string; __id: string }) => {
+    const dados = ref.__colecao === 'gruposPlantao' ? estado.gruposExistentes[ref.__id] : undefined;
+    return { exists: () => dados !== undefined, data: () => dados };
+  },
   getDocs: async (_consulta: { __colecaoRef: { __colecao: string } }) => ({
     docs: estado.atribuicoesJaPersistidas.map((item) => ({ id: item.id, data: () => item })),
   }),
@@ -48,6 +54,7 @@ vi.mock('firebase/firestore', () => ({
 }));
 
 const {
+  atualizarEquipeConsultaPlantao,
   desativarParticipantePlantao,
   salvarAtribuicoesPlantaoRascunho,
   salvarCompetenciaPlantaoRascunho,
@@ -128,6 +135,7 @@ beforeEach(() => {
   estado.escritaHabilitada = true;
   estado.operacoes.length = 0;
   estado.atribuicoesJaPersistidas.length = 0;
+  estado.gruposExistentes = {};
 });
 
 describe('salvarGrupoPlantao', () => {
@@ -223,6 +231,65 @@ describe('salvarParticipantePlantao', () => {
 
   it('rejeita login vazio antes de enviar', async () => {
     await expect(salvarParticipantePlantao(participanteValido({ login: '' }))).rejects.toThrow();
+    expect(estado.operacoes).toHaveLength(0);
+  });
+});
+
+describe('atualizarEquipeConsultaPlantao — Fase ESCOPO-CONSULTA-PLANTAO-1 (Plantões monitorados por equipe)', () => {
+  it('adiciona a equipe solicitada em equipesConsulta, preservando as demais e atualizando atualizadoEm', async () => {
+    estado.gruposExistentes.PLANTAO_COSI = grupoValido({ grupoId: 'PLANTAO_COSI', equipesConsulta: ['EQ_COSI'] });
+    await atualizarEquipeConsultaPlantao('PLANTAO_COSI', 'EQ_NOC', 'ADICIONAR');
+    expect(estado.operacoes).toHaveLength(1);
+    expect(estado.operacoes[0]?.tipo).toBe('update');
+    expect(estado.operacoes[0]?.colecao).toBe('gruposPlantao');
+    expect(estado.operacoes[0]?.dados?.equipesConsulta).toEqual(['EQ_COSI', 'EQ_NOC']);
+    expect(estado.operacoes[0]?.dados).toHaveProperty('atualizadoEm');
+    expect(Object.keys(estado.operacoes[0]?.dados ?? {}).sort()).toEqual(['atualizadoEm', 'equipesConsulta']);
+  });
+
+  it('não duplica a equipe se ela já estiver em equipesConsulta (idempotente)', async () => {
+    estado.gruposExistentes.PLANTAO_COSI = grupoValido({ grupoId: 'PLANTAO_COSI', equipesConsulta: ['EQ_COSI', 'EQ_NOC'] });
+    await atualizarEquipeConsultaPlantao('PLANTAO_COSI', 'EQ_NOC', 'ADICIONAR');
+    expect(estado.operacoes[0]?.dados?.equipesConsulta).toEqual(['EQ_COSI', 'EQ_NOC']);
+  });
+
+  it('remove a equipe solicitada, preservando as demais', async () => {
+    estado.gruposExistentes.PLANTAO_COSI = grupoValido({ grupoId: 'PLANTAO_COSI', equipesConsulta: ['EQ_COSI', 'EQ_NOC'] });
+    await atualizarEquipeConsultaPlantao('PLANTAO_COSI', 'EQ_NOC', 'REMOVER');
+    expect(estado.operacoes[0]?.dados?.equipesConsulta).toEqual(['EQ_COSI']);
+  });
+
+  it('nunca remove a equipe responsável de equipesConsulta — recusa antes de chamar updateDoc', async () => {
+    estado.gruposExistentes.PLANTAO_COSI = grupoValido({ grupoId: 'PLANTAO_COSI', equipeResponsavelId: 'EQ_COSI', equipesConsulta: ['EQ_COSI', 'EQ_NOC'] });
+    await expect(atualizarEquipeConsultaPlantao('PLANTAO_COSI', 'EQ_COSI', 'REMOVER')).rejects.toThrow();
+    expect(estado.operacoes).toHaveLength(0);
+  });
+
+  it('não altera nome/descrição/equipeResponsavelId/timezone/ativo/padrão semanal — só equipesConsulta e atualizadoEm', async () => {
+    estado.gruposExistentes.PLANTAO_COSI = grupoValido({
+      grupoId: 'PLANTAO_COSI',
+      equipesConsulta: ['EQ_COSI'],
+      padraoHorarioSemanal: [{ diaSemana: 0, horaInicio: '19:00', horaFim: '07:00', fimDiaOffset: 1 }],
+    });
+    await atualizarEquipeConsultaPlantao('PLANTAO_COSI', 'EQ_NOC', 'ADICIONAR');
+    const chaves = Object.keys(estado.operacoes[0]?.dados ?? {});
+    expect(chaves).not.toContain('nome');
+    expect(chaves).not.toContain('descricao');
+    expect(chaves).not.toContain('equipeResponsavelId');
+    expect(chaves).not.toContain('timezone');
+    expect(chaves).not.toContain('ativo');
+    expect(chaves).not.toContain('padraoHorarioSemanal');
+  });
+
+  it('rejeita quando o Grupo não existe', async () => {
+    await expect(atualizarEquipeConsultaPlantao('PLANTAO_INEXISTENTE', 'EQ_NOC', 'ADICIONAR')).rejects.toThrow();
+    expect(estado.operacoes).toHaveLength(0);
+  });
+
+  it('recusa escrever quando a escrita administrativa está bloqueada', async () => {
+    estado.escritaHabilitada = false;
+    estado.gruposExistentes.PLANTAO_COSI = grupoValido({ grupoId: 'PLANTAO_COSI' });
+    await expect(atualizarEquipeConsultaPlantao('PLANTAO_COSI', 'EQ_NOC', 'ADICIONAR')).rejects.toThrow();
     expect(estado.operacoes).toHaveLength(0);
   });
 });

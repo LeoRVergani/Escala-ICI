@@ -58,6 +58,24 @@ describe('validarGrupoPlantao', () => {
     const erros = validarGrupoPlantao({ ...GRUPO_VALIDO, equipesConsulta: ['EQ_SOC'] });
     expect(erros.some((e) => e.includes('autorizadas a consultar'))).toBe(true);
   });
+
+  it('unidadeResponsavelId/caminhoUnidadeResponsavel são opcionais — ausentes não geram erro', () => {
+    expect(validarGrupoPlantao(GRUPO_VALIDO)).toEqual([]);
+  });
+
+  it('caminhoUnidadeResponsavel precisa incluir a própria unidadeResponsavelId quando os dois estão presentes', () => {
+    const erros = validarGrupoPlantao({
+      ...GRUPO_VALIDO,
+      unidadeResponsavelId: 'COSI',
+      caminhoUnidadeResponsavel: ['GEDSI'],
+    });
+    expect(erros.some((e) => e.includes('caminho da unidade responsável'))).toBe(true);
+    expect(validarGrupoPlantao({
+      ...GRUPO_VALIDO,
+      unidadeResponsavelId: 'COSI',
+      caminhoUnidadeResponsavel: ['GEDSI', 'COSI'],
+    })).toEqual([]);
+  });
 });
 
 describe('5. equipesConsultaEfetivas — visibilidade duplicada normalizada', () => {

@@ -70,11 +70,11 @@ test('6. solicitarTrocaContexto/solicitarTrocaCompetencia usam a MESMA guarda �
 test('7. jornadaPossuiAlteracoesNaoSalvas vira true em editarCelula (mutação local) E nos pontos de importação não salva (aplicarConciliacao/cadastrarFaltantes) — FIX ESCALAS-UX-2A.1: cobertura completa, não só editarCelula', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const ocorrenciasTrue = dashboard.match(/setJornadaPossuiAlteracoesNaoSalvas\(true\)/gu) ?? [];
-  assert.equal(ocorrenciasTrue.length, 3, 'exatamente 3 pontos marcam a Jornada como não salva: editarCelula, aplicarConciliacao, cadastrarFaltantes');
+  assert.equal(ocorrenciasTrue.length, 4, 'quatro pontos marcam a Jornada como não salva: criação vazia, editarCelula, aplicarConciliacao e cadastrarFaltantes');
   const editarCelula = /function editarCelula\(codigo: string\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(editarCelula, 'editarCelula precisa existir');
   assert.match(editarCelula[1], /setJornadaPossuiAlteracoesNaoSalvas\(true\)/u, 'a mutação local de célula precisa marcar dirty=true');
-  const aplicarConciliacao = /function aplicarConciliacao\(buffer: ArrayBuffer, linhas: LinhaConciliacao\[\]\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  const aplicarConciliacao = /function aplicarConciliacao\(buffer: ArrayBuffer, linhas: LinhaConciliacao\[\](?:, opcoes: OpcoesInicioImportacao = \{\})?\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(aplicarConciliacao, 'aplicarConciliacao precisa existir');
   assert.match(aplicarConciliacao[1], /setJornadaPossuiAlteracoesNaoSalvas\(true\)/u, 'importar/reconciliar planilha nunca pode deixar dirty=false — importar não é salvar');
 });
@@ -89,16 +89,16 @@ test('21. existe um dirty state explícito de Plantão separado de plantaoEditad
 
 test('22. importar/criar vazia/usar período anterior de Plantão marcam plantaoPossuiAlteracoesNaoSalvas=true mesmo quando plantaoEditadoDesdeImportacao continua false', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  const interpretarPlantao = /function interpretarPlantao\(buffer: ArrayBuffer, nome: string, resultado: ResultadoParsePlantao\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  const interpretarPlantao = /function interpretarPlantao\(buffer: ArrayBuffer, nome: string, resultado: ResultadoParsePlantao(?:, opcoes: OpcoesInicioImportacao = \{\})?\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(interpretarPlantao, 'interpretarPlantao precisa existir');
   assert.match(interpretarPlantao[1], /setPlantaoEditadoDesdeImportacao\(false\)/u);
   assert.match(interpretarPlantao[1], /setPlantaoPossuiAlteracoesNaoSalvas\(true\)/u, 'importar uma planilha de Plantão precisa marcar alteração não salva mesmo sem nenhuma edição de célula');
 
-  const criarVazia = /async function criarPlantaoEmBrancoAcao\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  const criarVazia = /async function criarPlantaoEmBrancoAcao\([^)]*\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(criarVazia, 'criarPlantaoEmBrancoAcao precisa existir');
   assert.match(criarVazia[1], /setPlantaoPossuiAlteracoesNaoSalvas\(true\)/u);
 
-  const usarAnterior = /async function usarPeriodoAnteriorAcao\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  const usarAnterior = /async function usarPeriodoAnteriorAcao\([^)]*\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(usarAnterior, 'usarPeriodoAnteriorAcao precisa existir');
   assert.match(usarAnterior[1], /setPlantaoPossuiAlteracoesNaoSalvas\(true\)/u);
 });
@@ -236,7 +236,7 @@ test('15. a tela Escalas mostra "Nenhuma escala criada" só quando contextoSemEs
 
 test('16. status "publicada" para Jornada só reflete um cálculo já existente (publicados/documentos) — Plantão nunca mostra "publicada" nesta fase', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  const statusVar = /const statusContextoAtivo: StatusContextoEscala \| null = ([\s\S]*?);\n {2}const periodoContextoAtivo/u.exec(dashboard);
+  const statusVar = /const statusContextoAtivo: StatusContextoEscala \| null = ([\s\S]*?);\n {2}return/u.exec(dashboard);
   assert.ok(statusVar, 'statusContextoAtivo precisa existir');
   assert.match(statusVar[1], /publicados\.length === documentos\.length/u, 'Jornada precisa reaproveitar o cálculo já existente de "publicados"');
   assert.doesNotMatch(statusVar[1], /'publicada'\s*:\s*'publicada'/u);

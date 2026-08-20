@@ -40,30 +40,31 @@ function cabecalhoData(dataIso: string) {
 }
 
 /**
- * As colunas de data vêm da união dos dias já preenchidos em qualquer
- * documento do conjunto — não só do primeiro. Um colaborador recém-incluído
- * na grade (Fase 3K-D2A) nasce com `dias: {}`; se ele calhasse de ser o
- * primeiro do array, a grade inteira ficaria sem nenhuma coluna. Sem nenhum
- * dia preenchido em ninguém, cai para o período do documento (sempre
- * presente, mesmo em branco), para a grade continuar utilizável.
+ * A competência é a fonte de verdade das colunas, não a primeira célula
+ * preenchida. Isso mantém a coluna de colaboradores estável e deixa o
+ * coordenador enxergar os dias que ainda precisam ser lançados. Quando um
+ * conjunto reúne documentos com períodos diferentes, a grade usa a janela
+ * mínima/máxima para não esconder nenhuma data válida.
  */
 function datasDoConjunto(documentos: readonly TurnosMes[]): string[] {
-  const chaves = new Set<string>();
-  for (const documento of documentos) {
-    for (const data of Object.keys(documento.dias)) {
-      chaves.add(data);
-    }
-  }
-  if (chaves.size > 0) {
-    return [...chaves].sort();
-  }
-
   const referencia = documentos[0];
   if (referencia === undefined) {
     return [];
   }
+
+  let periodoInicio = referencia.periodoInicio;
+  let periodoFim = referencia.periodoFim;
+  for (const documento of documentos) {
+    if (documento.periodoInicio < periodoInicio) {
+      periodoInicio = documento.periodoInicio;
+    }
+    if (documento.periodoFim > periodoFim) {
+      periodoFim = documento.periodoFim;
+    }
+  }
+
   const datas: string[] = [];
-  for (let atual = referencia.periodoInicio; atual <= referencia.periodoFim; atual = adicionarDias(atual, 1)) {
+  for (let atual = periodoInicio; atual <= periodoFim; atual = adicionarDias(atual, 1)) {
     datas.push(atual);
   }
   return datas;

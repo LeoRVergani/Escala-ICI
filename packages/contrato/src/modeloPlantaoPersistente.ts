@@ -110,6 +110,33 @@ export interface GrupoPlantao {
   descricao?: string;
   equipeResponsavelId: string;
   equipesConsulta: string[];
+  /**
+   * Fase ESCOPO-GESTOR-UNIDADE-1 — `unidadeId` da equipe responsável no
+   * momento em que este campo foi preenchido, denormalizado aqui pelo MESMO
+   * motivo de `destinatarioEquipeId` em `lembretesAtribuidos`
+   * (`firestore.rules`): autorizar `GESTOR_UNIDADE` a administrar este Grupo
+   * exige comparar contra `unidadesPermitidas` sem depender de um `get()`
+   * extra na Equipe dentro da Rule. OPCIONAL e retrocompatível — todo
+   * `GrupoPlantao` criado antes desta fase não tem o campo, e continua
+   * 100% válido (só não fica administrável por `GESTOR_UNIDADE`, apenas
+   * pelo `GESTOR_EQUIPE`/`ADMIN_SISTEMA` de sempre — ver
+   * `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`). Nunca inferido a
+   * partir de nome/sigla; é o `Equipe.unidadeId` da equipe responsável,
+   * copiado explicitamente na criação/edição do Grupo. Diferente de
+   * `equipeResponsavelId` (imutável), este campo pode ser corrigido depois
+   * (ex.: a equipe migrou de unidade) — quem já administra o Grupo pode
+   * atualizá-lo para refletir a unidade atual.
+   */
+  unidadeResponsavelId?: string;
+  /**
+   * Caminho materializado (raiz -> unidade, inclusive) da unidade acima,
+   * cópia de `UnidadeOrganizacional.caminho` no momento do preenchimento —
+   * permite que `GESTOR_UNIDADE` de uma unidade ANCESTRAL administre este
+   * Grupo sem a Rule percorrer `parentId` (mesmo princípio de
+   * `Equipe.caminhoUnidade`, `docs/spec/HIERARQUIA_ORGANIZACIONAL.md` § 2).
+   * Opcional; ausente = só o match exato de `unidadeResponsavelId` vale.
+   */
+  caminhoUnidadeResponsavel?: string[];
   timezone: string;
   ativo: boolean;
   /**
@@ -539,6 +566,8 @@ export function validarGrupoPlantao(grupo: {
   descricao?: string;
   equipeResponsavelId: string;
   equipesConsulta: readonly string[];
+  unidadeResponsavelId?: string;
+  caminhoUnidadeResponsavel?: readonly string[];
   timezone: string;
   padraoHorarioSemanal?: readonly PadraoHorarioPlantaoDia[];
 }): string[] {
@@ -562,6 +591,11 @@ export function validarGrupoPlantao(grupo: {
     erros.push('Informe ao menos uma equipe autorizada a consultar o grupo.');
   } else if (!grupo.equipesConsulta.includes(grupo.equipeResponsavelId)) {
     erros.push('A equipe responsável precisa estar entre as equipes autorizadas a consultar.');
+  }
+  if (grupo.caminhoUnidadeResponsavel !== undefined
+    && grupo.unidadeResponsavelId !== undefined
+    && !grupo.caminhoUnidadeResponsavel.includes(grupo.unidadeResponsavelId)) {
+    erros.push('O caminho da unidade responsável precisa incluir a própria unidade responsável.');
   }
   if (!timezoneValida(grupo.timezone)) {
     erros.push(`Timezone inválida: "${grupo.timezone}".`);

@@ -36,6 +36,26 @@ export async function listarGruposPlantaoPermitidos(equipeId: string): Promise<G
 }
 
 /**
+ * Fase ESCOPO-GESTOR-UNIDADE-1 — Grupos cuja `unidadeResponsavelId`
+ * (denormalizado, opcional/retrocompatível — ver `@escala-ici/contrato`)
+ * é `unidadeId`. Complementa `listarGruposPlantaoPermitidos()`: aquela
+ * função encontra Grupos pela ACL de CONSULTA (`equipesConsulta`), que não
+ * necessariamente inclui a equipe pessoal de um `GESTOR_UNIDADE` — esta
+ * encontra Grupos pela ADMINISTRAÇÃO por unidade, independente de o
+ * gestor consultar o Grupo ou não (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`).
+ * Um Grupo antigo sem o campo nunca aparece aqui — só em
+ * `listarGruposPlantaoPermitidos()`/`listarTodosGruposPlantao()`.
+ */
+export async function listarGruposPlantaoPorUnidadeResponsavel(unidadeId: string): Promise<GrupoPlantao[]> {
+  const { db } = exigirFirebase();
+  const resultado = await getDocs(query(
+    collection(db, 'gruposPlantao'),
+    where('unidadeResponsavelId', '==', unidadeId),
+  ));
+  return resultado.docs.map((snapshot) => snapshot.data() as GrupoPlantao);
+}
+
+/**
  * Todos os Grupos, sem filtro de `equipesConsulta` — só ADMIN_SISTEMA
  * consegue de fato (a Rule de `gruposPlantao` dispensa o filtro só para
  * `souAdminSistema()`; qualquer outro perfil que chamar isto recebe

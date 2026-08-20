@@ -1,9 +1,17 @@
 import { calcularDuracaoEntreMomentos, formatarMinutos, type MomentoPlantao } from '@escala-ici/contrato';
-import { Trash2, X } from 'lucide-react';
-import { useState } from 'react';
+import { CalendarDays, Clock3, Info, Moon, PencilLine, SunMedium, Sunset, Trash2, UserRound, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
 import { duracaoPlantaoAtipica, validarAtribuicaoEditavel } from '@/lib/editorPlantao';
 import { useTeclaEsc } from '@/lib/hooks/useTeclaEsc';
+
+import {
+  derivarPadroesHorarioPlantao,
+  padraoHorarioCorrespondente,
+  padraoHorarioParaValores,
+  type PadraoHorarioPlantaoModal,
+  type TomHorarioPlantao,
+} from './horariosPlantao';
 
 export interface FormularioAtribuicaoPlantao {
   plantonistaNomeOriginal: string;
@@ -11,27 +19,29 @@ export interface FormularioAtribuicaoPlantao {
   fim: MomentoPlantao;
 }
 
+function IconeTom({ tom }: { tom: TomHorarioPlantao }) {
+  if (tom === 'madrugada') return <SunMedium size={19} strokeWidth={1.8} />;
+  if (tom === 'manha') return <SunriseIcon />;
+  if (tom === 'tarde') return <Sunset size={19} strokeWidth={1.8} />;
+  if (tom === 'noite') return <Moon size={19} strokeWidth={1.8} />;
+  return <Clock3 size={19} strokeWidth={1.8} />;
+}
+
+function SunriseIcon() {
+  return <SunMedium size={19} strokeWidth={1.8} />;
+}
+
 /**
- * Fase ESCALAS-UX-1A — modal único para criar OU editar uma atribuição de
- * Plantão na working copy do Editor. Nunca grava no Firestore diretamente:
- * `onSalvar`/`onExcluir` só atualizam o estado em memória do Dashboard — a
- * persistência real continua exclusivamente pelo fluxo "Salvar rascunho"
- * já existente. Bloqueia apenas os 4 erros objetivos de
- * `validarAtribuicaoEditavel()` (plantonista/datas vazias, fim <= início);
- * duração atípica (nem 12h nem 24h) é só um aviso, nunca impede salvar.
- *
- * Plantonista é um SELECT sobre `participantesConhecidos` (nunca texto
- * livre): criar uma pessoa nova é responsabilidade da tela de vínculos/
- * participantes, não deste modal — assim o Editor nunca introduz um nome
- * que a conciliação de vínculos desconhece (o que exigiria reconciliar
- * `vinculosPlantao` toda vez que o calendário adicionasse alguém, um
- * sistema mais complexo do que esta fase pede).
+ * Modal único para criar ou editar uma atribuição na working copy do Editor.
+ * O formulário mantém os mesmos callbacks e a mesma validação de domínio;
+ * apenas reorganiza a experiência em padrões à esquerda e detalhes à direita.
  */
 export function ModalEditarAtribuicaoPlantao({
   titulo,
   valoresIniciais,
   modo,
   participantesConhecidos,
+  padroesDisponiveis,
   onFechar,
   onSalvar,
   onExcluir,
@@ -40,15 +50,37 @@ export function ModalEditarAtribuicaoPlantao({
   valoresIniciais: FormularioAtribuicaoPlantao;
   modo: 'criar' | 'editar';
   participantesConhecidos: readonly string[];
+  padroesDisponiveis?: readonly PadraoHorarioPlantaoModal[];
   onFechar: () => void;
   onSalvar: (valores: FormularioAtribuicaoPlantao) => void;
   onExcluir?: () => void;
 }) {
+  const padroes = useMemo(
+    () => padroesDisponiveis !== undefined && padroesDisponiveis.length > 0
+      ? [...padroesDisponiveis]
+      : derivarPadroesHorarioPlantao(undefined),
+    [padroesDisponiveis],
+  );
+  const padraoInicial = useMemo(
+    () => padraoHorarioCorrespondente(
+      padroes,
+      valoresIniciais.inicio.hora,
+      valoresIniciais.fim.hora,
+      valoresIniciais.inicio.data,
+      valoresIniciais.fim.data,
+    ) ?? (modo === 'criar' && valoresIniciais.inicio.hora === '' ? padroes[0] ?? null : null),
+    [modo, padroes, valoresIniciais.fim.data, valoresIniciais.fim.hora, valoresIniciais.inicio.data, valoresIniciais.inicio.hora],
+  );
+  const valoresPresetInicial = padraoInicial === null || valoresIniciais.inicio.hora !== ''
+    ? null
+    : padraoHorarioParaValores(padraoInicial, valoresIniciais.inicio.data);
   const [plantonistaNomeOriginal, setPlantonistaNomeOriginal] = useState(valoresIniciais.plantonistaNomeOriginal);
   const [dataInicial, setDataInicial] = useState(valoresIniciais.inicio.data);
-  const [horaInicial, setHoraInicial] = useState(valoresIniciais.inicio.hora);
-  const [dataFinal, setDataFinal] = useState(valoresIniciais.fim.data);
-  const [horaFinal, setHoraFinal] = useState(valoresIniciais.fim.hora);
+  const [horaInicial, setHoraInicial] = useState(valoresPresetInicial?.horaInicial ?? valoresIniciais.inicio.hora);
+  const [dataFinal, setDataFinal] = useState(valoresPresetInicial?.dataFinal ?? valoresIniciais.fim.data);
+  const [horaFinal, setHoraFinal] = useState(valoresPresetInicial?.horaFinal ?? valoresIniciais.fim.hora);
+  const [padraoSelecionado, setPadraoSelecionado] = useState<string | null>(padraoInicial?.id ?? null);
+  const [horarioForaDoPadrao, setHorarioForaDoPadrao] = useState(padraoInicial === null);
   const [erros, setErros] = useState<string[]>([]);
   useTeclaEsc(onFechar);
 
@@ -57,6 +89,30 @@ export function ModalEditarAtribuicaoPlantao({
   const duracaoMinutos = calcularDuracaoEntreMomentos(inicio, fim);
   const duracaoValida = duracaoMinutos !== null && duracaoMinutos > 0;
   const atipica = duracaoValida && duracaoPlantaoAtipica(duracaoMinutos);
+  const padraoAtual = padroes.find((padrao) => padrao.id === padraoSelecionado) ?? null;
+
+  function aplicarPadrao(padrao: PadraoHorarioPlantaoModal) {
+    const valores = padraoHorarioParaValores(padrao, dataInicial);
+    setPadraoSelecionado(padrao.id);
+    setHorarioForaDoPadrao(false);
+    setHoraInicial(valores.horaInicial);
+    setHoraFinal(valores.horaFinal);
+    setDataFinal(valores.dataFinal);
+    setErros([]);
+  }
+
+  function alterarDataInicial(valor: string) {
+    setDataInicial(valor);
+    if (padraoAtual !== null) {
+      setDataFinal(padraoHorarioParaValores(padraoAtual, valor).dataFinal);
+    }
+  }
+
+  function ativarHorarioForaDoPadrao() {
+    setPadraoSelecionado(null);
+    setHorarioForaDoPadrao(true);
+    setErros([]);
+  }
 
   function aoClicarSalvar() {
     const valores: FormularioAtribuicaoPlantao = { plantonistaNomeOriginal, inicio, fim };
@@ -69,65 +125,139 @@ export function ModalEditarAtribuicaoPlantao({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+    <div className="modal-backdrop plantao-d-modal-backdrop" role="presentation" onMouseDown={onFechar}>
       <section
-        className="edit-modal admin-modal"
+        className="edit-modal admin-modal plantao-d-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="editar-plantao-modal-title"
         onMouseDown={(evento) => evento.stopPropagation()}
       >
-        <div className="panel-title">
+        <div className="panel-title plantao-d-modal-titlebar">
           <div>
             <h2 id="editar-plantao-modal-title">{titulo}</h2>
+            <p className="plantao-d-modal-caption">Escolha um padrão ou defina uma exceção operacional.</p>
           </div>
           <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
             <X size={18} />
           </button>
         </div>
-        <label>
-          Plantonista
-          <select
-            value={plantonistaNomeOriginal}
-            onChange={(evento) => setPlantonistaNomeOriginal(evento.target.value)}
-          >
-            <option value="">Selecione um plantonista</option>
-            {participantesConhecidos.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
-          </select>
-        </label>
-        <div className="contato-plantonista-linha">
-          <label>
-            Data inicial
-            <input type="date" value={dataInicial} onChange={(evento) => setDataInicial(evento.target.value)} />
-          </label>
-          <label>
-            Hora inicial
-            <input type="time" value={horaInicial} onChange={(evento) => setHoraInicial(evento.target.value)} />
-          </label>
+
+        <div className="plantao-d-modal-grid">
+          <section className="plantao-d-modal-patterns" aria-labelledby="plantao-d-padroes-titulo">
+            <div className="plantao-d-section-heading">
+              <div>
+                <h3 id="plantao-d-padroes-titulo">Padrões da escala</h3>
+                <p>Selecione o horário mais usado pelo grupo.</p>
+              </div>
+            </div>
+            <div className="plantao-d-pattern-list" role="radiogroup" aria-label="Padrões da escala">
+              {padroes.map((padrao) => (
+                <button
+                  key={padrao.id}
+                  className={`plantao-d-pattern-card${padraoSelecionado === padrao.id ? ' selected' : ''}`}
+                  data-tom={padrao.tom}
+                  type="button"
+                  role="radio"
+                  aria-checked={padraoSelecionado === padrao.id}
+                  onClick={() => aplicarPadrao(padrao)}
+                >
+                  <span className="plantao-d-pattern-icon"><IconeTom tom={padrao.tom} /></span>
+                  <span className="plantao-d-pattern-copy">
+                    <strong>{padrao.titulo}</strong>
+                    <small>{padrao.subtitulo}</small>
+                  </span>
+                  <span className="plantao-d-radio" aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+            <p className="plantao-d-pattern-note"><Info size={15} /> Os padrões vêm do Grupo de Plantão.</p>
+          </section>
+
+          <section className="plantao-d-modal-details" aria-labelledby="plantao-d-detalhes-titulo">
+            <div className="plantao-d-section-heading">
+              <div>
+                <h3 id="plantao-d-detalhes-titulo">Detalhes</h3>
+                <p>Confirme quem estará de plantão e quando.</p>
+              </div>
+            </div>
+            <label className="plantao-d-field">
+              <span><UserRound size={14} /> Colaborador</span>
+              <select
+                value={plantonistaNomeOriginal}
+                onChange={(evento) => setPlantonistaNomeOriginal(evento.target.value)}
+              >
+                <option value="">Selecione um plantonista</option>
+                {participantesConhecidos.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
+              </select>
+            </label>
+            <label className="plantao-d-field">
+              <span><CalendarDays size={14} /> Data</span>
+              <input type="date" value={dataInicial} onChange={(evento) => alterarDataInicial(evento.target.value)} />
+            </label>
+
+            <div className="plantao-d-selected-preview" data-tom={padraoAtual?.tom ?? 'vinte-quatro-horas'}>
+              <div className="plantao-d-selected-icon"><IconeTom tom={padraoAtual?.tom ?? 'vinte-quatro-horas'} /></div>
+              <div>
+                <span>Horário selecionado</span>
+                <strong>{horaInicial || '--:--'} <i>→</i> {horaFinal || '--:--'}</strong>
+                <small>{padraoAtual?.titulo ?? (duracaoValida ? 'Fora do padrão' : 'Informe início e fim')}</small>
+              </div>
+            </div>
+
+            <button
+              className={`plantao-d-custom-toggle${horarioForaDoPadrao ? ' active' : ''}`}
+              type="button"
+              onClick={ativarHorarioForaDoPadrao}
+            >
+              <PencilLine size={15} />
+              <span>
+                <strong>Definir horário fora do padrão</strong>
+                <small>Use apenas quando a operação exigir uma exceção.</small>
+              </span>
+            </button>
+
+            {horarioForaDoPadrao && (
+              <div className="plantao-d-custom-fields">
+                <label className="plantao-d-field">
+                  <span>Data final</span>
+                  <input type="date" value={dataFinal} onChange={(evento) => { setDataFinal(evento.target.value); setPadraoSelecionado(null); }} />
+                </label>
+                <div className="plantao-d-time-fields">
+                  <label className="plantao-d-field">
+                    <span>Hora inicial</span>
+                    <input type="time" value={horaInicial} onChange={(evento) => { setHoraInicial(evento.target.value); setPadraoSelecionado(null); }} />
+                  </label>
+                  <label className="plantao-d-field">
+                    <span>Hora final</span>
+                    <input type="time" value={horaFinal} onChange={(evento) => { setHoraFinal(evento.target.value); setPadraoSelecionado(null); }} />
+                  </label>
+                </div>
+              </div>
+            )}
+          </section>
         </div>
-        <div className="contato-plantonista-linha">
-          <label>
-            Data final
-            <input type="date" value={dataFinal} onChange={(evento) => setDataFinal(evento.target.value)} />
-          </label>
-          <label>
-            Hora final
-            <input type="time" value={horaFinal} onChange={(evento) => setHoraFinal(evento.target.value)} />
-          </label>
+
+        <div className="plantao-d-modal-summary">
+          <CalendarDays size={15} />
+          <span>{dataInicial || '—'}</span>
+          <i>·</i>
+          <span>{plantonistaNomeOriginal || 'Selecione o colaborador'}</span>
+          <i>·</i>
+          <strong>{duracaoValida ? `${horaInicial} → ${horaFinal}` : 'Horário pendente'}</strong>
         </div>
-        <p className="admin-form-preview">
-          Duração: {duracaoValida ? formatarMinutos(duracaoMinutos) : '—'}
-          {atipica && ' · ⚠ duração atípica (nem 12h nem 24h) — confira antes de salvar.'}
-        </p>
+
+        {atipica && <p className="plantao-d-warning">⚠ Duração atípica de {formatarMinutos(duracaoMinutos ?? 0)} — confira antes de salvar.</p>}
         {erros.length > 0 && <p className="admin-form-erro">{erros.join(' ')}</p>}
-        <div className="rollback-actions">
+
+        <div className="rollback-actions plantao-d-modal-actions">
           {modo === 'editar' && onExcluir !== undefined && (
             <button className="secondary-button danger-button rollback-actions-excluir" type="button" onClick={onExcluir}>
               <Trash2 size={16} /> Excluir
             </button>
           )}
           <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
-          <button className="primary-button" type="button" onClick={aoClicarSalvar}>Salvar</button>
+          <button className="primary-button" type="button" onClick={aoClicarSalvar}>Salvar plantão</button>
         </div>
       </section>
     </div>

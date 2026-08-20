@@ -61,6 +61,7 @@ const {
   listarAtribuicoesPlantaoRascunho,
   listarCompetenciasPlantaoRascunho,
   listarGruposPlantaoPermitidos,
+  listarGruposPlantaoPorUnidadeResponsavel,
   listarParticipantesPlantao,
   listarTodosGruposPlantao,
   obterCompetenciaPlantaoRascunho,
@@ -126,6 +127,23 @@ describe('listarGruposPlantaoPermitidos', () => {
     ];
     const resultado = await listarGruposPlantaoPermitidos('EQ_SOC');
     expect(resultado.map((g) => g.grupoId)).toEqual(['PLANTAO_SEGURANCA']);
+  });
+});
+
+describe('listarGruposPlantaoPorUnidadeResponsavel — Fase ESCOPO-GESTOR-UNIDADE-1', () => {
+  it('retorna só os grupos cuja unidadeResponsavelId é a informada, independente de equipesConsulta', async () => {
+    estado.gruposPlantao = [
+      { id: 'PLANTAO_COSI', data: grupo({ grupoId: 'PLANTAO_COSI', equipesConsulta: ['EQ_OUTRA'], unidadeResponsavelId: 'COSI' }) },
+      { id: 'PLANTAO_CODB', data: grupo({ grupoId: 'PLANTAO_CODB', equipeResponsavelId: 'EQ_CODB', equipesConsulta: ['EQ_CODB'], unidadeResponsavelId: 'CODB' }) },
+    ];
+    const resultado = await listarGruposPlantaoPorUnidadeResponsavel('COSI');
+    expect(resultado.map((g) => g.grupoId)).toEqual(['PLANTAO_COSI']);
+  });
+
+  it('um Grupo sem unidadeResponsavelId (documento antigo) nunca aparece nesta consulta', async () => {
+    estado.gruposPlantao = [{ id: 'PLANTAO_ANTIGO', data: grupo({ grupoId: 'PLANTAO_ANTIGO' }) }];
+    const resultado = await listarGruposPlantaoPorUnidadeResponsavel('COSI');
+    expect(resultado).toEqual([]);
   });
 });
 

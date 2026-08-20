@@ -175,29 +175,118 @@ export function podeGerenciarEquipe(usuario: Usuario, equipeId: string): boolean
 }
 
 /**
- * Espelha `souGestor()` de `firestore.rules` — deliberadamente NÃO inclui
- * GESTOR_UNIDADE (diferente de `podeAcessarAdministracao` no Dashboard, que
- * é `souAdmin || souGestorUnidade`). Um Grupo de Plantão é administrado por
- * quem gerencia a EQUIPE responsável, não por quem gerencia a unidade
- * organizacional acima dela — ver `docs/spec/HIERARQUIA_ORGANIZACIONAL.md`
- * § 7 e `docs/spec/PLANTOES.md`, seção 20.
+ * Espelha `souGestor()` de `firestore.rules` MAIS `GESTOR_UNIDADE`.
+ *
+ * Mudança de regra aprovada na Fase ESCOPO-GESTOR-UNIDADE-1
+ * (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`): até essa fase, esta
+ * função deliberadamente NÃO incluía `GESTOR_UNIDADE` — um Grupo de
+ * Plantão só era administrável por quem gerenciava a EQUIPE responsável
+ * (`GESTOR_EQUIPE`/`ADMIN_SISTEMA`), nunca por quem gerenciava a unidade
+ * organizacional acima dela. Essa regra se mostrou incorreta em produto: um
+ * coordenador de unidade (ex.: COSI) que administra a árvore inteira da sua
+ * unidade — incluindo a equipe "Plantão COSI" — não conseguia sequer abrir
+ * a tela de Plantões para o próprio Grupo que sua unidade é responsável.
+ *
+ * A partir desta fase, `GESTOR_UNIDADE` entra aqui só para efeito de
+ * VISIBILIDADE de tela (mostrar/esconder a aba Plantões e o item no
+ * seletor superior) — a autorização real de administrar um Grupo
+ * específico continua em `podeGerenciarGrupoPlantao()` abaixo (e em
+ * `firestore.rules`), que exige o Grupo estar dentro do escopo de unidade
+ * permitido, nunca "ser GESTOR_UNIDADE de qualquer unidade".
+ *
+ * Fase ESCOPO-CONSULTA-PLANTAO-1 — `SUPERVISOR_EQUIPE` também entra aqui
+ * (mesmo alcance de `GESTOR_EQUIPE`, `docs/spec/HIERARQUIA_ORGANIZACIONAL.md`
+ * § 6): sem isso, um supervisor de equipe (ex.: Wanessa, do NOC) nunca
+ * carregaria `gruposPlantao` para configurar "Plantões monitorados pela
+ * equipe" (autovínculo de consulta) nem veria a aba Plantões — mesmo
+ * gate de VISIBILIDADE de sempre, nunca amplia autorização real.
  */
 export function souGestorDePlantao(usuario: Usuario): boolean {
-  return ehAdminSistema(usuario) || perfilEfetivo(usuario) === 'GESTOR_EQUIPE';
+  const perfil = perfilEfetivo(usuario);
+  return ehAdminSistema(usuario) || perfil === 'GESTOR_EQUIPE' || perfil === 'GESTOR_UNIDADE' || perfil === 'SUPERVISOR_EQUIPE';
 }
 
 /**
- * Espelha `podeGerenciarGrupoPlantao()` de `firestore.rules`:
- * `souGestor() && podeOperarNaEquipe(grupoDoc.equipeResponsavelId)`. Só UX —
- * esconder/mostrar botões no Dashboard; a autorização real continua nas
- * Rules. Pertencer à equipe responsável (`equipesPermitidasEfetivas`) sozinho
- * NUNCA basta — precisa também ser GESTOR_EQUIPE (ou ADMIN_SISTEMA), mesmo
- * bug já corrigido uma vez em `podeGerenciarGrupoPlantao()` das Rules
- * (Fase PLANTÃO-3A): pertencimento à equipe não é autorização de gestor.
+ * Espelha `podeGerenciarGrupoPlantao(grupoDoc)` de `firestore.rules`. Só
+ * UX — esconder/mostrar botões no Dashboard; a autorização real continua
+ * nas Rules. Recebe o "documento" do Grupo (ou o subconjunto de campos
+ * necessário), igual à função-irmã das Rules, em vez de só o
+ * `equipeResponsavelId` isolado — necessário desde a Fase
+ * ESCOPO-GESTOR-UNIDADE-1 para também checar `unidadeResponsavelId`.
+ *
+ * Dois caminhos de autorização, nunca fundidos:
+ * - `GESTOR_EQUIPE`/`ADMIN_SISTEMA`: pertencimento à equipe responsável
+ *   (`equipesPermitidasEfetivas`) sozinho NUNCA basta — precisa também ser
+ *   gestor (ou admin), mesmo bug já corrigido uma vez nas Rules (Fase
+ *   PLANTÃO-3A): pertencimento à equipe não é autorização de gestor.
+ * - `GESTOR_UNIDADE`: precisa que o Grupo tenha `unidadeResponsavelId`
+ *   preenchido (campo opcional/retrocompatível, ver
+ *   `@escala-ici/contrato`) E que essa unidade (ou uma unidade ANCESTRAL
+ *   dela, via `caminhoUnidadeResponsavel` materializado — nunca travessia
+ *   de `parentId`) esteja em `unidadesPermitidasEfetivas()`. Um Grupo
+ *   antigo sem o campo simplesmente não fica administrável por
+ *   `GESTOR_UNIDADE` nenhum — só pelo `GESTOR_EQUIPE`/`ADMIN_SISTEMA` de
+ *   sempre, o mesmo comportamento de antes desta fase.
  */
-export function podeGerenciarGrupoPlantao(usuario: Usuario, equipeResponsavelId: string): boolean {
-  if (!souGestorDePlantao(usuario)) {
+export function podeGerenciarGrupoPlantao(
+  usuario: Usuario,
+  grupo: { equipeResponsavelId: string; unidadeResponsavelId?: string; caminhoUnidadeResponsavel?: string[] },
+): boolean {
+  if (ehAdminSistema(usuario)) {
+    return true;
+  }
+  const perfil = perfilEfetivo(usuario);
+  if (perfil === 'GESTOR_EQUIPE') {
+    return equipesPermitidasEfetivas(usuario).includes(grupo.equipeResponsavelId);
+  }
+  if (perfil === 'GESTOR_UNIDADE') {
+    if (grupo.unidadeResponsavelId === undefined) {
+      return false;
+    }
+    const permitidas = unidadesPermitidasEfetivas(usuario);
+    return (
+      permitidas.includes(grupo.unidadeResponsavelId)
+      || (grupo.caminhoUnidadeResponsavel?.some((unidadeId) => permitidas.includes(unidadeId)) ?? false)
+    );
+  }
+  return false;
+}
+
+/**
+ * Fase ESCOPO-CONSULTA-PLANTAO-1
+ * (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`, seção "Plantões
+ * monitorados por equipe") — mirror client-side de
+ * `podeAutoVincularConsultaPlantao()` em `firestore.rules`: um
+ * `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` pode adicionar ou remover SOMENTE a
+ * própria equipe administrada (`equipesPermitidasEfetivas`) em
+ * `equipesConsulta` de um Grupo que ele NÃO administra — nunca precisa de
+ * `podeGerenciarGrupoPlantao()` (a supervisora do NOC não administra o
+ * Plantão de outra coordenação, só vincula a própria equipe à consulta
+ * dele). Só UX — a autorização real continua em `firestore.rules`.
+ *
+ * Recebe as duas listas de `equipesConsulta` (antes/depois) para validar
+ * exatamente a mesma invariante das Rules: exatamente UMA equipe muda
+ * (nunca duas ao mesmo tempo), essa equipe está entre as que o usuário
+ * administra, e `equipeResponsavelId` nunca sai da lista nova.
+ */
+export function podeAutoVincularConsultaPlantao(
+  usuario: Usuario,
+  equipesConsultaAntigo: readonly string[],
+  equipesConsultaNovo: readonly string[],
+  equipeResponsavelId: string,
+): boolean {
+  const perfil = perfilEfetivo(usuario);
+  if (perfil !== 'GESTOR_EQUIPE' && perfil !== 'SUPERVISOR_EQUIPE') {
     return false;
   }
-  return ehAdminSistema(usuario) || equipesPermitidasEfetivas(usuario).includes(equipeResponsavelId);
+  if (!equipesConsultaNovo.includes(equipeResponsavelId)) {
+    return false;
+  }
+  const adicionadas = equipesConsultaNovo.filter((equipeId) => !equipesConsultaAntigo.includes(equipeId));
+  const removidas = equipesConsultaAntigo.filter((equipeId) => !equipesConsultaNovo.includes(equipeId));
+  if (adicionadas.length + removidas.length !== 1) {
+    return false;
+  }
+  const equipeAlterada = adicionadas[0] ?? removidas[0];
+  return equipesPermitidasEfetivas(usuario).includes(equipeAlterada as string);
 }

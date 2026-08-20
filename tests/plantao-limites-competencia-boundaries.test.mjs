@@ -37,7 +37,7 @@ test('3. dataPertenceCompetencia reaproveita periodoDaCompetencia — nenhum seg
 
 test('4. PlantaoCalendario nunca renderiza "+ Adicionar" num dia de contexto', async () => {
   const calendario = semComentarios(await ler('components/plantao/PlantaoCalendario.tsx'));
-  assert.match(calendario, /const podeCriar = !contexto;/u, 'precisa existir uma variável explícita "podeCriar" derivada do contexto');
+  assert.match(calendario, /const podeCriar = modo === 'editor' && !contexto;/u, 'precisa existir uma variável explícita "podeCriar" derivada do contexto e limitada ao modo editor');
   assert.match(calendario, /\{podeCriar && \(\s*<button[\s\S]{0,80}className="plantao-adicionar"/u, '"+ Adicionar" precisa estar condicionado a podeCriar');
 });
 
