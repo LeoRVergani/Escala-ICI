@@ -412,6 +412,7 @@ function formatarHorasDescanso(horas: number): string {
 }
 
 type EstadoPublicacaoVisual = 'completo' | 'parcial' | 'vazio';
+type EstadoEscalaOperacionalDashboard = 'sem-escala' | 'rascunho' | 'publicada';
 
 interface ResumoPublicacao {
   estado: EstadoPublicacaoVisual;
@@ -419,32 +420,73 @@ interface ResumoPublicacao {
   descricao: string;
 }
 
-/**
- * Linguagem do card "Publicação da escala" — fala de colaboradores com
- * acesso no aplicativo, não de "documentos" (Fase de revisão de textos).
- */
-function resolverResumoPublicacao(publicadosLen: number, documentosLen: number): ResumoPublicacao {
-  if (documentosLen === 0 || publicadosLen === 0) {
+interface ResumoJornadaDashboard {
+  equipeId: string;
+  competencia: string;
+  documentos: TurnosMes[];
+  rascunhos: TurnosMes[];
+  publicadas: TurnosMes[];
+  colaboradoresAtivos: number;
+  periodoInicio: string;
+  periodoFim: string;
+}
+
+interface ResumoPlantaoDashboard {
+  grupoId: string;
+  competencia: string;
+  competenciaRascunho: CompetenciaPlantao | null;
+  participantesAtivos: number;
+}
+
+function estadoJornadaDashboard(resumo: ResumoJornadaDashboard | null): EstadoEscalaOperacionalDashboard {
+  if (resumo === null || resumo.documentos.length === 0) {
+    return 'sem-escala';
+  }
+  return resumo.publicadas.length > 0 && resumo.rascunhos.length === 0 ? 'publicada' : 'rascunho';
+}
+
+function estadoPlantaoDashboard(resumo: ResumoPlantaoDashboard | null): EstadoEscalaOperacionalDashboard {
+  return resumo?.competenciaRascunho === null || resumo === null ? 'sem-escala' : 'rascunho';
+}
+
+function classeSaudeOperacional(estado: EstadoEscalaOperacionalDashboard, alertas: number): 'stable' | 'attention' | 'empty' {
+  if (estado === 'sem-escala') {
+    return 'empty';
+  }
+  return alertas > 0 ? 'attention' : 'stable';
+}
+
+function rotuloEstadoEscalaOperacional(estado: EstadoEscalaOperacionalDashboard): string {
+  switch (estado) {
+    case 'publicada':
+      return 'Publicada';
+    case 'rascunho':
+      return 'Rascunho';
+    default:
+      return 'Sem escala';
+  }
+}
+
+function resumoPublicacaoJornada(resumo: ResumoJornadaDashboard | null): ResumoPublicacao {
+  const estado = estadoJornadaDashboard(resumo);
+  if (estado === 'sem-escala') {
     return {
       estado: 'vazio',
-      titulo: 'Nenhuma escala publicada',
-      descricao: 'A escala deste período ainda não está disponível para os colaboradores.',
+      titulo: 'Nenhuma escala criada',
+      descricao: 'Não há rascunho nem publicação para esta competência.',
     };
   }
-  if (publicadosLen === documentosLen) {
+  if (estado === 'rascunho') {
     return {
-      estado: 'completo',
-      titulo: 'Tudo publicado',
-      descricao: `${documentosLen} de ${documentosLen} colaboradores já têm escala disponível no aplicativo.`,
+      estado: 'parcial',
+      titulo: 'Rascunho não publicado',
+      descricao: 'Existe rascunho para a competência, mas ele ainda não foi publicado.',
     };
   }
-  const faltam = documentosLen - publicadosLen;
   return {
-    estado: 'parcial',
-    titulo: 'Publicação incompleta',
-    descricao: `${publicadosLen} de ${documentosLen} colaboradores têm escala disponível. ${
-      faltam === 1 ? 'Falta 1 colaborador.' : `Faltam ${faltam} colaboradores.`
-    }`,
+    estado: 'completo',
+    titulo: 'Publicada',
+    descricao: 'A escala publicada está disponível para os colaboradores.',
   };
 }
 
@@ -3007,6 +3049,9 @@ export function DashboardApp() {
   const [processandoConsultaPlantao, setProcessandoConsultaPlantao] = useState<string | null>(null);
   // --- Reabrir rascunho (Fase ESCALAS-UX-1B.1) ---
   const [rascunhosPlantaoPorGrupo, setRascunhosPlantaoPorGrupo] = useState<Record<string, CompetenciaPlantao[]>>({});
+  const [resumosJornadaDashboard, setResumosJornadaDashboard] = useState<Record<string, ResumoJornadaDashboard>>({});
+  const [resumosPlantaoDashboard, setResumosPlantaoDashboard] = useState<Record<string, ResumoPlantaoDashboard>>({});
+  const [erroResumoOperacionalDashboard, setErroResumoOperacionalDashboard] = useState('');
   /**
    * Estado transitório de "Abrir rascunho" — distingue carregando/erro/
    * não encontrado (§ 17-19 da fase): nunca abre o calendário vazio
@@ -3298,10 +3343,6 @@ export function DashboardApp() {
     () => construirIndiceAlertasGrade(documentos, catalogo),
     [documentos, catalogo],
   );
-  const resumoPublicacao = useMemo(
-    () => resolverResumoPublicacao(publicados.length, documentos.length),
-    [publicados, documentos],
-  );
   const alertasVisiveis = useMemo(
     () => montarAlertasVisiveis(alertasOperacionais, usuarios, documentos, publicados),
     [alertasOperacionais, usuarios, documentos, publicados],
@@ -3327,71 +3368,204 @@ export function DashboardApp() {
   }, [catalogo, documentos, resultado?.totalDias]);
 
   /**
-   * Resumo operacional da Visão geral — usa os mesmos estados já consumidos
-   * pelos editores. Não cria uma segunda fonte de dados nem lê/escreve um
-   * novo schema: Jornada vem de `documentos`; Plantão vem da competência em
-   * cache/working copy e dos participantes já carregados.
+   * Resumo operacional da Visão geral — identidade sempre vem do alvo
+   * concedido pela matriz operacional: Jornada usa `Equipe.id`/`equipeId`;
+   * Plantão usa `GrupoPlantao.grupoId`. O estado do editor aberto
+   * (`resultado`) só complementa o resumo quando é exatamente o mesmo alvo,
+   * nunca como fallback para a equipe do usuário logado.
    */
-  const equipeJornadaDashboard = contextoEhJornada(contextoEscalaAtivo)
-    ? contextoEscalaAtivo.equipeId
-    : resultado?.equipeNome ?? minhasEquipesPermitidas[0] ?? EQUIPE_DEMO.id;
   const competenciaDashboard = contextoEscalaAtivo?.competencia ?? COMPETENCIA_ATUAL;
+  const equipeJornadaOperacionalDashboard = contextoEhJornada(contextoEscalaAtivo)
+    ? escoposOperacionais.jornadasAdministraveis.find((equipe) => equipe.id === contextoEscalaAtivo.equipeId)
+    : undefined;
+  const equipeJornadaDashboard = equipeJornadaOperacionalDashboard
+    ?? escoposOperacionais.jornadasAdministraveis[0]
+    ?? null;
+  const equipeJornadaDashboardId = equipeJornadaDashboard?.id ?? null;
+  const resumoJornadaPersistidoDashboard = equipeJornadaDashboardId === null
+    ? null
+    : resumosJornadaDashboard[`${equipeJornadaDashboardId}:${competenciaDashboard}`] ?? null;
+  const jornadaEmContextoDashboard = equipeJornadaDashboardId !== null
+    && contextoEhJornada(contextoEscalaAtivo)
+    && contextoEscalaAtivo.equipeId === equipeJornadaDashboardId;
+  const resumoJornadaDashboard: ResumoJornadaDashboard | null = jornadaEmContextoDashboard && resultado !== null
+    ? {
+      equipeId: equipeJornadaDashboardId,
+      competencia: competenciaDashboard,
+      documentos,
+      rascunhos: documentos.filter((documento) => documento.status !== 'PUBLICADA'),
+      publicadas: publicados,
+      colaboradoresAtivos: usuarios.filter((usuario) => usuario.ativo && usuario.equipeId === equipeJornadaDashboardId).length,
+      periodoInicio: resultado.periodoInicio,
+      periodoFim: resultado.periodoFim,
+    }
+    : resumoJornadaPersistidoDashboard;
+  const estadoJornadaOperacionalDashboard = estadoJornadaDashboard(resumoJornadaDashboard);
+  const nomeJornadaDashboard = equipeJornadaDashboard?.nome ?? 'Jornada 6x1';
   const grupoPlantaoDashboard = gruposPlantaoAdmin.find((grupo) =>
     contextoEhPlantao(contextoEscalaAtivo) && grupo.grupoId === contextoEscalaAtivo.grupoId,
-  ) ?? gruposPlantaoAdmin.find((grupo) => podeGerenciarEsteGrupoPlantao(grupo)) ?? gruposPlantaoAdmin[0] ?? null;
+  ) ?? escoposOperacionais.plantoesAdministraveis[0] ?? null;
   const rascunhosPlantaoDashboard = grupoPlantaoDashboard === null
     ? []
     : (rascunhosPlantaoPorGrupo[grupoPlantaoDashboard.grupoId] ?? []);
   const competenciaPlantaoDashboard = rascunhosPlantaoDashboard.find((item) => item.competencia === competenciaDashboard)
     ?? rascunhosPlantaoDashboard.slice().sort((a, b) => b.competencia.localeCompare(a.competencia))[0]
     ?? null;
+  const resumoPlantaoPersistidoDashboard = grupoPlantaoDashboard === null
+    ? null
+    : resumosPlantaoDashboard[`${grupoPlantaoDashboard.grupoId}:${competenciaDashboard}`] ?? null;
   const plantaoEmContextoDashboard = grupoPlantaoDashboard !== null
     && contextoEhPlantao(contextoEscalaAtivo)
     && contextoEscalaAtivo.grupoId === grupoPlantaoDashboard.grupoId;
+  const resumoPlantaoDashboard: ResumoPlantaoDashboard | null = plantaoEmContextoDashboard
+    ? {
+      grupoId: grupoPlantaoDashboard.grupoId,
+      competencia: competenciaDashboard,
+      competenciaRascunho: competenciaPlantaoDashboard,
+      participantesAtivos: participantesPlantao.length,
+    }
+    : resumoPlantaoPersistidoDashboard;
+  const estadoPlantaoOperacionalDashboard = estadoPlantaoDashboard(resumoPlantaoDashboard);
   const plantaoTotalBrutoDashboard = plantaoEmContextoDashboard && resultadoPlantao !== null
     ? resultadoPlantao.totalBrutoCalculado
-    : competenciaPlantaoDashboard?.totalBruto ?? null;
-  const participantesPlantaoDashboard = grupoPlantaoDashboard === null
-    ? (plantaoEmContextoDashboard ? participantesPlantao.length : 0)
-    : plantaoEmContextoDashboard
-      ? participantesPlantao.length
-      : (participantesPorGrupoPlantao[grupoPlantaoDashboard.grupoId] ?? []).length;
-  const plantaoPossuiEscalaDashboard = plantaoTotalBrutoDashboard !== null
+    : resumoPlantaoDashboard?.competenciaRascunho?.totalBruto ?? null;
+  const participantesPlantaoDashboard = resumoPlantaoDashboard?.participantesAtivos ?? 0;
+  const plantaoPossuiEscalaDashboard = estadoPlantaoOperacionalDashboard !== 'sem-escala'
     || (plantaoEmContextoDashboard && atribuicoesEditaveisPlantao.length > 0);
   const plantaoAlertasDashboard = plantaoEmContextoDashboard && resultadoPlantao !== null
     ? resultadoPlantao.erros.length + resultadoPlantao.avisos.length + pendenciasVinculoPlantao
     : 0;
-  const plantaoStatusDashboard: 'stable' | 'attention' | 'empty' = !plantaoPossuiEscalaDashboard
-    ? 'empty'
-    : plantaoAlertasDashboard > 0
-      ? 'attention'
-      : 'stable';
-  const socStatusDashboard: 'stable' | 'attention' | 'empty' = documentos.length === 0
-    ? 'empty'
-    : alertasVisiveis.length > 0
-      ? 'attention'
-      : 'stable';
-  const colaboradoresOperacoesDashboard = totaisGerais.pessoas + participantesPlantaoDashboard;
-  const pendenciasDashboard = alertasVisiveis.length + plantaoAlertasDashboard + trocasPendentesGestor.length;
-  const healthBarSoc = documentos.length === 0
-    ? 12
-    : Math.max(18, 100 - Math.min(82, alertasVisiveis.length * 8));
+  const alertasJornadaDashboard = jornadaEmContextoDashboard ? alertasVisiveis.length : 0;
+  const plantaoStatusDashboard = classeSaudeOperacional(estadoPlantaoOperacionalDashboard, plantaoAlertasDashboard);
+  const socStatusDashboard = classeSaudeOperacional(estadoJornadaOperacionalDashboard, alertasJornadaDashboard);
+  const colaboradoresJornadaDashboard = resumoJornadaDashboard?.colaboradoresAtivos ?? 0;
+  const colaboradoresOperacoesDashboard = colaboradoresJornadaDashboard + participantesPlantaoDashboard;
+  const pendenciasDashboard = alertasJornadaDashboard + plantaoAlertasDashboard + trocasPendentesGestor.length;
+  const healthBarSoc = estadoJornadaOperacionalDashboard === 'sem-escala'
+    ? 0
+    : Math.max(18, 100 - Math.min(82, alertasJornadaDashboard * 8));
   const healthBarPlantao = plantaoStatusDashboard === 'empty'
-    ? 12
+    ? 0
     : Math.max(18, 100 - Math.min(82, plantaoAlertasDashboard * 12));
   const rotuloSaudeDashboard = (status: 'stable' | 'attention' | 'empty') =>
     status === 'stable' ? 'Operação estável' : status === 'attention' ? 'Revisão necessária' : 'Sem escala';
   const nomePlantaoDashboard = grupoPlantaoDashboard?.nome ?? 'Plantão';
   const opcoesDataResumoDashboard = { day: '2-digit', month: '2-digit', year: 'numeric' } as const;
-  const periodoJornadaDashboard = resultado === null
-    ? 'Sem competência carregada'
-    : `${formatarData(resultado.periodoInicio, opcoesDataResumoDashboard)} — ${formatarData(resultado.periodoFim, opcoesDataResumoDashboard)}`;
+  const periodoJornadaDashboard = resumoJornadaDashboard === null
+    ? 'Sem competência criada'
+    : `${formatarData(resumoJornadaDashboard.periodoInicio, opcoesDataResumoDashboard)} — ${formatarData(resumoJornadaDashboard.periodoFim, opcoesDataResumoDashboard)}`;
   const periodoPlantaoDashboard = competenciaPlantaoDashboard === null
     ? 'Sem competência criada'
     : `${formatarData(competenciaPlantaoDashboard.periodoInicio, opcoesDataResumoDashboard)} — ${formatarData(competenciaPlantaoDashboard.periodoFim, opcoesDataResumoDashboard)}`;
+  const resumoPublicacaoDashboard = resumoPublicacaoJornada(resumoJornadaDashboard);
   const plantaoMetricasDashboard = plantaoPossuiEscalaDashboard
     ? `${participantesPlantaoDashboard} ${participantesPlantaoDashboard === 1 ? 'participante' : 'participantes'} · ${plantaoTotalBrutoDashboard?.quantidade ?? 0} ${plantaoTotalBrutoDashboard?.quantidade === 1 ? 'plantão' : 'plantões'}`
     : `${participantesPlantaoDashboard} ${participantesPlantaoDashboard === 1 ? 'participante' : 'participantes'} · nenhum rascunho`;
+  const chaveJornadasDashboard = escoposOperacionais.jornadasAdministraveis.map((equipe) => equipe.id).join('|');
+  const chavePlantoesDashboard = escoposOperacionais.plantoesAdministraveis.map((grupo) => grupo.grupoId).join('|');
+
+  useEffect(() => {
+    if (modoDemo || usuarioReal === null) {
+      return;
+    }
+    const jornadaIds = chaveJornadasDashboard.split('|').filter((equipeId) => equipeId !== '');
+    if (jornadaIds.length === 0) {
+      return;
+    }
+    let cancelado = false;
+    void Promise.all(jornadaIds.map(async (equipeId): Promise<ResumoJornadaDashboard> => {
+      const [rascunhos, publicadas, usuariosDaEquipe] = await Promise.all([
+        carregarRascunhosEquipe(equipeId, competenciaDashboard),
+        carregarEscalasEquipe(equipeId, competenciaDashboard, true),
+        listarUsuarios(equipeId),
+      ]);
+      const documentosBase = rascunhos.length > 0 ? rascunhos : publicadas;
+      const periodo = periodoDaCompetencia(competenciaDashboard);
+      const datas = documentosBase.flatMap((documento) => Object.keys(documento.dias)).sort();
+      return {
+        equipeId,
+        competencia: competenciaDashboard,
+        documentos: documentosBase,
+        rascunhos,
+        publicadas,
+        colaboradoresAtivos: usuariosDaEquipe.filter((usuario) => usuario.ativo && usuario.equipeId === equipeId).length,
+        periodoInicio: datas[0] ?? periodo?.periodoInicio ?? '',
+        periodoFim: datas.at(-1) ?? periodo?.periodoFim ?? '',
+      };
+    }))
+      .then((resumos) => {
+        if (cancelado) {
+          return;
+        }
+        setResumosJornadaDashboard((atuais) => ({
+          ...atuais,
+          ...Object.fromEntries(resumos.map((resumo) => [`${resumo.equipeId}:${resumo.competencia}`, resumo])),
+        }));
+        setErroResumoOperacionalDashboard('');
+      })
+      .catch((falha) => {
+        if (!cancelado) {
+          setErroResumoOperacionalDashboard(mensagemErroFirebase(falha, 'Não foi possível carregar o resumo das Jornadas.', ambienteFirebaseAtual));
+        }
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [chaveJornadasDashboard, competenciaDashboard, modoDemo, usuarioReal]);
+
+  useEffect(() => {
+    if (modoDemo || usuarioReal === null) {
+      return;
+    }
+    const grupoIds = chavePlantoesDashboard.split('|').filter((grupoId) => grupoId !== '');
+    if (grupoIds.length === 0) {
+      return;
+    }
+    let cancelado = false;
+    void Promise.all(grupoIds.map(async (grupoId): Promise<ResumoPlantaoDashboard> => {
+      const [competenciaRascunho, participantes] = await Promise.all([
+        obterCompetenciaPlantaoRascunho(grupoId, competenciaDashboard),
+        listarParticipantesPlantao(grupoId),
+      ]);
+      return {
+        grupoId,
+        competencia: competenciaDashboard,
+        competenciaRascunho,
+        participantesAtivos: participantes.filter((participante) => participante.ativo).length,
+      };
+    }))
+      .then((resumos) => {
+        if (cancelado) {
+          return;
+        }
+        setResumosPlantaoDashboard((atuais) => ({
+          ...atuais,
+          ...Object.fromEntries(resumos.map((resumo) => [`${resumo.grupoId}:${resumo.competencia}`, resumo])),
+        }));
+        setRascunhosPlantaoPorGrupo((atuais) => {
+          const proximos = { ...atuais };
+          for (const resumo of resumos) {
+            const competenciaRascunho = resumo.competenciaRascunho;
+            if (competenciaRascunho !== null) {
+              const existentes = proximos[resumo.grupoId] ?? [];
+              proximos[resumo.grupoId] = existentes.some((item) => item.competencia === competenciaRascunho.competencia)
+                ? existentes.map((item) => (item.competencia === competenciaRascunho.competencia ? competenciaRascunho : item))
+                : [...existentes, competenciaRascunho];
+            }
+          }
+          return proximos;
+        });
+        setErroResumoOperacionalDashboard('');
+      })
+      .catch((falha) => {
+        if (!cancelado) {
+          setErroResumoOperacionalDashboard(mensagemErroFirebase(falha, 'Não foi possível carregar o resumo dos Plantões.', ambienteFirebaseAtual));
+        }
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [chavePlantoesDashboard, competenciaDashboard, modoDemo, usuarioReal]);
 
   useEffect(() => {
     // O demo hidrata SOC apenas quando não existe outra prévia ativa. Sem
@@ -4170,9 +4344,13 @@ export function DashboardApp() {
   }
   function abrirOperacaoDoDashboard(tipo: 'JORNADA' | 'PLANTAO') {
     if (tipo === 'JORNADA') {
+      if (equipeJornadaDashboard === null) {
+        setTela('escalas');
+        return;
+      }
       const alvo: ContextoEscalaAtivo = {
         tipo: 'JORNADA',
-        equipeId: equipeJornadaDashboard,
+        equipeId: equipeJornadaDashboard.id,
         competencia: competenciaDashboard,
       };
       if (contextosEscalaIguais(contextoEscalaAtivo, alvo)) {
@@ -6328,20 +6506,31 @@ export function DashboardApp() {
     }
     setCarregandoContexto(true);
     try {
-      const [documentosExistentes, usuariosDaEquipe, catalogoDaEquipe] = modoDemo
+      const [rascunhosExistentes, publicadasExistentes, usuariosDaEquipe, catalogoDaEquipe, historicoDaEquipe, estadoPublicacaoDaEquipe] = modoDemo
         ? [
           resultado?.documentos.filter((documento) => documento.competencia === alvo.competencia) ?? [],
+          [],
           usuarios,
           catalogo,
+          historico,
+          null,
         ] as const
         : await Promise.all([
-          carregarEscalasEquipe(alvo.equipeId, alvo.competencia, false),
+          carregarRascunhosEquipe(alvo.equipeId, alvo.competencia),
+          carregarEscalasEquipe(alvo.equipeId, alvo.competencia, true),
           listarUsuarios(alvo.equipeId),
           listarCatalogo(alvo.equipeId),
+          listarHistoricoPublicacoes(alvo.equipeId, alvo.competencia),
+          carregarEstadoPublicacao(alvo.equipeId, alvo.competencia),
         ]);
+      const documentosExistentes: TurnosMes[] = rascunhosExistentes.length > 0
+        ? [...rascunhosExistentes]
+        : [...publicadasExistentes];
       if (!modoDemo) {
         setUsuarios(usuariosDaEquipe);
         setCatalogo(catalogoDaEquipe);
+        setHistorico(historicoDaEquipe);
+        setRevisaoAtual(estadoPublicacaoDaEquipe?.revisaoAtual ?? 0);
       }
       if (documentosExistentes.length === 0) {
         setContextoEscalaAtivo(alvo);
@@ -6601,6 +6790,10 @@ export function DashboardApp() {
       : (contextoEhJornada(contextoEscalaAtivo) && documentos.length > 0 && publicados.length === documentos.length)
         ? 'publicada'
         : 'rascunho';
+  const rotuloEscalaAtiva = contextoEscalaAtivo === null ? 'Escala' : rotuloContextoAtivo;
+  const periodoEscalaAtiva = resultado === null
+    ? formatarCompetencia(contextoEscalaAtivo?.competencia ?? competenciaDashboard)
+    : `${formatarData(resultado.periodoInicio, opcoesDataResumoDashboard)} até ${formatarData(resultado.periodoFim, opcoesDataResumoDashboard)}`;
   return (
     <AppFrame
       produto="dashboard"
@@ -6667,6 +6860,9 @@ export function DashboardApp() {
 
       {tela === 'visao' && (
         <section className="overview-dashboard overview-operations">
+          {erroResumoOperacionalDashboard !== '' && (
+            <div className="alert error" role="alert">{erroResumoOperacionalDashboard}</div>
+          )}
           <header className="page-heading overview-page-heading">
             <div>
               <p className="eyebrow">Operação integrada</p>
@@ -6691,16 +6887,16 @@ export function DashboardApp() {
             >
               <span className="overview-operation-card-heading">
                 <span className="overview-operation-icon"><ShieldCheck size={22} /></span>
-                <span className="overview-operation-title"><strong>SOC</strong><small>{rotuloSaudeDashboard(socStatusDashboard)}</small></span>
+                <span className="overview-operation-title"><strong>{nomeJornadaDashboard}</strong><small>{rotuloEstadoEscalaOperacional(estadoJornadaOperacionalDashboard)}</small></span>
                 <ChevronRight size={19} />
               </span>
               <span className="overview-operation-meta">
                 <span><CalendarDays size={16} /><small>Competência ativa</small><strong>{formatarCompetencia(competenciaDashboard)}</strong><em>{periodoJornadaDashboard}</em></span>
-                <span><Users size={16} /><small>Pessoas</small><strong>{totaisGerais.pessoas}</strong><em>colaboradores</em></span>
-                <span><AlertTriangle size={16} /><small>Alertas</small><strong>{alertasVisiveis.length}</strong><em>{alertasVisiveis.length > 0 ? 'necessitam atenção' : 'nenhum pendente'}</em></span>
+                <span><Users size={16} /><small>Pessoas</small><strong>{colaboradoresJornadaDashboard}</strong><em>{colaboradoresJornadaDashboard === 0 ? 'Nenhum colaborador ativo encontrado para esta equipe.' : 'colaboradores'}</em></span>
+                <span><AlertTriangle size={16} /><small>Alertas</small><strong>{alertasJornadaDashboard}</strong><em>{alertasJornadaDashboard > 0 ? 'necessitam atenção' : 'nenhum pendente'}</em></span>
               </span>
               <span className="overview-operation-health"><i style={{ width: `${healthBarSoc}%` }} /></span>
-              <span className="overview-operation-action"><Pencil size={15} /> Abrir operação SOC <ArrowUpRight size={16} /></span>
+              <span className="overview-operation-action"><Pencil size={15} /> Abrir operação {nomeJornadaDashboard} <ArrowUpRight size={16} /></span>
             </button>
 
             <button
@@ -6710,7 +6906,7 @@ export function DashboardApp() {
             >
               <span className="overview-operation-card-heading">
                 <span className="overview-operation-icon plantao"><Radio size={22} /></span>
-                <span className="overview-operation-title"><strong>{nomePlantaoDashboard}</strong><small>{rotuloSaudeDashboard(plantaoStatusDashboard)}</small></span>
+                <span className="overview-operation-title"><strong>{nomePlantaoDashboard}</strong><small>{rotuloEstadoEscalaOperacional(estadoPlantaoOperacionalDashboard)}</small></span>
                 <ChevronRight size={19} />
               </span>
               <span className="overview-operation-meta">
@@ -6728,8 +6924,8 @@ export function DashboardApp() {
             <article><span>Dias no período</span><strong>{totaisGerais.dias || 31}</strong><small>{formatarCompetencia(competenciaDashboard)}</small></article>
             <article className="overview-health-summary">
               <div className="overview-health-summary-heading"><span>Saúde das escalas</span><ShieldCheck size={18} /></div>
-              <div className="overview-health-row"><strong>SOC</strong><small className={socStatusDashboard}>{rotuloSaudeDashboard(socStatusDashboard)}</small><b>{healthBarSoc}%</b><i><em style={{ width: `${healthBarSoc}%` }} /></i></div>
-              <div className="overview-health-row"><strong>Plantão</strong><small className={plantaoStatusDashboard}>{rotuloSaudeDashboard(plantaoStatusDashboard)}</small><b>{healthBarPlantao}%</b><i><em style={{ width: `${healthBarPlantao}%` }} /></i></div>
+              <div className="overview-health-row"><strong>{nomeJornadaDashboard}</strong><small className={socStatusDashboard}>{rotuloSaudeDashboard(socStatusDashboard)}</small><b>{estadoJornadaOperacionalDashboard === 'sem-escala' ? '—' : `${healthBarSoc}%`}</b><i><em style={{ width: `${healthBarSoc}%` }} /></i></div>
+              <div className="overview-health-row"><strong>Plantão</strong><small className={plantaoStatusDashboard}>{rotuloSaudeDashboard(plantaoStatusDashboard)}</small><b>{estadoPlantaoOperacionalDashboard === 'sem-escala' ? '—' : `${healthBarPlantao}%`}</b><i><em style={{ width: `${healthBarPlantao}%` }} /></i></div>
               <small className="overview-health-note">{pendenciasDashboard > 0 ? `${pendenciasDashboard} ${pendenciasDashboard === 1 ? 'pendência requer' : 'pendências requerem'} atenção` : 'Nenhuma pendência operacional'}</small>
             </article>
             <article><span>Pendências</span><strong>{pendenciasDashboard}</strong><small>requerem atenção</small></article>
@@ -6739,8 +6935,8 @@ export function DashboardApp() {
             <article className="panel overview-span-4 overview-publication-card">
               <div className="panel-title"><div><h2>Publicação da escala</h2><p>Disponibilidade no aplicativo</p></div><ShieldCheck /></div>
               <div className="overview-operation-list">
-                <button type="button" onClick={() => abrirOperacaoDoDashboard('JORNADA')}><ShieldCheck size={18} /><span><strong>SOC</strong><small>{resumoPublicacao.titulo}</small></span><em className={resumoPublicacao.estado}>{publicados.length}/{documentos.length || 0}</em><ChevronRight size={15} /></button>
-                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>Plantão</strong><small>{plantaoPossuiEscalaDashboard ? 'Rascunho disponível' : 'Nenhuma escala criada'}</small></span><em className={plantaoPossuiEscalaDashboard ? 'parcial' : 'vazio'}>{plantaoPossuiEscalaDashboard ? 'Rascunho' : 'Sem escala'}</em><ChevronRight size={15} /></button>
+                <button type="button" onClick={() => abrirOperacaoDoDashboard('JORNADA')}><ShieldCheck size={18} /><span><strong>{nomeJornadaDashboard}</strong><small>{resumoPublicacaoDashboard.titulo}</small></span><em className={resumoPublicacaoDashboard.estado}>{rotuloEstadoEscalaOperacional(estadoJornadaOperacionalDashboard)}</em><ChevronRight size={15} /></button>
+                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>{nomePlantaoDashboard}</strong><small>{plantaoPossuiEscalaDashboard ? 'Rascunho disponível' : 'Nenhuma escala criada'}</small></span><em className={plantaoPossuiEscalaDashboard ? 'parcial' : 'vazio'}>{plantaoPossuiEscalaDashboard ? 'Rascunho' : 'Sem escala'}</em><ChevronRight size={15} /></button>
               </div>
               <button className="overview-card-link" type="button" onClick={() => setTela('escalas')}>Ver escalas e histórico <ChevronRight size={16} /></button>
             </article>
@@ -6748,8 +6944,8 @@ export function DashboardApp() {
             <article className="panel overview-span-4 overview-alerts-card">
               <div className="panel-title"><div><h2>Alertas por operação</h2><p>Pontos que merecem atenção do gestor</p></div><Bell size={18} /></div>
               <div className="overview-operation-list">
-                <button type="button" onClick={() => abrirOperacaoDoDashboard('JORNADA')}><ShieldCheck size={18} /><span><strong>SOC</strong><small>Jornada 6x1</small></span><em className={socStatusDashboard}>{alertasVisiveis.length}</em><ChevronRight size={15} /></button>
-                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>Plantão</strong><small>{plantaoMetricasDashboard}</small></span><em className={plantaoStatusDashboard}>{plantaoAlertasDashboard}</em><ChevronRight size={15} /></button>
+                <button type="button" onClick={() => abrirOperacaoDoDashboard('JORNADA')}><ShieldCheck size={18} /><span><strong>{nomeJornadaDashboard}</strong><small>Jornada 6x1</small></span><em className={socStatusDashboard}>{alertasJornadaDashboard}</em><ChevronRight size={15} /></button>
+                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>{nomePlantaoDashboard}</strong><small>{plantaoMetricasDashboard}</small></span><em className={plantaoStatusDashboard}>{plantaoAlertasDashboard}</em><ChevronRight size={15} /></button>
               </div>
               <button className="overview-card-link" type="button" onClick={() => setAlertaSelecionado(alertasVisiveis[0] ?? null)}>Ver alertas do SOC <ChevronRight size={16} /></button>
             </article>
@@ -7263,8 +7459,8 @@ export function DashboardApp() {
             <article className="panel scale-record">
               <div className="scale-period"><span>AGO</span><strong>2026</strong></div>
               <div className="scale-info">
-                <h2>COSI &gt; SOC</h2>
-                <p>26/07/2026 até 25/08/2026 · {documentos.length} colaboradores</p>
+                <h2>{rotuloEscalaAtiva}</h2>
+                <p>{periodoEscalaAtiva} · {documentos.length} colaboradores</p>
                 <span className={`status-badge ${publicados.length === documentos.length && documentos.length ? 'success' : 'warning'}`}>
                   {publicados.length === documentos.length && documentos.length ? 'Publicada' : 'Rascunho'}
                 </span>

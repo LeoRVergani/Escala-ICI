@@ -53,6 +53,20 @@ Para `JORNADA`, `alvoId` é `Equipe.id`. Para `PLANTAO`, `alvoId` é `GrupoPlant
 
 `responsaveisLogin` e `responsaveisEquipe` concedem administração operacional. `equipesConsulta` concede apenas consulta/monitoramento e só se aplica a Plantão.
 
+A matriz concede acesso ao alvo operacional, mas não muda a chave dos dados
+da escala. Depois de resolvido o alvo:
+
+- Jornada busca escala, rascunho, publicação, catálogo e colaboradores por
+  `equipeId = alvoId` (`turnosMes.equipeId`, `rascunhosTurnosMes.equipeId`,
+  `publicacoesEscala/{equipeId}_{competencia}` e `usuarios.equipeId`).
+- Plantão busca rascunho e participantes por `grupoId = alvoId`
+  (`rascunhosCompetenciasPlantao.grupoId` e
+  `gruposPlantao/{grupoId}/participantes`).
+
+O responsável humano ou sua `Usuario.equipeId` nunca é fallback para carregar
+colaboradores, rascunhos ou publicações quando a operação da matriz já está
+selecionada.
+
 `responsaveisLogin` é lista de responsáveis humanos e só pode apontar para usuários ativos com perfil operacional elegível: `ADMIN_SISTEMA`, `GESTOR_UNIDADE`, `GESTOR_EQUIPE` ou `SUPERVISOR_EQUIPE`. `ANALISTA_SOC`, `ANALISTA_SUPORTE`, `LEITURA`, técnico, colaborador comum, usuário sem perfil de gestão e usuário inativo não aparecem como responsável de escala. A exceção correta é promover o usuário para um perfil adequado, nunca hardcode por nome, cargo textual, sigla, equipe ou unidade.
 
 Compatibilidade transitória: documentos legados de usuário sem `perfil` podem cair no fallback já existente de `perfilEfetivo()` por `nivelHierarquico`; esse fallback não deve ser ampliado nem usado para criar regra nova.
@@ -145,7 +159,23 @@ Para Jornada, a grade usa usuários ativos vinculados à equipe da Jornada ou me
 
 O modal **Adicionar colaborador à grade** lista apenas usuários ativos da equipe da escala que ainda não estão na grade. Nunca deve usar a equipe do coordenador como fallback e nunca deve injetar nomes demo/sintéticos em staging real.
 
-## 9.3. Grupos inativos e destino operacional
+## 9.3. Visão geral operacional
+
+A Visão geral deve listar os alvos administráveis da matriz mesmo quando
+ainda não existe escala criada para a competência ativa. O status do card é
+derivado dos dados do alvo:
+
+- **Sem escala**: não existe rascunho nem publicação para alvo e competência.
+- **Rascunho**: existe rascunho ainda não publicado.
+- **Publicada**: existe publicação e não há rascunho pendente sobrepondo a
+  competência.
+
+Para Jornada, o card usa `Equipe.id` real; para Plantão, `GrupoPlantao.grupoId`.
+Rótulos visuais como nome, sigla ou área são apenas apresentação. A ação
+**Abrir operação** seleciona o mesmo alvo no seletor superior e preserva o
+guard de alterações não salvas.
+
+## 9.4. Grupos inativos e destino operacional
 
 `GrupoPlantao ativo:false` não influencia destino operacional de Equipe. Uma equipe vinculada a um grupo inativo continua aparecendo conforme seu domínio real de Jornada, quando aplicável, e o grupo inativo aparece apenas em **Administração → Grupos de Plantão** com badge **Inativo**.
 

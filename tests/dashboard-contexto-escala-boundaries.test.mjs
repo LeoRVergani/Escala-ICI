@@ -172,6 +172,53 @@ test('28. Adicionar colaborador à grade usa elegibilidade da equipe da escala, 
   assert.match(adicionarMembro[1], /equipeId:\s*equipeIdDaGradeAtiva/u);
 });
 
+test('29. Visão geral carrega Jornada pelo alvo da matriz operacional, não pela equipe do usuário logado', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /escoposOperacionais\.jornadasAdministraveis/u, 'a Visão geral precisa partir das Jornadas administráveis da matriz');
+  assert.match(dashboard, /carregarRascunhosEquipe\(equipeId, competenciaDashboard\)/u, 'rascunho de Jornada precisa ser buscado por equipeId do alvo');
+  assert.match(dashboard, /carregarEscalasEquipe\(equipeId, competenciaDashboard, true\)/u, 'publicação de Jornada precisa ser buscada por equipeId do alvo');
+  assert.match(dashboard, /listarUsuarios\(equipeId\)/u, 'colaboradores da Jornada precisam vir da equipe alvo');
+  const trechoResumo = /Promise\.all\(jornadaIds\.map\(async \(equipeId\)([\s\S]*?)\}\)\)/u.exec(dashboard);
+  assert.ok(trechoResumo, 'o efeito de resumo de Jornada precisa existir');
+  assert.doesNotMatch(trechoResumo[1], /usuario(?:Real|Efetivo)\.equipeId/u, 'resumo do card nunca pode cair para a equipe do usuário logado');
+});
+
+test('30. Visão geral distingue Jornada sem escala, rascunho e publicada sem mascarar rascunho como publicação', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const estado = /function estadoJornadaDashboard\(resumo: ResumoJornadaDashboard \| null\): EstadoEscalaOperacionalDashboard \{([\s\S]*?)\n\}/u.exec(dashboard);
+  assert.ok(estado, 'estadoJornadaDashboard precisa existir');
+  assert.match(estado[1], /resumo\.documentos\.length === 0/u, 'sem escala só quando não há rascunho nem publicação carregada');
+  assert.match(estado[1], /resumo\.publicadas\.length > 0 && resumo\.rascunhos\.length === 0 \? 'publicada' : 'rascunho'/u, 'rascunho tem precedência quando existe rascunho não publicado');
+  assert.match(dashboard, /resumoPublicacaoJornada\(resumoJornadaDashboard\)/u, 'card de Publicação precisa usar o resumo separado por alvo');
+  assert.match(dashboard, /Rascunho não publicado/u, 'ausência de publicação não pode ser exibida como ausência total quando há rascunho');
+});
+
+test('31. Visão geral carrega Plantão pelo grupoId do alvo operacional, sem misturar equipeResponsavelId', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /escoposOperacionais\.plantoesAdministraveis/u, 'Plantão do dashboard precisa vir dos grupos administráveis da matriz');
+  assert.match(dashboard, /obterCompetenciaPlantaoRascunho\(grupoId, competenciaDashboard\)/u, 'rascunho de Plantão precisa ser buscado por grupoId');
+  assert.match(dashboard, /listarParticipantesPlantao\(grupoId\)/u, 'participantes de Plantão precisam vir do grupoId');
+  const trechoResumo = /Promise\.all\(grupoIds\.map\(async \(grupoId\)([\s\S]*?)\}\)\)/u.exec(dashboard);
+  assert.ok(trechoResumo, 'o efeito de resumo de Plantão precisa existir');
+  assert.doesNotMatch(trechoResumo[1], /equipeResponsavelId/u, 'resumo mensal de Plantão não pode usar equipeResponsavelId como chave');
+});
+
+test('32. Saúde da Visão geral não usa percentual arbitrário quando não há escala', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /estadoJornadaOperacionalDashboard === 'sem-escala'\s*\?\s*0/u);
+  assert.match(dashboard, /plantaoStatusDashboard === 'empty'\s*\?\s*0/u);
+  assert.doesNotMatch(dashboard, /\?\s*12\s*:/u, 'estado sem escala não pode exibir 12% arbitrário');
+});
+
+test('33. Abrir operação na Visão geral seleciona o contexto superior pelo ID real do alvo', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const abrir = /function abrirOperacaoDoDashboard\(tipo: 'JORNADA' \| 'PLANTAO'\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(abrir, 'abrirOperacaoDoDashboard precisa existir');
+  assert.match(abrir[1], /equipeId: equipeJornadaDashboard\.id/u, 'Jornada deve selecionar a equipeId real do alvo no switcher');
+  assert.match(abrir[1], /grupoId: grupoPlantaoDashboard\.grupoId/u, 'Plantão deve selecionar o grupoId real do alvo no switcher');
+  assert.match(abrir[1], /solicitarTrocaContexto\(alvo\)/u, 'abertura deve passar pelo guard de alterações não salvas');
+});
+
 test('8. nenhuma nova ação de código chama window.confirm() — a guarda usa o modal UnsavedChangesDialog', async () => {
   const arquivos = await Promise.all([
     ler('apps/dashboard/src/DashboardApp.tsx'),
@@ -214,11 +261,12 @@ test('11. aplicarTrocaContexto (Plantão) reaproveita obterCompetenciaPlantaoRas
   assert.ok(ocorrenciasReidratar.length <= 1, 'reidratarRascunhoPlantao só pode ser chamado de dentro de abrirRascunhoNoEditorAcao (nunca um segundo caminho direto)');
 });
 
-test('12. aplicarTrocaContexto (Jornada) reaproveita carregarEscalasEquipe + periodoDaCompetencia — nunca duplica o cálculo 26→25', async () => {
+test('12. aplicarTrocaContexto (Jornada) carrega rascunho/publicada por equipeId + periodoDaCompetencia — nunca duplica o cálculo 26→25', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const corpo = /async function aplicarTrocaContexto\(alvo: ContextoEscalaAtivo\) \{([\s\S]*?)\n {2}\}\n/u.exec(dashboard);
   assert.ok(corpo);
-  assert.match(corpo[1], /carregarEscalasEquipe\(alvo\.equipeId, alvo\.competencia, false\)/u);
+  assert.match(corpo[1], /carregarRascunhosEquipe\(alvo\.equipeId, alvo\.competencia\)/u);
+  assert.match(corpo[1], /carregarEscalasEquipe\(alvo\.equipeId, alvo\.competencia, true\)/u);
   assert.match(corpo[1], /periodoDaCompetencia\(alvo\.competencia\)/u);
 });
 

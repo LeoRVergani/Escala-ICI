@@ -37,6 +37,12 @@ usuário ativo com perfil `ADMIN_SISTEMA`, `GESTOR_UNIDADE`, `GESTOR_EQUIPE`
 ou `SUPERVISOR_EQUIPE`. Analista/técnico comum não aparece como responsável;
 exceções são resolvidas por promoção de perfil, não por hardcode. Separar
 sempre Responsáveis, Equipes administradoras e Equipes que consultam.
+
+Nota ESCOPO-OPERACIONAL-MATRIZ-1.2: a matriz autoriza o alvo, mas os dados da
+escala são lidos pelo ID real do alvo. Jornada usa `equipeId`; Plantão usa
+`grupoId`. A Visão geral deve distinguir **Sem escala**, **Rascunho** e
+**Publicada**, contar colaboradores/participantes do alvo e nunca cair para a
+equipe do responsável logado quando uma operação válida foi aberta.
 - `PLANTOES.md` e `EDITOR_ESCALAS.md` — contêm histórico e detalhes de domínio anteriores; para UI nova de Plantão/Jornada, preferir as specs novas acima.
 
 ## Decisões que não devem regredir
@@ -53,6 +59,8 @@ sempre Responsáveis, Equipes administradoras e Equipes que consultam.
 - Não confundir Responsáveis, Equipes administradoras e Equipes que consultam.
 - `equipesConsulta` permite consulta/monitoramento, nunca edição.
 - `GrupoPlantao ativo:false` não aparece em seletor operacional ou Wizard; aparece somente na Administração com badge Inativo.
+- Visão geral e seletor superior usam `equipeId` para Jornada e `grupoId` para Plantão; nomes visuais não são chave de busca.
+- Não tratar ausência de publicação como ausência total quando existe rascunho.
 - Não hardcodar `COSI`, `SOC`, `NOC`, `CODB`, `GEDSI`, `EQ_SOC`, `EQ_PLANTAO_COSI` ou `EQ_SEG` como regra de negócio.
 - Quick-add/Modal de Plantão deve oferecer Noturno `19:00 → 07:00`, `5 horas` `19:00 → 00:00`, `24 horas` `19:00 → 19:00` e exceção manual.
 - Dados importados atípicos são preservados; a UI pode alertar, mas não normalizar silenciosamente.

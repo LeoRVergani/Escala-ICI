@@ -97,6 +97,12 @@ aparecem como destino de Nova/Importar; `GrupoPlantao ativo:false` também
 não aparece. O fallback por unidade/equipe é transitório e só vale quando
 não existir matriz para o alvo.
 
+Depois que o destino é escolhido, o carregamento de dados usa a identidade
+real do alvo, nunca o rótulo exibido no modal e nunca a equipe do responsável:
+Jornada usa `equipeId` da equipe selecionada; Plantão usa `grupoId` do grupo
+selecionado. `GrupoPlantao.equipeResponsavelId` é metadado administrativo do
+grupo e não substitui `grupoId` como chave mensal de rascunho de Plantão.
+
 **Fase PROVISIONAMENTO-GRUPO-PLANTAO-1** (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md` § 9) — o diagnóstico de "nenhum grupo administrável" agora se divide em dois casos, nunca uma mensagem genérica só:
 - existe equipe administrável na área, mas nenhum Grupo vinculado a ela: **"Existe equipe de Plantão nesta área, mas ainda não há Grupo de Plantão vinculado. Crie o grupo para importar ou montar a escala."**, seguida do formulário inline de criação (`onCriarGrupo`);
 - nenhuma equipe administrável na área: mensagem anterior ("Nenhuma equipe responsável disponível nesta área"), com opção de criar a equipe primeiro (`onCriarEquipe`).
@@ -140,6 +146,12 @@ usuários antes de montar a escala."**
 ## 12. Rascunho existente
 
 Quando já existe rascunho para destino e competência, o aviso permanece visível e oferece `Abrir rascunho existente` como botão secundário. O botão de conclusão não deve criar duplicata silenciosamente.
+
+Para Jornada, a verificação de rascunho/publicação deve consultar
+`rascunhosTurnosMes` e `turnosMes` por `equipeId` + competência. Para Plantão,
+deve consultar `rascunhosCompetenciasPlantao` por `grupoId` + competência. A
+ausência de publicação não equivale a ausência total de escala quando existe
+rascunho.
 
 ## 13. Ações e proibição de hiperlinks
 

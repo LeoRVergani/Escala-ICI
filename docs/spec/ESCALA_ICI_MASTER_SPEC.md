@@ -34,7 +34,20 @@ A Visão geral mostra SOC e Plantão diretamente ao coordenador. A ordem aprovad
 
 Os cards principais são botões completos. O card SOC abre a Grade Jornada 6x1; o card Plantão abre o editor/revisão ou a tela de Escalas sem escala, conforme a competência disponível. O card Trocas abre a tela de Trocas e seleciona a primeira pendência quando houver.
 
-A saúde é uma métrica de apresentação derivada de alertas e pendências. Não deve ser persistida. O card Plantão informa sem escala quando não há competência criada; não cria rascunho automaticamente.
+A Visão geral lista as operações concedidas pela matriz mesmo sem escala
+criada. A leitura dos dados usa o alvo operacional resolvido: Jornada por
+`equipeId` real da equipe, Plantão por `grupoId` real do grupo. Rótulos como
+SOC ou Plantão COSI são apenas apresentação. Colaboradores da Jornada vêm da
+equipe/grade da escala; participantes de Plantão vêm do grupo. A equipe do
+responsável logado não é fallback de dados quando uma operação da matriz está
+selecionada.
+
+Estados da Visão geral: **Sem escala** quando não há rascunho nem publicação;
+**Rascunho** quando há rascunho não publicado; **Publicada** quando há
+publicação vigente sem rascunho pendente. A ausência de publicação não deve
+mascarar um rascunho existente como ausência total de escala.
+
+A saúde é uma métrica de apresentação derivada de alertas e pendências. Não deve ser persistida. Quando não há escala carregada, o estado é neutro e não exibe percentual arbitrário. O card Plantão informa sem escala quando não há competência criada; não cria rascunho automaticamente.
 
 **Spec detalhada:** `docs/spec/VISAO_GERAL_OPERACIONAL_SOC_PLANTAO.md`.  
 **Checkpoint:** `CHECKPOINT-VISAO-GERAL-OPERACIONAL-2026-08.md`.
@@ -131,8 +144,8 @@ As métricas da Visão geral usam estados já carregados pelo DashboardApp:
 
 | Domínio | Estado utilizado |
 |---|---|
-| Jornada | `documentos`, `resultado`, `alertasVisiveis`, `publicados`. |
-| Plantão | `gruposPlantaoAdmin`, `rascunhosPlantaoPorGrupo`, `participantesPorGrupoPlantao`, `resultadoPlantao`, `atribuicoesEditaveisPlantao`. |
+| Jornada | Resumo por alvo `equipeId` com `rascunhosTurnosMes`, `turnosMes`, `publicacoesEscala`/histórico quando aplicável, usuários ativos da equipe, `resultado` apenas quando o editor aberto é o mesmo alvo. |
+| Plantão | Resumo por alvo `grupoId` com `rascunhosCompetenciasPlantao`, participantes do grupo, `resultadoPlantao`/`atribuicoesEditaveisPlantao` apenas quando o editor aberto é o mesmo grupo. |
 | Vínculos | `pendenciasVinculoPlantao`. |
 | Trocas | `trocas`, `trocasPendentesGestor`. |
 | Contexto | `contextoEscalaAtivo`, `solicitarTrocaContexto`, `solicitarTrocaCompetencia`. |
