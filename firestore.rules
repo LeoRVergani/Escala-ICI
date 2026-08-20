@@ -290,6 +290,29 @@ service cloud.firestore {
       return !('padraoHorarioSemanal' in dados) || padraoHorarioSemanalValido(dados.padraoHorarioSemanal);
     }
 
+    function escopoOperacionalValido(dados) {
+      return dados.keys().hasOnly([
+          'tipo', 'alvoId', 'alvoNome', 'unidadeId', 'caminhoUnidade',
+          'responsaveisLogin', 'responsaveisEquipe', 'equipesConsulta',
+          'ativo', 'criadoEm', 'atualizadoEm', 'criadoPorLogin',
+          'atualizadoPorLogin', 'schemaVersion',
+        ])
+        && dados.tipo in ['JORNADA', 'PLANTAO']
+        && dados.alvoId is string && dados.alvoId.size() > 0
+        && dados.alvoNome is string && dados.alvoNome.size() > 0
+        && (!('unidadeId' in dados) || dados.unidadeId is string)
+        && (!('caminhoUnidade' in dados) || dados.caminhoUnidade is list)
+        && dados.responsaveisLogin is list
+        && dados.responsaveisEquipe is list
+        && dados.equipesConsulta is list
+        && (dados.responsaveisLogin.size() > 0 || dados.responsaveisEquipe.size() > 0)
+        && (dados.tipo == 'PLANTAO' || dados.equipesConsulta.size() == 0)
+        && dados.ativo is bool
+        && dados.criadoPorLogin is string && dados.criadoPorLogin.size() > 0
+        && dados.atualizadoPorLogin is string && dados.atualizadoPorLogin.size() > 0
+        && dados.schemaVersion in [1];
+    }
+
     match /config/{doc} {
       allow read: if true;
       allow write: if false;
@@ -592,6 +615,25 @@ service cloud.firestore {
       allow create: if souAdminSistema()
         && request.resource.data.atorRealLogin == loginDoAuth();
       allow update, delete: if false;
+    }
+
+    /**
+     * Matriz de responsáveis por escala (ESCOPO-OPERACIONAL-MATRIZ-1).
+     * Leitura autenticada alimenta o resolver operacional; escrita fica
+     * restrita a ADMIN_SISTEMA nesta fase. Consulta (`equipesConsulta`) é
+     * somente leitura/monitoramento e nunca concede escrita administrativa.
+     * Delete físico negado: desativação é `ativo: false`.
+     */
+    match /escoposOperacionais/{id} {
+      allow read: if autenticado();
+      allow create: if souAdminSistema()
+        && escopoOperacionalValido(request.resource.data);
+      allow update: if souAdminSistema()
+        && escopoOperacionalValido(request.resource.data)
+        && request.resource.data.tipo == resource.data.tipo
+        && request.resource.data.alvoId == resource.data.alvoId
+        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin;
+      allow delete: if false;
     }
 
     match /tiposTurno/{docId} {

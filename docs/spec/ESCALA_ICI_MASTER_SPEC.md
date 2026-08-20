@@ -91,7 +91,29 @@ O retorno às escalas usa o botão compacto **Escalas**, com seta, borda discret
 
 O seletor superior possui grupos de Jornadas e Plantões. SOC e Plantão são contextos independentes; o grupo de Plantão não deve ser tratado como uma segunda Jornada. A competência selecionada acompanha o contexto. A troca não deve perder working copy sem confirmação.
 
-As listas de Jornadas/Plantões administráveis vêm de `lib/escoposOperacionais.ts` (Fase ESCOPO-GESTOR-UNIDADE-1) — nunca calculadas separadamente pelo seletor. Um coordenador `GESTOR_UNIDADE` da unidade dona de SOC e de uma equipe dedicada a Plantão (ex.: "Plantão COSI") vê SOC em Jornadas e o Grupo de Plantão correspondente em Plantões, nunca a equipe de Plantão como uma segunda Jornada. Ver `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`.
+`docs/spec/ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` define a estrutura
+organizacional de referência do produto para cadastro, navegação, filtros,
+agrupamento visual e exibição de unidade/caminho. Essa árvore separa
+Presidência, diretorias, assessorias, gerências, coordenações, supervisões,
+lideranças e equipes, com níveis deliberativo, estratégico, tático e
+operacional quando aplicável. A árvore é contexto; não é autorização
+operacional.
+
+As listas de Jornadas/Plantões administráveis vêm de `lib/escoposOperacionais.ts`, alimentado prioritariamente por `escoposOperacionais` (ver `docs/spec/ESCOPO_OPERACIONAL_MATRIZ.md`). Organograma, cargo, unidade pai e equipe do usuário são contexto/fallback transitório, não autorização operacional automática. Um Plantão administrável nunca aparece simultaneamente como monitorado; `GrupoPlantao ativo:false` fica fora do seletor operacional e do Wizard.
+
+Responsável humano de escala é usuário ativo com perfil elegível de gestão/
+supervisão (`ADMIN_SISTEMA`, `GESTOR_UNIDADE`, `GESTOR_EQUIPE` ou
+`SUPERVISOR_EQUIPE`). Analista/técnico comum não aparece como responsável de
+escala; a exceção real é promoção de perfil, nunca hardcode por nome, cargo,
+sigla, unidade ou equipe. Responsáveis, equipes administradoras e equipes que
+consultam são conceitos separados: consulta não concede salvar/importar/
+publicar, e a equipe responsável de um Plantão não vira equipe administradora
+da matriz automaticamente.
+
+Responsável por escala não possui colaboradores. A Jornada usa usuários
+ativos da equipe da escala; staging real não pode herdar colaboradores
+sintéticos de demo sem modo demo explícito. `GrupoPlantao ativo:false` não
+influencia destino operacional de Equipe.
 
 Uma equipe de Plantão sem `GrupoPlantao` vinculado não aparece em Plantões — o Wizard oferece criar o Grupo pelo fluxo oficial (nunca pelo Console do Firestore), ver `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md` § 9 (Fase PROVISIONAMENTO-GRUPO-PLANTAO-1).
 

@@ -169,6 +169,26 @@ export interface UnidadeOrganizacional {
   atualizadoEm?: string;
 }
 
+export type TipoEscopoOperacional = 'JORNADA' | 'PLANTAO';
+
+export interface EscopoOperacional {
+  tipo: TipoEscopoOperacional;
+  /** Para JORNADA é `Equipe.id`; para PLANTAO é `GrupoPlantao.grupoId`. */
+  alvoId: string;
+  alvoNome: string;
+  unidadeId?: string;
+  caminhoUnidade?: string[];
+  responsaveisLogin: string[];
+  responsaveisEquipe: string[];
+  equipesConsulta: string[];
+  ativo: boolean;
+  criadoEm?: string;
+  atualizadoEm?: string;
+  criadoPorLogin: string;
+  atualizadoPorLogin: string;
+  schemaVersion: 1;
+}
+
 export interface Importacao {
   id: string;
   equipeId: string;

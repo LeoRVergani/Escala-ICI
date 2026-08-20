@@ -40,24 +40,26 @@ test('4. NAVEGACAO tem exatamente 5 áreas: visao, escalas, trocas, usuarios, ad
   assert.deepEqual(ids, ['visao', 'escalas', 'trocas', 'usuarios', 'administracao']);
 });
 
-test('5. as telas internas importar/grade/plantoes continuam existindo (Tela e os blocos de renderização)', async () => {
+test('5. as telas internas importar/grade/plantoes/responsaveisEscala continuam existindo (Tela e os blocos de renderização)', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   assert.match(dashboard, /type Tela = [^;]*'importar'/u, "'importar' precisa continuar no union Tela");
   assert.match(dashboard, /type Tela = [^;]*'grade'/u, "'grade' precisa continuar no union Tela");
   assert.match(dashboard, /type Tela = [^;]*'plantoes'/u, "'plantoes' precisa continuar no union Tela");
+  assert.match(dashboard, /type Tela = [^;]*'responsaveisEscala'/u, "'responsaveisEscala' precisa continuar no union Tela");
   assert.match(dashboard, /\{tela === 'importar' && \(/u, 'o bloco de renderização de "importar" precisa continuar existindo');
   assert.match(dashboard, /\{tela === 'grade' && \(/u, 'o bloco de renderização de "grade" precisa continuar existindo');
   assert.match(dashboard, /\{tela === 'plantoes' && podeAcessarPlantoes && \(/u, 'o bloco de renderização de "plantoes" precisa continuar existindo');
+  assert.match(dashboard, /\{tela === 'responsaveisEscala' && podeAcessarAdministracao/u, 'o bloco de renderização de "responsaveisEscala" precisa continuar existindo');
 });
 
-test('6. lib/navegacaoDashboard.ts é puro (sem Firebase, sem React) e mapeia importar/grade -> escalas, plantoes -> administracao', async () => {
+test('6. lib/navegacaoDashboard.ts é puro (sem Firebase, sem React) e mapeia importar/grade -> escalas, plantoes/responsaveisEscala -> administracao', async () => {
   const fonte = semComentarios(await ler('lib/navegacaoDashboard.ts'));
   for (const proibido of ['firebase/firestore', 'firebase/auth', "from 'react'", 'useState', 'useEffect']) {
     assert.doesNotMatch(fonte, new RegExp(proibido.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'), proibido);
   }
   assert.match(fonte, /export function areaNavegacaoDaTela/u, 'areaNavegacaoDaTela precisa existir e ser exportada');
   assert.match(fonte, /case 'importar':\s*\n\s*case 'grade':\s*\n\s*return 'escalas';/u, "'importar'/'grade' precisam mapear para a área 'escalas'");
-  assert.match(fonte, /case 'plantoes':\s*\n\s*return 'administracao';/u, "'plantoes' precisa mapear para a área 'administracao'");
+  assert.match(fonte, /case 'plantoes':\s*\n\s*case 'responsaveisEscala':\s*\n\s*return 'administracao';/u, "'plantoes' e 'responsaveisEscala' precisam mapear para a área 'administracao'");
 });
 
 test('7. o item ativo da sidebar usa areaNavegacaoDaTela(tela), nunca a tela crua — evita que "importar"/"grade"/"plantoes" fiquem sem nenhum item destacado', async () => {
@@ -76,12 +78,28 @@ test('8. "Escalas" oferece apenas Nova escala e Importar escala como ações pri
   assert.doesNotMatch(bloco[1], />\s*(?:<[^>]+>\s*)?Abrir grade\b/u, '"Abrir grade" não pode ser uma ação primária da tela Escalas');
 });
 
-test('9. "Administração" oferece a sub-navegação Organização/Grupos de Plantão, e "Plantões" (Grupos de Plantão) referencia a mesma sub-navegação', async () => {
+test('9. "Administração" oferece a sub-navegação Organização/Grupos de Plantão/Responsáveis por escala, e as sub-telas referenciam a mesma sub-navegação', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const ocorrencias = dashboard.match(/function AdministracaoSubnav\(/gu) ?? [];
   assert.equal(ocorrencias.length, 1, 'só pode existir UM componente de sub-navegação de Administração — nunca uma segunda sidebar');
   const usos = dashboard.match(/<AdministracaoSubnav\b/gu) ?? [];
-  assert.equal(usos.length, 2, 'a sub-navegação precisa ser usada nos DOIS lugares (Administração e Grupos de Plantão), nunca só em um');
+  assert.equal(usos.length, 3, 'a sub-navegação precisa ser usada em Organização, Grupos de Plantão e Responsáveis por escala');
+  assert.match(dashboard, /Responsáveis por escala/u, 'a terceira aba administrativa precisa existir');
+});
+
+test('9b. Responsáveis por escala tem ação Novo vínculo visível e modal com seletores operacionais, não inputs soltos', async () => {
+  const tabela = semComentarios(await ler('components/admin/ResponsaveisEscalaTable.tsx'));
+  const modal = semComentarios(await ler('components/admin/ResponsavelEscalaModal.tsx'));
+  assert.match(tabela, /Novo vínculo/u, 'a tela precisa expor a ação principal mesmo quando a lista estiver vazia');
+  assert.match(tabela, /Somente ADMIN_SISTEMA edita responsáveis por escala nesta fase/u, 'usuário sem permissão deve entender por que não consegue editar');
+  assert.match(modal, /usuariosResponsaveisOperacionaisElegiveis/u, 'responsáveis humanos precisam vir do filtro estruturado de perfil/ativo');
+  assert.match(modal, /Nenhum gestor ou supervisor ativo encontrado/u, 'modal precisa orientar quando não houver responsável humano elegível');
+  assert.match(modal, /Equipes administradoras/u, 'responsabilidade por equipe precisa ser nomeada como administração, não consulta');
+  assert.match(tabela, /Responsável não elegível/u, 'vínculo legado com humano não elegível precisa aparecer como alerta, sem remoção automática');
+  assert.match(modal, /Selecionar equipe ativa/u, 'consulta e responsabilidade por equipe precisam usar equipes ativas');
+  assert.match(modal, /grupos\.filter\(\(grupo\) => grupo\.ativo\)/u, 'alvo Plantão deve listar só grupos ativos');
+  assert.doesNotMatch(modal, /equipeResponsavelId.*responsaveisEquipe|responsaveisEquipe.*equipeResponsavelId/u, 'equipe responsável do Plantão não pode ser auto-adicionada como equipe administradora');
+  assert.doesNotMatch(modal, /placeholder="login1, login2"|placeholder="EQ_EXEMPLO/u, 'modal não deve depender de listas digitadas manualmente');
 });
 
 test('10. ESCALAS-UX-2A em si não implementou ContextoEscalaAtivo — isso ficou para a ESCALAS-UX-2A.1 (já concluída; ver tests/dashboard-contexto-escala-boundaries.test.mjs) — mas o workspace unificado final (ScheduleWorkspace) continua fora de escopo de ambas', async () => {

@@ -33,4 +33,8 @@ describe('areaNavegacaoDaTela — Fase ESCALAS-UX-2A (navegação != tela intern
   it('plantoes -> administracao', () => {
     expect(areaNavegacaoDaTela('plantoes')).toBe('administracao');
   });
+
+  it('responsaveisEscala -> administracao', () => {
+    expect(areaNavegacaoDaTela('responsaveisEscala')).toBe('administracao');
+  });
 });

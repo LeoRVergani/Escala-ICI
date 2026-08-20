@@ -20,6 +20,45 @@ Descrever quem pode fazer o quê no Escala ICI: perfis de usuário, unidades
 organizacionais, equipes, escopo de atuação de cada perfil, modo de
 simulação e auditoria administrativa.
 
+**Atualização ESCOPO-OPERACIONAL-MATRIZ-1:** este documento descreve escopo
+administrativo. Escopo operacional de escala (criar/importar/editar/salvar/
+publicar Jornada ou Plantão) é configurado em
+`escoposOperacionais`, conforme `ESCOPO_OPERACIONAL_MATRIZ.md`. Qualquer
+permissão operacional antiga derivada de perfil, unidade ou equipe é
+**Regra transitória / fallback de compatibilidade**.
+
+A operação diária da matriz acontece em **Administração → Responsáveis por
+escala**. Seed/fixture é apenas bootstrap de staging/demo; não substitui a
+tela e não deve criar usuários sintéticos em staging real sem confirmação
+explícita.
+
+Na matriz operacional, responsável humano de escala precisa ser usuário
+ativo com perfil elegível de gestão/supervisão: `ADMIN_SISTEMA`,
+`GESTOR_UNIDADE`, `GESTOR_EQUIPE` ou `SUPERVISOR_EQUIPE`. Analista, técnico,
+colaborador comum, usuário inativo ou usuário sem perfil de gestão não deve
+aparecer no dropdown de responsáveis. A correção para uma exceção real é
+promover o usuário para o perfil adequado, nunca criar regra por nome, cargo
+textual, sigla, unidade ou equipe.
+
+Responsáveis humanos, equipes administradoras e equipes que consultam são
+conceitos diferentes. `responsaveisEquipe` só deve ser usado quando a equipe
+inteira representa um grupo de gestão; `equipesConsulta` é somente leitura/
+monitoramento e nunca concede salvar, importar ou publicar escala.
+
+Separação normativa:
+
+- **Administração → Organização** mantém a árvore de unidades descrita em
+  `ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md`.
+- **Administração → Equipes** mantém equipes, unidade vinculada, caminho e
+  destino operacional.
+- **Administração → Grupos de Plantão** mantém grupos ativos e inativos.
+- **Administração → Responsáveis por escala** define quem administra cada
+  Jornada ou Plantão.
+
+A coluna Unidade/Área é contexto administrativo e visual. Ela não deve levar
+a interface a sugerir que coordenador, supervisor ou gerente ganha
+automaticamente todas as escalas abaixo.
+
 ## Coleções envolvidas
 
 - `usuarios/{login}` — chave é o login corporativo, não o UID do Firebase Auth

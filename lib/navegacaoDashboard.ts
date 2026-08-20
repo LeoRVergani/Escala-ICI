@@ -19,6 +19,7 @@ export type TelaDashboard =
   | 'usuarios'
   | 'trocas'
   | 'plantoes'
+  | 'responsaveisEscala'
   | 'administracao';
 
 export type AreaNavegacaoDashboard = 'visao' | 'escalas' | 'trocas' | 'usuarios' | 'administracao';
@@ -29,6 +30,7 @@ export function areaNavegacaoDaTela(tela: TelaDashboard): AreaNavegacaoDashboard
     case 'grade':
       return 'escalas';
     case 'plantoes':
+    case 'responsaveisEscala':
       return 'administracao';
     default:
       return tela;

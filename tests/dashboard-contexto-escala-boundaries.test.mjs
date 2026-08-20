@@ -134,11 +134,12 @@ test('24. mutações do Editor de Plantão (editar/adicionar/excluir atribuiçã
 
 // --- FASE ESCALAS-UX-2A.1-FIX — Problema 3: grupos consulta-only não alimentam o switcher editável ---
 
-test('25. opcoesContextoPlantao filtra gruposPlantaoAdmin por podeGerenciarEsteGrupoPlantao — grupos só-consultados não aparecem como contexto editável nesta fase', async () => {
+test('25. opcoesContextoPlantao vem do resolver operacional — grupos só-consultados não aparecem como contexto editável', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const trecho = /const opcoesContextoPlantao: OpcaoContextoEscala\[\] = ([\s\S]*?);\n {2}const rotuloContextoAtivo/u.exec(dashboard);
   assert.ok(trecho, 'opcoesContextoPlantao precisa existir');
-  assert.match(trecho[1], /gruposPlantaoAdmin\s*\n?\s*\.filter\(podeGerenciarEsteGrupoPlantao\)/u, 'a lista de opções editáveis precisa filtrar por podeGerenciarEsteGrupoPlantao');
+  assert.match(trecho[1], /escoposOperacionais\.plantoesAdministraveis/u, 'a lista de opções editáveis precisa vir do resolver operacional');
+  assert.match(trecho[1], /escoposOperacionais\.plantoesMonitorados/u, 'plantões monitorados precisam ficar em lista separada');
   for (const proibido of ['SOC', 'NOC', 'COSI', 'CODB']) {
     assert.doesNotMatch(trecho[1], new RegExp(`['"\`]${proibido}['"\`]`, 'u'), `nenhum hardcode de sigla ("${proibido}") no filtro do switcher`);
   }
@@ -151,6 +152,24 @@ test('26. existeAlteracaoNaoSalvaNoContextoAtivo nunca referencia plantaoEditado
   assert.ok(solicitarContexto && solicitarCompetencia);
   assert.doesNotMatch(solicitarContexto[1], /plantaoEditadoDesdeImportacao/u);
   assert.doesNotMatch(solicitarCompetencia[1], /plantaoEditadoDesdeImportacao/u);
+});
+
+test('27. Administração → Equipes ignora GrupoPlantao inativo ao calcular destino operacional', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const expressoes = [...dashboard.matchAll(/gruposPlantaoAdmin\.find\(\(grupo\) => ([^)]*equipeResponsavelId === item\.id[^)]*)\)/gu)]
+    .map((match) => match[1]);
+  assert.ok(expressoes.length >= 2, 'tabela e detalhe de Equipes precisam calcular vínculo operacional');
+  assert.ok(expressoes.every((expressao) => expressao.includes('grupo.ativo')), 'nenhum destino operacional pode usar grupo inativo como vínculo da equipe');
+});
+
+test('28. Adicionar colaborador à grade usa elegibilidade da equipe da escala, com diagnóstico quando não há usuário ativo', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const adicionarMembro = /async function confirmarAdicionarMembroGrade\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(adicionarMembro, 'confirmarAdicionarMembroGrade precisa existir');
+  assert.match(dashboard, /usuariosElegiveisParaAdicionarNaGrade\(usuarios, documentos, equipeIdDaGradeAtiva\)/u);
+  assert.match(dashboard, /Nenhum usuário ativo encontrado para esta equipe\. Cadastre ou importe usuários antes de montar a escala\./u);
+  assert.doesNotMatch(adicionarMembro[1], /usuarioEfetivo\.equipeId/u, 'colaborador da grade pertence à equipe da escala, não ao coordenador');
+  assert.match(adicionarMembro[1], /equipeId:\s*equipeIdDaGradeAtiva/u);
 });
 
 test('8. nenhuma nova ação de código chama window.confirm() — a guarda usa o modal UnsavedChangesDialog', async () => {

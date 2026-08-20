@@ -7,6 +7,7 @@ import {
   criarMembroGrade,
   membroJaNaGrade,
   removerMembroGrade,
+  usuariosElegiveisParaAdicionarNaGrade,
 } from './gradeMembros';
 import type { Usuario } from './modelos';
 
@@ -89,6 +90,24 @@ describe('adicionar e remover membro da grade', () => {
     const resultado = removerMembroGrade(documentos, 'uid-ana');
     expect(resultado).toEqual([]);
     // criarMembroGrade/removerMembroGrade nunca leem nem escrevem em `usuarios`.
+  });
+});
+
+describe('colaboradores elegíveis para inclusão na grade', () => {
+  it('lista apenas usuários ativos da equipe da escala que ainda não estão na grade', () => {
+    const documentos = [documento('ana', 'M')];
+    const usuarios = [
+      usuario({ login: 'ana', nome: 'Ana', equipeId: 'EQ_SOC', ativo: true }),
+      usuario({ login: 'bruno', nome: 'Bruno', equipeId: 'EQ_SOC', ativo: true }),
+      usuario({ login: 'carla', nome: 'Carla', equipeId: 'EQ_NOC', ativo: true }),
+      usuario({ login: 'daniel', nome: 'Daniel', equipeId: 'EQ_SOC', ativo: false }),
+    ];
+
+    expect(usuariosElegiveisParaAdicionarNaGrade(usuarios, documentos, 'EQ_SOC').map((item) => item.login)).toEqual(['bruno']);
+  });
+
+  it('não usa a equipe do coordenador como fallback quando a escala não tem equipe resolvida', () => {
+    expect(usuariosElegiveisParaAdicionarNaGrade([usuario()], [], null)).toEqual([]);
   });
 });
 

@@ -209,6 +209,26 @@ function dispositivoPush(login: string, ajustes: Record<string, unknown> = {}) {
   };
 }
 
+function escopoOperacional(ajustes: Record<string, unknown> = {}) {
+  return {
+    tipo: 'PLANTAO',
+    alvoId: 'PLANTAO_TESTE',
+    alvoNome: 'Plantão de Teste',
+    unidadeId: 'COSI',
+    caminhoUnidade: ['GEDSI', 'COSI'],
+    responsaveisLogin: ['marina.azevedo'],
+    responsaveisEquipe: [],
+    equipesConsulta: ['EQ_COSI_SOC'],
+    ativo: true,
+    criadoEm: '2026-08-01T00:00:00.000Z',
+    atualizadoEm: '2026-08-01T00:00:00.000Z',
+    criadoPorLogin: usuarios.admin.login,
+    atualizadoPorLogin: usuarios.admin.login,
+    schemaVersion: 1,
+    ...ajustes,
+  };
+}
+
 beforeEach(async () => {
   await ambiente.clearFirestore();
   await ambiente.withSecurityRulesDisabled(async (contexto) => {
@@ -267,6 +287,68 @@ describe('regras Firestore do Escala ICI', () => {
     );
     expect(proprio.data()?.nome).toBe('Caio Monteiro');
     expect(colega.data()?.nome).toBe('Bianca Salles');
+  });
+
+  describe('escoposOperacionais — matriz de responsáveis por escala', () => {
+    it('ADMIN_SISTEMA cria, edita e desativa escopo operacional', async () => {
+      const db = autenticarComo(usuarios.admin);
+      const ref = doc(db, 'escoposOperacionais', 'PLANTAO_PLANTAO_TESTE');
+
+      await assertSucceeds(setDoc(ref, escopoOperacional()));
+      await assertSucceeds(updateDoc(ref, {
+        responsaveisLogin: ['marina.azevedo', 'wanessa.moriyama'],
+        ativo: false,
+        atualizadoPorLogin: usuarios.admin.login,
+      }));
+    });
+
+    it('usuário comum não cria nem edita escopo operacional, inclusive para se colocar como responsável', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      const ref = doc(db, 'escoposOperacionais', 'PLANTAO_PLANTAO_TESTE');
+      await assertFails(setDoc(ref, escopoOperacional({ responsaveisLogin: [usuarios.colaborador.login] })));
+
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'escoposOperacionais', 'PLANTAO_PLANTAO_TESTE'), escopoOperacional());
+      });
+      await assertFails(updateDoc(ref, { responsaveisLogin: [usuarios.colaborador.login] }));
+    });
+
+    it('delete físico é negado', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'escoposOperacionais', 'PLANTAO_PLANTAO_TESTE'), escopoOperacional());
+      });
+      const db = autenticarComo(usuarios.admin);
+      await assertFails(deleteDoc(doc(db, 'escoposOperacionais', 'PLANTAO_PLANTAO_TESTE')));
+    });
+
+    it('campo extra e schemaVersion inválido são negados', async () => {
+      const db = autenticarComo(usuarios.admin);
+      await assertFails(setDoc(doc(db, 'escoposOperacionais', 'extra'), escopoOperacional({ campoExtra: true })));
+      await assertFails(setDoc(doc(db, 'escoposOperacionais', 'schema'), escopoOperacional({ schemaVersion: 2 })));
+    });
+
+    it('criar vínculo sem responsável por login ou equipe administradora é negado', async () => {
+      const db = autenticarComo(usuarios.admin);
+      await assertFails(setDoc(doc(db, 'escoposOperacionais', 'sem-responsavel'), escopoOperacional({
+        responsaveisLogin: [],
+        responsaveisEquipe: [],
+      })));
+    });
+
+    it('equipesConsulta continua read-only para usuário comum e não concede escrita administrativa', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'escoposOperacionais', 'PLANTAO_PLANTAO_TESTE'), escopoOperacional({
+          responsaveisLogin: [],
+          responsaveisEquipe: ['EQ_OUTRA'],
+          equipesConsulta: [usuarios.colaborador.equipeId],
+        }));
+      });
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(getDoc(doc(db, 'escoposOperacionais', 'PLANTAO_PLANTAO_TESTE')));
+      await assertFails(updateDoc(doc(db, 'escoposOperacionais', 'PLANTAO_PLANTAO_TESTE'), {
+        responsaveisLogin: [usuarios.colaborador.login],
+      }));
+    });
   });
 
   it('permite ao colaborador somente escala publicada da própria equipe', async () => {

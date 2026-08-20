@@ -30,7 +30,7 @@ O modelo (seção 2) foi desenhado para aceitar novos nós — em qualquer
 posição da árvore, em qualquer profundidade — via cadastro administrativo,
 **sem exigir mudança de código**. Qualquer spec ou exemplo que mostre uma
 árvore específica (este documento incluído, seção 4, e
-`docs/spec/HIERARQUIA_ORGANIZACIONAL_REFERENCIA.md`) está descrevendo um
+`docs/spec/ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md`) está descrevendo um
 **recorte conhecido nesta data**, nunca "a árvore inteira do ICI".
 
 ---
@@ -61,6 +61,37 @@ Grupo de Plantão
 Um erro estrutural recorrente é achar que "pertencer" a algo implica
 "administrar" ou "ser dono de" esse algo. Seção 8 formaliza isso como
 regra permanente.
+
+**Atualização ESCOPO-OPERACIONAL-MATRIZ-1:** para Jornada e Plantão, a
+responsabilidade operacional é definida prioritariamente pela matriz
+explícita `escoposOperacionais` (`ESCOPO_OPERACIONAL_MATRIZ.md`). A árvore
+organizacional permanece contexto visual e administrativo; qualquer regra
+que derive administração de escala por unidade/cargo/equipe é
+**Regra transitória / fallback de compatibilidade** quando não existir
+matriz para o alvo.
+
+Colaboradores pertencem à equipe/grade da escala. Coordenador, supervisor ou
+responsável operacional não "carrega" colaboradores consigo; ao abrir uma
+Jornada, os usuários elegíveis vêm da equipe da Jornada.
+
+Responsável operacional humano não é sinônimo de qualquer usuário da equipe.
+Para aparecer como responsável de escala, o usuário precisa estar ativo e ter
+perfil elegível de gestão/supervisão: `ADMIN_SISTEMA`, `GESTOR_UNIDADE`,
+`GESTOR_EQUIPE` ou `SUPERVISOR_EQUIPE`. Analista, técnico, colaborador comum,
+usuário inativo ou usuário sem perfil de gestão não deve ser listado. A
+exceção operacional correta é promoção de perfil, não regra por nome, cargo,
+sigla, unidade ou equipe.
+
+Na matriz, **Responsáveis**, **Equipes administradoras** e **Equipes que
+consultam** são relações diferentes. A equipe responsável do `GrupoPlantao`
+não vira equipe administradora automaticamente, e `equipesConsulta` continua
+sendo apenas visualização/monitoramento.
+
+`ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` descreve a estrutura organizacional
+de referência do produto para cadastro, navegação, filtros e agrupamento
+visual. Essa referência não substitui `escoposOperacionais`, não cria seed
+obrigatório e não autoriza nenhuma escala por sigla, cargo, tipo de unidade
+ou subordinação.
 
 ---
 
@@ -523,9 +554,10 @@ Este documento não altera esse comportamento.
 4. **Código + `firestore.rules`** — comportamento implementado de fato;
    sempre a autoridade final quando um documento divergir (e a
    divergência deve ser registrada, nunca silenciada — seção 15).
-5. `docs/spec/HIERARQUIA_ORGANIZACIONAL_REFERENCIA.md` — snapshot parcial
-   e evolutivo do que está de fato cadastrado/planejado, sem valor
-   normativo.
+5. `docs/spec/ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` — referência
+   normativa sanitizada de estrutura, níveis, unidades e siglas para
+   cadastro, navegação, filtros e agrupamento visual; não concede
+   autorização operacional de escala.
 
 ---
 
@@ -564,9 +596,9 @@ Registradas para avaliação futura — **nenhuma foi corrigida nesta fase**
   que esse seed já foi de fato executado (`--execute`) em staging. O
   script roda em `--dry-run` por padrão e exige aprovação explícita
   (comentário no próprio arquivo: "NÃO EXECUTAR SEM APROVAÇÃO"). Ver
-  `docs/spec/HIERARQUIA_ORGANIZACIONAL_REFERENCIA.md` para o detalhe —
-  tratado ali como **plano documentado no código**, não como "confirmado
-  em produção".
+  `docs/spec/ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` para a referência
+  sanitizada de domínio; ela não deve ser interpretada como seed
+  obrigatório nem como autorização operacional.
 - **IDs de equipe nos testes de Rules (`EQ_COSI_SOC`, `EQ_CODB_NOC`,
   `EQ_GEDSI_ADM`) não coincidem com os IDs do seed real (`EQ_SOC`,
   `EQ_NOC`, sem equipe sob `EQ_GEDSI_ADM`)** — inconsistência de

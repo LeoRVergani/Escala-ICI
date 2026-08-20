@@ -227,6 +227,8 @@ import { ScheduleCompetenceControl } from '@/components/escalas/ScheduleCompeten
 import { ScheduleStatusBadge, type StatusContextoEscala } from '@/components/escalas/ScheduleStatusBadge';
 import { UnsavedChangesDialog } from '@/components/escalas/UnsavedChangesDialog';
 import { ScheduleStartWizard, type ScheduleStartWizardProps } from '@/components/escalas/ScheduleStartWizard';
+import { ResponsaveisEscalaTable } from '@/components/admin/ResponsaveisEscalaTable';
+import { ResponsavelEscalaModal } from '@/components/admin/ResponsavelEscalaModal';
 import {
   COMPETENCIA_ATUAL,
   ehAdminSistema,
@@ -278,6 +280,7 @@ import {
   criarMembroGrade,
   membroJaNaGrade,
   removerMembroGrade,
+  usuariosElegiveisParaAdicionarNaGrade,
 } from '@/lib/gradeMembros';
 import { mapaLogins, normalizarAliasesPlanilha, novoUsuario, validarEdicaoUsuario } from '@/lib/importUsers';
 import {
@@ -291,7 +294,6 @@ import {
   unidadesAdministraveis,
   equipesAdministraveisNaUnidade,
   equipesCandidatasParaPlantao,
-  gruposPlantaoAdministraveis,
   validarCadastroInline,
 } from '@/lib/inicioEscala';
 import {
@@ -300,6 +302,10 @@ import {
   resolverEscoposOperacionais,
   type EscoposOperacionais,
 } from '@/lib/escoposOperacionais';
+import {
+  listarEscoposOperacionais,
+  salvarEscopoOperacional,
+} from '@/lib/firebase/escoposOperacionaisRepository';
 import { construirGrupoPlantaoOficial, derivarUnidadeResponsavelDoGrupoPlantao } from '@/lib/gruposPlantaoProvisionamento';
 import {
   LIMITE_DESCRICAO_LEMBRETE,
@@ -321,6 +327,7 @@ import {
 import { LembreteCard } from '@/components/lembretes/LembreteCard';
 import type {
   Equipe,
+  EscopoOperacional,
   EventoEscala,
   LinhaConciliacao,
   PublicacaoEscala,
@@ -330,7 +337,7 @@ import type {
   Usuario,
 } from '@/lib/modelos';
 
-type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao';
+type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao' | 'responsaveisEscala';
 type OpcoesInicioImportacao = {
   tipoEsperado?: 'ESCALA_6X1' | 'PLANTAO';
   equipeId?: string;
@@ -385,6 +392,17 @@ function mensagemErroTrocaGestor(falha: unknown, fallback: string): string {
     return 'A operação foi recusada pelas regras do Firestore. Verifique se o usuário atual é gestor da equipe.';
   }
   return mensagemErroFirebase(falha, fallback, ambienteFirebaseAtual);
+}
+
+function mensagemErroEscritaOperacional(falha: unknown, fallback: string): string {
+  const codigo = typeof falha === 'object' && falha !== null && 'code' in falha
+    ? String((falha as { code?: unknown }).code)
+    : '';
+  const mensagem = mensagemErroFirebase(falha, fallback, ambienteFirebaseAtual);
+  if (codigo.includes('permission-denied')) {
+    return `${mensagem} A matriz já permite selecionar a escala, mas a escrita operacional ainda está em modo de transição.`;
+  }
+  return mensagem;
 }
 
 function formatarHorasDescanso(horas: number): string {
@@ -716,6 +734,11 @@ const ESCOPOS_OPERACIONAIS_VAZIOS: EscoposOperacionais = {
   gruposPlantaoAdministraveis: [],
   plantoesAdministraveis: [],
   plantoesConsultaveis: [],
+  plantoesMonitorados: [],
+  alvosDisponiveisParaConfiguracao: {
+    jornadas: [],
+    plantoes: [],
+  },
 };
 
 interface CelulaEditando {
@@ -2216,9 +2239,9 @@ function AdministracaoSubnav({
   podeAcessarPlantoes,
   onEscolherAba,
 }: {
-  aba: 'organizacao' | 'plantao';
+  aba: 'organizacao' | 'plantao' | 'responsaveis';
   podeAcessarPlantoes: boolean;
-  onEscolherAba: (aba: 'organizacao' | 'plantao') => void;
+  onEscolherAba: (aba: 'organizacao' | 'plantao' | 'responsaveis') => void;
 }) {
   return (
     <div className="segmented-control administracao-subnav" aria-label="Áreas de Administração">
@@ -2240,6 +2263,14 @@ function AdministracaoSubnav({
           Grupos de Plantão
         </button>
       )}
+      <button
+        type="button"
+        aria-current={aba === 'responsaveis' ? 'page' : undefined}
+        className={aba === 'responsaveis' ? 'active' : ''}
+        onClick={() => onEscolherAba('responsaveis')}
+      >
+        Responsáveis por escala
+      </button>
     </div>
   );
 }
@@ -3043,6 +3074,9 @@ export function DashboardApp() {
   const [equipesAdmin, setEquipesAdmin] = useState<Equipe[]>([]);
   const [setoresAdmin, setSetoresAdmin] = useState<Setor[]>([]);
   const [unidadesAdmin, setUnidadesAdmin] = useState<UnidadeOrganizacional[]>([]);
+  const [escoposOperacionaisAdmin, setEscoposOperacionaisAdmin] = useState<EscopoOperacional[]>([]);
+  const [modalResponsavelEscala, setModalResponsavelEscala] = useState<EscopoOperacional | null | 'novo'>(null);
+  const [processandoEscopoOperacional, setProcessandoEscopoOperacional] = useState(false);
   const [erroAdmin, setErroAdmin] = useState('');
   const [formSetor, setFormSetor] = useState<Setor>({ id: '', nome: '', sigla: '', ativo: true });
   /**
@@ -3172,7 +3206,7 @@ export function DashboardApp() {
    * `equipesPermitidas`.
    */
   const escoposOperacionais = usuarioReal !== null
-    ? resolverEscoposOperacionais(usuarioReal, unidadesAdmin, equipesAdmin, gruposPlantaoAdmin)
+    ? resolverEscoposOperacionais(usuarioReal, unidadesAdmin, equipesAdmin, gruposPlantaoAdmin, escoposOperacionaisAdmin)
     : ESCOPOS_OPERACIONAIS_VAZIOS;
   const minhasUnidadesPermitidas = escoposOperacionais.unidadesAdministraveis.map((item) => item.unidadeId);
   /**
@@ -3244,6 +3278,13 @@ export function DashboardApp() {
   const documentos = useMemo(
     () => resultado?.documentos ?? [],
     [resultado?.documentos],
+  );
+  const equipeIdDaGradeAtiva = contextoEhJornada(contextoEscalaAtivo)
+    ? contextoEscalaAtivo.equipeId
+    : resultado?.documentos[0]?.equipeId ?? null;
+  const usuariosElegiveisGrade = useMemo(
+    () => usuariosElegiveisParaAdicionarNaGrade(usuarios, documentos, equipeIdDaGradeAtiva),
+    [documentos, equipeIdDaGradeAtiva, usuarios],
   );
   const publicados = useMemo(
     () => documentos.filter(({ status }) => status === 'PUBLICADA'),
@@ -3465,6 +3506,7 @@ export function DashboardApp() {
     const documentosCarregados = rascunhosRemotos.length > 0
       ? rascunhosRemotos
       : escalasRemotas;
+    setContextoEscalaAtivo({ tipo: 'JORNADA', equipeId: alvo.equipeId, competencia: '2026-08' });
     if (documentosCarregados.length > 0) {
       const datas = documentosCarregados.flatMap((documento) => Object.keys(documento.dias));
       const periodoInicio = datas.sort()[0] ?? '2026-07-26';
@@ -3480,9 +3522,13 @@ export function DashboardApp() {
         avisos: [],
       });
       setJornadaPossuiAlteracoesNaoSalvas(false);
-      setContextoEscalaAtivo({ tipo: 'JORNADA', equipeId: alvo.equipeId, competencia: '2026-08' });
       setContextoSemEscala(false);
       setTela('escalas');
+    } else {
+      setResultado(null);
+      setLinhasConciliacao([]);
+      setJornadaPossuiAlteracoesNaoSalvas(false);
+      setContextoSemEscala(true);
     }
   }
 
@@ -3500,10 +3546,44 @@ export function DashboardApp() {
       setUnidadesAdmin([UNIDADE_COSI_DEMO]);
       setEquipesAdmin([EQUIPE_DEMO, EQUIPE_PLANTAO_DEMO]);
       setGruposPlantaoAdmin([GRUPO_PLANTAO_DEMO]);
+      setEscoposOperacionaisAdmin([
+        {
+          tipo: 'JORNADA',
+          alvoId: EQUIPE_DEMO.id,
+          alvoNome: EQUIPE_DEMO.nome,
+          unidadeId: EQUIPE_DEMO.unidadeId,
+          caminhoUnidade: EQUIPE_DEMO.caminhoUnidade,
+          responsaveisLogin: [autenticado.login],
+          responsaveisEquipe: [],
+          equipesConsulta: [],
+          ativo: true,
+          criadoPorLogin: autenticado.login,
+          atualizadoPorLogin: autenticado.login,
+          schemaVersion: 1,
+        },
+        {
+          tipo: 'PLANTAO',
+          alvoId: GRUPO_PLANTAO_DEMO.grupoId,
+          alvoNome: GRUPO_PLANTAO_DEMO.nome,
+          unidadeId: GRUPO_PLANTAO_DEMO.unidadeResponsavelId,
+          caminhoUnidade: GRUPO_PLANTAO_DEMO.caminhoUnidadeResponsavel,
+          responsaveisLogin: [autenticado.login],
+          responsaveisEquipe: [],
+          equipesConsulta: [EQUIPE_DEMO.id],
+          ativo: true,
+          criadoPorLogin: autenticado.login,
+          atualizadoPorLogin: autenticado.login,
+          schemaVersion: 1,
+        },
+      ]);
       setParticipantesPorGrupoPlantao({
         [GRUPO_PLANTAO_DEMO.grupoId]: PARTICIPANTES_PLANTAO_DEMO,
       });
     } else {
+      setResultado(null);
+      setResultadoPlantao(null);
+      setUsuarios([]);
+      setLinhasConciliacao([]);
       await carregarDadosDaEquipe(autenticado);
     }
   }
@@ -4363,12 +4443,22 @@ export function DashboardApp() {
     }
     if (wizardTipo === 'JORNADA') {
       const equipe = equipesAdmin.find((item) => item.id === wizardEquipeId);
-      const colaboradores = usuarios.filter((usuario) => usuario.ativo && usuario.equipeId === wizardEquipeId);
+      const [usuariosDaEquipe, catalogoDaEquipe] = modoDemo
+        ? [usuarios, catalogo] as const
+        : await Promise.all([
+          listarUsuarios(wizardEquipeId),
+          listarCatalogo(wizardEquipeId),
+        ]);
+      if (!modoDemo) {
+        setUsuarios(usuariosDaEquipe);
+        setCatalogo(catalogoDaEquipe);
+      }
+      const colaboradores = usuariosDaEquipe.filter((usuario) => usuario.ativo && usuario.equipeId === wizardEquipeId);
       const documentosNovos = colaboradores.map((colaborador) => criarMembroGrade(
         colaborador,
         colaborador.turnoPadrao,
         { equipeId: wizardEquipeId, competencia: wizardCompetencia, periodoInicio: periodo.periodoInicio, periodoFim: periodo.periodoFim },
-        catalogo,
+        catalogoDaEquipe,
       ));
       setResultado({
         ok: true,
@@ -4378,7 +4468,9 @@ export function DashboardApp() {
         totalDias: documentosNovos.length > 0 ? Object.keys(documentosNovos[0].dias).length : 0,
         documentos: documentosNovos,
         erros: [],
-        avisos: ['Escala criada vazia. Preencha os turnos no editor antes de salvar.'],
+        avisos: documentosNovos.length === 0
+          ? ['Nenhum usuário ativo encontrado para esta equipe. Cadastre ou importe usuários antes de montar a escala.']
+          : ['Escala criada vazia. Preencha os turnos no editor antes de salvar.'],
       });
       setLinhasConciliacao([]);
       setJornadaPossuiAlteracoesNaoSalvas(true);
@@ -4491,7 +4583,7 @@ export function DashboardApp() {
       fecharNovaEscala();
       setTela('importar');
     } catch (falha) {
-      setWizardErro(mensagemErroFirebase(falha, 'Não foi possível criar a escala de Plantão.', ambienteFirebaseAtual));
+      setWizardErro(mensagemErroEscritaOperacional(falha, 'Não foi possível criar a escala de Plantão.'));
     } finally {
       setWizardProcessando(false);
     }
@@ -4837,7 +4929,7 @@ export function DashboardApp() {
       setMensagem('Rascunho salvo com sucesso. Nenhum arquivo foi enviado.');
       setTela('escalas');
     } catch (falha) {
-      setMensagem(mensagemErroFirebase(falha, 'Não foi possível salvar.', ambienteFirebaseAtual));
+      setMensagem(mensagemErroEscritaOperacional(falha, 'Não foi possível salvar.'));
     } finally {
       setProcessando(false);
     }
@@ -4890,7 +4982,7 @@ export function DashboardApp() {
       setPublicacaoPendente(false);
       setMotivoPublicacao('');
     } catch (falha) {
-      const texto = mensagemErroFirebase(falha, 'Falha na publicação.', ambienteFirebaseAtual);
+      const texto = mensagemErroEscritaOperacional(falha, 'Falha na publicação.');
       // O modal continua aberto (não chamamos setPublicacaoPendente(false))
       // e mostra o erro localmente — o toast global fica atrás do modal
       // visualmente, então não basta avisar só por ele.
@@ -5294,16 +5386,20 @@ export function DashboardApp() {
   }
 
   async function confirmarAdicionarMembroGrade() {
-    if (membroGradeDraft === null || resultado === null || usuarioEfetivo === null) {
+    if (membroGradeDraft === null || resultado === null) {
       return;
     }
     if (escritaBloqueada) {
       setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
       return;
     }
-    const colaborador = usuarios.find((item) => item.login === membroGradeDraft.login);
+    if (equipeIdDaGradeAtiva === null) {
+      setMensagem('Nenhuma equipe de Jornada está selecionada para esta grade.');
+      return;
+    }
+    const colaborador = usuariosElegiveisGrade.find((item) => item.login === membroGradeDraft.login);
     if (colaborador === undefined) {
-      setMensagem('Selecione um colaborador cadastrado.');
+      setMensagem('Selecione um usuário ativo desta equipe que ainda não esteja na grade.');
       return;
     }
     if (membroJaNaGrade(resultado.documentos, colaborador.login)) {
@@ -5311,7 +5407,7 @@ export function DashboardApp() {
       return;
     }
     const referencia = {
-      equipeId: usuarioEfetivo.equipeId,
+      equipeId: equipeIdDaGradeAtiva,
       competencia: resultado.documentos[0]?.competencia ?? '2026-08',
       periodoInicio: resultado.periodoInicio,
       periodoFim: resultado.periodoFim,
@@ -5329,7 +5425,7 @@ export function DashboardApp() {
       setMensagem(`${colaborador.nome} incluído(a) na grade desta competência.`);
       setMembroGradeDraft(null);
     } catch (falha) {
-      setMensagem(mensagemErroFirebase(falha, 'Não foi possível incluir o colaborador na grade.', ambienteFirebaseAtual));
+      setMensagem(mensagemErroEscritaOperacional(falha, 'Não foi possível incluir o colaborador na grade.'));
     }
   }
 
@@ -5383,7 +5479,8 @@ export function DashboardApp() {
   // --- Administração de Plantão (Fase PLANTÃO-3B) ---
 
   function podeGerenciarEsteGrupoPlantao(grupo: GrupoPlantao): boolean {
-    return usuarioReal !== null && podeGerenciarGrupoPlantao(usuarioReal, grupo);
+    return usuarioReal !== null
+      && escoposOperacionais.plantoesAdministraveis.some((item) => item.grupoId === grupo.grupoId);
   }
 
   function abrirNovoGrupoPlantao() {
@@ -5827,6 +5924,37 @@ export function DashboardApp() {
     }
   }
 
+  async function salvarEscopoOperacionalDoModal(escopo: EscopoOperacional) {
+    setProcessandoEscopoOperacional(true);
+    setErroAdmin('');
+    try {
+      if (!modoDemo) {
+        await salvarEscopoOperacional(escopo);
+      }
+      setEscoposOperacionaisAdmin((atuais) => {
+        const semAtual = atuais.filter((item) => !(item.tipo === escopo.tipo && item.alvoId === escopo.alvoId));
+        return [...semAtual, escopo].sort((a, b) => `${a.tipo}:${a.alvoNome}`.localeCompare(`${b.tipo}:${b.alvoNome}`));
+      });
+      setModalResponsavelEscala(null);
+    } catch (falha) {
+      setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível salvar o responsável por escala.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoEscopoOperacional(false);
+    }
+  }
+
+  async function alternarStatusEscopoOperacional(escopo: EscopoOperacional, ativo: boolean) {
+    if (usuarioReal === null) {
+      return;
+    }
+    await salvarEscopoOperacionalDoModal({
+      ...escopo,
+      ativo,
+      atualizadoEm: new Date().toISOString(),
+      atualizadoPorLogin: usuarioReal.login,
+    });
+  }
+
   function iniciarSimulacaoSelecionada() {
     const gestor = todosUsuariosAdmin.find((item) => item.login === gestorParaSimular);
     if (gestor === undefined) {
@@ -5960,13 +6088,14 @@ export function DashboardApp() {
     // gestor" (ambos presos a `souAdmin` na renderização), então nem
     // dispara essa leitura.
     const carregarUsuarios = souAdmin ? listarTodosUsuarios() : Promise.resolve<Usuario[]>([]);
-    void Promise.all([carregarUsuarios, listarEquipes(), listarSetores(), listarUnidadesOrganizacionais()])
-      .then(([todos, equipes, setores, unidades]) => {
+    void Promise.all([carregarUsuarios, listarEquipes(), listarSetores(), listarUnidadesOrganizacionais(), listarEscoposOperacionais()])
+      .then(([todos, equipes, setores, unidades, escopos]) => {
         if (!cancelado) {
           setTodosUsuariosAdmin(todos);
           setEquipesAdmin(equipes);
           setSetoresAdmin(setores);
           setUnidadesAdmin(unidades);
+          setEscoposOperacionaisAdmin(escopos);
         }
       })
       .catch((falha: unknown) => {
@@ -6054,8 +6183,8 @@ export function DashboardApp() {
      * `catch` genérico mascarando qual delas falhou como se fosse "nenhuma
      * equipe cadastrada".
      */
-    void Promise.allSettled([carregarGrupos, listarEquipes(), listarUnidadesOrganizacionais(), carregarUsuariosParaBusca])
-      .then(([grupos, equipes, unidades, todosUsuarios]) => {
+    void Promise.allSettled([carregarGrupos, listarEquipes(), listarUnidadesOrganizacionais(), carregarUsuariosParaBusca, listarEscoposOperacionais()])
+      .then(([grupos, equipes, unidades, todosUsuarios, escopos]) => {
         if (cancelado) {
           return;
         }
@@ -6074,6 +6203,9 @@ export function DashboardApp() {
         }
         if (souAdmin && todosUsuarios.status === 'fulfilled') {
           setTodosUsuariosAdmin(todosUsuarios.value);
+        }
+        if (escopos.status === 'fulfilled') {
+          setEscoposOperacionaisAdmin(escopos.value);
         }
         setCarregandoEquipesPlantao(false);
       });
@@ -6196,11 +6328,26 @@ export function DashboardApp() {
     }
     setCarregandoContexto(true);
     try {
-      const documentosExistentes = modoDemo
-        ? (resultado?.documentos.filter((documento) => documento.competencia === alvo.competencia) ?? [])
-        : await carregarEscalasEquipe(alvo.equipeId, alvo.competencia, false);
+      const [documentosExistentes, usuariosDaEquipe, catalogoDaEquipe] = modoDemo
+        ? [
+          resultado?.documentos.filter((documento) => documento.competencia === alvo.competencia) ?? [],
+          usuarios,
+          catalogo,
+        ] as const
+        : await Promise.all([
+          carregarEscalasEquipe(alvo.equipeId, alvo.competencia, false),
+          listarUsuarios(alvo.equipeId),
+          listarCatalogo(alvo.equipeId),
+        ]);
+      if (!modoDemo) {
+        setUsuarios(usuariosDaEquipe);
+        setCatalogo(catalogoDaEquipe);
+      }
       if (documentosExistentes.length === 0) {
         setContextoEscalaAtivo(alvo);
+        setResultado(null);
+        setLinhasConciliacao([]);
+        setJornadaPossuiAlteracoesNaoSalvas(false);
         setContextoSemEscala(true);
         setTela('escalas');
         return;
@@ -6340,10 +6487,8 @@ export function DashboardApp() {
   const equipesWizard = wizardTipo === 'JORNADA'
     ? equipesAdministraveisNaUnidade(equipesAdmin, areaWizardEfetiva, minhasEquipesDeJornadaPermitidas, souAdmin)
     : equipesCandidatasParaPlantao(equipesWizardCompletas, equipeJornadaReferenciaId);
-  const gruposWizard = gruposPlantaoAdministraveis(
-    gruposPlantaoAdmin.filter((grupo) => equipesWizardCompletas.some((equipe) => equipe.id === grupo.equipeResponsavelId)),
-    podeGerenciarEsteGrupoPlantao,
-  );
+  const gruposWizard = escoposOperacionais.plantoesAdministraveis
+    .filter((grupo) => equipesWizardCompletas.some((equipe) => equipe.id === grupo.equipeResponsavelId));
   /**
    * Fase CORRECAO-WIZARD-PLANTAO-EQUIPE-1 — "área de gestão" a EXIBIR no
    * Wizard nunca deveria dizer "não cadastrada" quando a equipe já
@@ -6370,24 +6515,15 @@ export function DashboardApp() {
    * uma segunda Jornada. Se no futuro a mesma equipe tiver os dois produtos,
    * o contexto Jornada já ativo continua preservado.
    */
-  const equipesResponsaveisExclusivasPlantao = new Set(
-    gruposPlantaoAdmin
-      .filter(podeGerenciarEsteGrupoPlantao)
-      .map((grupo) => grupo.equipeResponsavelId),
-  );
-  const equipesComJornadaVisivel = minhasEquipesPermitidas.filter((equipeId) =>
-    !equipesResponsaveisExclusivasPlantao.has(equipeId)
-      || (contextoEhJornada(contextoEscalaAtivo) && contextoEscalaAtivo.equipeId === equipeId),
-  );
-  const opcoesContextoJornada: OpcaoContextoEscala[] = equipesComJornadaVisivel.map((equipeId) => ({
+  const opcoesContextoJornada: OpcaoContextoEscala[] = escoposOperacionais.jornadasAdministraveis.map((equipe) => ({
     contexto: {
       tipo: 'JORNADA',
-      equipeId,
-      competencia: contextoEhJornada(contextoEscalaAtivo) && contextoEscalaAtivo.equipeId === equipeId
+      equipeId: equipe.id,
+      competencia: contextoEhJornada(contextoEscalaAtivo) && contextoEscalaAtivo.equipeId === equipe.id
         ? contextoEscalaAtivo.competencia
         : competenciaParaNovasOpcoes,
     },
-    rotuloPrincipal: equipesAdmin.find((item) => item.id === equipeId)?.nome ?? equipeId,
+    rotuloPrincipal: equipe.nome,
     rotuloSecundario: 'Jornada 6x1',
   }));
   /**
@@ -6403,8 +6539,7 @@ export function DashboardApp() {
    * seletor. Depois de PLANTÃO-3C isto pode evoluir para distinguir
    * Editáveis/Consulta ou abrir uma escala publicada read-only.
    */
-  const opcoesContextoPlantao: OpcaoContextoEscala[] = gruposPlantaoAdmin
-    .filter(podeGerenciarEsteGrupoPlantao)
+  const opcoesContextoPlantao: OpcaoContextoEscala[] = escoposOperacionais.plantoesAdministraveis
     .map((grupo) => ({
       contexto: {
         tipo: 'PLANTAO',
@@ -6423,7 +6558,7 @@ export function DashboardApp() {
    * misturado com `opcoesContextoPlantao` (administráveis) — consulta não
    * é administração.
    */
-  const opcoesContextoPlantaoMonitorados: OpcaoContextoEscala[] = escoposOperacionais.plantoesConsultaveis
+  const opcoesContextoPlantaoMonitorados: OpcaoContextoEscala[] = escoposOperacionais.plantoesMonitorados
     .map((grupo) => ({
       contexto: {
         tipo: 'PLANTAO' as const,
@@ -7535,7 +7670,7 @@ export function DashboardApp() {
           <AdministracaoSubnav
             aba="plantao"
             podeAcessarPlantoes={podeAcessarPlantoes}
-            onEscolherAba={(aba) => setTela(aba === 'organizacao' ? 'administracao' : 'plantoes')}
+            onEscolherAba={(aba) => setTela(aba === 'organizacao' ? 'administracao' : aba === 'plantao' ? 'plantoes' : 'responsaveisEscala')}
           />
           {erroPlantaoAdmin && <div className="alert error" role="alert">{erroPlantaoAdmin}</div>}
           {gruposPlantaoAdmin.length === 0 && !erroPlantaoAdmin && (
@@ -7741,6 +7876,36 @@ export function DashboardApp() {
         </section>
       )}
 
+      {tela === 'responsaveisEscala' && podeAcessarAdministracao && usuarioReal !== null && (
+        <section>
+          <header className="page-heading">
+            <div>
+              <p className="eyebrow">Administração</p>
+              <h1>Responsáveis por escala</h1>
+              <p>Configure quem administra cada Jornada ou Plantão. Consulta é leitura e monitoramento, nunca edição.</p>
+            </div>
+          </header>
+          <AdministracaoSubnav
+            aba="responsaveis"
+            podeAcessarPlantoes={podeAcessarPlantoes}
+            onEscolherAba={(aba) => setTela(aba === 'organizacao' ? 'administracao' : aba === 'plantao' ? 'plantoes' : 'responsaveisEscala')}
+          />
+          {erroAdmin && <div className="alert error" role="alert">{erroAdmin}</div>}
+          <ResponsaveisEscalaTable
+            escopos={escoposOperacionaisAdmin}
+            equipes={equipesAdmin}
+            grupos={gruposPlantaoAdmin}
+            unidades={unidadesAdmin}
+            usuarios={todosUsuariosAdmin.length > 0 ? todosUsuariosAdmin : usuarios}
+            onNovo={() => setModalResponsavelEscala('novo')}
+            onEditar={(escopo) => setModalResponsavelEscala(escopo)}
+            onAlternarStatus={alternarStatusEscopoOperacional}
+            podeEditar={souAdmin}
+            processando={processandoEscopoOperacional}
+          />
+        </section>
+      )}
+
       {tela === 'administracao' && podeAcessarAdministracao && (
         <section>
           <header className="page-heading">
@@ -7757,7 +7922,7 @@ export function DashboardApp() {
           <AdministracaoSubnav
             aba="organizacao"
             podeAcessarPlantoes={podeAcessarPlantoes}
-            onEscolherAba={(aba) => setTela(aba === 'organizacao' ? 'administracao' : 'plantoes')}
+            onEscolherAba={(aba) => setTela(aba === 'organizacao' ? 'administracao' : aba === 'plantao' ? 'plantoes' : 'responsaveisEscala')}
           />
           {erroAdmin && <div className="alert error" role="alert">{erroAdmin}</div>}
 
@@ -7867,7 +8032,7 @@ export function DashboardApp() {
                        * futuramente virar responsável de um Grupo novo.
                        */}
                       {(() => {
-                        const grupoVinculado = gruposPlantaoAdmin.find((grupo) => grupo.equipeResponsavelId === item.id);
+                        const grupoVinculado = gruposPlantaoAdmin.find((grupo) => grupo.ativo && grupo.equipeResponsavelId === item.id);
                         return grupoVinculado ? (
                           <p className="admin-form-preview">
                             <Radio size={14} aria-hidden="true" /> Equipe responsável do Grupo de Plantão <strong>{grupoVinculado.nome}</strong> — a escala de Plantão é montada/importada sobre esse Grupo, nunca diretamente sobre esta equipe.
@@ -7997,7 +8162,7 @@ export function DashboardApp() {
                      * selecionar cada equipe: nunca inferida por nome,
                      * sempre pela relação real `equipeResponsavelId`.
                      */
-                    const grupoVinculado = gruposPlantaoAdmin.find((grupo) => grupo.equipeResponsavelId === item.id);
+                    const grupoVinculado = gruposPlantaoAdmin.find((grupo) => grupo.ativo && grupo.equipeResponsavelId === item.id);
                     return (
                     <tr key={item.id}>
                       <td><code className="login-code">{item.id}</code></td>
@@ -8256,6 +8421,19 @@ export function DashboardApp() {
           unidadesPermitidas={souAdmin ? null : minhasUnidadesPermitidas}
           onFechar={() => setModalEquipe(null)}
           onSalvar={salvarEquipeDoModal}
+        />
+      )}
+
+      {modalResponsavelEscala !== null && usuarioReal !== null && (
+        <ResponsavelEscalaModal
+          escopo={modalResponsavelEscala === 'novo' ? null : modalResponsavelEscala}
+          equipes={equipesAdmin}
+          grupos={gruposPlantaoAdmin}
+          usuarios={todosUsuariosAdmin.length > 0 ? todosUsuariosAdmin : usuarios}
+          loginAtual={usuarioReal.login}
+          onFechar={() => setModalResponsavelEscala(null)}
+          onSalvar={salvarEscopoOperacionalDoModal}
+          processando={processandoEscopoOperacional}
         />
       )}
 
@@ -8597,6 +8775,11 @@ export function DashboardApp() {
               <button className="icon-button" type="button" onClick={fecharAdicionarMembroGrade} aria-label="Fechar"><X size={18} /></button>
             </div>
             <div className="user-form-grid">
+              {usuariosElegiveisGrade.length === 0 && (
+                <p className="admin-form-erro user-form-full" role="status">
+                  Nenhum usuário ativo encontrado para esta equipe. Cadastre ou importe usuários antes de montar a escala.
+                </p>
+              )}
               <label className="user-form-full">
                 Colaborador
                 <select
@@ -8604,13 +8787,11 @@ export function DashboardApp() {
                   onChange={(evento) => setMembroGradeDraft({ ...membroGradeDraft, login: evento.target.value })}
                 >
                   <option value="">Selecionar usuário cadastrado…</option>
-                  {usuarios
-                    .filter((item) => !membroJaNaGrade(documentos, item.login))
-                    .map((item) => (
-                      <option key={item.login} value={item.login}>
-                        {item.nome}{item.ativo ? '' : ' (inativo)'}
-                      </option>
-                    ))}
+                  {usuariosElegiveisGrade.map((item) => (
+                    <option key={item.login} value={item.login}>
+                      {item.nome}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="user-form-full">
@@ -8630,7 +8811,7 @@ export function DashboardApp() {
               <button
                 className="primary-button"
                 type="button"
-                disabled={!membroGradeDraft.login}
+                disabled={!membroGradeDraft.login || usuariosElegiveisGrade.length === 0}
                 onClick={() => void confirmarAdicionarMembroGrade()}
               >
                 <UserPlus size={16} /> Adicionar à grade

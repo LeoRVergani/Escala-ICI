@@ -40,6 +40,12 @@
  *     unidadeResponsavelId=COSI, caminhoUnidadeResponsavel=caminho de COSI,
  *     equipesConsulta ⊇ {EQ_PLANTAO_COSI, EQ_SOC}.
  *
+ *   Fase ESCOPO-OPERACIONAL-MATRIZ-1 — também garante fixtures da matriz
+ *   operacional explícita em `escoposOperacionais`:
+ *     marina.azevedo administra Jornada EQ_SOC e Plantão PLANTAO_COSI;
+ *     wanessa.moriyama administra Jornada EQ_NOC;
+ *     PLANTAO_COSI pode ser consultado por EQ_SOC e EQ_NOC.
+ *
  *   Opcionalmente (só se `ESCALA_SEED_ORG_LOGIN_COORDENADOR_COSI` estiver
  *   definida), também alinha o perfil de um usuário REAL já cadastrado
  *   (nunca cria um usuário novo) para coordenador/gestor de unidade COSI:
@@ -256,6 +262,72 @@ const grupoPlantaoDesejado = {
   atualizadoEm: agora,
 };
 
+function idEscopoOperacional(tipo, alvoId) {
+  return `${tipo}_${alvoId}`.replace(/[^A-Za-z0-9_-]/gu, '_');
+}
+
+const equipeSoc = equipes.find((equipe) => equipe.id === 'EQ_SOC');
+const equipeNoc = equipes.find((equipe) => equipe.id === 'EQ_NOC');
+if (equipeSoc === undefined || equipeNoc === undefined) {
+  throw new Error('[seed-organizacao] EQ_SOC/EQ_NOC precisam existir para planejar escoposOperacionais.');
+}
+
+const escoposOperacionaisDesejados = [
+  {
+    tipo: 'JORNADA',
+    alvoId: equipeSoc.id,
+    alvoNome: equipeSoc.nome,
+    unidadeId: equipeSoc.unidadeId,
+    caminhoUnidade: equipeSoc.caminhoUnidade,
+    responsaveisLogin: ['marina.azevedo'],
+    responsaveisEquipe: [],
+    equipesConsulta: [],
+    ativo: true,
+    criadoPorLogin: login,
+    atualizadoPorLogin: login,
+    criadoEm: agora,
+    atualizadoEm: agora,
+    schemaVersion: 1,
+  },
+  {
+    tipo: 'PLANTAO',
+    alvoId: GRUPO_PLANTAO_COSI_ID,
+    alvoNome: grupoPlantaoDesejado.nome,
+    unidadeId: grupoPlantaoDesejado.unidadeResponsavelId,
+    caminhoUnidade: grupoPlantaoDesejado.caminhoUnidadeResponsavel,
+    responsaveisLogin: ['marina.azevedo'],
+    responsaveisEquipe: [],
+    equipesConsulta: ['EQ_SOC', 'EQ_NOC'],
+    ativo: true,
+    criadoPorLogin: login,
+    atualizadoPorLogin: login,
+    criadoEm: agora,
+    atualizadoEm: agora,
+    schemaVersion: 1,
+  },
+  {
+    tipo: 'JORNADA',
+    alvoId: equipeNoc.id,
+    alvoNome: equipeNoc.nome,
+    unidadeId: equipeNoc.unidadeId,
+    caminhoUnidade: equipeNoc.caminhoUnidade,
+    responsaveisLogin: ['wanessa.moriyama'],
+    responsaveisEquipe: [],
+    equipesConsulta: [],
+    ativo: true,
+    criadoPorLogin: login,
+    atualizadoPorLogin: login,
+    criadoEm: agora,
+    atualizadoEm: agora,
+    schemaVersion: 1,
+  },
+];
+
+console.log('[seed-organizacao] plano de escoposOperacionais:');
+for (const escopo of escoposOperacionaisDesejados) {
+  console.log(`  ${idEscopoOperacional(escopo.tipo, escopo.alvoId)} — ${escopo.tipo} ${escopo.alvoId} — responsaveisLogin=${escopo.responsaveisLogin.join(', ') || '-'} equipesConsulta=${escopo.equipesConsulta.join(', ') || '-'}`);
+}
+
 const grupoPlantaoExistenteSnapshot = await getDoc(doc(db, 'gruposPlantao', GRUPO_PLANTAO_COSI_ID));
 const grupoPlantaoExistente = grupoPlantaoExistenteSnapshot.exists() ? grupoPlantaoExistenteSnapshot.data() : null;
 
@@ -345,6 +417,10 @@ if (execute) {
   } else if (coordenadorPlano !== null) {
     console.log(`[seed-organizacao] usuarios/${coordenadorPlano.login} NÃO foi tocado (falta --confirm-coordenador=SEED_ORGANIZACAO_STAGING_COORDENADOR).`);
   }
+  for (const escopo of escoposOperacionaisDesejados) {
+    await setDoc(doc(db, 'escoposOperacionais', idEscopoOperacional(escopo.tipo, escopo.alvoId)), escopo, { merge: true });
+  }
+  console.log(`[seed-organizacao] gravado: ${escoposOperacionaisDesejados.length} escopo(s) operacional(is).`);
 } else {
   console.log('[seed-organizacao] confirmação: nada foi gravado no Firestore (dry-run). Revise o plano acima antes de rodar com --execute --confirm=SEED_ORGANIZACAO_STAGING.');
 }

@@ -90,6 +90,13 @@ Quando não há grupo administrável, o wizard preserva o fluxo de criação inl
 
 "Grupos administráveis" (`grupos`, prop) e "equipes elegíveis para Jornada" (`equipes`, prop, quando `tipo === 'JORNADA'`) vêm de `lib/escoposOperacionais.ts` (`plantoesAdministraveis`/`jornadasAdministraveis` — Fase ESCOPO-GESTOR-UNIDADE-1, ver `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`): a mesma equipe nunca aparece como opção de Jornada 6x1 se já for a equipe responsável de um Grupo de Plantão conhecido.
 
+**Atualização ESCOPO-OPERACIONAL-MATRIZ-1:** essas listas vêm
+prioritariamente da matriz explícita `escoposOperacionais`
+(`ESCOPO_OPERACIONAL_MATRIZ.md`). Plantões monitorados/consultáveis nunca
+aparecem como destino de Nova/Importar; `GrupoPlantao ativo:false` também
+não aparece. O fallback por unidade/equipe é transitório e só vale quando
+não existir matriz para o alvo.
+
 **Fase PROVISIONAMENTO-GRUPO-PLANTAO-1** (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md` § 9) — o diagnóstico de "nenhum grupo administrável" agora se divide em dois casos, nunca uma mensagem genérica só:
 - existe equipe administrável na área, mas nenhum Grupo vinculado a ela: **"Existe equipe de Plantão nesta área, mas ainda não há Grupo de Plantão vinculado. Crie o grupo para importar ou montar a escala."**, seguida do formulário inline de criação (`onCriarGrupo`);
 - nenhuma equipe administrável na área: mensagem anterior ("Nenhuma equipe responsável disponível nesta área"), com opção de criar a equipe primeiro (`onCriarEquipe`).
@@ -120,6 +127,15 @@ No modo Nova, o coordenador escolhe Jornada ou Plantão, define destino e compet
 - Plantão: participantes, padrões de horário e exceções do Modal D.
 
 O wizard não deve duplicar a lógica de colaboradores, turnos ou atribuições.
+
+**Atualização ESCOPO-OPERACIONAL-MATRIZ-1-CORRECAO:** ao criar Jornada vazia,
+os colaboradores iniciais vêm de usuários ativos da equipe selecionada para a
+Jornada, não da equipe do coordenador/responsável. Em staging real, o wizard
+não pode preencher Lia Vilar, Noah Campos ou qualquer outro usuário
+sintético de demo salvo modo demo explícito. Se a equipe não tiver usuário
+ativo elegível, a escala abre sem membros e mostra o diagnóstico:
+**"Nenhum usuário ativo encontrado para esta equipe. Cadastre ou importe
+usuários antes de montar a escala."**
 
 ## 12. Rascunho existente
 

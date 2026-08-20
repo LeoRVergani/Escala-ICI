@@ -5,6 +5,18 @@ o comportamento real do código a partir desta fase, com evidência apontando
 para arquivo/função. Consolida uma **mudança de regra aprovada** nesta fase —
 não é mais uma proposta, é o comportamento vigente.
 
+**Atualização ESCOPO-OPERACIONAL-MATRIZ-1:** a parte deste documento que
+deduz administração operacional de Jornada/Plantão a partir de unidade,
+perfil ou equipe foi **Substituída pela matriz operacional explícita** para
+alvos que tenham documento em `escoposOperacionais`. O cálculo descrito aqui
+permanece como **Regra transitória / fallback de compatibilidade** para
+ambientes sem matriz no alvo.
+
+Correção de validação: um `GrupoPlantao` inativo nunca deve ser usado para
+rotular uma Equipe como destino operacional de Plantão. O vínculo histórico
+fica auditável em Administração → Grupos de Plantão, mas não altera seletor,
+Wizard, resolver nem tabela operacional de Equipes.
+
 **Leitura obrigatória antes de alterar** qualquer coisa relacionada a
 `GESTOR_UNIDADE`, `GrupoPlantao`, `Equipe.unidadeId`/`caminhoUnidade`, ou
 `firestore.rules` das coleções `equipes`/`unidadesOrganizacionais`/

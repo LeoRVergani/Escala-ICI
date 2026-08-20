@@ -1,5 +1,6 @@
 import type { GrupoPlantao } from '@escala-ici/contrato';
-import type { Equipe, PerfilUsuario, UnidadeOrganizacional, Usuario } from './modelos';
+import type { Equipe, EscopoOperacional, PerfilUsuario, UnidadeOrganizacional, Usuario } from './modelos';
+import { resolverMatrizOperacional } from './escoposOperacionaisMatriz';
 import {
   ehAdminSistema,
   equipesPermitidasEfetivas,
@@ -48,6 +49,12 @@ export interface EscoposOperacionais {
    * administrável, nunca "só consulta".
    */
   plantoesConsultaveis: GrupoPlantao[];
+  /** Alias semântico usado pela UI: monitoramento é consulta, não edição. */
+  plantoesMonitorados: GrupoPlantao[];
+  alvosDisponiveisParaConfiguracao: {
+    jornadas: Equipe[];
+    plantoes: GrupoPlantao[];
+  };
 }
 
 const PERFIS_GESTOR_DE_EQUIPE: ReadonlySet<PerfilUsuario> = new Set(['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE']);
@@ -77,6 +84,7 @@ export function resolverEscoposOperacionais(
   unidadesOrganizacionais: readonly UnidadeOrganizacional[],
   equipes: readonly Equipe[],
   gruposPlantao: readonly GrupoPlantao[],
+  escoposOperacionais: readonly EscopoOperacional[] = [],
 ): EscoposOperacionais {
   const admin = ehAdminSistema(usuarioEfetivo);
   const perfil = perfilEfetivo(usuarioEfetivo);
@@ -97,11 +105,26 @@ export function resolverEscoposOperacionais(
       || (ehGestorDeEquipe && equipesPermitidasExplicitas.includes(equipe.id))
     ));
 
-  const idsEquipeResponsavelPlantao = new Set(gruposPlantao.map((grupo) => grupo.equipeResponsavelId));
-  const jornadasAdministraveis = equipesAdministraveis.filter((equipe) => !idsEquipeResponsavelPlantao.has(equipe.id));
+  const matriz = resolverMatrizOperacional({
+    usuario: usuarioEfetivo,
+    equipes,
+    gruposPlantao,
+    escoposOperacionais,
+  });
 
-  const gruposPlantaoAdministraveis = gruposPlantao.filter((grupo) =>
+  const idsEquipeResponsavelPlantao = new Set(gruposPlantao.filter((grupo) => grupo.ativo).map((grupo) => grupo.equipeResponsavelId));
+  const jornadasFallback = equipesAdministraveis.filter((equipe) => !idsEquipeResponsavelPlantao.has(equipe.id));
+  const jornadasAdministraveis = [
+    ...matriz.jornadasAdministraveis,
+    ...jornadasFallback.filter((equipe) => !matriz.alvoTemMatriz('JORNADA', equipe.id)),
+  ].filter((equipe, indice, lista) => lista.findIndex((item) => item.id === equipe.id) === indice);
+
+  const gruposPlantaoFallback = gruposPlantao.filter((grupo) =>
     grupo.ativo && podeGerenciarGrupoPlantao(usuarioEfetivo, grupo));
+  const gruposPlantaoAdministraveis = [
+    ...matriz.plantoesAdministraveis,
+    ...gruposPlantaoFallback.filter((grupo) => !matriz.alvoTemMatriz('PLANTAO', grupo.grupoId)),
+  ].filter((grupo, indice, lista) => lista.findIndex((item) => item.grupoId === grupo.grupoId) === indice);
 
   /**
    * Fase ESCOPO-CONSULTA-PLANTAO-1 — `equipesPermitidasEfetivas()` (não
@@ -114,12 +137,17 @@ export function resolverEscoposOperacionais(
    */
   const idsGruposAdministraveis = new Set(gruposPlantaoAdministraveis.map((grupo) => grupo.grupoId));
   const equipesConsultaBase = equipesPermitidasEfetivas(usuarioEfetivo);
-  const plantoesConsultaveis = admin
+  const plantoesConsultaveisFallback = admin
     ? []
     : gruposPlantao.filter((grupo) =>
       grupo.ativo
       && !idsGruposAdministraveis.has(grupo.grupoId)
+      && !matriz.alvoTemMatriz('PLANTAO', grupo.grupoId)
       && grupo.equipesConsulta.some((equipeId) => equipesConsultaBase.includes(equipeId)));
+  const plantoesConsultaveis = [
+    ...matriz.plantoesConsultaveis.filter((grupo) => !idsGruposAdministraveis.has(grupo.grupoId)),
+    ...plantoesConsultaveisFallback,
+  ].filter((grupo, indice, lista) => lista.findIndex((item) => item.grupoId === grupo.grupoId) === indice);
 
   return {
     unidadesAdministraveis,
@@ -128,6 +156,8 @@ export function resolverEscoposOperacionais(
     gruposPlantaoAdministraveis,
     plantoesAdministraveis: gruposPlantaoAdministraveis,
     plantoesConsultaveis,
+    plantoesMonitorados: plantoesConsultaveis,
+    alvosDisponiveisParaConfiguracao: matriz.alvosDisponiveisParaConfiguracao,
   };
 }
 

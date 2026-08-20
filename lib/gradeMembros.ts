@@ -38,6 +38,21 @@ export function membroJaNaGrade(
   return documentos.some((documento) => documento.login === login);
 }
 
+export function usuariosElegiveisParaAdicionarNaGrade(
+  usuarios: readonly Usuario[],
+  documentos: readonly TurnosMes[],
+  equipeId: string | null | undefined,
+): Usuario[] {
+  if (equipeId === null || equipeId === undefined || equipeId.trim() === '') {
+    return [];
+  }
+  return usuarios.filter((usuario) => (
+    usuario.ativo
+    && usuario.equipeId === equipeId
+    && !membroJaNaGrade(documentos, usuario.login)
+  ));
+}
+
 /**
  * Cria o documento em branco (`dias: {}`) de um colaborador recém-incluído
  * na grade. O gestor preenche os dias pela edição de célula já existente.

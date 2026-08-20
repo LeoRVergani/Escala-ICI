@@ -255,6 +255,20 @@ pertencimento (`equipeId`) — mesmo princípio, aplicado a um domínio novo:
 pertencimento a um grupo de plantão não é a mesma coisa que autorização
 para consultá-lo.
 
+**Atualização ESCOPO-OPERACIONAL-MATRIZ-1:** `equipesConsulta` permite
+apenas consulta/monitoramento de Plantão. Administração operacional de
+Plantão vem da matriz explícita `escoposOperacionais` (`tipo: "PLANTAO"`).
+Se a spec antiga ou o código legado der administração por equipe/unidade do
+Grupo, essa regra é **Regra transitória / fallback de compatibilidade** até
+existir matriz para o alvo. `GrupoPlantao ativo:false` não entra em seletor
+operacional nem no Wizard; aparece somente na Administração com badge
+Inativo.
+
+`GrupoPlantao ativo:false` também não pode contaminar o destino operacional
+da equipe responsável. Se um grupo antigo/inativo aponta para `EQ_SOC`, a
+tabela de Equipes não deve rotular `EQ_SOC` como Plantão por causa desse
+documento; o grupo fica visível apenas em Administração → Grupos de Plantão.
+
 ## 8. Regras de cobertura são configuráveis por grupo
 
 Não hardcodar no domínio global algo como "segunda = X, sexta = Y". O
