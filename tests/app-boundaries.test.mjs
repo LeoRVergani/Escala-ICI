@@ -588,7 +588,7 @@ test('correção urgente: sem undefined no Firestore, erro visível e diferencia
   assert.match(estilos, /\.toast \{[\s\S]*z-index: 260/);
 });
 
-test('cadastro de usuário não transforma nível hierárquico em promoção implícita de coordenador', async () => {
+test('responsável operacional cadastra colaborador e delega coordenação somente na equipe do alvo', async () => {
   const [dashboard, guards, rules] = await Promise.all([
     ler('apps/dashboard/src/DashboardApp.tsx'),
     ler('lib/adminGuards.ts'),
@@ -596,9 +596,15 @@ test('cadastro de usuário não transforma nível hierárquico em promoção imp
   ]);
 
   assert.match(guards, /export function cadastroUsuarioConcedeGestao/u);
-  assert.match(dashboard, /!souAdmin\s*&& cadastroUsuarioConcedeGestao\(candidato\)/u);
-  assert.match(dashboard, /Somente um ADMIN_SISTEMA pode cadastrar ou promover outro coordenador/u);
-  assert.match(dashboard, /Perfis de coordenação e supervisão são concedidos somente por ADMIN_SISTEMA/u);
+  assert.match(guards, /export function perfilDelegavelPorResponsavelOperacional/u);
+  assert.match(dashboard, /Coordenador da equipe/u);
+  assert.match(dashboard, /Supervisor da equipe/u);
+  assert.match(dashboard, /contextoCadastroOperacionalUsuario/u);
+  assert.match(dashboard, /responsabilidade ativa na Jornada ou no Plantão desta equipe/u);
   assert.match(dashboard, /publique as Firestore Rules atuais de staging/u);
-  assert.match(rules, /request\.resource\.data\.nivelHierarquico > 5/u);
+  assert.match(rules, /contextoCadastroOperacionalAutorizaUsuario/u);
+  assert.match(rules, /\['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'\]/u);
+  assert.match(rules, /grupoPlantaoPorId\(contexto\.alvoId\)\.equipeResponsavelId == dados\.equipeId/u);
+  assert.match(rules, /dados\.get\('escopo', null\) == 'EQUIPE'/u);
+  assert.doesNotMatch(dashboard, /Perfis de coordenação e supervisão são concedidos somente por ADMIN_SISTEMA/u);
 });

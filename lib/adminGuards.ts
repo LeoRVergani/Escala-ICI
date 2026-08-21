@@ -8,6 +8,11 @@ const PERFIS_COM_PODER_DE_GESTAO = new Set([
   'SUPERVISOR_EQUIPE',
 ]);
 
+const PERFIS_DELEGAVEIS_POR_RESPONSAVEL = new Set([
+  'GESTOR_EQUIPE',
+  'SUPERVISOR_EQUIPE',
+]);
+
 /**
  * Detecta se um cadastro novo já nasceria com poder de gestão. Isso inclui
  * documentos legados sem `perfil`: `nivelHierarquico <= 5` ainda cai em
@@ -16,6 +21,15 @@ const PERFIS_COM_PODER_DE_GESTAO = new Set([
  */
 export function cadastroUsuarioConcedeGestao(candidato: Usuario): boolean {
   return PERFIS_COM_PODER_DE_GESTAO.has(perfilEfetivo(candidato));
+}
+
+/**
+ * Um coordenador responsável pode formar outro coordenador/supervisor somente
+ * no escopo da equipe do alvo. Perfis globais ou de unidade continuam
+ * exclusivos do ADMIN_SISTEMA.
+ */
+export function perfilDelegavelPorResponsavelOperacional(perfil: Usuario['perfil']): boolean {
+  return perfil !== undefined && PERFIS_DELEGAVEIS_POR_RESPONSAVEL.has(perfil);
 }
 
 /** Bloqueio de autoexclusão: o admin nunca pode excluir a própria conta logada. */

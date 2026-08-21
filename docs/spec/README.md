@@ -106,12 +106,13 @@ usuário pode abrir o cadastro no próprio Vínculos e é ligado somente depois 
 salvar, sempre na equipe responsável do Grupo e sem associação automática ao
 coordenador autenticado.
 
-Nota CADASTRO-COORDENADOR-1: somente `ADMIN_SISTEMA` cadastra ou promove
-coordenador/supervisor. Ator não-admin não pode usar nível hierárquico 1–5 em
-cadastro novo, porque o fallback legado concederia `GESTOR_EQUIPE` sem perfil
-explícito. Dashboard e Rules bloqueiam esse atalho e orientam a configuração
-posterior em **Administração → Responsáveis por escala**. Erro de staging
-distingue falta de autorização/matriz de Rules ainda não publicadas.
+Nota CADASTRO-COORDENADOR-2: responsável operacional cadastra colaboradores,
+coordenadores e supervisores na equipe da Jornada/Plantão administrado. A
+delegação é explícita, limitada a `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` com
+escopo `EQUIPE`, e não altera a Matriz de Responsáveis. Plantão valida o Grupo
+ativo e sua equipe responsável. Administração global, gestão de unidade e
+equipes externas continuam exclusivas de `ADMIN_SISTEMA`. Erro de staging
+distingue falta de responsabilidade de Rules ainda não publicadas.
 
 Nota CODIGO-ORGANIZACIONAL-EQUIPE-1: a UI separa o ID técnico persistido do
 código organizacional hierárquico. `EQ_SOC`, `EQ_NOC` e `EQ_PLANTAO_COSI`

@@ -507,6 +507,127 @@ describe('regras Firestore do Escala ICI', () => {
       ));
     });
 
+    it('responsável por Plantão cadastra colaborador na equipe responsável do próprio grupo', async () => {
+      await semearMatriz();
+      const db = autenticarComo(usuarios.gestor);
+      const ref = doc(db, 'usuarios', 'novo.plantonista');
+      await assertSucceeds(setDoc(ref, {
+        login: 'novo.plantonista',
+        nome: 'Novo Plantonista',
+        email: 'novo.plantonista@teste.local',
+        cargo: 'Analista',
+        equipeId: 'EQ_PLANTAO_COSI',
+        gestorUid: usuarios.gestor.login,
+        nivelHierarquico: 6,
+        turnoPadrao: 'M',
+        ativo: true,
+        cadastroOperacional: {
+          tipo: 'PLANTAO',
+          alvoId: 'PLANTAO_COSI',
+          criadoPorLogin: usuarios.gestor.login,
+        },
+      }));
+      await assertSucceeds(getDoc(ref));
+      await assertSucceeds(updateDoc(ref, {
+        aliasesPlanilha: ['NOVO PLANTONISTA'],
+        atualizadoEm: '2026-08-02T00:00:00.000Z',
+      }));
+    });
+
+    it('responsável por Plantão cadastra outro coordenador ou supervisor apenas na equipe do alvo', async () => {
+      await semearMatriz();
+      const db = autenticarComo(usuarios.gestor);
+      const base = {
+        nome: 'Nova Coordenação',
+        email: 'nova.coordenacao@teste.local',
+        cargo: 'Coordenador',
+        equipeId: 'EQ_PLANTAO_COSI',
+        gestorUid: usuarios.gestor.login,
+        nivelHierarquico: 4,
+        turnoPadrao: 'M',
+        ativo: true,
+        escopo: 'EQUIPE',
+        cadastroOperacional: {
+          tipo: 'PLANTAO',
+          alvoId: 'PLANTAO_COSI',
+          criadoPorLogin: usuarios.gestor.login,
+        },
+      };
+
+      await assertSucceeds(setDoc(doc(db, 'usuarios', 'nova.coordenacao'), {
+        ...base,
+        login: 'nova.coordenacao',
+        perfil: 'GESTOR_EQUIPE',
+      }));
+      await assertSucceeds(setDoc(doc(db, 'usuarios', 'nova.supervisao'), {
+        ...base,
+        login: 'nova.supervisao',
+        email: 'nova.supervisao@teste.local',
+        perfil: 'SUPERVISOR_EQUIPE',
+      }));
+    });
+
+    it('responsável por Plantão não forja equipe, alvo, admin, gestão de unidade ou escopo global', async () => {
+      await semearMatriz();
+      const db = autenticarComo(usuarios.gestor);
+      const base = {
+        login: 'delegacao.invalida',
+        nome: 'Delegação Inválida',
+        email: 'delegacao.invalida@teste.local',
+        cargo: 'Coordenador',
+        equipeId: 'EQ_PLANTAO_COSI',
+        gestorUid: usuarios.gestor.login,
+        nivelHierarquico: 4,
+        turnoPadrao: 'M',
+        ativo: true,
+        perfil: 'GESTOR_EQUIPE',
+        escopo: 'EQUIPE',
+        cadastroOperacional: {
+          tipo: 'PLANTAO',
+          alvoId: 'PLANTAO_COSI',
+          criadoPorLogin: usuarios.gestor.login,
+        },
+      };
+
+      await assertFails(setDoc(doc(db, 'usuarios', 'equipe.forjada'), {
+        ...base, login: 'equipe.forjada', equipeId: 'EQ_CODB_NOC',
+      }));
+      await assertFails(setDoc(doc(db, 'usuarios', 'alvo.forjado'), {
+        ...base,
+        login: 'alvo.forjado',
+        cadastroOperacional: { ...base.cadastroOperacional, alvoId: 'PLANTAO_INEXISTENTE' },
+      }));
+      await assertFails(setDoc(doc(db, 'usuarios', 'admin.forjado.plantao'), {
+        ...base, login: 'admin.forjado.plantao', perfil: 'ADMIN_SISTEMA', escopo: 'GLOBAL',
+      }));
+      await assertFails(setDoc(doc(db, 'usuarios', 'unidade.forjada'), {
+        ...base, login: 'unidade.forjada', perfil: 'GESTOR_UNIDADE', escopo: 'UNIDADE',
+      }));
+    });
+
+    it('responsável por Jornada cadastra outro coordenador com escopo restrito à equipe do alvo', async () => {
+      await semearMatriz();
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(setDoc(doc(db, 'usuarios', 'coordenador.jornada'), {
+        login: 'coordenador.jornada',
+        nome: 'Coordenador Jornada',
+        email: 'coordenador.jornada@teste.local',
+        cargo: 'Coordenador',
+        equipeId: 'EQ_SOC',
+        gestorUid: usuarios.gestor.login,
+        nivelHierarquico: 4,
+        turnoPadrao: 'M',
+        ativo: true,
+        perfil: 'GESTOR_EQUIPE',
+        escopo: 'EQUIPE',
+        cadastroOperacional: {
+          tipo: 'JORNADA',
+          alvoId: 'EQ_SOC',
+          criadoPorLogin: usuarios.gestor.login,
+        },
+      }));
+    });
+
     it('equipesConsulta lê/monitora Plantão, mas não salva nem publica', async () => {
       await semearMatriz({ responsaveisLogin: [usuarios.gestor.login] });
       await ambiente.withSecurityRulesDisabled(async (contexto) => {

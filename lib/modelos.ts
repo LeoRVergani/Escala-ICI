@@ -29,6 +29,12 @@ export type PerfilUsuario =
 
 export type EscopoUsuario = 'GLOBAL' | 'EQUIPE' | 'UNIDADE';
 
+export interface ContextoCadastroOperacionalUsuario {
+  tipo: 'JORNADA' | 'PLANTAO';
+  alvoId: string;
+  criadoPorLogin: string;
+}
+
 /**
  * O `login` corporativo é a chave funcional e o ID do documento
  * `usuarios/{login}` — estável desde o cadastro, nunca muda. `uid` é
@@ -53,8 +59,10 @@ export interface Usuario {
    * Autorização explícita — ver `PerfilUsuario`. Opcional para não quebrar
    * documentos existentes: quando ausente, `perfilEfetivo()` (lib/sessao.ts)
    * deriva o comportamento de hoje a partir de `nivelHierarquico`. Só
-   * ADMIN_SISTEMA pode definir ou alterar este campo em qualquer usuário
-   * (ver firestore.rules).
+   * ADMIN_SISTEMA pode definir qualquer perfil. Um responsável operacional
+   * também pode definir `GESTOR_EQUIPE` ou `SUPERVISOR_EQUIPE` ao criar uma
+   * pessoa dentro da equipe do próprio alvo; nunca pode conceder
+   * `ADMIN_SISTEMA`, `GESTOR_UNIDADE` ou escopo global (ver firestore.rules).
    */
   perfil?: PerfilUsuario;
 
@@ -98,6 +106,12 @@ export interface Usuario {
    * pelo parser.
    */
   aliasesPlanilha?: string[];
+  /**
+   * Rastreia o alvo que autorizou um cadastro feito por responsável não-admin.
+   * É metadado de auditoria e autorização da criação, não concede acesso
+   * futuro e não substitui a Matriz de Responsáveis por Escala.
+   */
+  cadastroOperacional?: ContextoCadastroOperacionalUsuario;
   criadoEm?: string;
   atualizadoEm?: string;
 }

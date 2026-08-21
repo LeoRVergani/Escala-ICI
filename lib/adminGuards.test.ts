@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cadastroUsuarioConcedeGestao,
   exclusaoZeraGestores,
+  perfilDelegavelPorResponsavelOperacional,
   podeExcluirCompetencia,
   podeExcluirUsuario,
 } from './adminGuards';
@@ -50,6 +51,20 @@ describe('cadastroUsuarioConcedeGestao', () => {
 
   it('não trata perfil explícito de colaborador como gestão, mesmo com nível organizacional baixo', () => {
     expect(cadastroUsuarioConcedeGestao(usuario({ perfil: 'ANALISTA_SOC', nivelHierarquico: 4 }))).toBe(false);
+  });
+});
+
+describe('perfilDelegavelPorResponsavelOperacional', () => {
+  it('permite apenas coordenação e supervisão da própria equipe', () => {
+    expect(perfilDelegavelPorResponsavelOperacional('GESTOR_EQUIPE')).toBe(true);
+    expect(perfilDelegavelPorResponsavelOperacional('SUPERVISOR_EQUIPE')).toBe(true);
+  });
+
+  it('não permite administração global, gestão de unidade ou perfil comum', () => {
+    expect(perfilDelegavelPorResponsavelOperacional('ADMIN_SISTEMA')).toBe(false);
+    expect(perfilDelegavelPorResponsavelOperacional('GESTOR_UNIDADE')).toBe(false);
+    expect(perfilDelegavelPorResponsavelOperacional('ANALISTA_SOC')).toBe(false);
+    expect(perfilDelegavelPorResponsavelOperacional(undefined)).toBe(false);
   });
 });
 

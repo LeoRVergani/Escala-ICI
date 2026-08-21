@@ -274,18 +274,23 @@ Cartões importados apresentam iniciais e horário lado a lado, com intervalo
 compacto quando possível, sem perder o rótulo acessível completo. Usuário
 ausente pode ser criado pelo modal da própria aba Vínculos e só é vinculado
 após persistência bem-sucedida. O cadastro usa a equipe responsável pelo Grupo
-de Plantão, nunca a equipe/UID do operador autenticado, e não altera as
-permissões das Firestore Rules.
+de Plantão, nunca a equipe/UID do operador autenticado. As Firestore Rules
+validam esse vínculo pelo Grupo e pela Matriz, sem abrir acesso geral a outras
+equipes.
 
-## 18. Cadastro e promoção de coordenadores
+## 18. Cadastro e delegação de coordenadores
 
-Somente `ADMIN_SISTEMA` pode criar ou promover outro coordenador/supervisor.
-Para documentos novos, `nivelHierarquico <= 5` sem perfil explícito não é
-aceito de um ator não-admin, pois o fallback legado transformaria o cadastro
-em `GESTOR_EQUIPE`. O Dashboard bloqueia antes da escrita e as Firestore Rules
-repetem a mesma defesa. Cargo e nível permanecem dados organizacionais; a
-autorização nova vem de `perfil` explícito e o acesso a uma escala vem da
-Matriz de Responsáveis.
+O responsável operacional de uma Jornada ou Plantão pode cadastrar
+colaboradores, coordenadores e supervisores na equipe do próprio alvo. A
+delegação aceita somente `GESTOR_EQUIPE` ou `SUPERVISOR_EQUIPE` com escopo
+`EQUIPE`; `ADMIN_SISTEMA`, `GESTOR_UNIDADE`, escopo global e equipes externas
+continuam bloqueados. Para Plantão, as Rules validam o Grupo ativo e sua
+`equipeResponsavelId`.
+
+O cadastro registra o alvo operacional que autorizou a criação. Esse metadado
+é auditoria, não uma nova ACL: o acesso do novo coordenador às escalas continua
+dependendo da Matriz de Responsáveis. Cargo e nível hierárquico, sozinhos, não
+concedem permissão.
 
 ## 19. Identificação organizacional de equipes
 

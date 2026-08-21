@@ -167,32 +167,34 @@ Rules **nunca percorrem `parentId`** — só leem arrays explícitos (`caminho`,
 | Criar/editar unidade organizacional | sempre | só dentro de `unidadesPermitidasEfetivas` | não | não |
 | Criar/editar equipe | sempre | só se a `unidadeId` da equipe estiver em `podeOperarNaUnidade` | não cria; opera sobre equipe já existente | não |
 | Ler/escrever escala (`turnosMes`/rascunhos) | qualquer equipe (`podeOperarNaEquipe`) | não diretamente (perfil não é gestor de equipe) | própria(s) equipe(s) permitida(s) | só leitura da escala publicada da própria equipe |
-| Criar/editar usuário | qualquer campo, qualquer equipe, inclusive `perfil`/`escopo` | não (painel restrito a `ADMIN_SISTEMA` no Dashboard) | só na própria equipe, nunca `perfil`/`escopo`/campos organizacionais | não |
+| Criar/editar usuário | qualquer campo, qualquer equipe, inclusive `perfil`/`escopo` | cria pessoas na equipe de Jornada/Plantão sob sua responsabilidade; delega apenas gestão/supervisão de equipe | cria pessoas na equipe de Jornada/Plantão sob sua responsabilidade; delega apenas gestão/supervisão de equipe | não |
 | Importar usuário ausente/conciliar alias em Jornada | sempre | somente quando responsável pela matriz da Jornada-alvo; cadastro sem campos de perfil/escopo e update só de aliases | mesma regra da matriz; fallback legado somente na própria equipe | não |
 | Ativar/desativar usuário | sim | não visto no Dashboard (painel restrito a admin) | sim, dentro da própria equipe | não |
 | Excluir usuário | sim | não | não (Rules: `delete` só `souAdminSistema()`) | não |
-| Conceder/alterar `perfil` de outro usuário | sim, qualquer usuário | não | não (bloqueado explicitamente nas Rules) | não |
+| Alterar/promover o `perfil` de usuário já existente | sim, qualquer usuário | não | não (a delegação vale somente no cadastro novo e no próprio alvo) | não |
 | Simular gestor (impersonation) | sim (nunca é alvo de simulação) | não | é alvo possível de simulação | não |
 
-### Cadastro de outro coordenador
+### Cadastro de colaboradores e de outro coordenador
 
-`nivelHierarquico` descreve posição organizacional e não é um mecanismo de
-delegação. Embora documentos legados sem `perfil` ainda usem o fallback
-`nivelHierarquico <= 5 → GESTOR_EQUIPE`, um cadastro **novo** feito por ator
-não-admin deve ter nível maior que 5. Essa restrição existe tanto no Dashboard
-quanto em `firestore.rules`, impedindo que o formulário seja usado para uma
-promoção implícita.
+Quem administra uma Jornada ou Plantão pode cadastrar colaboradores na equipe
+do próprio alvo. No Plantão, a autorização usa o `grupoId` ativo e confirma nas
+Rules que `GrupoPlantao.equipeResponsavelId` é a equipe gravada no usuário; não
+é suficiente informar uma equipe arbitrária no payload.
 
-Somente `ADMIN_SISTEMA` cadastra ou promove coordenador/supervisor, definindo
-um `perfil` explícito (`GESTOR_UNIDADE`, `GESTOR_EQUIPE` ou
-`SUPERVISOR_EQUIPE`). Depois disso, a responsabilidade por Jornada/Plantão é
-configurada separadamente em **Administração → Responsáveis por escala**. Um
-responsável operacional não pode criar outro responsável apenas informando
-cargo textual ou nível 1–5.
+O mesmo responsável pode cadastrar outro coordenador ou supervisor dessa
+equipe, escolhendo explicitamente `GESTOR_EQUIPE` ou `SUPERVISOR_EQUIPE` com
+escopo `EQUIPE`. Isso não adiciona automaticamente o novo cadastro à Matriz de
+Responsáveis e não concede acesso a outras equipes ou operações.
+
+`nivelHierarquico` continua sendo descrição organizacional, não autorização
+isolada. Cadastro comum sem perfil exige nível maior que 5; coordenação e
+supervisão exigem perfil explícito e contexto operacional auditável. Apenas
+`ADMIN_SISTEMA` pode conceder `ADMIN_SISTEMA`, `GESTOR_UNIDADE`, escopo
+`GLOBAL`, unidades ou equipes permitidas adicionais.
 
 Quando staging recusar o cadastro, a UI deve distinguir esse bloqueio do erro
-genérico: criação comum exige `ADMIN_SISTEMA` ou responsabilidade ativa na
-Jornada da equipe; se a matriz já estiver correta, o diagnóstico orienta a
+genérico: criação exige responsabilidade ativa na Jornada ou no Plantão da
+equipe; se a matriz já estiver correta, o diagnóstico orienta a
 publicação das Firestore Rules atuais. Nenhuma falha confirma cadastro ou
 vínculo apenas no estado local.
 

@@ -147,6 +147,13 @@ O campo de equipe administradora deve aparecer como **Equipes administradoras** 
 
 O modal deve usar seletores de equipes ativas e alvos ativos. Não deve exigir que a operação diária digite `grupoId`, `equipeId` ou listas separadas por vírgula na interface principal. IDs técnicos podem aparecer apenas como complemento/tooltip.
 
+Um responsável operacional pode cadastrar colaboradores e delegar
+`GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` na equipe do alvo. Para Plantão, o cadastro
+carrega contexto auditável com `grupoId`, e as Rules conferem o Grupo ativo e
+sua `equipeResponsavelId`. Essa delegação não altera a matriz, não autoriza
+outras equipes e nunca permite `ADMIN_SISTEMA`, `GESTOR_UNIDADE` ou escopo
+global.
+
 Vínculos antigos com `responsaveisLogin` não elegível devem permanecer persistidos até correção manual, mas a tela deve exibir badge **“Responsável não elegível”** e não tratar esse humano como administrador operacional.
 
 ## 9.1. Bootstrap e staging

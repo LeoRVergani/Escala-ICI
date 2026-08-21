@@ -57,6 +57,11 @@ service cloud.firestore {
       return autenticado() && (meuPerfil() == 'GESTOR_EQUIPE' || souAdminSistema());
     }
 
+    function souResponsavelOperacionalElegivel() {
+      return autenticado()
+        && meuPerfil() in ['ADMIN_SISTEMA', 'GESTOR_UNIDADE', 'GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'];
+    }
+
     /**
      * Espelha `equipesPermitidasEfetivas()` de lib/sessao.ts: lista explícita
      * (não-vazia) manda; na ausência, `equipeId` (sempre presente) vira lista
@@ -367,6 +372,50 @@ service cloud.firestore {
         || (!existeMatrizOperacional('PLANTAO', grupoId) && podeGerenciarGrupoPlantao(grupoPlantaoPorId(grupoId)));
     }
 
+    /**
+     * Contexto auditável enviado no cadastro de uma pessoa. Resolve a lacuna
+     * entre `usuarios.equipeId` e um alvo PLANTAO: o responsável só pode
+     * cadastrar na equipe responsável do Grupo que ele realmente administra.
+     */
+    function contextoCadastroOperacionalAutorizaUsuario(dados, exigirMesmoAutor) {
+      let contexto = dados.get('cadastroOperacional', null);
+      return souResponsavelOperacionalElegivel()
+        && contexto is map
+        && contexto.keys().hasOnly(['tipo', 'alvoId', 'criadoPorLogin'])
+        && contexto.tipo in ['JORNADA', 'PLANTAO']
+        && contexto.alvoId is string && contexto.alvoId.size() > 0
+        && (!exigirMesmoAutor || contexto.criadoPorLogin == loginDoAuth())
+        && (
+          (
+            contexto.tipo == 'JORNADA'
+            && contexto.alvoId == dados.equipeId
+            && podeAdministrarJornada(contexto.alvoId)
+          )
+          || (
+            contexto.tipo == 'PLANTAO'
+            && exists(/databases/$(database)/documents/gruposPlantao/$(contexto.alvoId))
+            && grupoPlantaoPorId(contexto.alvoId).ativo == true
+            && grupoPlantaoPorId(contexto.alvoId).equipeResponsavelId == dados.equipeId
+            && podeAdministrarEscalaPlantao(contexto.alvoId)
+          )
+        );
+    }
+
+    function perfilCadastroPorResponsavelValido(dados) {
+      return (
+          dados.get('perfil', null) == null
+          && dados.get('escopo', null) == null
+          && dados.nivelHierarquico > 5
+        )
+        || (
+          dados.get('cadastroOperacional', null) != null
+          && dados.get('perfil', null) in ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE']
+          && dados.get('escopo', null) == 'EQUIPE'
+          && dados.nivelHierarquico >= 1
+          && dados.nivelHierarquico <= 5
+        );
+    }
+
     function podeLerEscalaPlantao(grupoId) {
       return podeAdministrarEscalaPlantao(grupoId)
         || matrizConcedeConsultaPlantao(grupoId)
@@ -389,6 +438,10 @@ service cloud.firestore {
           // O responsável operacional precisa enumerar os usuários do alvo
           // para montar a grade de Jornada, mesmo pertencendo a outra equipe.
           || matrizConcedeAdministracao('JORNADA', resource.data.equipeId)
+          // Pessoas cadastradas a partir de Plantão carregam o contexto do
+          // Grupo. Responsáveis atuais do mesmo alvo conseguem relê-las sem
+          // ganhar acesso aos usuários de outras equipes.
+          || contextoCadastroOperacionalAutorizaUsuario(resource.data, false)
         );
 
       allow update: if autenticado()
@@ -413,7 +466,10 @@ service cloud.firestore {
           // administração geral do cadastro do usuário.
           || (
             !souAdminSistema()
-            && matrizConcedeAdministracao('JORNADA', resource.data.equipeId)
+            && (
+              matrizConcedeAdministracao('JORNADA', resource.data.equipeId)
+              || contextoCadastroOperacionalAutorizaUsuario(resource.data, false)
+            )
             && request.resource.data.equipeId == resource.data.equipeId
             && request.resource.data.login == resource.data.login
             && request.resource.data.diff(resource.data)
@@ -436,6 +492,7 @@ service cloud.firestore {
             && request.resource.data.get('unidadeId', null) == resource.data.get('unidadeId', null)
             && request.resource.data.get('unidadesPermitidas', null) == resource.data.get('unidadesPermitidas', null)
             && request.resource.data.get('equipesPermitidas', null) == resource.data.get('equipesPermitidas', null)
+            && request.resource.data.get('cadastroOperacional', null) == resource.data.get('cadastroOperacional', null)
           )
         );
 
@@ -448,21 +505,22 @@ service cloud.firestore {
 
           || (
             !souAdminSistema()
-            && podeAdministrarJornada(request.resource.data.equipeId)
-            // responsável não-admin NUNCA pode setar perfil/escopo/campos
-            // organizacionais na criação — nem um valor "inofensivo": o
-            // campo tem que estar ausente do payload. Novo usuário cai no
-            // fallback (perfilEfetivo/unidadesPermitidasEfetivas/
-            // equipesPermitidasEfetivas), igual hoje.
-            && request.resource.data.get('perfil', null) == null
-            && request.resource.data.get('escopo', null) == null
+            && (
+              contextoCadastroOperacionalAutorizaUsuario(request.resource.data, true)
+              // Compatibilidade com clientes anteriores: cadastro comum de
+              // colaborador em Jornada continua válido sem o metadado novo.
+              || (
+                request.resource.data.get('cadastroOperacional', null) == null
+                && podeAdministrarJornada(request.resource.data.equipeId)
+              )
+            )
+            // Coordenação/supervisão pode ser delegada apenas com contexto
+            // explícito do alvo e escopo EQUIPE. Gestão global/de unidade
+            // permanece exclusiva do ADMIN_SISTEMA.
+            && perfilCadastroPorResponsavelValido(request.resource.data)
             && request.resource.data.get('unidadeId', null) == null
             && request.resource.data.get('unidadesPermitidas', null) == null
             && request.resource.data.get('equipesPermitidas', null) == null
-            // Documento novo sem `perfil` ainda usa o fallback legado por
-            // nível. Impedir <= 5 fecha a promoção implícita para
-            // GESTOR_EQUIPE; somente ADMIN_SISTEMA concede gestão.
-            && request.resource.data.nivelHierarquico > 5
           )
         );
 

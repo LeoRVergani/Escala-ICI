@@ -223,6 +223,7 @@ import {
 import {
   cadastroUsuarioConcedeGestao,
   exclusaoZeraGestores,
+  perfilDelegavelPorResponsavelOperacional,
   podeExcluirCompetencia,
   podeExcluirUsuario,
 } from '@/lib/adminGuards';
@@ -715,12 +716,7 @@ interface FormularioUsuario {
   ativo: boolean;
   aliasesPlanilha: string[];
 
-  /**
-   * Campos administrativos (perfil/escopo/organização) — só entram no
-   * payload enviado a `salvarUsuario` quando `souAdmin` for `true` (ver
-   * `salvarFormularioUsuario`); as rules rejeitam esses campos no payload
-   * de um gestor comum, então omiti-los aqui evita erro de permissão.
-   */
+  /** Campos globais continuam exclusivos do admin; perfil de equipe pode ser delegado pelo responsável do alvo. */
   perfil?: Usuario['perfil'];
   escopo?: Usuario['escopo'];
   unidadeId?: string;
@@ -747,6 +743,11 @@ const PERFIS_ADMINISTRAVEIS: NonNullable<Usuario['perfil']>[] = [
   'ANALISTA_SOC',
   'ANALISTA_SUPORTE',
   'LEITURA',
+];
+
+const PERFIS_DELEGAVEIS_POR_RESPONSAVEL: NonNullable<Usuario['perfil']>[] = [
+  'GESTOR_EQUIPE',
+  'SUPERVISOR_EQUIPE',
 ];
 
 const STATUS_CONCILIACAO_LABEL: Record<LinhaConciliacao['status'], string> = {
@@ -3305,6 +3306,32 @@ export function DashboardApp() {
     : grupoCadastroVinculo?.equipeResponsavelId ?? '';
   const rotuloEquipeCadastroUsuario = equipesAdmin.find((equipe) => equipe.id === equipeIdCadastroUsuario)?.nome
     ?? equipeIdCadastroUsuario;
+  const contextoCadastroOperacionalUsuario = usuarioReal === null || souAdmin
+    ? undefined
+    : grupoCadastroVinculo !== undefined
+      && escoposOperacionais.plantoesAdministraveis.some((grupo) => grupo.grupoId === grupoCadastroVinculo.grupoId)
+      ? {
+        tipo: 'PLANTAO' as const,
+        alvoId: grupoCadastroVinculo.grupoId,
+        criadoPorLogin: usuarioReal.login,
+      }
+      : escoposOperacionais.jornadasAdministraveis.some((equipe) => equipe.id === equipeIdCadastroUsuario)
+        ? {
+          tipo: 'JORNADA' as const,
+          alvoId: equipeIdCadastroUsuario,
+          criadoPorLogin: usuarioReal.login,
+        }
+        : (() => {
+          const grupo = escoposOperacionais.plantoesAdministraveis
+            .find((item) => item.equipeResponsavelId === equipeIdCadastroUsuario);
+          return grupo === undefined
+            ? undefined
+            : {
+              tipo: 'PLANTAO' as const,
+              alvoId: grupo.grupoId,
+              criadoPorLogin: usuarioReal.login,
+            };
+        })();
   /**
    * Fase CORRECAO-WIZARD-PLANTAO-EQUIPE-1 — a equipe da Jornada ATIVA
    * agora (se houver) nunca deve ser oferecida/escolhida silenciosamente
@@ -5671,12 +5698,16 @@ export function DashboardApp() {
     }
 
     /**
-     * Campos administrativos (perfil/escopo/unidadeId/unidadesPermitidas/
-     * equipesPermitidas) só entram no payload quando `souAdmin` — as rules
-     * exigem que um gestor comum NUNCA envie esses campos (nem para
-     * "reafirmar" o valor atual), então omiti-los aqui é obrigatório, não
-     * só desabilitar os inputs no formulário.
+     * Campos globais de organização continuam exclusivos do admin. Um
+     * responsável operacional pode enviar somente perfil de gestão/supervisão
+     * da equipe e escopo EQUIPE durante a criação no próprio alvo.
      */
+    const cadastroNovo = formularioUsuario.loginOriginal === null;
+    const perfilDelegado = !souAdmin
+      && cadastroNovo
+      && perfilDelegavelPorResponsavelOperacional(formularioUsuario.perfil)
+      ? formularioUsuario.perfil
+      : undefined;
     const camposAdministrativos: Partial<Usuario> = souAdmin && participanteVinculoCadastro === null
       ? {
         perfil: formularioUsuario.perfil,
@@ -5685,6 +5716,12 @@ export function DashboardApp() {
         unidadesPermitidas: formularioUsuario.unidadesPermitidas,
         equipesPermitidas: formularioUsuario.equipesPermitidas,
       }
+      : !souAdmin && cadastroNovo ? {
+        perfil: perfilDelegado,
+        escopo: perfilDelegado === undefined ? undefined : 'EQUIPE',
+      } : {};
+    const metadadosCadastro: Partial<Usuario> = !souAdmin && cadastroNovo
+      ? { cadastroOperacional: contextoCadastroOperacionalUsuario }
       : {};
 
     let candidato: Usuario;
@@ -5710,6 +5747,7 @@ export function DashboardApp() {
         turnoPadrao: formularioUsuario.turnoPadrao,
         aliasesPlanilha: formularioUsuario.aliasesPlanilha,
         ...camposAdministrativos,
+        ...metadadosCadastro,
       };
     } else {
       const original = usuarios.find((item) => item.login === formularioUsuario.loginOriginal);
@@ -5731,12 +5769,20 @@ export function DashboardApp() {
     }
 
     if (
-      formularioUsuario.loginOriginal === null
+      cadastroNovo
       && !souAdmin
       && cadastroUsuarioConcedeGestao(candidato)
+      && !perfilDelegavelPorResponsavelOperacional(candidato.perfil)
     ) {
       setErrosFormularioUsuario([
-        'Somente um ADMIN_SISTEMA pode cadastrar ou promover outro coordenador. Peça ao administrador para definir o perfil de gestão e depois criar o vínculo em Administração → Responsáveis por escala.',
+        'Para cadastrar outro coordenador, selecione Coordenador da equipe ou Supervisor da equipe. Administração global e gestão de unidade continuam restritas ao ADMIN_SISTEMA.',
+      ]);
+      return;
+    }
+
+    if (cadastroNovo && !souAdmin && contextoCadastroOperacionalUsuario === undefined) {
+      setErrosFormularioUsuario([
+        'Você pode cadastrar pessoas somente na equipe de uma Jornada ou Plantão sob sua responsabilidade. Recarregue as operações e confirme o alvo selecionado.',
       ]);
       return;
     }
@@ -5766,7 +5812,7 @@ export function DashboardApp() {
       fecharFormularioUsuario();
     } catch (falha) {
       const erroCadastro = falhaEhPermissionDenied(falha) && ambienteFirebaseAtual === 'staging'
-        ? 'Não foi possível cadastrar o usuário em staging. Esta ação exige ADMIN_SISTEMA ou responsabilidade ativa na Jornada desta equipe. Se o vínculo já estiver configurado, publique as Firestore Rules atuais de staging.'
+        ? 'Não foi possível cadastrar o usuário em staging. Esta ação exige responsabilidade ativa na Jornada ou no Plantão desta equipe. Se o vínculo já estiver configurado, publique as Firestore Rules atuais de staging.'
         : mensagemErroFirebase(falha, 'Não foi possível salvar o usuário.', ambienteFirebaseAtual);
       setErrosFormularioUsuario([erroCadastro]);
     }
@@ -9715,11 +9761,40 @@ export function DashboardApp() {
                 Equipe
                 <input value={rotuloEquipeCadastroUsuario} disabled />
               </label>
+              {!souAdmin && formularioUsuario.loginOriginal === null && (
+                <label>
+                  Acesso no sistema
+                  <select
+                    value={formularioUsuario.perfil ?? ''}
+                    onChange={(evento) => {
+                      const perfil = (evento.target.value || undefined) as FormularioUsuario['perfil'];
+                      const delegaGestao = perfilDelegavelPorResponsavelOperacional(perfil);
+                      setFormularioUsuario({
+                        ...formularioUsuario,
+                        perfil,
+                        nivelHierarquico: delegaGestao
+                          ? Math.min(formularioUsuario.nivelHierarquico, 5)
+                          : Math.max(formularioUsuario.nivelHierarquico, 6),
+                      });
+                    }}
+                  >
+                    <option value="">Colaborador da equipe</option>
+                    {PERFIS_DELEGAVEIS_POR_RESPONSAVEL.map((perfil) => (
+                      <option key={perfil} value={perfil}>
+                        {perfil === 'GESTOR_EQUIPE' ? 'Coordenador da equipe' : 'Supervisor da equipe'}
+                      </option>
+                    ))}
+                  </select>
+                  <small>Você pode cadastrar colaboradores, coordenadores e supervisores somente nesta equipe.</small>
+                </label>
+              )}
               <label>
-                Nível hierárquico{!souAdmin && formularioUsuario.loginOriginal === null ? ' (colaborador)' : ''}
+                Nível hierárquico
                 <input
                   type="number"
-                  min={!souAdmin && formularioUsuario.loginOriginal === null ? 6 : 1}
+                  min={!souAdmin
+                    && formularioUsuario.loginOriginal === null
+                    && !perfilDelegavelPorResponsavelOperacional(formularioUsuario.perfil) ? 6 : 1}
                   value={formularioUsuario.nivelHierarquico}
                   onChange={(evento) => setFormularioUsuario({
                     ...formularioUsuario,
@@ -9727,7 +9802,7 @@ export function DashboardApp() {
                   })}
                 />
                 {!souAdmin && formularioUsuario.loginOriginal === null && (
-                  <small>Perfis de coordenação e supervisão são concedidos somente por ADMIN_SISTEMA.</small>
+                  <small>O nível descreve a hierarquia; o campo Acesso no sistema define explicitamente coordenação ou supervisão.</small>
                 )}
               </label>
               <label>
