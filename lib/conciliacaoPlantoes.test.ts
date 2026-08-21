@@ -87,14 +87,83 @@ describe('consolidarParticipantesPlantao', () => {
   });
 });
 
-describe('iniciarVinculosPlantao / sugestão', () => {
-  it('5. uma correspondência exata de nome normalizado gera sugestão, mas NÃO vincula automaticamente', () => {
+describe('iniciarVinculosPlantao / conciliação exata', () => {
+  it('5. uma correspondência exata, única e ativa vincula automaticamente pelo login real', () => {
     const participantes = consolidarParticipantesPlantao(RESULTADO_PLANTAO_BASE);
     const vinculos = iniciarVinculosPlantao(participantes, USUARIOS_TESTE);
     const ana = vinculos.find((v) => v.participanteNomeOriginal === 'Ana Costa');
-    expect(ana?.login).toBeNull();
-    expect(ana?.status).not.toBe('VINCULADO');
+    expect(ana?.login).toBe('acosta');
+    expect(ana?.status).toBe('VINCULADO');
     expect(ana?.sugestao).toEqual({ login: 'acosta', nome: 'Ana Costa' });
+  });
+
+  it('vincula automaticamente por alias exato da planilha', () => {
+    const participantes = [{
+      nomeOriginal: 'A. Costa',
+      quantidadeAtribuicoes: 1,
+      apareceNaContabilidade: true,
+      quantidadeInformada: 1,
+      minutosInformados: 720,
+    }];
+    const usuarios = [criarUsuario({
+      login: 'acosta',
+      nome: 'Ana Costa',
+      aliasesPlanilha: ['A. Costa'],
+    })];
+
+    expect(iniciarVinculosPlantao(participantes, usuarios)[0]).toMatchObject({
+      login: 'acosta',
+      status: 'VINCULADO',
+    });
+  });
+
+  it('não auto vincula correspondência ambígua nem usuário inativo', () => {
+    const participantes = [{
+      nomeOriginal: 'Pessoa Plantão',
+      quantidadeAtribuicoes: 1,
+      apareceNaContabilidade: false,
+      quantidadeInformada: null,
+      minutosInformados: null,
+    }];
+    const ambiguos = [
+      criarUsuario({ login: 'pessoa1', nome: 'Pessoa Um', aliasesPlanilha: ['Pessoa Plantão'] }),
+      criarUsuario({ login: 'pessoa2', nome: 'Pessoa Dois', aliasesPlanilha: ['Pessoa Plantão'] }),
+    ];
+    const inativo = [criarUsuario({
+      login: 'pessoa1',
+      nome: 'Pessoa Plantão',
+      ativo: false,
+    })];
+
+    expect(iniciarVinculosPlantao(participantes, ambiguos)[0]).toMatchObject({ login: null, status: 'PENDENTE' });
+    expect(iniciarVinculosPlantao(participantes, inativo)[0]).toMatchObject({ login: null, status: 'PENDENTE' });
+  });
+
+  it('marca conflito quando dois nomes exatos da fonte resolvem para o mesmo login', () => {
+    const participantes = [
+      {
+        nomeOriginal: 'Ana Costa',
+        quantidadeAtribuicoes: 1,
+        apareceNaContabilidade: false,
+        quantidadeInformada: null,
+        minutosInformados: null,
+      },
+      {
+        nomeOriginal: 'A. Costa',
+        quantidadeAtribuicoes: 1,
+        apareceNaContabilidade: false,
+        quantidadeInformada: null,
+        minutosInformados: null,
+      },
+    ];
+    const usuarios = [criarUsuario({
+      login: 'acosta',
+      nome: 'Ana Costa',
+      aliasesPlanilha: ['A. Costa'],
+    })];
+
+    expect(iniciarVinculosPlantao(participantes, usuarios).map((item) => item.status))
+      .toEqual(['CONFLITO', 'CONFLITO']);
   });
 
   it('7. participante sem nenhum usuário correspondente fica com status USUARIO_NAO_ENCONTRADO, não bloqueado', () => {

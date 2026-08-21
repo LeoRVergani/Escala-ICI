@@ -528,6 +528,13 @@ describe('regras Firestore do Escala ICI', () => {
         },
       }));
       await assertSucceeds(getDoc(ref));
+      const usuariosDoPlantao = await assertSucceeds(getDocs(query(
+        collection(db, 'usuarios'),
+        where('equipeId', '==', 'EQ_PLANTAO_COSI'),
+        where('cadastroOperacional.tipo', '==', 'PLANTAO'),
+        where('cadastroOperacional.alvoId', '==', 'PLANTAO_COSI'),
+      )));
+      expect(usuariosDoPlantao.docs.map((snapshot) => snapshot.id)).toContain('novo.plantonista');
       await assertSucceeds(updateDoc(ref, {
         aliasesPlanilha: ['NOVO PLANTONISTA'],
         atualizadoEm: '2026-08-02T00:00:00.000Z',

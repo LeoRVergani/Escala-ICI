@@ -378,6 +378,18 @@ Se uma equipe mudar de unidade, o codigo visual acompanha a nova arvore sem
 alterar o ID tecnico nem reescrever historico. Uma migracao real de IDs exigiria
 plano transacional proprio e nao faz parte da edicao administrativa comum.
 
+### 6.2 Bootstrap da base definitiva de producao
+
+A regra de imutabilidade protege o staging e qualquer ambiente que ja possua
+referencias. Ela nao obriga uma base nova a repetir IDs provisorios. Antes do
+primeiro go-live, a producao deve ser criada com IDs canonicos alinhados a esta
+estrutura; no recorte atual, `EQ_PLANTAO_COSI` e transformado em
+`GEDSI_COSI_PLANTAO` durante a importacao controlada para a base vazia.
+
+Isso nao autoriza renomear staging nem trocar apenas o documento de Equipe. O
+grafo inteiro de referencias, Rules, indices e testes deve acompanhar o corte,
+conforme `MIGRACAO_IDS_ORGANIZACIONAIS_PRODUCAO.md`.
+
 ## 7. Relacao com a Matriz de Responsaveis por Escala
 
 A Matriz de Responsaveis por Escala e a fonte de permissao operacional.

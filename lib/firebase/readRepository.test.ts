@@ -10,10 +10,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  */
 const estado = vi.hoisted(() => ({
   turnosMes: [] as Array<{ id: string; data: Record<string, unknown> }>,
+  usuarios: [] as Array<{ id: string; data: Record<string, unknown> }>,
 }));
 
 vi.mock('./shared', () => ({
   exigirFirebase: () => ({ db: {} }),
+  lerUsuario: (id: string, dados: Record<string, unknown>) => ({ ...dados, login: dados.login ?? id }),
 }));
 
 vi.mock('firebase/firestore', () => ({
@@ -26,15 +28,22 @@ vi.mock('firebase/firestore', () => ({
   doc: (_db: unknown, colecao: string, id: string) => ({ __colecao: colecao, __id: id }),
   getDoc: async () => ({ exists: () => false, data: () => undefined }),
   getDocs: async (ref: { __colecao: string; condicoes: Array<{ campo: string; valor: unknown }> }) => {
-    const fonte = ref.__colecao === 'turnosMes' ? estado.turnosMes : [];
+    const fonte = ref.__colecao === 'turnosMes'
+      ? estado.turnosMes
+      : ref.__colecao === 'usuarios' ? estado.usuarios : [];
+    const obterCampo = (dados: Record<string, unknown>, caminho: string): unknown =>
+      caminho.split('.').reduce<unknown>((atual, parte) =>
+        atual !== null && typeof atual === 'object'
+          ? (atual as Record<string, unknown>)[parte]
+          : undefined, dados);
     const filtrados = fonte.filter((item) =>
-      ref.condicoes.every((condicao) => item.data[condicao.campo] === condicao.valor));
-    return { docs: filtrados.map((item) => ({ data: () => item.data })) };
+      ref.condicoes.every((condicao) => obterCampo(item.data, condicao.campo) === condicao.valor));
+    return { docs: filtrados.map((item) => ({ id: item.id, data: () => item.data })) };
   },
   onSnapshot: () => () => {},
 }));
 
-const { carregarMinhaEscala } = await import('./readRepository');
+const { carregarMinhaEscala, listarUsuariosDoPlantao } = await import('./readRepository');
 
 const EQUIPE = 'EQ_SOC';
 const COMPETENCIA = '2026-08';
@@ -53,6 +62,7 @@ function escalaPublicada(overrides: Partial<Record<string, unknown>>): { id: str
 
 beforeEach(() => {
   estado.turnosMes = [];
+  estado.usuarios = [];
 });
 
 describe('carregarMinhaEscala', () => {
@@ -114,5 +124,19 @@ describe('carregarMinhaEscala', () => {
 
     const escala = await carregarMinhaEscala('lvergani', EQUIPE, COMPETENCIA);
     expect(escala).toBeNull();
+  });
+});
+
+describe('listarUsuariosDoPlantao', () => {
+  it('restringe simultaneamente por equipe e pelo contexto do Grupo de Plantão', async () => {
+    estado.usuarios = [
+      { id: 'carofreitas', data: { login: 'carofreitas', equipeId: 'EQ_PLANTAO', cadastroOperacional: { tipo: 'PLANTAO', alvoId: 'GRUPO_A' } } },
+      { id: 'outro-grupo', data: { login: 'outro-grupo', equipeId: 'EQ_PLANTAO', cadastroOperacional: { tipo: 'PLANTAO', alvoId: 'GRUPO_B' } } },
+      { id: 'jornada', data: { login: 'jornada', equipeId: 'EQ_PLANTAO', cadastroOperacional: { tipo: 'JORNADA', alvoId: 'EQ_PLANTAO' } } },
+    ];
+
+    const usuarios = await listarUsuariosDoPlantao('EQ_PLANTAO', 'GRUPO_A');
+
+    expect(usuarios.map((usuario) => usuario.login)).toEqual(['carofreitas']);
   });
 });

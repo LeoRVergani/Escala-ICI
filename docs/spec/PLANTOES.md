@@ -733,14 +733,14 @@ interface VinculoPlantao {
 - `consolidarParticipantesPlantao(resultado)` — união dos nomes das
   atribuições brutas com a contabilidade informada (um participante só na
   contabilidade, como "0 plantões", continua identificado).
-- `iniciarVinculosPlantao(participantes, usuarios)` — estado inicial:
-  **nunca** com `login` preenchido. Uma correspondência única de nome
-  normalizado vira `sugestao` (não aplicada); zero correspondências vira
-  `USUARIO_NAO_ENCONTRADO` (o coordenador ainda pode escolher manualmente
-  qualquer usuário — não é um estado bloqueante, só informativo).
-- `confirmarVinculoPlantao(vinculos, nome, usuario)` — único jeito de um
-  vínculo ganhar `login`; recebe o `Usuario` inteiro (não uma string), e
-  o `login` gravado é sempre `usuario.login`.
+- `iniciarVinculosPlantao(participantes, usuarios)` — aplica automaticamente
+  somente uma correspondência **exata, única e ativa**, na precedência:
+  login/alias de login, e-mail, nome/alias da planilha normalizados. Não há
+  aproximação por semelhança. Correspondência inativa ou ambígua fica
+  `PENDENTE`; zero correspondências vira `USUARIO_NAO_ENCONTRADO`.
+- `confirmarVinculoPlantao(vinculos, nome, usuario)` — resolve manualmente
+  uma pendência ou substitui um vínculo; recebe o `Usuario` inteiro (não uma
+  string), e o `login` gravado é sempre `usuario.login`.
 - `desfazerVinculoPlantao(vinculos, nome)` — volta ao estado sem login.
 - Conflito (dois participantes apontando pro mesmo login) é recalculado a
   cada mudança (`recalcularConflitosPlantao`, interno): ambos os lados
@@ -753,11 +753,10 @@ interface VinculoPlantao {
 - `buscarUsuariosPlantao(usuarios, termo)` — filtro por nome/login sobre a
   mesma lista de usuários já carregada pelo Dashboard (nenhum endpoint novo).
 
-Esta camada é deliberadamente **mais estrita** que
-`lib/conciliacaoUsuarios.ts` (a conciliação 6x1): lá, uma correspondência
-única de nome/alias já vincula automaticamente. Aqui, nenhuma
-correspondência — nem exata — vincula sozinha; o máximo é uma `sugestao`
-que o coordenador precisa confirmar clicando.
+Esta camada segue a mesma segurança da conciliação 6x1: só uma identidade
+exata, única e ativa é vinculada automaticamente. Nomes parecidos nunca são
+aproximados; ambiguidades, inativos e conflitos de dois nomes da fonte para o
+mesmo login exigem decisão explícita do coordenador.
 
 ### 19.3 UI do preview (Dashboard)
 
@@ -805,11 +804,11 @@ baseada em cargo.
 
 ### 19.5 Testes
 
-24 testes novos: `lib/conciliacaoPlantoes.test.ts` (21 — consolidação,
-sugestão sem vínculo automático, confirmação usando `usuario.login`,
+Testes de `lib/conciliacaoPlantoes.test.ts` cobrem consolidação, vínculo
+automático exato por nome/alias, ambiguidades e inativos, confirmação usando `usuario.login`,
 conflito de login duplicado e sua resolução, bloqueio/liberação de
 `previaPlantaoValidavel`, propagação do vínculo a todas as atribuições do
-mesmo participante, contagens/durações preservadas) e
+mesmo participante e preservação de contagens/durações. Os testes de
 `lib/importadorPlanilha.test.ts` (3 — roteamento 6x1/Plantão/desconhecida
 usando as fixtures reais). Mais 5 testes de fronteira em
 `tests/plantao-preview-boundaries.test.mjs` (registrado em
@@ -1919,6 +1918,16 @@ extrair `grupoId`, convertendo o estado vazio em `permission-denied`. As funçõ
 consultam por `grupoId + competencia`; o primeiro Plantão retorna `null`
 normalmente, sem faixa vermelha, e o mesmo caminho permite salvar o primeiro
 rascunho.
+
+Ao importar, criar, copiar ou reabrir um Plantão, a lista usada na aba
+**Vínculos** deve ser carregada pela `equipeResponsavelId` do Grupo. Ela nunca
+pode reaproveitar a lista da Jornada que estava ativa antes da troca de
+contexto. Caso o usuário já exista nessa equipe, repetir **Criar e vincular**
+é uma operação idempotente: o cadastro existente é reutilizado (com
+reconciliação restrita de alias quando necessária) e somente o vínculo local
+da importação é confirmado. O cliente não tenta regravar o documento inteiro,
+pois isso transformaria uma repetição legítima em `update` administrativo e
+seria corretamente recusado pelas Rules.
 
 ### 26.4 Sincronização exata ao salvar de novo — documentos órfãos
 

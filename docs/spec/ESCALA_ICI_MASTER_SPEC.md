@@ -304,3 +304,18 @@ esse código. Seletores continuam enviando o ID técnico como valor; Rules,
 repositórios e documentos de escala nunca autorizam nem consultam por código
 visual. Mover uma equipe recalcula sua apresentação sem renomear documentos ou
 romper usuários, publicações, trocas e histórico.
+
+### 19.1 IDs canônicos no primeiro go-live de produção
+
+A imutabilidade acima protege ambientes já referenciados; ela não obriga uma
+base nova de produção a herdar IDs provisórios de staging. O staging atual
+permanece com suas chaves legadas para preservar o trabalho em andamento. No
+primeiro corte para a base vazia de produção, os dados devem ser transformados
+para os IDs organizacionais confirmados, inclusive
+`EQ_PLANTAO_COSI` → `GEDSI_COSI_PLANTAO`.
+
+Essa transformação não é edição comum nem fallback de runtime: deve migrar o
+grafo completo de referências, validar Rules e índices genéricos, passar por
+dry-run/backup/smoke test e exigir aprovação humana antes de liberar escrita.
+O procedimento normativo está em
+`docs/spec/MIGRACAO_IDS_ORGANIZACIONAIS_PRODUCAO.md`.

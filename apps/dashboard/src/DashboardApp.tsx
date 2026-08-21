@@ -120,6 +120,7 @@ import {
   listarEventosPublicacao,
   listarCatalogo,
   listarUsuarios,
+  listarUsuariosDoPlantao,
 } from '@/lib/firebase/readRepository';
 import {
   adicionarMembroRascunho,
@@ -4211,11 +4212,16 @@ export function DashboardApp() {
 
   /**
    * Fase PLANTÃO-2: nenhuma escrita, nenhuma persistência — só popula o
-   * preview em memória (`resultadoPlantao`) e o estado inicial de vínculos
-   * (nunca com login preenchido automaticamente, ver
-   * `iniciarVinculosPlantao`).
+   * preview em memória (`resultadoPlantao`) e concilia identidades exatas,
+   * únicas e ativas em `iniciarVinculosPlantao`.
    */
-  function interpretarPlantao(buffer: ArrayBuffer, nome: string, resultado: ResultadoParsePlantao, opcoes: OpcoesInicioImportacao = {}) {
+  function interpretarPlantao(
+    buffer: ArrayBuffer,
+    nome: string,
+    resultado: ResultadoParsePlantao,
+    opcoes: OpcoesInicioImportacao = {},
+    usuariosDoGrupo: readonly Usuario[] = usuarios,
+  ) {
     setArquivo(buffer);
     setNomeArquivo(nome);
     setResultadoPlantao(resultado);
@@ -4225,7 +4231,7 @@ export function DashboardApp() {
     // FASE ESCALAS-UX-2A.1-FIX — a working copy nasce agora, ainda não
     // persistida: importar não é salvar.
     setPlantaoPossuiAlteracoesNaoSalvas(true);
-    setVinculosPlantao(iniciarVinculosPlantao(consolidarParticipantesPlantao(resultado), usuarios));
+    setVinculosPlantao(iniciarVinculosPlantao(consolidarParticipantesPlantao(resultado), usuariosDoGrupo));
     setPreviaPlantaoValidada(false);
     setAbaPreviaPlantao('calendario');
     setBuscaVinculoPlantao({});
@@ -4886,7 +4892,13 @@ export function DashboardApp() {
         // inventada e a gravação continua submetida ao repository/Rules.
         verificacaoDuplicidadeLimitadaPorRules = true;
       }
-      const vinculosIniciais = vinculosDeParticipantesGrupoPlantao(participantesAtivos, usuarios);
+      const usuariosDoGrupo = modoDemo
+        ? usuarios
+        : await listarUsuariosDoPlantao(grupo.equipeResponsavelId, grupo.grupoId);
+      if (!modoDemo) {
+        setUsuarios(usuariosDoGrupo);
+      }
+      const vinculosIniciais = vinculosDeParticipantesGrupoPlantao(participantesAtivos, usuariosDoGrupo);
 
       setArquivo(null);
       setNomeArquivo('');
@@ -4985,10 +4997,14 @@ export function DashboardApp() {
         return;
       }
 
-      const [atribuicoesAnteriores, participantesAtivos] = await Promise.all([
+      const [atribuicoesAnteriores, participantesAtivos, usuariosDoGrupo] = await Promise.all([
         modoDemo ? Promise.resolve([]) : listarAtribuicoesPlantaoRascunho(grupo.grupoId, labelAnterior),
         garantirParticipantesDoGrupoCarregados(grupo.grupoId).then((lista) => lista.filter((item) => item.ativo)),
+        modoDemo ? Promise.resolve(usuarios) : listarUsuariosDoPlantao(grupo.equipeResponsavelId, grupo.grupoId),
       ]);
+      if (!modoDemo) {
+        setUsuarios(usuariosDoGrupo);
+      }
 
       const resultadoCopia = copiarAtribuicoesParaNovaCompetencia({
         atribuicoesAnteriores,
@@ -4997,9 +5013,9 @@ export function DashboardApp() {
         periodoNovoFim: periodo.periodoFim,
         timezone: grupo.timezone,
         participantes: participantesAtivos,
-        usuarios,
+        usuarios: usuariosDoGrupo,
       });
-      const vinculosIniciais = vinculosDeCopiaAnterior(atribuicoesAnteriores, participantesAtivos, usuarios);
+      const vinculosIniciais = vinculosDeCopiaAnterior(atribuicoesAnteriores, participantesAtivos, usuariosDoGrupo);
 
       setArquivo(null);
       setNomeArquivo('');
@@ -5161,10 +5177,27 @@ export function DashboardApp() {
       if (opcoesPlantao.grupoId === undefined || opcoesPlantao.grupoId.trim() === '') {
         return falhar('Selecione o contexto Plantão no topo ou use o fluxo de importação para definir o Grupo de Plantão antes de carregar o arquivo.');
       }
+      const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === opcoesPlantao.grupoId);
+      if (grupo === undefined) {
+        return falhar('O Grupo de Plantão selecionado não foi encontrado. Recarregue as operações e tente novamente.');
+      }
+      let usuariosDoGrupo = usuarios;
+      if (!modoDemo) {
+        try {
+          usuariosDoGrupo = await listarUsuariosDoPlantao(grupo.equipeResponsavelId, grupo.grupoId);
+          setUsuarios(usuariosDoGrupo);
+        } catch (falha) {
+          return falhar(mensagemErroFirebase(
+            falha,
+            'Não foi possível carregar os usuários da equipe responsável por este Plantão.',
+            ambienteFirebaseAtual,
+          ));
+        }
+      }
       setResultado(null);
       setJornadaPossuiAlteracoesNaoSalvas(false);
       setLinhasConciliacao([]);
-      interpretarPlantao(buffer, file.name, processado.resultado, opcoesPlantao);
+      interpretarPlantao(buffer, file.name, processado.resultado, opcoesPlantao, usuariosDoGrupo);
       return true;
     }
     setResultadoPlantao(null);
@@ -5794,16 +5827,60 @@ export function DashboardApp() {
     }
 
     try {
+      let usuarioSalvo = candidato;
+      let cadastroReaproveitado = false;
+      let houveEscritaUsuario = false;
       if (!modoDemo) {
-        await salvarUsuario(candidato);
-        await registrarAuditoriaSeSimulando('SALVAR_USUARIO');
+        const usuariosDoAlvo = cadastroNovo && participanteVinculoCadastro !== null
+          ? await listarUsuariosDoPlantao(equipeIdCadastroUsuario, grupoCadastroVinculo?.grupoId ?? '')
+          : [];
+        const existente = usuariosDoAlvo.find((item) => item.login === candidato.login);
+        if (existente !== undefined) {
+          if (normalizarNome(existente.nome) !== normalizarNome(candidato.nome)) {
+            setErrosFormularioUsuario([
+              `O login ${candidato.login} já pertence a ${existente.nome}. Selecione esse cadastro na busca ou informe outro login.`,
+            ]);
+            return;
+          }
+          if (!existente.ativo) {
+            setErrosFormularioUsuario([
+              `${existente.nome} já está cadastrado, mas está inativo. Peça a um administrador responsável para reativar o cadastro antes de vinculá-lo.`,
+            ]);
+            return;
+          }
+          const aliasesPlanilha = normalizarAliasesPlanilha([
+            ...(existente.aliasesPlanilha ?? []),
+            ...(candidato.aliasesPlanilha ?? []),
+          ]);
+          const aliasesMudaram = aliasesPlanilha.length !== (existente.aliasesPlanilha ?? []).length
+            || aliasesPlanilha.some((alias, indice) => alias !== existente.aliasesPlanilha?.[indice]);
+          if (aliasesMudaram) {
+            await atualizarAliasesPlanilha(existente.login, aliasesPlanilha);
+            houveEscritaUsuario = true;
+          }
+          usuarioSalvo = {
+            ...existente,
+            aliasesPlanilha,
+            atualizadoEm: aliasesMudaram ? new Date().toISOString() : existente.atualizadoEm,
+          };
+          cadastroReaproveitado = true;
+          setUsuarios(usuariosDoAlvo.map((item) => (item.login === usuarioSalvo.login ? usuarioSalvo : item)));
+        } else {
+          await salvarUsuario(candidato);
+          houveEscritaUsuario = true;
+        }
+        if (houveEscritaUsuario) {
+          await registrarAuditoriaSeSimulando('SALVAR_USUARIO');
+        }
       }
-      setUsuarios((atuais) => (atuais.some((item) => item.login === candidato.login)
-        ? atuais.map((item) => (item.login === candidato.login ? candidato : item))
-        : [...atuais, candidato]));
+      setUsuarios((atuais) => (atuais.some((item) => item.login === usuarioSalvo.login)
+        ? atuais.map((item) => (item.login === usuarioSalvo.login ? usuarioSalvo : item))
+        : [...atuais, usuarioSalvo]));
       if (participanteVinculoCadastro !== null) {
-        confirmarVinculoPlantaoAcao(participanteVinculoCadastro, candidato);
-        setMensagem(`${candidato.nome} foi cadastrado e vinculado à pessoa encontrada na planilha.`);
+        confirmarVinculoPlantaoAcao(participanteVinculoCadastro, usuarioSalvo);
+        setMensagem(cadastroReaproveitado
+          ? `${usuarioSalvo.nome} já estava cadastrado e foi vinculado à pessoa encontrada na planilha.`
+          : `${usuarioSalvo.nome} foi cadastrado e vinculado à pessoa encontrada na planilha.`);
       } else {
         setMensagem(formularioUsuario.loginOriginal === null
           ? 'Usuário cadastrado com sucesso.'
@@ -5812,7 +5889,7 @@ export function DashboardApp() {
       fecharFormularioUsuario();
     } catch (falha) {
       const erroCadastro = falhaEhPermissionDenied(falha) && ambienteFirebaseAtual === 'staging'
-        ? 'Não foi possível cadastrar o usuário em staging. Esta ação exige responsabilidade ativa na Jornada ou no Plantão desta equipe. Se o vínculo já estiver configurado, publique as Firestore Rules atuais de staging.'
+        ? 'Não foi possível cadastrar o usuário em staging. A autorização do alvo foi recusada e nenhum cadastro foi alterado. Recarregue as operações e confirme se o Grupo e a Matriz de Responsáveis continuam ativos para sua conta.'
         : mensagemErroFirebase(falha, 'Não foi possível salvar o usuário.', ambienteFirebaseAtual);
       setErrosFormularioUsuario([erroCadastro]);
     }
@@ -6063,10 +6140,11 @@ export function DashboardApp() {
   ): Promise<{ ok: true } | { ok: false; motivo: 'nao-encontrado' } | { ok: false; motivo: 'erro'; mensagem: string }> {
     setAbrirRascunhoPlantaoStatus({ fase: 'carregando' });
     try {
-      const [atribuicoesPersistidas, participantes, competenciaFresca] = await Promise.all([
+      const [atribuicoesPersistidas, participantes, competenciaFresca, usuariosDoGrupo] = await Promise.all([
         modoDemo ? Promise.resolve([]) : listarAtribuicoesPlantaoRascunho(grupo.grupoId, competenciaAlvo.competencia),
         modoDemo ? Promise.resolve(participantesPorGrupoPlantao[grupo.grupoId] ?? []) : listarParticipantesPlantao(grupo.grupoId),
         modoDemo ? Promise.resolve(competenciaAlvo) : obterCompetenciaPlantaoRascunho(grupo.grupoId, competenciaAlvo.competencia),
+        modoDemo ? Promise.resolve(usuarios) : listarUsuariosDoPlantao(grupo.equipeResponsavelId, grupo.grupoId),
       ]);
       if (competenciaFresca === null) {
         setAbrirRascunhoPlantaoStatus({ fase: 'nao-encontrado' });
@@ -6078,9 +6156,12 @@ export function DashboardApp() {
         competencia: competenciaFresca,
         atribuicoesPersistidas,
         participantes,
-        usuarios,
+        usuarios: usuariosDoGrupo,
       });
 
+      if (!modoDemo) {
+        setUsuarios(usuariosDoGrupo);
+      }
       setParticipantesPorGrupoPlantao((atuais) => ({ ...atuais, [grupo.grupoId]: participantes }));
       setGruposPlantaoAdmin((atuais) => (atuais.some((item) => item.grupoId === grupo.grupoId) ? atuais : [...atuais, grupo]));
       setArquivo(null);

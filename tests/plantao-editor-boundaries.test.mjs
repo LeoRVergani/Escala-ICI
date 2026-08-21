@@ -423,7 +423,9 @@ test('36. usuário ausente pode ser criado e vinculado no modal, sempre na equip
   assert.match(dashboard, /grupo\.equipeResponsavelId\.trim\(\) === ''/u);
   assert.match(dashboard, /participanteVinculoCadastro === null\s*\? usuarioEfetivo\?\.equipeId \?\? ''\s*:\s*grupoCadastroVinculo\?\.equipeResponsavelId \?\? ''/u);
   assert.match(dashboard, /equipeId:\s*equipeIdCadastroUsuario,\s*uid:\s*undefined/u);
-  assert.match(dashboard, /confirmarVinculoPlantaoAcao\(participanteVinculoCadastro, candidato\)/u);
+  assert.match(dashboard, /confirmarVinculoPlantaoAcao\(participanteVinculoCadastro, usuarioSalvo\)/u);
+  assert.match(dashboard, /const usuariosDoAlvo = cadastroNovo && participanteVinculoCadastro !== null/u, 'repetir a ação precisa consultar o alvo e reutilizar cadastro existente');
+  assert.match(dashboard, /cadastroReaproveitado/u, 'cadastro já existente não pode ser regravado como update administrativo');
   assert.match(dashboard, /souAdmin && participanteVinculoCadastro === null/u);
   assert.doesNotMatch(dashboard, /onCriarUsuarioParaVinculo=\{\(\) => setTela\('usuarios'\)\}/u);
 });

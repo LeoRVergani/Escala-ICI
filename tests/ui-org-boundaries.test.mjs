@@ -148,3 +148,15 @@ test('14. código organizacional é apresentação derivada; equipeId continua s
   assert.match(modalResponsaveis, /codigoOrganizacionalEquipe\(equipe, unidades\)/u);
   assert.doesNotMatch(organizacao, /salvarEquipe|setDoc|updateDoc|deleteDoc/u);
 });
+
+test('15. produção nasce com IDs organizacionais canônicos sem renomear o staging atual', async () => {
+  const spec = await ler('docs/spec/MIGRACAO_IDS_ORGANIZACIONAIS_PRODUCAO.md');
+  assert.match(spec, /Status:\*\* planejada e obrigatória antes do primeiro go-live de produção/u);
+  assert.match(spec, /`EQ_PLANTAO_COSI` \| `GEDSI_COSI_PLANTAO`/u);
+  assert.match(spec, /Não renomear documentos no staging/u);
+  assert.match(spec, /Não existe fallback operacional legado habilitado em produção/u);
+  assert.match(spec, /equipeResponsavelId/u);
+  assert.match(spec, /escoposOperacionais/u);
+  assert.match(spec, /backup recuperável/u);
+  assert.match(spec, /aprovação humana explícita/u);
+});

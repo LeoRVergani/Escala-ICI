@@ -31,6 +31,30 @@ export async function listarUsuarios(equipeId: string): Promise<Usuario[]> {
     lerUsuario(snapshot.id, snapshot.data()));
 }
 
+/**
+ * Lista somente as pessoas cadastradas a partir de um Grupo de Plantão.
+ *
+ * Um responsável matricial pode administrar o Grupo sem pertencer à equipe
+ * responsável. Nesse caso, consultar apenas por `equipeId` não permite que as
+ * Rules provem o alvo de Plantão de todos os resultados. As duas restrições do
+ * contexto tornam a consulta autorizável e impedem enumerar usuários de outro
+ * Grupo que eventualmente compartilhe a mesma equipe.
+ */
+export async function listarUsuariosDoPlantao(
+  equipeId: string,
+  grupoId: string,
+): Promise<Usuario[]> {
+  const { db } = exigirFirebase();
+  const resultado = await getDocs(query(
+    collection(db, 'usuarios'),
+    where('equipeId', '==', equipeId),
+    where('cadastroOperacional.tipo', '==', 'PLANTAO'),
+    where('cadastroOperacional.alvoId', '==', grupoId),
+  ));
+  return resultado.docs.map((snapshot) =>
+    lerUsuario(snapshot.id, snapshot.data()));
+}
+
 export async function listarCatalogo(
   equipeId: string,
 ): Promise<Record<string, TipoTurno>> {

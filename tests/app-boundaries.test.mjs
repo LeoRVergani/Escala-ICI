@@ -600,8 +600,8 @@ test('responsável operacional cadastra colaborador e delega coordenação somen
   assert.match(dashboard, /Coordenador da equipe/u);
   assert.match(dashboard, /Supervisor da equipe/u);
   assert.match(dashboard, /contextoCadastroOperacionalUsuario/u);
-  assert.match(dashboard, /responsabilidade ativa na Jornada ou no Plantão desta equipe/u);
-  assert.match(dashboard, /publique as Firestore Rules atuais de staging/u);
+  assert.match(dashboard, /A autorização do alvo foi recusada e nenhum cadastro foi alterado/u);
+  assert.match(dashboard, /confirme se o Grupo e a Matriz de Responsáveis continuam ativos/u);
   assert.match(rules, /contextoCadastroOperacionalAutorizaUsuario/u);
   assert.match(rules, /\['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'\]/u);
   assert.match(rules, /grupoPlantaoPorId\(contexto\.alvoId\)\.equipeResponsavelId == dados\.equipeId/u);

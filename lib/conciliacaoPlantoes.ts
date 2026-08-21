@@ -7,13 +7,10 @@ import type { Usuario } from './modelos';
  * Fase PLANTÃO-2 — conciliação entre o nome original de um plantonista (XLS
  * de Plantão) e os usuários cadastrados no Firestore.
  *
- * Módulo puro: não importa o SDK do Firestore, não decide nada por conta
- * própria além de classificar e sugerir. Diferença deliberada em relação a
- * `lib/conciliacaoUsuarios.ts` (a conciliação da escala 6x1): lá, uma
- * correspondência única por nome/alias já vincula automaticamente
- * (`VINCULADO_ALIAS`); aqui, NENHUMA correspondência — nem exata — vincula
- * sozinha. O máximo que este módulo faz é oferecer uma `sugestao`; confirmar
- * é sempre uma ação explícita do coordenador (`confirmarVinculoPlantao`).
+ * Módulo puro: não importa o SDK do Firestore. Uma identidade exata, única e
+ * ativa (login, alias de login, e-mail, nome ou alias da planilha) pode ser
+ * vinculada automaticamente; aproximações, ambiguidades e usuários inativos
+ * continuam pendentes para decisão explícita do coordenador.
  * Ver `docs/spec/PLANTOES.md`, seção "Nome do XLS → login real".
  */
 
@@ -33,7 +30,7 @@ export interface VinculoPlantao {
   /** Login do Escala ICI — nunca UID do Firebase Authentication. */
   login: string | null;
   status: StatusVinculoPlantao;
-  /** Presente só quando existe exatamente um usuário com nome normalizado igual. Nunca aplicada sozinha. */
+  /** Correspondência exata única; também preservada no vínculo automático para permitir desfazer. */
   sugestao: SugestaoVinculoPlantao | null;
 }
 
@@ -160,9 +157,9 @@ export function vinculosDeParticipantesGrupoPlantao(
 /**
  * Fase ESCALAS-UX-1C — vínculos para "Usar período anterior": diferente
  * de `vinculosDeParticipantesGrupoPlantao()` (participantes ATIVOS do
- * Grupo, sempre `VINCULADO`) e de `iniciarVinculosPlantao()` (nomes de
- * planilha, sempre precisam de confirmação explícita mesmo com sugestão
- * única), aqui a identidade já é conhecida com certeza — vem do
+ * Grupo, sempre `VINCULADO`) e de `iniciarVinculosPlantao()` (identidades
+ * exatas e únicas podem ser conciliadas; demais nomes ficam pendentes),
+ * aqui a identidade já é conhecida com certeza — vem do
  * `plantonistaLogin` já persistido na competência anterior, nunca de um
  * nome ambíguo a adivinhar.
  *
@@ -205,36 +202,62 @@ export function vinculosDeCopiaAnterior(
   });
 }
 
-function candidatosPorNome(nomeOriginal: string, usuarios: readonly Usuario[]): Usuario[] {
-  const chave = normalizarNome(nomeOriginal);
-  return usuarios.filter((usuario) => normalizarNome(usuario.nome) === chave);
+/**
+ * Mesma precedência segura da conciliação 6x1: nenhuma aproximação parcial.
+ * Assim, um nome da planilha não é confundido com outro apenas por parecer
+ * semelhante, e uma etapa mais fraca nunca concorre com uma identidade mais
+ * forte já encontrada.
+ */
+function candidatosPorIdentidadeExata(nomeOriginal: string, usuarios: readonly Usuario[]): Usuario[] {
+  const texto = nomeOriginal.trim();
+  const porLogin = usuarios.filter((usuario) =>
+    usuario.login === texto || (usuario.loginAliases ?? []).includes(texto));
+  if (porLogin.length > 0) {
+    return porLogin;
+  }
+
+  if (texto.includes('@')) {
+    const porEmail = usuarios.filter((usuario) => usuario.email.toLowerCase() === texto.toLowerCase());
+    if (porEmail.length > 0) {
+      return porEmail;
+    }
+  }
+
+  const chave = normalizarNome(texto);
+  return usuarios.filter((usuario) =>
+    normalizarNome(usuario.nome) === chave
+    || (usuario.aliasesPlanilha ?? []).some((alias) => normalizarNome(alias) === chave));
 }
 
 /**
- * Estado inicial de vínculo para cada participante — nunca com `login`
- * preenchido automaticamente. Uma correspondência única de nome vira
- * `sugestao`; zero correspondências vira `USUARIO_NAO_ENCONTRADO` (o
- * coordenador ainda pode escolher manualmente qualquer usuário); mais de
- * uma correspondência fica `PENDENTE` sem sugestão (ambíguo demais para
- * sugerir uma única pessoa).
+ * Estado inicial de vínculo para cada participante. Uma correspondência
+ * exata, única e ativa já nasce `VINCULADO`; uma correspondência única mas
+ * inativa fica `PENDENTE`; zero correspondências vira
+ * `USUARIO_NAO_ENCONTRADO`; mais de uma fica `PENDENTE` sem sugestão.
+ * Conflitos em que dois nomes da fonte resolvem para o mesmo login são
+ * detectados antes de devolver o resultado e nunca passam silenciosamente.
  */
 export function iniciarVinculosPlantao(
   participantes: readonly ParticipanteConsolidadoPlantao[],
   usuarios: readonly Usuario[],
 ): VinculoPlantao[] {
-  return participantes.map((participante) => {
-    const candidatos = candidatosPorNome(participante.nomeOriginal, usuarios);
+  const iniciais = participantes.map((participante) => {
+    const candidatos = candidatosPorIdentidadeExata(participante.nomeOriginal, usuarios);
     const [unico] = candidatos;
     const sugestao: SugestaoVinculoPlantao | null = (candidatos.length === 1 && unico !== undefined)
       ? { login: unico.login, nome: unico.nome }
       : null;
+    const vincularAutomaticamente = unico !== undefined && candidatos.length === 1 && unico.ativo;
     return {
       participanteNomeOriginal: participante.nomeOriginal,
-      login: null,
-      status: candidatos.length === 0 ? 'USUARIO_NAO_ENCONTRADO' : 'PENDENTE',
+      login: vincularAutomaticamente ? unico.login : null,
+      status: vincularAutomaticamente
+        ? ('VINCULADO' as const)
+        : candidatos.length === 0 ? ('USUARIO_NAO_ENCONTRADO' as const) : ('PENDENTE' as const),
       sugestao,
     };
   });
+  return recalcularConflitosPlantao(iniciais);
 }
 
 /**
@@ -268,10 +291,10 @@ function recalcularConflitosPlantao(vinculos: readonly VinculoPlantao[]): Vincul
 }
 
 /**
- * Confirmação explícita do coordenador — o único jeito de um vínculo
- * ganhar `login`. Recebe o `Usuario` inteiro (não uma string solta) para
- * que o login sempre venha de um cadastro real, nunca de um valor
- * inventado; a identidade gravada é sempre `usuario.login`, nunca UID.
+ * Confirmação explícita do coordenador para casos pendentes ou para substituir
+ * um vínculo. Recebe o `Usuario` inteiro (não uma string solta) para que o
+ * login sempre venha de um cadastro real, nunca de um valor inventado; a
+ * identidade gravada é sempre `usuario.login`, nunca UID.
  */
 export function confirmarVinculoPlantao(
   vinculos: readonly VinculoPlantao[],

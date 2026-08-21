@@ -76,6 +76,28 @@ test('o Dashboard roteia o preview de Plantão pelo importador/conciliação pur
   assert.match(dashboard, /conciliacaoPlantoes/, 'o Dashboard deve importar a conciliação pura de Plantão');
 });
 
+test('a importação e a reabertura de Plantão carregam usuários da equipe responsável, nunca reaproveitam a equipe da Jornada ativa', async () => {
+  const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
+  assert.match(
+    dashboard,
+    /listarUsuariosDoPlantao\(grupo\.equipeResponsavelId, grupo\.grupoId\)/u,
+    'o catálogo de vínculos deve vir da equipe responsável pelo Grupo de Plantão',
+  );
+  assert.match(
+    dashboard,
+    /interpretarPlantao\(buffer, file\.name, processado\.resultado, opcoesPlantao, usuariosDoGrupo\)/u,
+    'o preview precisa receber a lista recém-carregada, sem depender do setState assíncrono',
+  );
+});
+
+test('a importação auto vincula somente identidade exata, única e ativa e preserva conflitos', async () => {
+  const conciliacao = await ler('lib/conciliacaoPlantoes.ts');
+  assert.match(conciliacao, /function candidatosPorIdentidadeExata/u);
+  assert.match(conciliacao, /aliasesPlanilha/u);
+  assert.match(conciliacao, /candidatos\.length === 1 && unico\.ativo/u);
+  assert.match(conciliacao, /return recalcularConflitosPlantao\(iniciais\)/u);
+});
+
 /**
  * Fase PLANTÃO-3B: a integração real acontece agora — o Dashboard PASSA a
  * importar `plantaoReadRepository.ts`/`plantaoWriteRepository.ts` (o

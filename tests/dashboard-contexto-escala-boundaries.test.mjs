@@ -89,7 +89,7 @@ test('21. existe um dirty state explícito de Plantão separado de plantaoEditad
 
 test('22. importar/criar vazia/usar período anterior de Plantão marcam plantaoPossuiAlteracoesNaoSalvas=true mesmo quando plantaoEditadoDesdeImportacao continua false', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  const interpretarPlantao = /function interpretarPlantao\(buffer: ArrayBuffer, nome: string, resultado: ResultadoParsePlantao(?:, opcoes: OpcoesInicioImportacao = \{\})?\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  const interpretarPlantao = /function interpretarPlantao\(([\s\S]*?)\n {2}\}\n\n {2}function confirmarVinculoPlantaoAcao/u.exec(dashboard);
   assert.ok(interpretarPlantao, 'interpretarPlantao precisa existir');
   assert.match(interpretarPlantao[1], /setPlantaoEditadoDesdeImportacao\(false\)/u);
   assert.match(interpretarPlantao[1], /setPlantaoPossuiAlteracoesNaoSalvas\(true\)/u, 'importar uma planilha de Plantão precisa marcar alteração não salva mesmo sem nenhuma edição de célula');

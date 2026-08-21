@@ -6,14 +6,15 @@ Esta pasta concentra a fonte normativa atual do projeto. Checkpoints e arquivos 
 
 1. `ESCALA_ICI_MASTER_SPEC.md` — índice funcional e decisões consolidadas do Dashboard.
 2. `ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` — árvore organizacional sanitizada de referência para cadastro, navegação, filtros e contexto; não autoriza escala.
-3. `ESCOPO_OPERACIONAL_MATRIZ.md` — matriz explícita de responsáveis por Jornada/Plantão; organograma/cargo/unidade são contexto, não autorização operacional automática.
-4. `WIZARD_PREPARAR_ESCALA.md` — fluxo unificado de `Nova escala` e `Importar escala`.
-5. `VISAO_GERAL_OPERACIONAL_SOC_PLANTAO.md` — Visão geral operacional SOC + Plantão.
-6. `JORNADA_6X1_ASSISTENTE_CICLO.md` — grade Jornada 6x1 e assistente de ciclo inicial.
-7. `REVISAO_JORNADA_6X1_LAYOUT_CALENDARIO.md` — revisão/importação SOC com calendário central ampliado.
-8. `PLANTAO_MODAL_D.md` — modal visual de atribuição de Plantão, presets e exceção manual.
-9. `NAVEGACAO_RETORNO_ESCALAS.md` — padrão de retorno visual para Escalas.
-10. `UI_CASCADE_E_HERANCA.md` — regra permanente para alterações de CSS/layout.
+3. `MIGRACAO_IDS_ORGANIZACIONAIS_PRODUCAO.md` — contrato diferido para a base final: staging preserva IDs legados e produção nasce com IDs organizacionais canônicos.
+4. `ESCOPO_OPERACIONAL_MATRIZ.md` — matriz explícita de responsáveis por Jornada/Plantão; organograma/cargo/unidade são contexto, não autorização operacional automática.
+5. `WIZARD_PREPARAR_ESCALA.md` — fluxo unificado de `Nova escala` e `Importar escala`.
+6. `VISAO_GERAL_OPERACIONAL_SOC_PLANTAO.md` — Visão geral operacional SOC + Plantão.
+7. `JORNADA_6X1_ASSISTENTE_CICLO.md` — grade Jornada 6x1 e assistente de ciclo inicial.
+8. `REVISAO_JORNADA_6X1_LAYOUT_CALENDARIO.md` — revisão/importação SOC com calendário central ampliado.
+9. `PLANTAO_MODAL_D.md` — modal visual de atribuição de Plantão, presets e exceção manual.
+10. `NAVEGACAO_RETORNO_ESCALAS.md` — padrão de retorno visual para Escalas.
+11. `UI_CASCADE_E_HERANCA.md` — regra permanente para alterações de CSS/layout.
 
 ## Specs herdadas ainda válidas por domínio
 
@@ -120,6 +121,14 @@ continuam como chaves imutáveis; na apresentação aparecem, respectivamente,
 como `GEDSI_COSI_SOC`, `GEDSI_CODB_NOC` e `GEDSI_COSI_PLANTAO`. O código é
 calculado pela árvore, acompanha mudanças de unidade e nunca participa de
 autorização, consulta ou escrita no Firestore.
+
+Nota IDS-ORGANIZACIONAIS-PRODUCAO-1: a imutabilidade acima vale dentro do
+ambiente já referenciado. O staging atual não é renomeado. Antes do primeiro
+go-live, a base vazia de produção deve receber dados transformados para IDs
+canônicos, incluindo `EQ_PLANTAO_COSI` → `GEDSI_COSI_PLANTAO`, conforme
+`MIGRACAO_IDS_ORGANIZACIONAIS_PRODUCAO.md`. O corte exige backup, dry-run,
+migração de todas as referências, Rules/índices testados e aprovação humana;
+produção não aceita fallback legado.
 
 Nota ESTRUTURA-ORGANIZACIONAL-REFERENCIA-1: o cadastro de unidades segue o
 catálogo de siglas e nomes consolidado na spec de estrutura. Códigos de equipe
