@@ -3149,6 +3149,24 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
         where('grupoId', '==', 'PLANTAO_TESTE'),
       )));
     });
+
+    it('competência inexistente retorna consulta vazia para o responsável, sem mascarar ausência como permission-denied', async () => {
+      const gestorDb = autenticarComo(usuarios.gestor);
+      const restricoes = [
+        where('grupoId', '==', 'PLANTAO_TESTE'),
+        where('competencia', '==', '2099-12'),
+      ];
+      const rascunhos = await assertSucceeds(getDocs(query(
+        collection(gestorDb, 'rascunhosCompetenciasPlantao'),
+        ...restricoes,
+      )));
+      const publicadas = await assertSucceeds(getDocs(query(
+        collection(gestorDb, 'competenciasPlantao'),
+        ...restricoes,
+      )));
+      expect(rascunhos.empty).toBe(true);
+      expect(publicadas.empty).toBe(true);
+    });
   });
 
   /**

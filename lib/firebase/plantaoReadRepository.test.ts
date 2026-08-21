@@ -4,6 +4,7 @@ const estado = vi.hoisted(() => ({
   gruposPlantao: [] as Array<{ id: string; data: Record<string, unknown> }>,
   participantes: {} as Record<string, Array<{ id: string; data: Record<string, unknown> }>>,
   rascunhosCompetencias: [] as Array<{ id: string; data: Record<string, unknown> }>,
+  competenciasPublicadas: [] as Array<{ id: string; data: Record<string, unknown> }>,
   atribuicoes: {} as Record<string, Array<{ id: string; data: Record<string, unknown> }>>,
 }));
 
@@ -38,6 +39,8 @@ vi.mock('firebase/firestore', () => ({
       fonte = estado.participantes[partes[1] as string] ?? [];
     } else if (partes[0] === 'rascunhosCompetenciasPlantao' && partes.length === 1) {
       fonte = estado.rascunhosCompetencias;
+    } else if (partes[0] === 'competenciasPlantao' && partes.length === 1) {
+      fonte = estado.competenciasPublicadas;
     } else if (partes[0] === 'rascunhosCompetenciasPlantao' && partes[2] === 'atribuicoes') {
       fonte = estado.atribuicoes[partes[1] as string] ?? [];
     }
@@ -64,6 +67,7 @@ const {
   listarGruposPlantaoPorUnidadeResponsavel,
   listarParticipantesPlantao,
   listarTodosGruposPlantao,
+  obterCompetenciaPlantaoPublicada,
   obterCompetenciaPlantaoRascunho,
   obterGrupoPlantao,
 } = await import('./plantaoReadRepository');
@@ -88,6 +92,7 @@ beforeEach(() => {
   estado.gruposPlantao = [];
   estado.participantes = {};
   estado.rascunhosCompetencias = [];
+  estado.competenciasPublicadas = [];
   estado.atribuicoes = {};
 });
 
@@ -178,13 +183,27 @@ describe('listarParticipantesPlantao', () => {
   });
 });
 
-describe('obterCompetenciaPlantaoRascunho / listarAtribuicoesPlantaoRascunho', () => {
-  it('resolve o ID determinístico grupoId_competencia e lê o rascunho', async () => {
+describe('obterCompetenciaPlantaoRascunho / obterCompetenciaPlantaoPublicada / listarAtribuicoesPlantaoRascunho', () => {
+  it('consulta por grupo e competência e lê o rascunho', async () => {
     estado.rascunhosCompetencias = [
-      { id: 'PLANTAO_SEGURANCA_2026-08', data: { id: 'PLANTAO_SEGURANCA_2026-08', grupoId: 'PLANTAO_SEGURANCA', status: 'RASCUNHO' } },
+      { id: 'PLANTAO_SEGURANCA_2026-08', data: { id: 'PLANTAO_SEGURANCA_2026-08', grupoId: 'PLANTAO_SEGURANCA', competencia: '2026-08', status: 'RASCUNHO' } },
     ];
     const resultado = await obterCompetenciaPlantaoRascunho('PLANTAO_SEGURANCA', '2026-08');
     expect(resultado?.status).toBe('RASCUNHO');
+  });
+
+  it('retorna null sem permission-denied quando a primeira competência ainda não existe', async () => {
+    await expect(obterCompetenciaPlantaoRascunho('PLANTAO_SEGURANCA', '2026-08')).resolves.toBeNull();
+    await expect(obterCompetenciaPlantaoPublicada('PLANTAO_SEGURANCA', '2026-08')).resolves.toBeNull();
+  });
+
+  it('consulta a publicação pelo mesmo grupo e competência', async () => {
+    estado.competenciasPublicadas = [
+      { id: 'PLANTAO_SEGURANCA_2026-08', data: { id: 'PLANTAO_SEGURANCA_2026-08', grupoId: 'PLANTAO_SEGURANCA', competencia: '2026-08', status: 'PUBLICADA' } },
+      { id: 'PLANTAO_SEGURANCA_2026-07', data: { id: 'PLANTAO_SEGURANCA_2026-07', grupoId: 'PLANTAO_SEGURANCA', competencia: '2026-07', status: 'PUBLICADA' } },
+    ];
+    const resultado = await obterCompetenciaPlantaoPublicada('PLANTAO_SEGURANCA', '2026-08');
+    expect(resultado?.id).toBe('PLANTAO_SEGURANCA_2026-08');
   });
 
   it('lista as atribuições da competência correta, ordenadas por atribuicaoId', async () => {

@@ -1910,6 +1910,16 @@ autorizado e continua falhando para um gestor de outro grupo —
 **`firestore.rules` permanece com diff zero**, nenhuma permissão foi
 ampliada, nenhuma atribuição ficou pública.
 
+O mesmo princípio vale para a busca de uma competência específica. Não se
+deve usar `getDoc()` no ID determinístico de
+`rascunhosCompetenciasPlantao`/`competenciasPlantao` antes de saber se o
+documento existe: na ausência, `resource.data` é nulo e a Rule não consegue
+extrair `grupoId`, convertendo o estado vazio em `permission-denied`. As funções
+`obterCompetenciaPlantaoRascunho()` e `obterCompetenciaPlantaoPublicada()`
+consultam por `grupoId + competencia`; o primeiro Plantão retorna `null`
+normalmente, sem faixa vermelha, e o mesmo caminho permite salvar o primeiro
+rascunho.
+
 ### 26.4 Sincronização exata ao salvar de novo — documentos órfãos
 
 `idAtribuicaoPlantao(indice)` é posicional (0001, 0002, ... pela ordem

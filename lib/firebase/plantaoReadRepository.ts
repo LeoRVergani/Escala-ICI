@@ -81,9 +81,19 @@ export async function obterCompetenciaPlantaoRascunho(
   competencia: string,
 ): Promise<CompetenciaPlantao | null> {
   const { db } = exigirFirebase();
-  const id = idCompetenciaPlantao(grupoId, competencia);
-  const snapshot = await getDoc(doc(db, 'rascunhosCompetenciasPlantao', id));
-  return snapshot.exists() ? (snapshot.data() as CompetenciaPlantao) : null;
+  /**
+   * Não usar `getDoc()` pelo ID determinístico aqui. Quando o documento ainda
+   * não existe, `resource.data` é nulo e a Rule que autoriza pelo `grupoId`
+   * persistido não consegue avaliar o alvo, devolvendo `permission-denied` em
+   * vez de um resultado vazio. A query informa o alvo nas restrições e funciona
+   * tanto para competência existente quanto para a primeira competência.
+   */
+  const resultado = await getDocs(query(
+    collection(db, 'rascunhosCompetenciasPlantao'),
+    where('grupoId', '==', grupoId),
+    where('competencia', '==', competencia),
+  ));
+  return resultado.docs[0]?.data() as CompetenciaPlantao | undefined ?? null;
 }
 
 export async function obterCompetenciaPlantaoPublicada(
@@ -91,9 +101,12 @@ export async function obterCompetenciaPlantaoPublicada(
   competencia: string,
 ): Promise<CompetenciaPlantao | null> {
   const { db } = exigirFirebase();
-  const id = idCompetenciaPlantao(grupoId, competencia);
-  const snapshot = await getDoc(doc(db, 'competenciasPlantao', id));
-  return snapshot.exists() ? (snapshot.data() as CompetenciaPlantao) : null;
+  const resultado = await getDocs(query(
+    collection(db, 'competenciasPlantao'),
+    where('grupoId', '==', grupoId),
+    where('competencia', '==', competencia),
+  ));
+  return resultado.docs[0]?.data() as CompetenciaPlantao | undefined ?? null;
 }
 
 /**
