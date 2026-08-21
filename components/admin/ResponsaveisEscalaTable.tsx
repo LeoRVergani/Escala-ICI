@@ -3,10 +3,18 @@ import { useMemo, useState } from 'react';
 import type { GrupoPlantao } from '@escala-ici/contrato';
 import type { Equipe, EscopoOperacional, UnidadeOrganizacional, Usuario } from '@/lib/modelos';
 import { particionarResponsaveisLoginPorElegibilidade } from '@/lib/escoposOperacionaisMatriz';
+import { codigoOrganizacionalEquipe } from '@/lib/organizacao';
 
-function nomesEquipes(ids: readonly string[], equipes: readonly Equipe[]): string {
+function nomesEquipes(
+  ids: readonly string[],
+  equipes: readonly Equipe[],
+  unidades: readonly UnidadeOrganizacional[],
+): string {
   if (ids.length === 0) return '-';
-  return ids.map((id) => equipes.find((equipe) => equipe.id === id)?.nome ?? id).join(', ');
+  return ids.map((id) => {
+    const equipe = equipes.find((item) => item.id === id);
+    return equipe === undefined ? id : `${equipe.nome} · ${codigoOrganizacionalEquipe(equipe, unidades)}`;
+  }).join(', ');
 }
 
 function nomesUsuarios(logins: readonly string[], usuarios: readonly Usuario[]): string {
@@ -14,10 +22,14 @@ function nomesUsuarios(logins: readonly string[], usuarios: readonly Usuario[]):
   return logins.map((login) => usuarios.find((usuario) => usuario.login === login)?.nome ?? login).join(', ');
 }
 
-function textosEquipes(ids: readonly string[], equipes: readonly Equipe[]): string[] {
+function textosEquipes(
+  ids: readonly string[],
+  equipes: readonly Equipe[],
+  unidades: readonly UnidadeOrganizacional[],
+): string[] {
   return ids.flatMap((id) => {
     const equipe = equipes.find((item) => item.id === id);
-    return equipe === undefined ? [id] : [id, equipe.nome, equipe.sigla];
+    return equipe === undefined ? [id] : [id, equipe.nome, equipe.sigla, codigoOrganizacionalEquipe(equipe, unidades)];
   });
 }
 
@@ -70,13 +82,13 @@ export function ResponsaveisEscalaTable({
       escopo.alvoId,
       escopo.unidadeId ?? '',
       ...textosUsuarios(escopo.responsaveisLogin, usuarios),
-      ...textosEquipes(escopo.responsaveisEquipe, equipes),
-      ...textosEquipes(escopo.equipesConsulta, equipes),
+      ...textosEquipes(escopo.responsaveisEquipe, equipes, unidades),
+      ...textosEquipes(escopo.equipesConsulta, equipes, unidades),
     ].join(' ').toLowerCase();
     return (termo === '' || texto.includes(termo))
       && (tipo === '' || escopo.tipo === tipo)
       && (status === '' || (status === 'ATIVO' ? escopo.ativo : !escopo.ativo));
-  }), [equipes, escopos, status, termo, tipo, usuarios]);
+  }), [equipes, escopos, status, termo, tipo, unidades, usuarios]);
 
   return (
     <article className="panel grid-panel">
@@ -130,7 +142,7 @@ export function ResponsaveisEscalaTable({
               const responsaveisLoginParticionados = particionarResponsaveisLoginPorElegibilidade(escopo.responsaveisLogin, usuarios);
               const responsaveis = [
                 nomesUsuarios(responsaveisLoginParticionados.elegiveis, usuarios),
-                nomesEquipes(escopo.responsaveisEquipe, equipes),
+                nomesEquipes(escopo.responsaveisEquipe, equipes, unidades),
               ].filter(Boolean).join(', ') || '-';
               const alvoExiste = escopo.tipo === 'JORNADA'
                 ? equipes.some((equipe) => equipe.id === escopo.alvoId)
@@ -151,7 +163,7 @@ export function ResponsaveisEscalaTable({
                       </span>
                     )}
                   </td>
-                  <td>{escopo.tipo === 'PLANTAO' ? nomesEquipes(escopo.equipesConsulta, equipes) : '-'}</td>
+                  <td>{escopo.tipo === 'PLANTAO' ? nomesEquipes(escopo.equipesConsulta, equipes, unidades) : '-'}</td>
                   <td><span className={`status-badge ${escopo.ativo ? 'success' : 'neutral'}`}>{escopo.ativo ? 'Ativo' : 'Inativo'}</span></td>
                   {podeEditar && (
                     <td>

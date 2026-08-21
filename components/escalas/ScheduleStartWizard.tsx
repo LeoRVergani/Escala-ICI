@@ -131,7 +131,11 @@ export function ScheduleStartWizard({
           <div>
             <p className="eyebrow">{modo === 'NOVA' ? 'Criar' : 'Preencher'}</p>
             <h2 id="schedule-start-wizard-title">{titulo}</h2>
-            <p>{modo === 'NOVA' ? 'Comece uma escala vazia e adicione colaboradores e turnos no editor.' : 'Envie sua planilha, revise os dados e abra o editor quando estiver pronta.'}</p>
+            <p>{modo === 'NOVA'
+              ? tipo === 'JORNADA'
+                ? 'Carregue os colaboradores no período padrão cadastrado e ajuste dias, folgas e horários no editor.'
+                : 'Comece uma escala de Plantão vazia e monte os intervalos no editor.'
+              : 'Envie sua planilha, revise os dados e abra o editor quando estiver pronta.'}</p>
           </div>
           <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
             <X size={18} />

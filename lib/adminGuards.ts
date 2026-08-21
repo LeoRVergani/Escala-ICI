@@ -1,6 +1,23 @@
 import type { Usuario } from './modelos';
 import { perfilEfetivo } from './sessao';
 
+const PERFIS_COM_PODER_DE_GESTAO = new Set([
+  'ADMIN_SISTEMA',
+  'GESTOR_UNIDADE',
+  'GESTOR_EQUIPE',
+  'SUPERVISOR_EQUIPE',
+]);
+
+/**
+ * Detecta se um cadastro novo já nasceria com poder de gestão. Isso inclui
+ * documentos legados sem `perfil`: `nivelHierarquico <= 5` ainda cai em
+ * GESTOR_EQUIPE por compatibilidade, portanto não pode ser usado por um
+ * gestor comum como atalho para promover outra pessoa.
+ */
+export function cadastroUsuarioConcedeGestao(candidato: Usuario): boolean {
+  return PERFIS_COM_PODER_DE_GESTAO.has(perfilEfetivo(candidato));
+}
+
 /** Bloqueio de autoexclusão: o admin nunca pode excluir a própria conta logada. */
 export function podeExcluirUsuario(candidato: Usuario, atorReal: Usuario): boolean {
   return candidato.login !== atorReal.login;

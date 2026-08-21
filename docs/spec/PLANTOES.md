@@ -2255,3 +2255,65 @@ explícita do Dashboard, implementada por `publicarCompetenciaPlantao()`.
 - `equipesConsulta` lê e monitora, mas não escreve;
 - o read model consulta rascunho e publicação para distinguir os três estados;
 - competências e atribuições publicadas continuam sem delete físico.
+
+## 31. Importação recuperável com Rules de staging atrasadas
+
+Selecionar e interpretar uma planilha de Plantão cria apenas uma working copy
+local; não é escrita no Firestore. Portanto, `permission-denied` em uma
+checagem auxiliar de rascunho não pode impedir a abertura do editor. Salvar e
+publicar continuam passando obrigatoriamente pelos repositories e pelas Rules.
+
+O Wizard apresenta dentro do próprio modal qualquer falha de extensão,
+leitura, estrutura ambígua, tipo divergente ou parser. A tentativa sempre
+finaliza `processando`, inclusive quando `File.arrayBuffer()`, XLSX ou o parser
+lançam exceção. Erro de importação nunca pode ficar escondido atrás do modal
+nem deixar o botão carregando indefinidamente.
+
+Se as Rules publicadas não permitirem confirmar a inexistência de rascunho, a
+criação manual pode abrir a working copy local com aviso explícito de que
+salvar/publicar depende da publicação das Rules. Uma resposta legítima com
+rascunho existente continua bloqueando duplicidade e oferece abrir o rascunho.
+O mesmo vale para a leitura auxiliar dos participantes: se ela for recusada, o
+editor abre com roster vazio e diagnóstico, sem inventar participantes nem
+associar pessoas ao usuário autenticado. Uma falha que não seja
+`permission-denied` continua sendo tratada como erro recuperável e não é
+silenciada.
+
+## 32. Revisão compacta da importação de Plantão
+
+A revisão da importação prioriza a conferência operacional. O painel principal
+com o **Calendário** é o primeiro card visível; **Planilha de Plantão
+detectada**, conferência consistente e **Divergências encontradas na fonte**
+ficam depois do calendário como diagnóstico da origem. O seletor de arquivo é
+uma faixa compacta depois que o tipo Plantão foi identificado, mantendo
+seleção por clique e arrastar/soltar sem ocupar a altura de um card de conteúdo.
+
+As abas normativas da revisão são **Calendário**, **Contabilidade** e
+**Vínculos**. As antigas abas **Resumo** e **Lista** foram removidas: erros e
+avisos estruturais já aparecem nos diagnósticos da fonte, enquanto a grade
+mensal é a visualização primária das atribuições. Não deve ser criada uma
+segunda lista ou outra fonte de verdade; calendário, contabilidade atual e
+payload salvo derivam da mesma working copy.
+
+No calendário de uma importação, cada cartão exibe as iniciais em destaque e
+o horário ao lado, no formato compacto `19h–07h` quando os minutos são `00`.
+Minutos significativos continuam visíveis. O nome e o intervalo completos são
+preservados no `title` e no rótulo acessível, portanto a compactação é apenas
+visual e nunca altera datas, duração ou contabilidade.
+
+### 32.1 Criação durante a resolução de vínculos
+
+Quando um nome da planilha não possui usuário, **Criar e vincular** abre o
+mesmo modal de cadastro dentro da revisão. Nome e alias vêm preenchidos com a
+grafia original; e-mail, login, cargo e período padrão continuam sendo uma
+decisão explícita. Após uma gravação bem-sucedida, o usuário é acrescentado à
+lista local e o vínculo daquela pessoa é confirmado automaticamente.
+
+O cadastro contextual pertence estritamente à `equipeResponsavelId` do
+`GrupoPlantao`. Ausência do grupo/equipe bloqueia a abertura com diagnóstico;
+jamais há fallback para a equipe do responsável autenticado e `gestorUid` não
+é preenchido com a identidade de quem realizou a importação. Perfil, escopo e
+campos organizacionais administrativos também não são inferidos nesse fluxo.
+A gravação continua usando `salvarUsuario()` e as Firestore Rules existentes:
+o modal não amplia autorização, não contorna `permission-denied` e mantém o
+erro recuperável visível sem confirmar um vínculo falso.

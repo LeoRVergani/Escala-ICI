@@ -76,12 +76,12 @@ test('6. geradores automáticos e cópia de período não foram introduzidos nes
   }
 });
 
-test('7. o Dashboard deriva a Lista e o Calendário da MESMA working copy — nunca duas fontes de verdade para as atribuições', async () => {
+test('7. o Dashboard deriva o Calendário e o payload salvo da MESMA working copy — nunca duas fontes de verdade para as atribuições', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   assert.match(
     dashboard,
     /aplicarVinculosNasAtribuicoes\(atribuicoesEditaveisPlantao, vinculosPlantao\)/u,
-    'atribuicoesPlantaoComVinculo (consumido tanto pela Lista quanto pelo payload de salvar) precisa derivar da working copy',
+    'atribuicoesPlantaoComVinculo, consumido pelo payload de salvar, precisa derivar da working copy',
   );
   assert.match(
     dashboard,
@@ -374,4 +374,56 @@ test('32. o "Salvar rascunho" (salvarRascunhoPlantaoAcao) sempre grava na compet
   assert.ok(corpo, 'salvarRascunhoPlantaoAcao precisa existir');
   assert.match(corpo[1], /idCompetenciaPlantao\(grupo\.grupoId,\s*competencia\)/u, 'o id da competência a salvar precisa vir de `competencia` (competenciaRascunho), nunca de uma variável de "anterior"');
   assert.doesNotMatch(corpo[1], /labelAnterior|competenciaAnterior\(/u, 'salvarRascunhoPlantaoAcao nunca deve referenciar a competência anterior');
+});
+
+// Revisão visual compacta da importação de Plantão.
+
+test('33. a revisão abre com Calendário e mantém somente as abas úteis; Resumo e Lista não voltam como painéis vazios/confusos', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const preview = /function PreviewPlantao\([\s\S]*?\n\}\n\nexport function DashboardApp/u.exec(dashboard)?.[0] ?? '';
+  assert.match(dashboard, /type AbaPreviaPlantao = 'calendario' \| 'contabilidade' \| 'vinculos'/u);
+  assert.match(dashboard, /useState<AbaPreviaPlantao>\('calendario'\)/u);
+  assert.match(preview, />Calendário<\/button>/u);
+  assert.match(preview, />Contabilidade<\/button>/u);
+  assert.doesNotMatch(preview, />Resumo<\/button>|>Lista<\/button>/u);
+});
+
+test('34. o calendário ocupa o topo visual e os diagnósticos da fonte ficam depois dele', async () => {
+  const [dashboard, css] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('app/globals.css'),
+  ]);
+  assert.match(dashboard, /plantao-preview-principal/u);
+  assert.match(dashboard, /plantao-preview-fonte/u);
+  assert.match(dashboard, /plantao-preview-divergencias/u);
+  assert.match(css, /\.plantao-preview-principal\s*\{[^}]*order:\s*1/u);
+  assert.match(css, /\.plantao-preview-fonte\s*\{[^}]*order:\s*2/u);
+  assert.match(css, /\.plantao-preview-divergencias\s*\{[^}]*order:\s*3/u);
+  assert.match(dashboard, /tipoArquivoDetectado === 'PLANTAO' \? ' import-panel-compact'/u);
+});
+
+test('35. cartões importados mostram iniciais maiores e horário compacto ao lado, preservando o horário completo no título acessível', async () => {
+  const [calendario, css] = await Promise.all([
+    ler('components/plantao/PlantaoCalendario.tsx'),
+    ler('app/globals.css'),
+  ]);
+  assert.match(calendario, /function rotuloHorarioCompacto\(horario: string\)/u);
+  assert.match(calendario, /return `\$\{compactar\(inicio \?\? ''\)\}–\$\{compactar\(fim \?\? ''\)\}`/u);
+  assert.match(calendario, /title=\{`\$\{atribuicao\.plantonistaNomeOriginal\} · \$\{horario\}`\}/u);
+  assert.match(calendario, /plantao-card-iniciais[\s\S]*?plantao-card-horario/u);
+  assert.match(css, /\.plantao-dia-importacao \.plantao-card\s*\{[^}]*flex-direction:\s*row/u);
+  assert.match(css, /\.plantao-card-iniciais\s*\{[^}]*width:\s*28px[^}]*height:\s*28px/u);
+  assert.match(css, /\.plantao-dia-importacao \.plantao-card-horario\s*\{[^}]*font-size:\s*11\.5px/u);
+});
+
+test('36. usuário ausente pode ser criado e vinculado no modal, sempre na equipe responsável do Grupo e nunca associado ao usuário logado', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /onCriarUsuarioParaVinculo=\{abrirCadastroUsuarioParaVinculo\}/u);
+  assert.match(dashboard, /Criar e vincular/u);
+  assert.match(dashboard, /grupo\.equipeResponsavelId\.trim\(\) === ''/u);
+  assert.match(dashboard, /participanteVinculoCadastro === null\s*\? usuarioEfetivo\?\.equipeId \?\? ''\s*:\s*grupoCadastroVinculo\?\.equipeResponsavelId \?\? ''/u);
+  assert.match(dashboard, /equipeId:\s*equipeIdCadastroUsuario,\s*uid:\s*undefined/u);
+  assert.match(dashboard, /confirmarVinculoPlantaoAcao\(participanteVinculoCadastro, candidato\)/u);
+  assert.match(dashboard, /souAdmin && participanteVinculoCadastro === null/u);
+  assert.doesNotMatch(dashboard, /onCriarUsuarioParaVinculo=\{\(\) => setTela\('usuarios'\)\}/u);
 });

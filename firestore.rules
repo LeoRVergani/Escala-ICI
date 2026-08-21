@@ -459,6 +459,10 @@ service cloud.firestore {
             && request.resource.data.get('unidadeId', null) == null
             && request.resource.data.get('unidadesPermitidas', null) == null
             && request.resource.data.get('equipesPermitidas', null) == null
+            // Documento novo sem `perfil` ainda usa o fallback legado por
+            // nível. Impedir <= 5 fecha a promoção implícita para
+            // GESTOR_EQUIPE; somente ADMIN_SISTEMA concede gestão.
+            && request.resource.data.nivelHierarquico > 5
           )
         );
 

@@ -20,6 +20,12 @@ Responsabilidade de escala é uma configuração operacional explícita, editáv
 | Escopo operacional de escala | Quem cria, importa, edita, salva e publica uma Jornada ou Plantão. | Consulta/monitoramento. |
 | Escopo de consulta | Quem visualiza/monitora Plantões. | Edição, importação, publicação ou administração. |
 
+Siglas institucionais e códigos hierárquicos de equipe, como
+`GEDSI_CODB_NOC`, existem para cadastro, filtro e apresentação. A matriz
+persiste e autoriza pelos IDs estáveis de `alvoId`, `responsaveisLogin`,
+`responsaveisEquipe` e `equipesConsulta`; ela nunca interpreta os segmentos
+do código organizacional como ACL.
+
 ## 3. Modelo de dados
 
 Coleção:
@@ -207,6 +213,22 @@ O fallback operacional legado é opt-in por
 `VITE_ESCALA_FALLBACK_OPERACIONAL_LEGADO=true`. Sem essa autorização
 explícita, ausência de vínculo na matriz produz estado vazio. Mesmo com o
 opt-in, matriz existente — inclusive inativa — continua vencendo para o alvo.
+
+Enquanto a migração de staging estiver incompleta, o build
+`staging.dashboard` mantém esse opt-in explícito. Assim, um alvo legado ainda
+sem documento próprio continua visível ao lado dos alvos já migrados; isso não
+autoriza escrita nem substitui uma matriz existente. Produção e ambientes
+novos permanecem com o fallback desligado por padrão.
+
+As leituras do conteúdo de cada operação são independentes e usam resultado
+assentado por fonte. Uma recusa ao ler rascunho, histórico ou estado de
+publicação não pode descartar uma publicação que já foi carregada com sucesso.
+Quando existe dado principal aproveitável, a UI o preserva e mostra aviso
+recuperável; quando todas as fontes capazes de determinar a escala retornam
+`permission-denied`, mostra diagnóstico explícito de que as Firestore Rules do
+ambiente ainda não reconhecem a Matriz de Responsáveis. Falhas de rede mantêm
+diagnóstico próprio. Em ambos os casos, **Recarregar operações** inicia uma
+nova tentativa e o seletor nunca volta a loading infinito.
 
 ## 10. Rules
 

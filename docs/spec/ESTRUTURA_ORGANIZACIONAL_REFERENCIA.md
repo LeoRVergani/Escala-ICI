@@ -8,6 +8,11 @@ Esta spec define a estrutura organizacional de referencia do projeto. Ela
 serve para contexto, navegacao, filtros, agrupamento visual, cadastro de
 unidades, cadastro de equipes e exibicao de caminhos organizacionais.
 
+A referencia e evolutiva. Uma unidade sem sigla confirmada pode aparecer pelo
+nome, mas o produto nao deve inventar uma sigla nem deduzir a subordinacao.
+Inclusoes e mudancas futuras entram como dados administrativos, sem exigir
+condicionais por area no codigo.
+
 A estrutura organizacional nao concede automaticamente permissao para criar,
 importar, editar, salvar ou publicar escalas. Quem administra cada Jornada ou
 Plantao e definido pela Matriz de Responsaveis por Escala.
@@ -174,7 +179,17 @@ Unidade subordinada conhecida:
 | COPC | Coordenacao de Operacoes Continuadas | COORDENACAO |
 | COJC | Coordenacao Juridica e Compliance | COORDENACAO |
 
-## 5. Modelo recomendado para unidades
+Convencoes de cadastro:
+
+- siglas usam letras maiusculas, sem espacos ou acentos;
+- a sigla oficial e o identificador de referencia da unidade, mas nunca uma
+  credencial ou regra de autorizacao;
+- o `parentId` e o `caminho` devem refletir a arvore cadastrada e confirmada;
+- nomes sem sigla definida, como Coordenacao de Marketing e Coordenacao de
+  Transformacao Digital, permanecem sem codigo ate confirmacao administrativa;
+- nao reutilizar a mesma sigla para unidades diferentes.
+
+## 5. Modelo recomendado e compatibilidade
 
 Cada unidade organizacional deve poder ter:
 
@@ -207,6 +222,26 @@ Niveis sugeridos:
 - `ESTRATEGICO`
 - `TATICO`
 - `OPERACIONAL`
+
+Essa lista representa a taxonomia organizacional completa do produto. Na
+persistencia atual, entretanto, `Equipe` e `GrupoPlantao` continuam entidades
+proprias, vinculadas a uma unidade; nao devem ser duplicadas como documentos
+de `unidadesOrganizacionais`. Assim:
+
+- `PRESIDENCIA`, `DIRETORIA`, `ASSESSORIA`, `GERENCIA`, `COORDENACAO` e
+  `SUPERVISAO` classificam unidades da arvore;
+- `EQUIPE` classifica o no operacional mantido em `equipes`;
+- `GRUPO_OPERACIONAL` classifica conceitualmente o agrupamento mantido em
+  `gruposPlantao` quando o destino for Plantao;
+- `AREA`, `SETOR` e `DEPARTAMENTO` permanecem valores legados aceitos pelo
+  modelo atual e nao substituem siglas oficiais conhecidas.
+
+O modelo implementado ainda nao possui todos os campos-alvo acima: o enum
+atual de unidade nao inclui `ASSESSORIA`, e `nivelHierarquico`, `ordem`,
+`observacao` e `schemaVersion` ainda nao fazem parte do registro persistido.
+Essa diferenca deve ser tratada por uma evolucao de schema propria, com Rules,
+migracao compativel e testes. Ate la, esta secao e referencia normativa para a
+evolucao e nao autoriza gravar campos que as Rules atuais nao aceitam.
 
 Exemplos conceituais:
 
@@ -297,6 +332,52 @@ Exemplos conceituais:
 Esses exemplos sao ilustrativos e devem ficar em fixtures, seeds, docs ou
 testes. A logica do produto nao pode depender desses nomes.
 
+### 6.1 ID tecnico e codigo organizacional
+
+`Equipe.id`/`equipeId` e uma chave tecnica imutavel. Ela pode existir em
+usuarios, escalas, publicacoes, trocas, grupos de Plantao e Matriz de
+Responsaveis; portanto nao deve ser renomeada apenas para refletir o
+organograma.
+
+A interface apresenta separadamente um codigo organizacional calculado pela
+posicao atual da equipe. Na estrutura de referencia:
+
+- `EQ_SOC` aparece como `GEDSI_COSI_SOC`;
+- `EQ_NOC` aparece como `GEDSI_CODB_NOC`;
+- `EQ_PLANTAO_COSI` aparece como `GEDSI_COSI_PLANTAO`.
+
+O codigo comeca na Gerencia, inclui areas/coordenacoes e termina na sigla da
+equipe. Presidencia e Diretoria sao omitidas por serem contexto amplo;
+Supervisao e omitida por representar funcao de chefia. Um segmento da sigla da
+equipe que ja aparece no caminho nao e repetido. O calculo usa os dados da
+arvore e nao pode conceder autorizacao.
+
+O formato de referencia para o codigo de equipe e:
+
+```text
+<GERENCIA>_<COORDENACAO>_<FUNCAO_OU_LOCALIDADE>
+```
+
+Exemplos validos de apresentacao:
+
+- `GEDSI_CODB_APROVACAO`
+- `GEDSI_CODB_DBA`
+- `GEDSI_CODB_SUPORTE`
+- `GEDSI_CODB_NOC`
+- `GEDSI_COSI_N3_SEGURANCA`
+- `GESUP_COSD_N1`
+- `GESUP_COAT_SUP_ICI`
+
+Para equipes novas, `Equipe.sigla` deve preferir esse codigo completo quando
+a vinculacao organizacional estiver confirmada. `Equipe.id` continua sendo a
+chave tecnica imutavel: pode adotar o mesmo codigo na criacao, mas nunca deve
+ser renomeado automaticamente depois de referenciado. Equipes legadas com
+siglas curtas recebem o codigo completo apenas na apresentacao.
+
+Se uma equipe mudar de unidade, o codigo visual acompanha a nova arvore sem
+alterar o ID tecnico nem reescrever historico. Uma migracao real de IDs exigiria
+plano transacional proprio e nao faz parte da edicao administrativa comum.
+
 ## 7. Relacao com a Matriz de Responsaveis por Escala
 
 A Matriz de Responsaveis por Escala e a fonte de permissao operacional.
@@ -381,7 +462,5 @@ Perfis nao elegiveis:
 
 - Esta spec e referencia de dominio, nao seed obrigatorio.
 - Nao transformar a estrutura de referencia em regra fixa de permissao.
-- Nao versionar materiais externos ao produto para justificar a arvore.
-- Nao colocar links, nomes de arquivos ou justificativas externas ao produto.
 - Nao usar sigla, nome de area, cargo textual ou subordinacao como hardcode de autorizacao.
 - Resolver excecoes operacionais pela Matriz de Responsaveis por Escala.

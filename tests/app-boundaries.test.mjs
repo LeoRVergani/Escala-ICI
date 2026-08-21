@@ -261,7 +261,7 @@ test('o laboratório importa XLS na equipe autenticada e limita a leitura do App
 
   assert.match(dashboard, /interpretar\(await resposta\.arrayBuffer\(\)/);
   assert.match(dashboard, /const responsavelDoAlvo = \{ \.\.\.usuarioEfetivo, equipeId: equipeAlvoId \}/);
-  assert.match(dashboard, /novoUsuario\(usuarios\.length \+ indice \+ 1, responsavelDoAlvo, login, true\)/);
+  assert.match(dashboard, /novoUsuario\([\s\S]{0,220}?usuarios\.length \+ indice \+ 1,[\s\S]{0,220}?responsavelDoAlvo,[\s\S]{0,220}?login,[\s\S]{0,220}?true,[\s\S]{0,220}?turnoPorLogin\.get\(login\) \?\? ''/);
   assert.match(dashboard, /salvarUsuarios\(novos\)/);
   assert.match(dashboard, /!resultado\?\.ok/);
   assert.match(app, /autenticado\.equipeId/);
@@ -407,7 +407,7 @@ test('a fase 3K-D2 mantém a gestão de usuários e a conciliação exclusivas d
   assert.match(dashboard, /excluirRascunho/);
   assert.match(dashboard, /abrirEdicaoUsuario/);
   assert.match(dashboard, /alternarAtivoUsuario/);
-  assert.match(dashboard, /novoUsuario\(usuarios\.length \+ indice \+ 1, responsavelDoAlvo, login, true\)/);
+  assert.match(dashboard, /novoUsuario\([\s\S]{0,220}?usuarios\.length \+ indice \+ 1,[\s\S]{0,220}?responsavelDoAlvo,[\s\S]{0,220}?login,[\s\S]{0,220}?true,[\s\S]{0,220}?turnoPorLogin\.get\(login\) \?\? ''/);
 
   // Contrato de usuário estendido e regra de edição pelo gestor da própria equipe.
   assert.match(modelos, /aliasesPlanilha/);
@@ -586,4 +586,19 @@ test('correção urgente: sem undefined no Firestore, erro visível e diferencia
 
   // Toast sempre acima de modal (não pode ficar escondido atrás do overlay).
   assert.match(estilos, /\.toast \{[\s\S]*z-index: 260/);
+});
+
+test('cadastro de usuário não transforma nível hierárquico em promoção implícita de coordenador', async () => {
+  const [dashboard, guards, rules] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('lib/adminGuards.ts'),
+    ler('firestore.rules'),
+  ]);
+
+  assert.match(guards, /export function cadastroUsuarioConcedeGestao/u);
+  assert.match(dashboard, /!souAdmin\s*&& cadastroUsuarioConcedeGestao\(candidato\)/u);
+  assert.match(dashboard, /Somente um ADMIN_SISTEMA pode cadastrar ou promover outro coordenador/u);
+  assert.match(dashboard, /Perfis de coordenação e supervisão são concedidos somente por ADMIN_SISTEMA/u);
+  assert.match(dashboard, /publique as Firestore Rules atuais de staging/u);
+  assert.match(rules, /request\.resource\.data\.nivelHierarquico > 5/u);
 });

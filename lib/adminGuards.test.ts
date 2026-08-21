@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { exclusaoZeraGestores, podeExcluirCompetencia, podeExcluirUsuario } from './adminGuards';
+import {
+  cadastroUsuarioConcedeGestao,
+  exclusaoZeraGestores,
+  podeExcluirCompetencia,
+  podeExcluirUsuario,
+} from './adminGuards';
 import type { Usuario } from './modelos';
 
 function usuario(sobrescritas: Partial<Usuario> = {}): Usuario {
@@ -28,6 +33,23 @@ describe('podeExcluirUsuario', () => {
     const admin = usuario({ login: 'admin', perfil: 'ADMIN_SISTEMA' });
     const candidato = usuario({ login: 'candidato' });
     expect(podeExcluirUsuario(candidato, admin)).toBe(true);
+  });
+});
+
+describe('cadastroUsuarioConcedeGestao', () => {
+  it('detecta perfil explícito de coordenação/supervisão', () => {
+    expect(cadastroUsuarioConcedeGestao(usuario({ perfil: 'GESTOR_EQUIPE' }))).toBe(true);
+    expect(cadastroUsuarioConcedeGestao(usuario({ perfil: 'GESTOR_UNIDADE' }))).toBe(true);
+    expect(cadastroUsuarioConcedeGestao(usuario({ perfil: 'SUPERVISOR_EQUIPE' }))).toBe(true);
+  });
+
+  it('detecta a promoção implícita do fallback legado por nível', () => {
+    expect(cadastroUsuarioConcedeGestao(usuario({ perfil: undefined, nivelHierarquico: 4 }))).toBe(true);
+    expect(cadastroUsuarioConcedeGestao(usuario({ perfil: undefined, nivelHierarquico: 6 }))).toBe(false);
+  });
+
+  it('não trata perfil explícito de colaborador como gestão, mesmo com nível organizacional baixo', () => {
+    expect(cadastroUsuarioConcedeGestao(usuario({ perfil: 'ANALISTA_SOC', nivelHierarquico: 4 }))).toBe(false);
   });
 });
 

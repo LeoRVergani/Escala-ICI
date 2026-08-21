@@ -58,6 +58,21 @@ publicadas, rede oferece **Recarregar operações**, e vazio orienta o vínculo 
 **Administração → Responsáveis por escala**. Contexto salvo inválido ou ligado
 a alvo/grupo inativo é removido. O fallback legado só roda com
 `VITE_ESCALA_FALLBACK_OPERACIONAL_LEGADO=true`.
+
+Nota ESCOPO-OPERACIONAL-MATRIZ-2.2: enquanto a migração de staging estiver
+incompleta, o modo `staging.dashboard` habilita explicitamente o fallback para
+alvos sem documento de matriz. Alvos já migrados continuam governados pela
+matriz. As fontes de rascunho/publicação/histórico são assentadas
+independentemente: dados válidos são preservados diante de falha parcial,
+Rules e rede têm diagnósticos distintos e a ação **Recarregar operações**
+repete a carga sem prender o seletor.
+
+Nota IMPORTACAO-PLANTAO/JORNADA-PADRAO-1: interpretar planilha de Plantão é
+working copy local e não pode ser bloqueado por uma checagem auxiliar negada;
+erros de arquivo aparecem no próprio Wizard e sempre encerram o loading.
+Jornada nova usa o período padrão individual do cadastro, aceita código/
+descrição/alias e nunca converte valor ausente para Manhã. Login criado pela
+conciliação herda o período detectado na planilha.
 - `PLANTOES.md` e `EDITOR_ESCALAS.md` — contêm histórico e detalhes de domínio anteriores; para UI nova de Plantão/Jornada, preferir as specs novas acima.
 
 ## Decisões que não devem regredir
@@ -82,3 +97,34 @@ a alvo/grupo inativo é removido. O fallback legado só roda com
 - Dados importados atípicos são preservados; a UI pode alertar, mas não normalizar silenciosamente.
 - Nenhuma versão estável (staging ou produção) pode depender de criação manual de `gruposPlantao/{grupoId}` pelo Console do Firestore — o produto (Wizard/Administração) e o seed (`scripts/seed-organizacao.mjs`) sempre oferecem um caminho oficial.
 - Uma Equipe existir (mesmo com "Plantão" no nome) nunca implica que existe um `GrupoPlantao` — o seletor superior só mostra Plantões a partir de Grupo administrável.
+
+Nota IMPORTACAO-PLANTAO-REVISAO-COMPACTA-1: a revisão de Plantão prioriza o
+Calendário no topo, usa upload compacto e move fonte/divergências para o final.
+Resumo e Lista deixam de ser abas; Contabilidade e Vínculos permanecem. Os
+cartões exibem iniciais maiores e horário compacto ao lado. Participante sem
+usuário pode abrir o cadastro no próprio Vínculos e é ligado somente depois de
+salvar, sempre na equipe responsável do Grupo e sem associação automática ao
+coordenador autenticado.
+
+Nota CADASTRO-COORDENADOR-1: somente `ADMIN_SISTEMA` cadastra ou promove
+coordenador/supervisor. Ator não-admin não pode usar nível hierárquico 1–5 em
+cadastro novo, porque o fallback legado concederia `GESTOR_EQUIPE` sem perfil
+explícito. Dashboard e Rules bloqueiam esse atalho e orientam a configuração
+posterior em **Administração → Responsáveis por escala**. Erro de staging
+distingue falta de autorização/matriz de Rules ainda não publicadas.
+
+Nota CODIGO-ORGANIZACIONAL-EQUIPE-1: a UI separa o ID técnico persistido do
+código organizacional hierárquico. `EQ_SOC`, `EQ_NOC` e `EQ_PLANTAO_COSI`
+continuam como chaves imutáveis; na apresentação aparecem, respectivamente,
+como `GEDSI_COSI_SOC`, `GEDSI_CODB_NOC` e `GEDSI_COSI_PLANTAO`. O código é
+calculado pela árvore, acompanha mudanças de unidade e nunca participa de
+autorização, consulta ou escrita no Firestore.
+
+Nota ESTRUTURA-ORGANIZACIONAL-REFERENCIA-1: o cadastro de unidades segue o
+catálogo de siglas e nomes consolidado na spec de estrutura. Códigos de equipe
+seguem **Gerência_Coordenação_FunçãoOuLocalidade**, como
+`GEDSI_CODB_APROVACAO`, `GEDSI_COSI_N3_SEGURANCA` e `GESUP_COAT_SUP_ICI`.
+Sigla ausente não é inventada. A taxonomia pode chamar Equipe e Grupo
+Operacional de níveis operacionais, mas a persistência continua separada em
+`equipes` e `gruposPlantao`; o padrão não cria seed obrigatório, não migra IDs
+existentes e não concede autorização por nome ou sigla.

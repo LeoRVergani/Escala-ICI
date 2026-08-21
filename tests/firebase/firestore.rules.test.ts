@@ -1558,7 +1558,22 @@ describe('ADMIN_SISTEMA — perfil explícito e acesso global', () => {
     }));
   });
 
-  it('permite ao gestor criar um novo usuário sem perfil/escopo, que herda o fallback', async () => {
+  it('impede promoção implícita: gestor não cria outro coordenador usando nível hierárquico <= 5 sem perfil', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(doc(gestor, 'usuarios', 'novo.coordenador'), {
+      login: 'novo.coordenador',
+      nome: 'Novo Coordenador',
+      email: 'novo.coordenador@empresa.com',
+      cargo: 'Coordenador',
+      equipeId: 'EQ_COSI_SOC',
+      gestorUid: usuarios.gestor.login,
+      nivelHierarquico: 4,
+      turnoPadrao: 'M',
+      ativo: true,
+    }));
+  });
+
+  it('permite ao gestor criar um colaborador sem perfil/escopo, no nível sem poder de gestão', async () => {
     const gestor = autenticarComo(usuarios.gestor);
     await assertSucceeds(setDoc(doc(gestor, 'usuarios', 'novo.login'), {
       login: 'novo.login',

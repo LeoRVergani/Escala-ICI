@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest';
 import {
   adicionarMembroGrade,
   agruparGradePorPeriodo,
+  criarGradeInicialEquipe,
   criarMembroGrade,
   membroJaNaGrade,
   removerMembroGrade,
+  resolverTurnoPadraoCadastrado,
   usuariosElegiveisParaAdicionarNaGrade,
 } from './gradeMembros';
 import type { Usuario } from './modelos';
@@ -61,6 +63,34 @@ describe('criação de membro em branco', () => {
     expect(membro.totais.min).toBe(0);
     expect(membro.equipeId).toBe('EQ_SOC');
     expect(membro.competencia).toBe('2026-08');
+  });
+});
+
+describe('grade inicial por período cadastrado', () => {
+  it('preserva o período individual de cada colaborador sem concentrar todos em Manhã', () => {
+    const resultado = criarGradeInicialEquipe([
+      usuario({ login: 'madrugada', turnoPadrao: 'MD' }),
+      usuario({ login: 'manha', turnoPadrao: 'M' }),
+      usuario({ login: 'tarde', turnoPadrao: 'T' }),
+      usuario({ login: 'noite', turnoPadrao: 'N' }),
+    ], REFERENCIA, CATALOGO_SOC);
+    expect(resultado.documentos.map((item) => item.turnoPadrao)).toEqual(['MD', 'M', 'T', 'N']);
+    expect(resultado.colaboradoresSemTurnoPadrao).toEqual([]);
+  });
+
+  it('aceita descrição/alias antigo e normaliza para o código do catálogo', () => {
+    expect(resolverTurnoPadraoCadastrado('Madrugada', CATALOGO_SOC)).toBe('MD');
+    expect(resolverTurnoPadraoCadastrado('manhã', CATALOGO_SOC)).toBe('M');
+    expect(resolverTurnoPadraoCadastrado('TARDE', CATALOGO_SOC)).toBe('T');
+  });
+
+  it('não transforma turno ausente ou inválido em Manhã silenciosamente', () => {
+    const resultado = criarGradeInicialEquipe([
+      usuario({ login: 'sem-periodo', turnoPadrao: '' }),
+      usuario({ login: 'invalido', turnoPadrao: 'DESCONHECIDO' }),
+    ], REFERENCIA, CATALOGO_SOC);
+    expect(resultado.documentos.map((item) => item.turnoPadrao)).toEqual(['', '']);
+    expect(resultado.colaboradoresSemTurnoPadrao.map((item) => item.login)).toEqual(['sem-periodo', 'invalido']);
   });
 });
 

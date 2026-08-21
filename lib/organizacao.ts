@@ -66,6 +66,65 @@ export function rotuloOpcaoUnidade(unidade: UnidadeOrganizacional, todasUnidades
   return `${unidade.unidadeId} — ${trechoFinalCaminho(unidade.caminho, todasUnidades, 2)}`;
 }
 
+const TIPOS_FORA_DO_CODIGO_ORGANIZACIONAL = new Set<UnidadeOrganizacional['tipo']>([
+  'PRESIDENCIA',
+  'DIRETORIA',
+  'SUPERVISAO',
+]);
+
+function segmentosCodigoOrganizacional(valor: string): string[] {
+  return valor
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/gu, '')
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/gu)
+    .filter(Boolean);
+}
+
+/**
+ * Código humano derivado da posição atual da equipe, sem substituir o
+ * `Equipe.id` persistido. Começa na Gerência, mantém as áreas/coordenações e
+ * acrescenta a sigla da equipe. Presidência/Diretoria são contexto amplo
+ * demais; Supervisão descreve a função de chefia, não o destino operacional.
+ *
+ * Exemplo da estrutura de referência:
+ * - GEDSI > COSI + SOC            -> GEDSI_COSI_SOC
+ * - GEDSI > CODB > Supervisão + NOC -> GEDSI_CODB_NOC
+ * - GEDSI > COSI + PLANTAO_COSI  -> GEDSI_COSI_PLANTAO
+ *
+ * O código é calculado, portanto acompanha uma mudança organizacional sem
+ * renomear documentos de escala, usuários, matriz ou histórico.
+ */
+export function codigoOrganizacionalEquipe(
+  equipe: Pick<Equipe, 'id' | 'nome' | 'sigla' | 'unidadeId' | 'caminhoUnidade'>,
+  todasUnidades: readonly UnidadeOrganizacional[],
+): string {
+  const unidadesPorId = new Map(todasUnidades.map((unidade) => [unidade.unidadeId, unidade]));
+  const caminho = equipe.caminhoUnidade ?? (equipe.unidadeId ? [equipe.unidadeId] : []);
+  const unidadesDoCaminho = caminho.map((unidadeId) => unidadesPorId.get(unidadeId)).filter((unidade) => unidade !== undefined);
+  const indiceGerencia = unidadesDoCaminho.findIndex((unidade) => unidade.tipo === 'GERENCIA');
+  const unidadesDoCodigo = (indiceGerencia >= 0 ? unidadesDoCaminho.slice(indiceGerencia) : unidadesDoCaminho)
+    .filter((unidade) => !TIPOS_FORA_DO_CODIGO_ORGANIZACIONAL.has(unidade.tipo));
+  const segmentosUnidade = unidadesDoCodigo.flatMap((unidade) =>
+    segmentosCodigoOrganizacional(unidade.sigla || unidade.unidadeId));
+
+  const origemEquipe = equipe.sigla || equipe.nome || equipe.id.replace(/^EQ_/u, '');
+  const segmentosEquipeOriginais = segmentosCodigoOrganizacional(origemEquipe);
+  const segmentosUnidadeConhecidos = new Set(segmentosUnidade);
+  const segmentosEquipeSemRepeticao = segmentosEquipeOriginais.length > 1
+    ? segmentosEquipeOriginais.filter((segmento) => !segmentosUnidadeConhecidos.has(segmento))
+    : segmentosEquipeOriginais;
+  const segmentosEquipe = segmentosEquipeSemRepeticao.length > 0
+    ? segmentosEquipeSemRepeticao
+    : segmentosEquipeOriginais;
+  const segmentos = [...segmentosUnidade, ...segmentosEquipe];
+
+  if (segmentos.length > 0) {
+    return segmentos.join('_');
+  }
+  return segmentosCodigoOrganizacional(equipe.id).join('_') || equipe.id;
+}
+
 export interface NoArvoreUnidade {
   unidade: UnidadeOrganizacional;
   profundidade: number;

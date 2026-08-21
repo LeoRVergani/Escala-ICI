@@ -11,6 +11,7 @@ import {
   caminhoLegivel,
   chaveDoNoOrganizacional,
   chaveFocavelNaArvore,
+  codigoOrganizacionalEquipe,
   construirArvoreOrganizacional,
   construirArvoreUnidades,
   ehUsuarioTecnicoOuFake,
@@ -109,6 +110,36 @@ function usuarioBase(sobrescritas: Partial<Usuario> = {}): Usuario {
 function equipeBase(sobrescritas: Partial<Equipe> = {}): Equipe {
   return { id: 'EQ_SOC', nome: 'SOC', sigla: 'SOC', ativa: true, ...sobrescritas };
 }
+
+describe('codigoOrganizacionalEquipe', () => {
+  it('identifica a Jornada pelo caminho da Gerência até a equipe', () => {
+    expect(codigoOrganizacionalEquipe(
+      equipeBase({ id: 'EQ_SOC', nome: 'SOC', sigla: 'SOC', unidadeId: 'COSI', caminhoUnidade: cosi.caminho }),
+      todasUnidades,
+    )).toBe('GEDSI_COSI_SOC');
+  });
+
+  it('omite a função de Supervisão e preserva a Coordenação do NOC', () => {
+    expect(codigoOrganizacionalEquipe(
+      equipeBase({ id: 'EQ_NOC', nome: 'NOC', sigla: 'NOC', unidadeId: 'SUPERVISOR_TI', caminhoUnidade: supervisorTi.caminho }),
+      todasUnidades,
+    )).toBe('GEDSI_CODB_NOC');
+  });
+
+  it('remove do sufixo da equipe a área já presente no caminho', () => {
+    expect(codigoOrganizacionalEquipe(
+      equipeBase({ id: 'EQ_PLANTAO_COSI', nome: 'Plantão COSI', sigla: 'PLANTAO_COSI', unidadeId: 'COSI', caminhoUnidade: cosi.caminho }),
+      todasUnidades,
+    )).toBe('GEDSI_COSI_PLANTAO');
+  });
+
+  it('mantém um código útil para equipe legada sem unidade', () => {
+    expect(codigoOrganizacionalEquipe(
+      equipeBase({ id: 'EQ_ANALISE', nome: 'Análise', sigla: 'ANÁLISE', unidadeId: undefined, caminhoUnidade: undefined }),
+      todasUnidades,
+    )).toBe('ANALISE');
+  });
+});
 
 describe('rotuloCompacto', () => {
   it('usa o nome quando ele já é curto', () => {

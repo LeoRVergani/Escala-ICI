@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { CheckCircle2, Plus, X } from 'lucide-react';
 import type { GrupoPlantao } from '@escala-ici/contrato';
-import type { Equipe, EscopoOperacional, Usuario } from '@/lib/modelos';
+import type { Equipe, EscopoOperacional, UnidadeOrganizacional, Usuario } from '@/lib/modelos';
+import { codigoOrganizacionalEquipe } from '@/lib/organizacao';
 import {
   particionarResponsaveisLoginPorElegibilidade,
   usuariosResponsaveisOperacionaisElegiveis,
@@ -20,9 +21,13 @@ function rotuloUsuario(login: string, usuarios: readonly Usuario[]): string {
   return usuario === undefined ? login : `${usuario.nome} (${usuario.login})`;
 }
 
-function rotuloEquipe(id: string, equipes: readonly Equipe[]): string {
+function rotuloEquipe(
+  id: string,
+  equipes: readonly Equipe[],
+  unidades: readonly UnidadeOrganizacional[],
+): string {
   const equipe = equipes.find((item) => item.id === id);
-  return equipe === undefined ? id : `${equipe.nome} (${equipe.id})`;
+  return equipe === undefined ? id : `${equipe.nome} · ${codigoOrganizacionalEquipe(equipe, unidades)}`;
 }
 
 interface ListaSelecionavelProps {
@@ -100,6 +105,7 @@ function ListaSelecionavel({
 export interface ResponsavelEscalaModalProps {
   escopo: EscopoOperacional | null;
   equipes: Equipe[];
+  unidades: UnidadeOrganizacional[];
   grupos: GrupoPlantao[];
   usuarios: Usuario[];
   loginAtual: string;
@@ -111,6 +117,7 @@ export interface ResponsavelEscalaModalProps {
 export function ResponsavelEscalaModal({
   escopo,
   equipes,
+  unidades,
   grupos,
   usuarios,
   loginAtual,
@@ -142,10 +149,17 @@ export function ResponsavelEscalaModal({
     [responsaveisParticionados.naoElegiveis],
   );
   const alvos = tipo === 'JORNADA'
-    ? equipesAtivas.map((equipe) => ({ id: equipe.id, nome: equipe.nome, unidadeId: equipe.unidadeId, caminho: equipe.caminhoUnidade }))
+    ? equipesAtivas.map((equipe) => ({
+      id: equipe.id,
+      nome: equipe.nome,
+      rotulo: `${equipe.nome} — ${codigoOrganizacionalEquipe(equipe, unidades)}`,
+      unidadeId: equipe.unidadeId,
+      caminho: equipe.caminhoUnidade,
+    }))
     : grupos.filter((grupo) => grupo.ativo).map((grupo) => ({
       id: grupo.grupoId,
       nome: grupo.nome,
+      rotulo: grupo.nome,
       unidadeId: grupo.unidadeResponsavelId,
       caminho: grupo.caminhoUnidadeResponsavel,
     })).sort((a, b) => a.nome.localeCompare(b.nome));
@@ -202,7 +216,7 @@ export function ResponsavelEscalaModal({
             Alvo
             <select value={alvoId} disabled={escopo !== null} onChange={(evento) => setAlvoId(evento.target.value)}>
               <option value="">Selecione uma escala</option>
-              {alvos.map((item) => <option key={item.id} value={item.id}>{item.nome}</option>)}
+              {alvos.map((item) => <option key={item.id} value={item.id}>{item.rotulo}</option>)}
             </select>
           </label>
           <ListaSelecionavel
@@ -221,9 +235,9 @@ export function ResponsavelEscalaModal({
             titulo="Equipes administradoras"
             vazio="Selecionar equipe ativa"
             ajuda="Use apenas quando a equipe inteira representa um grupo de gestão. Consulta deve ser configurada em Equipes que consultam."
-            opcoes={equipesAtivas.map((equipe) => ({ id: equipe.id, nome: `${equipe.nome} (${equipe.id})` }))}
+            opcoes={equipesAtivas.map((equipe) => ({ id: equipe.id, nome: rotuloEquipe(equipe.id, equipes, unidades) }))}
             selecionados={responsaveisEquipe}
-            rotulo={(id) => rotuloEquipe(id, equipes)}
+            rotulo={(id) => rotuloEquipe(id, equipes, unidades)}
             onAdicionar={(id) => setResponsaveisEquipe((atuais) => adicionarUnico(atuais, id))}
             onRemover={(id) => setResponsaveisEquipe((atuais) => removerValor(atuais, id))}
           />
@@ -232,9 +246,9 @@ export function ResponsavelEscalaModal({
               titulo="Equipes que consultam"
               vazio="Selecionar equipe ativa"
               ajuda="Equipes que visualizam ou monitoram este Plantão, sem permissão de salvar, importar ou publicar."
-              opcoes={equipesAtivas.map((equipe) => ({ id: equipe.id, nome: `${equipe.nome} (${equipe.id})` }))}
+              opcoes={equipesAtivas.map((equipe) => ({ id: equipe.id, nome: rotuloEquipe(equipe.id, equipes, unidades) }))}
               selecionados={equipesConsulta}
-              rotulo={(id) => rotuloEquipe(id, equipes)}
+              rotulo={(id) => rotuloEquipe(id, equipes, unidades)}
               onAdicionar={(id) => setEquipesConsulta((atuais) => adicionarUnico(atuais, id))}
               onRemover={(id) => setEquipesConsulta((atuais) => removerValor(atuais, id))}
             />

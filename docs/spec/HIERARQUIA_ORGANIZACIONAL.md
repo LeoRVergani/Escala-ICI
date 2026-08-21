@@ -119,6 +119,14 @@ export interface UnidadeOrganizacional {
 }
 ```
 
+A referencia organizacional do projeto tambem define `ASSESSORIA` e os
+metadados-alvo `nivelHierarquico`, `ordem`, `observacao` e `schemaVersion`.
+Esses elementos ainda nao integram o tipo/documento implementado acima e nao
+podem ser enviados ao Firestore antes de uma evolucao compativel de modelo e
+Rules. `EQUIPE` e `GRUPO_OPERACIONAL` pertencem a taxonomia ampla, mas
+continuam persistidos como `Equipe` e `GrupoPlantao`, nunca como duplicatas em
+`unidadesOrganizacionais`.
+
 - **`parentId` é o único mecanismo de hierarquia** — cada unidade aponta
   para no máximo um pai, formando uma árvore de **profundidade não
   limitada pelo código**. `null` marca a raiz. Não existe um número fixo
@@ -599,13 +607,21 @@ Registradas para avaliação futura — **nenhuma foi corrigida nesta fase**
   `docs/spec/ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` para a referência
   sanitizada de domínio; ela não deve ser interpretada como seed
   obrigatório nem como autorização operacional.
-- **IDs de equipe nos testes de Rules (`EQ_COSI_SOC`, `EQ_CODB_NOC`,
-  `EQ_GEDSI_ADM`) não coincidem com os IDs do seed real (`EQ_SOC`,
-  `EQ_NOC`, sem equipe sob `EQ_GEDSI_ADM`)** — inconsistência de
-  nomenclatura entre fixtures de teste (fictícias, propositalmente
-  simples) e o plano de seed real. Não é um bug funcional (testes não
-  dependem do seed real rodar), mas vale alinhar nomenclatura se algum
-  dia os dois precisarem coexistir na mesma leitura.
+- **IDs técnicos do seed (`EQ_SOC`, `EQ_NOC`, `EQ_PLANTAO_COSI`) são curtos e
+  não revelam a posição organizacional.** A apresentação foi resolvida sem
+  renomear chaves persistidas: `codigoOrganizacionalEquipe()` deriva um código
+  humano da árvore atual, como `GEDSI_COSI_SOC`, `GEDSI_CODB_NOC` e
+  `GEDSI_COSI_PLANTAO`. Fixtures continuam livres para usar IDs fictícios; a
+  lógica de autorização nunca compara nenhum desses exemplos.
+- **A referência organizacional é mais expressiva que o schema persistido de
+  unidade.** Ela prevê `ASSESSORIA`, `nivelHierarquico`, `ordem`, `observacao`
+  e `schemaVersion`, enquanto `TipoUnidadeOrganizacional` e
+  `UnidadeOrganizacional` ainda não aceitam esses valores/campos. A referência
+  também classifica Equipe e Grupo Operacional na taxonomia geral, mas o modelo
+  vigente os mantém corretamente nas coleções `equipes` e `gruposPlantao`.
+  Não preencher a lacuna por rótulo incorreto, campo extra bloqueado pelas
+  Rules ou duplicação de entidade; a evolução exige fase própria de schema,
+  Rules, migração compatível e testes.
 
 ---
 
@@ -638,6 +654,9 @@ Registradas para avaliação futura — **nenhuma foi corrigida nesta fase**
 - Não usar nome visual (nome da unidade, sigla, nome do usuário) como
   chave/comparação de segurança — usar sempre o ID estável
   (`unidadeId`/`equipeId`/`login`).
+- Não renomear `equipeId` para refletir uma mudança de organograma. O código
+  organizacional é derivado para apresentação; o ID técnico permanece estável
+  para preservar escalas, usuários, matriz, trocas e histórico.
 
 ---
 

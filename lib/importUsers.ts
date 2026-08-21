@@ -34,6 +34,7 @@ export function novoUsuario(
   login = `novo.login${indice}`,
   ativo = false,
   agora: string = new Date().toISOString(),
+  turnoPadrao = '',
 ): Usuario {
   return {
     login,
@@ -43,7 +44,7 @@ export function novoUsuario(
     equipeId: gestor.equipeId,
     gestorUid: gestor.uid ?? null,
     nivelHierarquico: 6,
-    turnoPadrao: 'M',
+    turnoPadrao,
     ativo,
     criadoEm: agora,
     atualizadoEm: agora,
@@ -79,6 +80,9 @@ export function validarEdicaoUsuario(
   }
   if (editado.cargo.trim() === '') {
     erros.push('Informe o cargo do colaborador.');
+  }
+  if (editado.turnoPadrao.trim() === '') {
+    erros.push('Informe o período padrão do colaborador.');
   }
   if (usuariosDaEquipe.some((outro) =>
     outro.login === editado.login

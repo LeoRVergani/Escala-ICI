@@ -23,7 +23,6 @@ import {
   type Dia,
   type DivergenciaPlantao,
   type ErroImportacao,
-  type ErroImportacaoPlantao,
   type GrupoPlantao,
   type OrigemPlantao,
   type PadraoHorarioPlantaoDia,
@@ -95,7 +94,6 @@ import {
   previaPlantaoValidavel,
   vinculosDeCopiaAnterior,
   vinculosDeParticipantesGrupoPlantao,
-  type AtribuicaoPlantaoComVinculo,
   type ParticipanteConsolidadoPlantao,
   type StatusVinculoPlantao,
   type VinculoPlantao,
@@ -222,7 +220,12 @@ import {
   observarLembretesAtribuidosDoGestor,
   type LembreteAtribuidoPersistido,
 } from '@/lib/firebase/lembretesRepository';
-import { exclusaoZeraGestores, podeExcluirCompetencia, podeExcluirUsuario } from '@/lib/adminGuards';
+import {
+  cadastroUsuarioConcedeGestao,
+  exclusaoZeraGestores,
+  podeExcluirCompetencia,
+  podeExcluirUsuario,
+} from '@/lib/adminGuards';
 import { areaNavegacaoDaTela } from '@/lib/navegacaoDashboard';
 import {
   contextoEhJornada,
@@ -257,6 +260,7 @@ import {
   caminhoCurto,
   caminhoLegivel,
   chaveDoNoOrganizacional,
+  codigoOrganizacionalEquipe,
   construirArvoreOrganizacional,
   construirArvoreUnidades,
   ehUsuarioTecnicoOuFake,
@@ -289,6 +293,7 @@ import {
 } from '@/lib/trocasEscala';
 import {
   adicionarMembroGrade,
+  criarGradeInicialEquipe,
   criarMembroGrade,
   membroJaNaGrade,
   removerMembroGrade,
@@ -365,6 +370,7 @@ type OpcoesInicioImportacao = {
   equipeId?: string;
   grupoId?: string;
   competencia?: string;
+  aoFalhar?: (mensagem: string) => void;
 };
 
 /**
@@ -430,6 +436,33 @@ function mensagemErroEscritaOperacional(
       : 'Você não está configurado como responsável por esta escala.';
   }
   return mensagemErroFirebase(falha, fallback, ambienteFirebaseAtual);
+}
+
+const MENSAGEM_RULES_LEITURA_OPERACIONAL =
+  'Não foi possível carregar os dados desta operação. As Firestore Rules de staging ainda não reconhecem a Matriz de Responsáveis.';
+const MENSAGEM_RULES_LEITURA_PARCIAL =
+  'Alguns dados auxiliares não puderam ser carregados porque as Firestore Rules de staging ainda não reconhecem a Matriz de Responsáveis. Os dados disponíveis foram preservados.';
+
+function falhaEhPermissionDenied(falha: unknown): boolean {
+  const codigo = typeof falha === 'object' && falha !== null && 'code' in falha
+    ? String(falha.code).toLowerCase()
+    : '';
+  const mensagemFalha = falha instanceof Error ? falha.message.toLowerCase() : String(falha ?? '').toLowerCase();
+  return codigo.includes('permission-denied') || mensagemFalha.includes('permission_denied');
+}
+
+function valorLeitura<T>(resultado: PromiseSettledResult<T>, fallback: T): T {
+  return resultado.status === 'fulfilled' ? resultado.value : fallback;
+}
+
+function motivoLeituraRecusada(resultados: readonly PromiseSettledResult<unknown>[]): unknown | null {
+  return resultados.find((resultado) => resultado.status === 'rejected')?.reason ?? null;
+}
+
+function mensagemFalhaLeituraParcial(falha: unknown): string {
+  return falhaEhPermissionDenied(falha)
+    ? MENSAGEM_RULES_LEITURA_PARCIAL
+    : estadoErroOperacoes(falha).mensagem;
 }
 
 function formatarHorasDescanso(horas: number): string {
@@ -740,11 +773,6 @@ const STATUS_VINCULO_PLANTAO_BADGE: Record<StatusVinculoPlantao, string> = {
   CONFLITO: 'danger',
 };
 
-function formatarMomentoPlantao(momento: { data: string; hora: string }): string {
-  const [ano, mes, dia] = momento.data.split('-');
-  return `${dia}/${mes}/${ano} · ${momento.hora}`;
-}
-
 /**
  * Descreve uma `DivergenciaPlantao` (Fase PLANTÃO-3B.1) em texto neutro —
  * nunca chama nenhum dos dois valores de "correto"/"real", nunca culpa o
@@ -921,7 +949,7 @@ function ModalUnidadeOrganizacional({
             <input
               id="unidade-modal-id"
               autoFocus
-              placeholder="Ex.: COSI"
+              placeholder="Ex.: UNIDADE_OPERACIONAL"
               value={form.unidadeId}
               disabled={modo === 'editar'}
               onChange={(evento) => setForm((atual) => ({ ...atual, unidadeId: evento.target.value }))}
@@ -941,7 +969,7 @@ function ModalUnidadeOrganizacional({
             Sigla
             <input
               id="unidade-modal-sigla"
-              placeholder="Ex.: COSI"
+              placeholder="Ex.: UOP"
               value={form.sigla}
               onChange={(evento) => setForm((atual) => ({ ...atual, sigla: evento.target.value }))}
             />
@@ -1039,6 +1067,10 @@ function ModalEquipe({
   const opcoesUnidade = achatarArvore(construirArvoreUnidades(unidadesExistentes))
     .filter((no) => unidadesPermitidas === null || unidadesPermitidas.includes(no.unidade.unidadeId));
   const unidadeSelecionada = unidadesExistentes.find((item) => item.unidadeId === form.unidadeId);
+  const codigoOrganizacional = codigoOrganizacionalEquipe({
+    ...form,
+    caminhoUnidade: unidadeSelecionada?.caminho,
+  }, unidadesExistentes);
 
   async function aoClicarSalvar() {
     if (form.id.trim() === '') {
@@ -1094,16 +1126,20 @@ function ModalEquipe({
         </div>
         <div className="admin-form-grid">
           <label htmlFor="equipe-modal-id">
-            ID da equipe
+            ID técnico da equipe
             <input
               id="equipe-modal-id"
               autoFocus
-              placeholder="Ex.: EQ_SOC"
+              placeholder="Ex.: EQ_OPERACAO"
               value={form.id}
               disabled={modo === 'editar'}
               onChange={(evento) => setForm((atual) => ({ ...atual, id: evento.target.value }))}
             />
-            {modo === 'editar' && <small>O ID não pode ser alterado — é a chave usada pela escala (turnosMes).</small>}
+            <small>
+              {modo === 'editar'
+                ? 'O ID não pode ser alterado — é a chave usada pela escala e pelo histórico.'
+                : 'Chave interna estável. A hierarquia é apresentada separadamente no código organizacional.'}
+            </small>
           </label>
           <label htmlFor="equipe-modal-nome">
             Nome
@@ -1118,7 +1154,7 @@ function ModalEquipe({
             Sigla
             <input
               id="equipe-modal-sigla"
-              placeholder="Ex.: SOC"
+              placeholder="Ex.: OPERACAO"
               value={form.sigla}
               onChange={(evento) => setForm((atual) => ({ ...atual, sigla: evento.target.value }))}
             />
@@ -1138,6 +1174,11 @@ function ModalEquipe({
               ))}
             </select>
           </label>
+          <div className="admin-form-preview admin-form-full team-code-preview">
+            <span>Código organizacional</span>
+            <strong><code>{codigoOrganizacional || 'Defina a unidade e a sigla'}</code></strong>
+            <small>Calculado pela posição atual da equipe; não altera vínculos nem documentos de escala.</small>
+          </div>
           <label className="checkbox-row admin-form-active" htmlFor="equipe-modal-ativa">
             <input
               id="equipe-modal-ativa"
@@ -2363,7 +2404,7 @@ function AdministracaoSubnav({
  * Editor). Nunca pede timezone/ACL/contatos aqui — isso é configuração do
  * Grupo, não da escala mensal (§ 9/§ 11 da fase).
  */
-type AbaPreviaPlantao = 'calendario' | 'resumo' | 'plantoes' | 'contabilidade' | 'vinculos';
+type AbaPreviaPlantao = 'calendario' | 'contabilidade' | 'vinculos';
 
 interface PreviewPlantaoProps {
   /**
@@ -2376,7 +2417,6 @@ interface PreviewPlantaoProps {
   origem: OrigemPlantao;
   nomeArquivo: string;
   participantes: ParticipanteConsolidadoPlantao[];
-  atribuicoes: AtribuicaoPlantaoComVinculo[];
   vinculos: VinculoPlantao[];
   usuarios: Usuario[];
   aba: AbaPreviaPlantao;
@@ -2391,13 +2431,12 @@ interface PreviewPlantaoProps {
   podeValidar: boolean;
   validada: boolean;
   onValidar: () => void;
-  onIrParaUsuarios: () => void;
+  onCriarUsuarioParaVinculo: (participanteNomeOriginal: string) => void;
   /**
    * Fase ESCALAS-UX-1A — o Editor visual. `atribuicoesEditaveis` é a
    * WORKING COPY (nunca `resultado.atribuicoes`, que fica congelado para a
-   * "Conferência da fonte"); o calendário, o "Resumo do editor" e a
-   * "Conferência da escala editada" derivam todos dela, nunca do XLS
-   * declarado.
+   * "Conferência da fonte"); o calendário e a "Conferência da escala
+   * editada" derivam dela, nunca do XLS declarado.
    */
   atribuicoesEditaveis: AtribuicaoPlantaoEditavel[];
   competencia: string;
@@ -2442,7 +2481,6 @@ function PreviewPlantao({
   origem,
   nomeArquivo,
   participantes,
-  atribuicoes,
   vinculos,
   usuarios,
   aba,
@@ -2456,7 +2494,7 @@ function PreviewPlantao({
   podeValidar,
   validada,
   onValidar,
-  onIrParaUsuarios,
+  onCriarUsuarioParaVinculo,
   atribuicoesEditaveis,
   competencia,
   periodoInicio,
@@ -2485,8 +2523,8 @@ function PreviewPlantao({
   const primeiraAtipica = atribuicoesEditaveis.find((atribuicao) => duracaoPlantaoAtipica(atribuicao.duracaoMinutos));
 
   return (
-    <>
-      <article className="panel plantao-resumo-panel">
+    <div className="plantao-preview-fluxo">
+      <article className="panel plantao-resumo-panel plantao-preview-fonte">
         <div className="panel-title">
           <div>
             <p className="eyebrow">{resultado === null ? 'Escala de Plantão' : 'Planilha de Plantão detectada'}</p>
@@ -2534,29 +2572,11 @@ function PreviewPlantao({
         ) : (
           <p>Não há planilha de origem para conferir aqui — ver &ldquo;Escala atual&rdquo; na aba Contabilidade.</p>
         )}
-        <div className="import-actions">
-          <span className={`status-badge ${pendencias === 0 ? 'success' : 'warning'}`}>
-            {pendencias === 0 ? 'Todos os participantes vinculados' : `${pendencias} vínculo(s) pendente(s)`}
-          </span>
-          <button
-            className="primary-button"
-            type="button"
-            disabled={!podeValidar}
-            onClick={onValidar}
-          >
-            <CheckCircle2 size={17} /> Validar prévia
-          </button>
-        </div>
-        {validada && (
-          <p className="plantao-validado-nota">
-            <ShieldCheck size={15} /> Prévia validada. Nenhum dado de Plantão foi publicado.
-          </p>
-        )}
       </article>
 
       {conferencia !== null && conferencia.divergencias.length > 0 && (
         conferencia.divergencias.some((divergencia) => divergencia.divergente) ? (
-          <article className="panel warning-panel">
+          <article className="panel warning-panel plantao-preview-divergencias">
             <div className="panel-title">
               <div>
                 <h2>Divergências encontradas na fonte</h2>
@@ -2571,7 +2591,7 @@ function PreviewPlantao({
             <p>Nenhum valor foi corrigido automaticamente — conferência necessária antes de qualquer decisão operacional.</p>
           </article>
         ) : (
-          <article className="panel">
+          <article className="panel plantao-preview-divergencias">
             <div className="panel-title"><div><h2>Conferência consistente</h2></div></div>
             <p className="plantao-validado-nota">
               <ShieldCheck size={15} /> As camadas de contabilidade da fonte coincidem entre si.
@@ -2580,16 +2600,29 @@ function PreviewPlantao({
         )
       )}
 
-      <article className="panel">
-        <div className="segmented-control" aria-label="Seções da prévia de Plantão">
+      <article className="panel plantao-preview-principal">
+        <div className="plantao-preview-toolbar">
+          <div className="segmented-control" aria-label="Seções da prévia de Plantão">
           <button type="button" className={aba === 'calendario' ? 'active' : ''} aria-pressed={aba === 'calendario'} onClick={() => onMudarAba('calendario')}>Calendário</button>
-          <button type="button" className={aba === 'resumo' ? 'active' : ''} aria-pressed={aba === 'resumo'} onClick={() => onMudarAba('resumo')}>Resumo</button>
-          <button type="button" className={aba === 'plantoes' ? 'active' : ''} aria-pressed={aba === 'plantoes'} onClick={() => onMudarAba('plantoes')}>Lista</button>
           <button type="button" className={aba === 'contabilidade' ? 'active' : ''} aria-pressed={aba === 'contabilidade'} onClick={() => onMudarAba('contabilidade')}>Contabilidade</button>
           <button type="button" className={aba === 'vinculos' ? 'active' : ''} aria-pressed={aba === 'vinculos'} onClick={() => onMudarAba('vinculos')}>
             Vínculos{pendencias > 0 ? ` (${pendencias})` : ''}
           </button>
+          </div>
+          <div className="plantao-preview-validacao">
+            <span className={`status-badge ${pendencias === 0 ? 'success' : 'warning'}`}>
+              {pendencias === 0 ? 'Vínculos prontos' : `${pendencias} vínculo(s) pendente(s)`}
+            </span>
+            <button className="primary-button compact-button" type="button" disabled={!podeValidar} onClick={onValidar}>
+              <CheckCircle2 size={15} /> Validar prévia
+            </button>
+          </div>
         </div>
+        {validada && (
+          <p className="plantao-validado-nota">
+            <ShieldCheck size={15} /> Prévia validada. Nenhum dado de Plantão foi publicado.
+          </p>
+        )}
 
         {aba === 'calendario' && (
           <div className="plantao-editor-calendario">
@@ -2677,76 +2710,10 @@ function PreviewPlantao({
                     onSolicitarNovaAtribuicao={onSolicitarNovaAtribuicao}
                   />
                 ) : (
-                  <p>Não foi possível calcular a competência desta planilha — confira as datas na aba Lista.</p>
+                  <p>Não foi possível calcular a competência desta planilha — confira a competência e as datas da fonte.</p>
                 )}
               </div>
             </div>
-          </div>
-        )}
-
-        {aba === 'resumo' && (
-          <div className="plantao-resumo-conteudo">
-            {resultado === null ? (
-              <p>Não houve leitura de planilha nesta escala — não há erro ou aviso estrutural aqui.</p>
-            ) : (
-              <>
-                {resultado.erros.length > 0 && (
-                  <div className="table-scroll">
-                    <table className="data-table">
-                      <thead><tr><th>Local</th><th>Plantonista</th><th>Valor</th><th>Motivo</th></tr></thead>
-                      <tbody>
-                        {resultado.erros.map((erro: ErroImportacaoPlantao, indice) => (
-                          <tr key={`${erro.linha}-${erro.coluna}-${indice}`}>
-                            <td>{erro.coluna}{erro.linha}</td>
-                            <td>{erro.plantonistaNomeOriginal ?? '—'}</td>
-                            <td><code>{erro.valorEncontrado}</code></td>
-                            <td>{erro.motivo}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {resultado.avisos.length > 0 && (
-                  <ul className="warning-list">
-                    {resultado.avisos.map((aviso) => <li key={aviso}>{aviso}</li>)}
-                  </ul>
-                )}
-                {resultado.erros.length === 0 && resultado.avisos.length === 0 && (
-                  <p>Nenhum erro ou aviso estrutural na leitura desta planilha.</p>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {aba === 'plantoes' && (
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr><th>Plantonista</th><th>Início</th><th>Fim</th><th>Duração</th><th>Vínculo</th></tr>
-              </thead>
-              <tbody>
-                {atribuicoes.map((atribuicao, indice) => (
-                  <tr key={`${atribuicao.plantonistaNomeOriginal}-${indice}`}>
-                    <td>{atribuicao.plantonistaNomeOriginal}</td>
-                    <td>{formatarMomentoPlantao(atribuicao.inicio)}</td>
-                    <td>{formatarMomentoPlantao(atribuicao.fim)}</td>
-                    <td>
-                      {formatarMinutos(atribuicao.duracaoMinutos)}
-                      {duracaoPlantaoAtipica(atribuicao.duracaoMinutos) && (
-                        <span className="status-badge neutral">duração atípica</span>
-                      )}
-                    </td>
-                    <td>
-                      <span className={`status-badge ${STATUS_VINCULO_PLANTAO_BADGE[atribuicao.statusVinculo]}`}>
-                        {STATUS_VINCULO_PLANTAO_LABEL[atribuicao.statusVinculo]}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         )}
 
@@ -2754,7 +2721,7 @@ function PreviewPlantao({
           <>
             <div className="plantao-conferencia-escala-atual">
               <h3>Escala atual (working copy editada)</h3>
-              <p>Recalculada a partir do que está no calendário/lista agora — nunca comparada automaticamente com a fonte.</p>
+              <p>Recalculada a partir do que está no calendário agora — nunca comparada automaticamente com a fonte.</p>
               <div className="import-summary plantao-resumo-grid">
                 <div><span>Plantonistas</span><strong>{conferenciaEscalaAtual.quantidadePessoas}</strong></div>
                 <div><span>Plantões</span><strong>{atribuicoesEditaveis.length}</strong></div>
@@ -2878,8 +2845,8 @@ function PreviewPlantao({
                               </button>
                             )}
                             {vinculo.status === 'USUARIO_NAO_ENCONTRADO' && (
-                              <button type="button" className="secondary-button compact-button" onClick={onIrParaUsuarios}>
-                                <UserPlus size={14} /> Ir para Usuários
+                              <button type="button" className="secondary-button compact-button" onClick={() => onCriarUsuarioParaVinculo(participante.nomeOriginal)}>
+                                <UserPlus size={14} /> Criar e vincular
                               </button>
                             )}
                           </>
@@ -2923,7 +2890,7 @@ function PreviewPlantao({
           </div>
         )}
       </article>
-    </>
+    </div>
   );
 }
 
@@ -2945,7 +2912,7 @@ export function DashboardApp() {
   const [catalogo, setCatalogo] = useState(CATALOGO_SOC);
   const [resultado, setResultado] = useState<ResultadoParse | null>(null);
   const [arquivo, setArquivo] = useState<ArrayBuffer | null>(null);
-  const [nomeArquivo, setNomeArquivo] = useState('Escala-SOC-Controle-Agosto.xls');
+  const [nomeArquivo, setNomeArquivo] = useState('Escala-Controle.xls');
   const [processando, setProcessando] = useState(false);
   const [arrastando, setArrastando] = useState(false);
   const [mensagem, setMensagem] = useState('');
@@ -2969,14 +2936,14 @@ export function DashboardApp() {
   const [resultadoPlantao, setResultadoPlantao] = useState<ResultadoParsePlantao | null>(null);
   const [vinculosPlantao, setVinculosPlantao] = useState<VinculoPlantao[]>([]);
   const [previaPlantaoValidada, setPreviaPlantaoValidada] = useState(false);
-  const [abaPreviaPlantao, setAbaPreviaPlantao] = useState<'calendario' | 'resumo' | 'plantoes' | 'contabilidade' | 'vinculos'>('calendario');
+  const [abaPreviaPlantao, setAbaPreviaPlantao] = useState<AbaPreviaPlantao>('calendario');
   const [buscaVinculoPlantao, setBuscaVinculoPlantao] = useState<Record<string, string>>({});
   /**
    * Fase ESCALAS-UX-1A — a WORKING COPY editável do Editor visual.
    * `resultadoPlantao.atribuicoes` continua congelado (fonte da
    * "Conferência da fonte"); esta é a ÚNICA fonte de verdade que o
-   * calendário, a Lista, o "Resumo do editor" e o payload de
-   * `salvarRascunhoPlantaoAcao()` consultam depois da importação —
+   * calendário, a conferência e o payload de `salvarRascunhoPlantaoAcao()`
+   * consultam depois da importação —
    * "Importação não é um destino, é só uma forma de preencher o Editor".
    */
   const [atribuicoesEditaveisPlantao, setAtribuicoesEditaveisPlantao] = useState<AtribuicaoPlantaoEditavel[]>([]);
@@ -3057,6 +3024,7 @@ export function DashboardApp() {
   const [contextoSemEscala, setContextoSemEscala] = useState(false);
   const [carregandoContexto, setCarregandoContexto] = useState(false);
   const [erroContextoEscala, setErroContextoEscala] = useState('');
+  const [avisoContextoEscala, setAvisoContextoEscala] = useState('');
   const [estadoCarregamentoOperacoes, setEstadoCarregamentoOperacoes] =
     useState<EstadoCarregamentoOperacoes>({ fase: 'carregando' });
   const [tentativaCarregamentoOperacoes, setTentativaCarregamentoOperacoes] = useState(0);
@@ -3089,7 +3057,9 @@ export function DashboardApp() {
   const [rascunhosPlantaoPorGrupo, setRascunhosPlantaoPorGrupo] = useState<Record<string, CompetenciaPlantao[]>>({});
   const [resumosJornadaDashboard, setResumosJornadaDashboard] = useState<Record<string, ResumoJornadaDashboard>>({});
   const [resumosPlantaoDashboard, setResumosPlantaoDashboard] = useState<Record<string, ResumoPlantaoDashboard>>({});
-  const [erroResumoOperacionalDashboard, setErroResumoOperacionalDashboard] = useState('');
+  const [erroResumoJornadaDashboard, setErroResumoJornadaDashboard] = useState('');
+  const [erroResumoPlantaoDashboard, setErroResumoPlantaoDashboard] = useState('');
+  const erroResumoOperacionalDashboard = erroResumoJornadaDashboard || erroResumoPlantaoDashboard;
   /**
    * Estado transitório de "Abrir rascunho" — distingue carregando/erro/
    * não encontrado (§ 17-19 da fase): nunca abre o calendário vazio
@@ -3129,6 +3099,7 @@ export function DashboardApp() {
   const [erroRascunhoPlantao, setErroRascunhoPlantao] = useState('');
   const [rascunhoPlantaoSalvoEm, setRascunhoPlantaoSalvoEm] = useState<string | null>(null);
   const [formularioUsuario, setFormularioUsuario] = useState<FormularioUsuario | null>(null);
+  const [participanteVinculoCadastro, setParticipanteVinculoCadastro] = useState<string | null>(null);
   const [errosFormularioUsuario, setErrosFormularioUsuario] = useState<string[]>([]);
   const [novoAliasDraft, setNovoAliasDraft] = useState('');
   const [descarteRascunhoPendente, setDescarteRascunhoPendente] = useState(false);
@@ -3326,6 +3297,14 @@ export function DashboardApp() {
   const carregandoEquipesPlantaoParaExibir = carregandoEquipesPlantao && podeAcessarPlantoes && !modoDemo;
   const minhasEquipesPermitidas = escoposOperacionais.equipesAdministraveis.map((item) => item.id);
   const minhasEquipesDeJornadaPermitidas = escoposOperacionais.jornadasAdministraveis.map((item) => item.id);
+  const grupoCadastroVinculo = participanteVinculoCadastro === null
+    ? undefined
+    : gruposPlantaoAdmin.find((grupo) => grupo.grupoId === grupoRascunhoEscolhido);
+  const equipeIdCadastroUsuario = participanteVinculoCadastro === null
+    ? usuarioEfetivo?.equipeId ?? ''
+    : grupoCadastroVinculo?.equipeResponsavelId ?? '';
+  const rotuloEquipeCadastroUsuario = equipesAdmin.find((equipe) => equipe.id === equipeIdCadastroUsuario)?.nome
+    ?? equipeIdCadastroUsuario;
   /**
    * Fase CORRECAO-WIZARD-PLANTAO-EQUIPE-1 — a equipe da Jornada ATIVA
    * agora (se houver) nunca deve ser oferecida/escolhida silenciosamente
@@ -3534,39 +3513,57 @@ export function DashboardApp() {
       return;
     }
     let cancelado = false;
-    void Promise.all(jornadaIds.map(async (equipeId): Promise<ResumoJornadaDashboard> => {
-      const [rascunhos, publicadas, usuariosDaEquipe] = await Promise.all([
+    void Promise.all(jornadaIds.map(async (equipeId): Promise<{ resumo: ResumoJornadaDashboard; falhaParcial: unknown | null }> => {
+      const resultados = await executarComLimiteDeTempo(Promise.allSettled([
         carregarRascunhosEquipe(equipeId, competenciaDashboard),
         carregarEscalasEquipe(equipeId, competenciaDashboard, true),
         listarUsuarios(equipeId),
-      ]);
+      ]));
+      const [resultadoRascunhos, resultadoPublicadas, resultadoUsuarios] = resultados;
+      const rascunhos = valorLeitura(resultadoRascunhos, []);
+      const publicadas = valorLeitura(resultadoPublicadas, []);
+      const usuariosDaEquipe = valorLeitura(resultadoUsuarios, []);
+      if (resultadoUsuarios.status === 'rejected') throw resultadoUsuarios.reason;
+      if (
+        rascunhos.length === 0
+        && publicadas.length === 0
+        && (resultadoRascunhos.status === 'rejected' || resultadoPublicadas.status === 'rejected')
+      ) {
+        throw motivoLeituraRecusada([resultadoRascunhos, resultadoPublicadas]);
+      }
       const documentosBase = rascunhos.length > 0 ? rascunhos : publicadas;
       const periodo = periodoDaCompetencia(competenciaDashboard);
       const datas = documentosBase.flatMap((documento) => Object.keys(documento.dias)).sort();
       return {
-        equipeId,
-        competencia: competenciaDashboard,
-        documentos: documentosBase,
-        rascunhos,
-        publicadas,
-        colaboradoresAtivos: usuariosDaEquipe.filter((usuario) => usuario.ativo && usuario.equipeId === equipeId).length,
-        periodoInicio: datas[0] ?? periodo?.periodoInicio ?? '',
-        periodoFim: datas.at(-1) ?? periodo?.periodoFim ?? '',
+        resumo: {
+          equipeId,
+          competencia: competenciaDashboard,
+          documentos: documentosBase,
+          rascunhos,
+          publicadas,
+          colaboradoresAtivos: usuariosDaEquipe.filter((usuario) => usuario.ativo && usuario.equipeId === equipeId).length,
+          periodoInicio: datas[0] ?? periodo?.periodoInicio ?? '',
+          periodoFim: datas.at(-1) ?? periodo?.periodoFim ?? '',
+        },
+        falhaParcial: motivoLeituraRecusada(resultados),
       };
     }))
-      .then((resumos) => {
+      .then((resultados) => {
         if (cancelado) {
           return;
         }
         setResumosJornadaDashboard((atuais) => ({
           ...atuais,
-          ...Object.fromEntries(resumos.map((resumo) => [`${resumo.equipeId}:${resumo.competencia}`, resumo])),
+          ...Object.fromEntries(resultados.map(({ resumo }) => [`${resumo.equipeId}:${resumo.competencia}`, resumo])),
         }));
-        setErroResumoOperacionalDashboard('');
+        const falhaParcial = resultados.find((resultado) => resultado.falhaParcial !== null)?.falhaParcial ?? null;
+        setErroResumoJornadaDashboard(falhaParcial === null ? '' : mensagemFalhaLeituraParcial(falhaParcial));
       })
       .catch((falha) => {
         if (!cancelado) {
-          setErroResumoOperacionalDashboard(mensagemErroFirebase(falha, 'Não foi possível carregar o resumo das Jornadas.', ambienteFirebaseAtual));
+          setErroResumoJornadaDashboard(falhaEhPermissionDenied(falha)
+            ? MENSAGEM_RULES_LEITURA_OPERACIONAL
+            : mensagemErroFirebase(falha, 'Não foi possível carregar o resumo das Jornadas.', ambienteFirebaseAtual));
         }
       });
     return () => {
@@ -3583,31 +3580,46 @@ export function DashboardApp() {
       return;
     }
     let cancelado = false;
-    void Promise.all(grupoIds.map(async (grupoId): Promise<ResumoPlantaoDashboard> => {
-      const [competenciaRascunho, competenciaPublicada, participantes] = await Promise.all([
+    void Promise.all(grupoIds.map(async (grupoId): Promise<{ resumo: ResumoPlantaoDashboard; falhaParcial: unknown | null }> => {
+      const resultados = await executarComLimiteDeTempo(Promise.allSettled([
         obterCompetenciaPlantaoRascunho(grupoId, competenciaDashboard),
         obterCompetenciaPlantaoPublicada(grupoId, competenciaDashboard),
         listarParticipantesPlantao(grupoId),
-      ]);
+      ]));
+      const [resultadoRascunho, resultadoPublicada, resultadoParticipantes] = resultados;
+      const competenciaRascunho = valorLeitura(resultadoRascunho, null);
+      const competenciaPublicada = valorLeitura(resultadoPublicada, null);
+      const participantes = valorLeitura(resultadoParticipantes, []);
+      if (resultadoParticipantes.status === 'rejected') throw resultadoParticipantes.reason;
+      if (
+        competenciaRascunho === null
+        && competenciaPublicada === null
+        && (resultadoRascunho.status === 'rejected' || resultadoPublicada.status === 'rejected')
+      ) {
+        throw motivoLeituraRecusada([resultadoRascunho, resultadoPublicada]);
+      }
       return {
-        grupoId,
-        competencia: competenciaDashboard,
-        competenciaRascunho,
-        competenciaPublicada,
-        participantesAtivos: participantes.filter((participante) => participante.ativo).length,
+        resumo: {
+          grupoId,
+          competencia: competenciaDashboard,
+          competenciaRascunho,
+          competenciaPublicada,
+          participantesAtivos: participantes.filter((participante) => participante.ativo).length,
+        },
+        falhaParcial: motivoLeituraRecusada(resultados),
       };
     }))
-      .then((resumos) => {
+      .then((resultados) => {
         if (cancelado) {
           return;
         }
         setResumosPlantaoDashboard((atuais) => ({
           ...atuais,
-          ...Object.fromEntries(resumos.map((resumo) => [`${resumo.grupoId}:${resumo.competencia}`, resumo])),
+          ...Object.fromEntries(resultados.map(({ resumo }) => [`${resumo.grupoId}:${resumo.competencia}`, resumo])),
         }));
         setRascunhosPlantaoPorGrupo((atuais) => {
           const proximos = { ...atuais };
-          for (const resumo of resumos) {
+          for (const { resumo } of resultados) {
             const competenciaRascunho = resumo.competenciaRascunho;
             if (competenciaRascunho !== null) {
               const existentes = proximos[resumo.grupoId] ?? [];
@@ -3618,11 +3630,14 @@ export function DashboardApp() {
           }
           return proximos;
         });
-        setErroResumoOperacionalDashboard('');
+        const falhaParcial = resultados.find((resultado) => resultado.falhaParcial !== null)?.falhaParcial ?? null;
+        setErroResumoPlantaoDashboard(falhaParcial === null ? '' : mensagemFalhaLeituraParcial(falhaParcial));
       })
       .catch((falha) => {
         if (!cancelado) {
-          setErroResumoOperacionalDashboard(mensagemErroFirebase(falha, 'Não foi possível carregar o resumo dos Plantões.', ambienteFirebaseAtual));
+          setErroResumoPlantaoDashboard(falhaEhPermissionDenied(falha)
+            ? MENSAGEM_RULES_LEITURA_OPERACIONAL
+            : mensagemErroFirebase(falha, 'Não foi possível carregar o resumo dos Plantões.', ambienteFirebaseAtual));
         }
       });
     return () => {
@@ -3775,6 +3790,8 @@ export function DashboardApp() {
     usuarioContextoRestauradoRef.current = null;
     setTentativaCarregamentoOperacoes(0);
     setEstadoCarregamentoOperacoes({ fase: demonstracao ? 'sucesso' : 'carregando' });
+    setErroContextoEscala('');
+    setAvisoContextoEscala('');
     setUsuarioReal(autenticado);
     setModoDemo(demonstracao);
     if (demonstracao) {
@@ -4665,16 +4682,24 @@ export function DashboardApp() {
     setWizardArquivoNome(file.name);
     setWizardProcessando(true);
     setWizardErro('');
-    const sucesso = await receberArquivo(file, {
-      tipoEsperado: wizardTipo === 'JORNADA' ? 'ESCALA_6X1' : 'PLANTAO',
-      equipeId: wizardEquipeId,
-      grupoId: wizardGrupoId,
-      competencia: wizardCompetencia,
-    });
-    setWizardProcessando(false);
-    if (sucesso) {
-      fecharNovaEscala();
-      setTela(wizardTipo === 'JORNADA' ? 'grade' : 'importar');
+    try {
+      const sucesso = await receberArquivo(file, {
+        tipoEsperado: wizardTipo === 'JORNADA' ? 'ESCALA_6X1' : 'PLANTAO',
+        equipeId: wizardEquipeId,
+        grupoId: wizardGrupoId,
+        competencia: wizardCompetencia,
+        aoFalhar: setWizardErro,
+      });
+      if (sucesso) {
+        fecharNovaEscala();
+        setTela(wizardTipo === 'JORNADA' ? 'grade' : 'importar');
+      }
+    } catch (falha) {
+      setWizardErro(falha instanceof Error
+        ? `Não foi possível importar a planilha: ${falha.message}`
+        : 'Não foi possível importar a planilha selecionada.');
+    } finally {
+      setWizardProcessando(false);
     }
   }
   async function continuarWizard() {
@@ -4713,13 +4738,12 @@ export function DashboardApp() {
         setUsuarios(usuariosDaEquipe);
         setCatalogo(catalogoDaEquipe);
       }
-      const colaboradores = usuariosDaEquipe.filter((usuario) => usuario.ativo && usuario.equipeId === wizardEquipeId);
-      const documentosNovos = colaboradores.map((colaborador) => criarMembroGrade(
-        colaborador,
-        colaborador.turnoPadrao,
+      const gradeInicial = criarGradeInicialEquipe(
+        usuariosDaEquipe,
         { equipeId: wizardEquipeId, competencia: wizardCompetencia, periodoInicio: periodo.periodoInicio, periodoFim: periodo.periodoFim },
         catalogoDaEquipe,
-      ));
+      );
+      const documentosNovos = gradeInicial.documentos;
       setResultado({
         ok: true,
         equipeNome: equipe?.nome ?? wizardEquipeId,
@@ -4730,7 +4754,9 @@ export function DashboardApp() {
         erros: [],
         avisos: documentosNovos.length === 0
           ? ['Nenhum colaborador ativo encontrado para esta equipe. Cadastre ou importe usuários antes de montar a escala.']
-          : ['Escala criada vazia. Preencha os turnos no editor antes de salvar.'],
+          : gradeInicial.colaboradoresSemTurnoPadrao.length > 0
+            ? [`${gradeInicial.colaboradoresSemTurnoPadrao.length} colaborador(es) estão sem período padrão válido no cadastro e foram agrupados em Outros. Corrija o cadastro ou escolha o turno na grade.`]
+            : ['Colaboradores organizados conforme o período padrão cadastrado. Preencha os dias e folgas no editor antes de salvar.'],
       });
       setLinhasConciliacao([]);
       setJornadaPossuiAlteracoesNaoSalvas(true);
@@ -4806,14 +4832,33 @@ export function DashboardApp() {
     setWizardProcessando(true);
     setWizardErro('');
     try {
+      let verificacaoDuplicidadeLimitadaPorRules = false;
       if (!modoDemo) {
-        const existente = await obterCompetenciaPlantaoRascunho(grupo.grupoId, competencia);
-        if (existente !== null) {
-                return;
+        try {
+          const existente = await obterCompetenciaPlantaoRascunho(grupo.grupoId, competencia);
+          if (existente !== null) {
+            setWizardErro('Já existe um rascunho para este Plantão e competência. Abra o rascunho existente.');
+            return;
+          }
+        } catch (falha) {
+          if (!falhaEhPermissionDenied(falha)) throw falha;
+          // Importar/criar uma working copy local não é escrita. Rules de
+          // staging desatualizadas não devem bloquear o editor; salvar e
+          // publicar continuam protegidos pelo repository e pelas Rules.
+          verificacaoDuplicidadeLimitadaPorRules = true;
         }
       }
-      const participantesAtivos = (await garantirParticipantesDoGrupoCarregados(grupo.grupoId))
-        .filter((item) => item.ativo);
+      let participantesAtivos: ParticipantePlantao[] = [];
+      try {
+        participantesAtivos = (await garantirParticipantesDoGrupoCarregados(grupo.grupoId))
+          .filter((item) => item.ativo);
+      } catch (falha) {
+        if (!falhaEhPermissionDenied(falha)) throw falha;
+        // A lista é auxiliar à working copy vazia. Se staging ainda negar
+        // essa leitura, o editor pode abrir sem roster; nenhuma pessoa é
+        // inventada e a gravação continua submetida ao repository/Rules.
+        verificacaoDuplicidadeLimitadaPorRules = true;
+      }
       const vinculosIniciais = vinculosDeParticipantesGrupoPlantao(participantesAtivos, usuarios);
 
       setArquivo(null);
@@ -4839,7 +4884,9 @@ export function DashboardApp() {
       setTipoArquivoDetectado('PLANTAO');
       setContextoEscalaAtivo(criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, competencia));
       setContextoSemEscala(false);
-      setMensagem(`Escala de Plantão criada — "${grupo.nome}" (${competencia}). Nenhum dado foi publicado.`);
+      setMensagem(verificacaoDuplicidadeLimitadaPorRules
+        ? 'Escala aberta localmente. As Firestore Rules de staging precisam ser publicadas antes de salvar ou publicar.'
+        : `Escala de Plantão criada — "${grupo.nome}" (${competencia}). Nenhum dado foi publicado.`);
       fecharNovaEscala();
       setTela('importar');
     } catch (falha) {
@@ -5029,31 +5076,42 @@ export function DashboardApp() {
    * tenta nenhum dos dois parsers "na sorte".
    */
   async function receberArquivo(file: File | undefined, opcoes: OpcoesInicioImportacao = {}): Promise<boolean> {
+    const falhar = (texto: string) => {
+      setMensagem(texto);
+      opcoes.aoFalhar?.(texto);
+      return false;
+    };
     if (file === undefined) {
       return false;
     }
     const extensaoValida = /\.(xls|xlsx)$/iu.test(file.name);
     if (!extensaoValida) {
-      setMensagem('Selecione um arquivo XLS ou XLSX.');
-      return false;
+      return falhar('Selecione um arquivo XLS ou XLSX.');
     }
 
-    const buffer = await file.arrayBuffer();
-    const equipeImportacaoId = opcoes.equipeId
-      ?? (contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : usuarioEfetivo?.equipeId)
-      ?? EQUIPE_DEMO.id;
-    const processado = processarArquivoImportado(buffer, {
-      equipeId: equipeImportacaoId,
-      competencia: opcoes.competencia ?? '2026-08',
-      catalogo,
-      loginParaUid: mapaLogins(usuarios),
-    });
+    let buffer: ArrayBuffer;
+    let processado: ReturnType<typeof processarArquivoImportado>;
+    try {
+      buffer = await file.arrayBuffer();
+      const equipeImportacaoId = opcoes.equipeId
+        ?? (contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : usuarioEfetivo?.equipeId)
+        ?? EQUIPE_DEMO.id;
+      processado = processarArquivoImportado(buffer, {
+        equipeId: equipeImportacaoId,
+        competencia: opcoes.competencia ?? '2026-08',
+        catalogo,
+        loginParaUid: mapaLogins(usuarios),
+      });
+    } catch (falha) {
+      return falhar(falha instanceof Error
+        ? `Não foi possível ler a planilha: ${falha.message}`
+        : 'Não foi possível ler a planilha selecionada.');
+    }
     setTipoArquivoDetectado(processado.tipo);
     if (opcoes.tipoEsperado !== undefined && processado.tipo !== opcoes.tipoEsperado) {
       const esperado = opcoes.tipoEsperado === 'PLANTAO' ? 'Plantão' : 'Jornada 6x1';
       const encontrado = processado.tipo === 'PLANTAO' ? 'Plantão' : processado.tipo === 'ESCALA_6X1' ? 'Jornada 6x1' : 'estrutura desconhecida';
-      setMensagem(`O arquivo escolhido não corresponde ao tipo selecionado. Esperado: ${esperado}. Encontrado: ${encontrado}.`);
-      return false;
+      return falhar(`O arquivo escolhido não corresponde ao tipo selecionado. Esperado: ${esperado}. Encontrado: ${encontrado}.`);
     }
     if (processado.tipo === 'DESCONHECIDA') {
       setResultado(null);
@@ -5064,8 +5122,7 @@ export function DashboardApp() {
       setArquivo(null);
       setNomeArquivo(file.name);
       setMotivoArquivoDesconhecido(processado.motivo);
-      setMensagem(processado.motivo);
-      return false;
+      return falhar(processado.motivo);
     }
     if (processado.tipo === 'PLANTAO') {
       const grupoAtual = contextoEhPlantao(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : '';
@@ -5075,8 +5132,7 @@ export function DashboardApp() {
         competencia: opcoes.competencia ?? (contextoEhPlantao(contextoEscalaAtivo) ? contextoEscalaAtivo.competencia : undefined),
       };
       if (opcoesPlantao.grupoId === undefined || opcoesPlantao.grupoId.trim() === '') {
-        setMensagem('Selecione o contexto Plantão no topo ou use o fluxo de importação para definir o Grupo de Plantão antes de carregar o arquivo.');
-        return false;
+        return falhar('Selecione o contexto Plantão no topo ou use o fluxo de importação para definir o Grupo de Plantão antes de carregar o arquivo.');
       }
       setResultado(null);
       setJornadaPossuiAlteracoesNaoSalvas(false);
@@ -5137,8 +5193,16 @@ export function DashboardApp() {
         ? contextoEscalaAtivo.alvoId
         : usuarioEfetivo.equipeId;
       const responsavelDoAlvo = { ...usuarioEfetivo, equipeId: equipeAlvoId };
-      const novos = logins.map((login, indice) =>
-        novoUsuario(usuarios.length + indice + 1, responsavelDoAlvo, login, true));
+      const turnoPorLogin = new Map((resultado?.documentos ?? []).map((documento) => [documento.login, documento.turnoPadrao]));
+      const agora = new Date().toISOString();
+      const novos = logins.map((login, indice) => novoUsuario(
+        usuarios.length + indice + 1,
+        responsavelDoAlvo,
+        login,
+        true,
+        agora,
+        turnoPorLogin.get(login) ?? '',
+      ));
       if (!modoDemo) {
         await salvarUsuarios(novos);
         await registrarAuditoriaSeSimulando('CADASTRAR_USUARIOS');
@@ -5481,6 +5545,7 @@ export function DashboardApp() {
   }
 
   function abrirNovoUsuario() {
+    setParticipanteVinculoCadastro(null);
     setFormularioUsuario({
       loginOriginal: null,
       nome: '',
@@ -5488,7 +5553,7 @@ export function DashboardApp() {
       login: '',
       cargo: '',
       nivelHierarquico: 6,
-      turnoPadrao: 'M',
+      turnoPadrao: '',
       ativo: true,
       aliasesPlanilha: [],
       unidadesPermitidas: [],
@@ -5498,7 +5563,32 @@ export function DashboardApp() {
     setNovoAliasDraft('');
   }
 
+  function abrirCadastroUsuarioParaVinculo(participanteNomeOriginal: string) {
+    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === grupoRascunhoEscolhido);
+    if (grupo === undefined || grupo.equipeResponsavelId.trim() === '') {
+      setMensagem('Não foi possível identificar a equipe responsável deste Plantão. Recarregue as operações e tente novamente.');
+      return;
+    }
+    setParticipanteVinculoCadastro(participanteNomeOriginal);
+    setFormularioUsuario({
+      loginOriginal: null,
+      nome: participanteNomeOriginal,
+      email: '',
+      login: '',
+      cargo: '',
+      nivelHierarquico: 6,
+      turnoPadrao: '',
+      ativo: true,
+      aliasesPlanilha: [participanteNomeOriginal],
+      unidadesPermitidas: [],
+      equipesPermitidas: [],
+    });
+    setErrosFormularioUsuario([]);
+    setNovoAliasDraft('');
+  }
+
   function abrirEdicaoUsuario(item: Usuario) {
+    setParticipanteVinculoCadastro(null);
     setFormularioUsuario({
       loginOriginal: item.login,
       nome: item.nome,
@@ -5521,6 +5611,7 @@ export function DashboardApp() {
 
   function fecharFormularioUsuario() {
     setFormularioUsuario(null);
+    setParticipanteVinculoCadastro(null);
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
   }
@@ -5570,7 +5661,12 @@ export function DashboardApp() {
       return;
     }
     if (escritaBloqueada) {
-      setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
+      const aviso = 'A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.';
+      if (participanteVinculoCadastro !== null) {
+        setErrosFormularioUsuario([aviso]);
+      } else {
+        setMensagem(aviso);
+      }
       return;
     }
 
@@ -5581,7 +5677,7 @@ export function DashboardApp() {
      * "reafirmar" o valor atual), então omiti-los aqui é obrigatório, não
      * só desabilitar os inputs no formulário.
      */
-    const camposAdministrativos: Partial<Usuario> = souAdmin
+    const camposAdministrativos: Partial<Usuario> = souAdmin && participanteVinculoCadastro === null
       ? {
         perfil: formularioUsuario.perfil,
         escopo: formularioUsuario.escopo,
@@ -5593,10 +5689,17 @@ export function DashboardApp() {
 
     let candidato: Usuario;
     if (formularioUsuario.loginOriginal === null) {
+      const responsavelCadastro = participanteVinculoCadastro === null
+        ? usuarioEfetivo
+        : {
+          ...usuarioEfetivo,
+          equipeId: equipeIdCadastroUsuario,
+          uid: undefined,
+        };
       candidato = {
         ...novoUsuario(
           usuarios.length + 1,
-          usuarioEfetivo,
+          responsavelCadastro,
           formularioUsuario.login || `novo.login${usuarios.length + 1}`,
           formularioUsuario.ativo,
         ),
@@ -5627,6 +5730,17 @@ export function DashboardApp() {
       };
     }
 
+    if (
+      formularioUsuario.loginOriginal === null
+      && !souAdmin
+      && cadastroUsuarioConcedeGestao(candidato)
+    ) {
+      setErrosFormularioUsuario([
+        'Somente um ADMIN_SISTEMA pode cadastrar ou promover outro coordenador. Peça ao administrador para definir o perfil de gestão e depois criar o vínculo em Administração → Responsáveis por escala.',
+      ]);
+      return;
+    }
+
     const erros = validarEdicaoUsuario(candidato, usuarios, formularioUsuario.loginOriginal);
     if (erros.length > 0) {
       setErrosFormularioUsuario(erros);
@@ -5641,12 +5755,20 @@ export function DashboardApp() {
       setUsuarios((atuais) => (atuais.some((item) => item.login === candidato.login)
         ? atuais.map((item) => (item.login === candidato.login ? candidato : item))
         : [...atuais, candidato]));
-      setMensagem(formularioUsuario.loginOriginal === null
-        ? 'Usuário cadastrado com sucesso.'
-        : 'Usuário atualizado com sucesso.');
+      if (participanteVinculoCadastro !== null) {
+        confirmarVinculoPlantaoAcao(participanteVinculoCadastro, candidato);
+        setMensagem(`${candidato.nome} foi cadastrado e vinculado à pessoa encontrada na planilha.`);
+      } else {
+        setMensagem(formularioUsuario.loginOriginal === null
+          ? 'Usuário cadastrado com sucesso.'
+          : 'Usuário atualizado com sucesso.');
+      }
       fecharFormularioUsuario();
     } catch (falha) {
-      setErrosFormularioUsuario([mensagemErroFirebase(falha, 'Não foi possível salvar o usuário.', ambienteFirebaseAtual)]);
+      const erroCadastro = falhaEhPermissionDenied(falha) && ambienteFirebaseAtual === 'staging'
+        ? 'Não foi possível cadastrar o usuário em staging. Esta ação exige ADMIN_SISTEMA ou responsabilidade ativa na Jornada desta equipe. Se o vínculo já estiver configurado, publique as Firestore Rules atuais de staging.'
+        : mensagemErroFirebase(falha, 'Não foi possível salvar o usuário.', ambienteFirebaseAtual);
+      setErrosFormularioUsuario([erroCadastro]);
     }
   }
 
@@ -6631,7 +6753,8 @@ export function DashboardApp() {
         setUnidadesAdmin(resultadoCarga.dados.unidades);
         setEscoposOperacionaisAdmin(resultadoCarga.dados.escopos);
         setGruposPlantaoAdmin(resultadoCarga.dados.grupos);
-        setErroResumoOperacionalDashboard('');
+        setErroResumoJornadaDashboard('');
+        setErroResumoPlantaoDashboard('');
       }
     });
     return () => {
@@ -6642,6 +6765,7 @@ export function DashboardApp() {
   function recarregarOperacoes() {
     usuarioContextoRestauradoRef.current = null;
     setErroContextoEscala('');
+    setAvisoContextoEscala('');
     setEstadoCarregamentoOperacoes({ fase: 'carregando' });
     setTentativaCarregamentoOperacoes((tentativa) => tentativa + 1);
   }
@@ -6691,22 +6815,39 @@ export function DashboardApp() {
    */
   async function aplicarTrocaContexto(alvo: ContextoEscalaAtivo) {
     setErroContextoEscala('');
+    setAvisoContextoEscala('');
     if (alvo.tipo === 'PLANTAO') {
       const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === alvo.alvoId);
       if (grupo === undefined) {
         setErroContextoEscala('Grupo de Plantão não encontrado — recarregue a página.');
         return;
       }
+      setContextoEscalaAtivo(alvo);
+      setContextoSemEscala(false);
       setCarregandoContexto(true);
       try {
-        const [competenciaExistente, competenciaPublicada] = modoDemo
-          ? [null, null] as const
-          : await executarComLimiteDeTempo(Promise.all([
+        let competenciaExistente: CompetenciaPlantao | null = null;
+        let competenciaPublicada: CompetenciaPlantao | null = null;
+        if (!modoDemo) {
+          const resultados = await executarComLimiteDeTempo(Promise.allSettled([
             obterCompetenciaPlantaoRascunho(grupo.grupoId, alvo.competencia),
             obterCompetenciaPlantaoPublicada(grupo.grupoId, alvo.competencia),
           ]));
+          competenciaExistente = valorLeitura(resultados[0], null);
+          competenciaPublicada = valorLeitura(resultados[1], null);
+          if (
+            competenciaExistente === null
+          && competenciaPublicada === null
+          && resultados.some((resultado) => resultado.status === 'rejected')
+          ) {
+            throw motivoLeituraRecusada(resultados);
+          }
+          const falhaParcial = motivoLeituraRecusada(resultados);
+          if (falhaParcial !== null) {
+            setAvisoContextoEscala(mensagemFalhaLeituraParcial(falhaParcial));
+          }
+        }
         if (competenciaExistente === null) {
-          setContextoEscalaAtivo(alvo);
           setContextoSemEscala(competenciaPublicada === null);
           if (competenciaPublicada !== null) {
             setResumosPlantaoDashboard((atuais) => ({
@@ -6738,9 +6879,11 @@ export function DashboardApp() {
         }
       } catch (falha) {
         const erro = estadoErroOperacoes(falha);
-        setErroContextoEscala(erro.diagnostico === 'REDE'
-          ? erro.mensagem
-          : mensagemErroFirebase(falha, 'Não foi possível carregar este Plantão.', ambienteFirebaseAtual));
+        setErroContextoEscala(falhaEhPermissionDenied(falha)
+          ? MENSAGEM_RULES_LEITURA_OPERACIONAL
+          : erro.diagnostico === 'REDE'
+            ? erro.mensagem
+            : mensagemErroFirebase(falha, 'Não foi possível carregar este Plantão.', ambienteFirebaseAtual));
       } finally {
         setCarregandoContexto(false);
       }
@@ -6749,18 +6892,25 @@ export function DashboardApp() {
     if (usuarioEfetivo === null) {
       return;
     }
+    setContextoEscalaAtivo(alvo);
+    setContextoSemEscala(false);
     setCarregandoContexto(true);
     try {
-      const [rascunhosExistentes, publicadasExistentes, usuariosDaEquipe, catalogoDaEquipe, historicoDaEquipe, estadoPublicacaoDaEquipe] = modoDemo
-        ? [
-          resultado?.documentos.filter((documento) => documento.competencia === alvo.competencia) ?? [],
-          [],
-          usuarios,
-          catalogo,
-          historico,
-          null,
-        ] as const
-        : await executarComLimiteDeTempo(Promise.all([
+      let rascunhosExistentes: TurnosMes[];
+      let publicadasExistentes: TurnosMes[];
+      let usuariosDaEquipe: Awaited<ReturnType<typeof listarUsuarios>>;
+      let catalogoDaEquipe: Awaited<ReturnType<typeof listarCatalogo>>;
+      let historicoDaEquipe: Awaited<ReturnType<typeof listarHistoricoPublicacoes>>;
+      let estadoPublicacaoDaEquipe: Awaited<ReturnType<typeof carregarEstadoPublicacao>>;
+      if (modoDemo) {
+        rascunhosExistentes = resultado?.documentos.filter((documento) => documento.competencia === alvo.competencia) ?? [];
+        publicadasExistentes = [];
+        usuariosDaEquipe = usuarios;
+        catalogoDaEquipe = catalogo;
+        historicoDaEquipe = historico;
+        estadoPublicacaoDaEquipe = null;
+      } else {
+        const resultados = await executarComLimiteDeTempo(Promise.allSettled([
           carregarRascunhosEquipe(alvo.alvoId, alvo.competencia),
           carregarEscalasEquipe(alvo.alvoId, alvo.competencia, true),
           listarUsuarios(alvo.alvoId),
@@ -6768,6 +6918,25 @@ export function DashboardApp() {
           listarHistoricoPublicacoes(alvo.alvoId, alvo.competencia),
           carregarEstadoPublicacao(alvo.alvoId, alvo.competencia),
         ]));
+        rascunhosExistentes = valorLeitura(resultados[0], []);
+        publicadasExistentes = valorLeitura(resultados[1], []);
+        usuariosDaEquipe = valorLeitura(resultados[2], []);
+        catalogoDaEquipe = valorLeitura(resultados[3], {});
+        historicoDaEquipe = valorLeitura(resultados[4], []);
+        estadoPublicacaoDaEquipe = valorLeitura(resultados[5], null);
+        if (resultados[2].status === 'rejected') throw resultados[2].reason;
+        if (
+          rascunhosExistentes.length === 0
+        && publicadasExistentes.length === 0
+        && (resultados[0].status === 'rejected' || resultados[1].status === 'rejected')
+        ) {
+          throw motivoLeituraRecusada([resultados[0], resultados[1]]);
+        }
+        const falhaParcial = motivoLeituraRecusada(resultados);
+        if (falhaParcial !== null) {
+          setAvisoContextoEscala(mensagemFalhaLeituraParcial(falhaParcial));
+        }
+      }
       const documentosExistentes: TurnosMes[] = rascunhosExistentes.length > 0
         ? [...rascunhosExistentes]
         : [...publicadasExistentes];
@@ -6778,7 +6947,6 @@ export function DashboardApp() {
         setRevisaoAtual(estadoPublicacaoDaEquipe?.revisaoAtual ?? 0);
       }
       if (documentosExistentes.length === 0) {
-        setContextoEscalaAtivo(alvo);
         setResultado(null);
         setLinhasConciliacao([]);
         setJornadaPossuiAlteracoesNaoSalvas(false);
@@ -6799,14 +6967,15 @@ export function DashboardApp() {
         avisos: [],
       });
       setJornadaPossuiAlteracoesNaoSalvas(false);
-      setContextoEscalaAtivo(alvo);
       setContextoSemEscala(false);
       setTela('grade');
     } catch (falha) {
       const erro = estadoErroOperacoes(falha);
-      setErroContextoEscala(erro.diagnostico === 'REDE'
-        ? erro.mensagem
-        : mensagemErroFirebase(falha, 'Não foi possível carregar esta jornada.', ambienteFirebaseAtual));
+      setErroContextoEscala(falhaEhPermissionDenied(falha)
+        ? MENSAGEM_RULES_LEITURA_OPERACIONAL
+        : erro.diagnostico === 'REDE'
+          ? erro.mensagem
+          : mensagemErroFirebase(falha, 'Não foi possível carregar esta jornada.', ambienteFirebaseAtual));
     } finally {
       setCarregandoContexto(false);
     }
@@ -6962,6 +7131,7 @@ export function DashboardApp() {
     setTrocas([]);
     setTrocaSelecionadaId(null);
     setErroTroca('');
+    setAvisoContextoEscala('');
     usuarioContextoRestauradoRef.current = null;
     setEstadoCarregamentoOperacoes({ fase: 'carregando' });
   }
@@ -7247,7 +7417,7 @@ export function DashboardApp() {
       {tela === 'visao' && (
         <section className="overview-dashboard overview-operations">
           {estadoCarregamentoOperacoes.fase === 'sucesso' && erroResumoOperacionalDashboard !== '' && (
-            <div className="alert error" role="alert">{erroResumoOperacionalDashboard}</div>
+            <div className="alert warning" role="status">{erroResumoOperacionalDashboard}</div>
           )}
           <header className="page-heading overview-page-heading">
             <div>
@@ -7336,7 +7506,7 @@ export function DashboardApp() {
                 <button type="button" onClick={() => abrirOperacaoDoDashboard('JORNADA')}><ShieldCheck size={18} /><span><strong>{nomeJornadaDashboard}</strong><small>Jornada 6x1</small></span><em className={socStatusDashboard}>{alertasJornadaDashboard}</em><ChevronRight size={15} /></button>
                 <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>{nomePlantaoDashboard}</strong><small>{plantaoMetricasDashboard}</small></span><em className={plantaoStatusDashboard}>{plantaoAlertasDashboard}</em><ChevronRight size={15} /></button>
               </div>
-              <button className="overview-card-link" type="button" onClick={() => setAlertaSelecionado(alertasVisiveis[0] ?? null)}>Ver alertas do SOC <ChevronRight size={16} /></button>
+              <button className="overview-card-link" type="button" onClick={() => setAlertaSelecionado(alertasVisiveis[0] ?? null)}>Ver alertas de {nomeJornadaDashboard} <ChevronRight size={16} /></button>
             </article>
 
             <article className="panel overview-span-4 overview-swaps-card">
@@ -7368,7 +7538,7 @@ export function DashboardApp() {
               <p className="eyebrow">Importação segura</p><h1>Importar escala</h1><p>O arquivo é processado somente na memória deste navegador.</p>
             </div>
           </header>
-          <article className="import-panel panel">
+          <article className={`import-panel panel${tipoArquivoDetectado === 'PLANTAO' ? ' import-panel-compact' : ''}`}>
             <div
               className={`dropzone ${arrastando ? 'dragging' : ''}`}
               onDragOver={(evento) => {
@@ -7396,9 +7566,9 @@ export function DashboardApp() {
               />
               <span className="drop-icon"><FileSpreadsheet size={28} /></span>
               <div>
-                <h2>Enviar planilha</h2>
-                <p>Arraste o arquivo aqui ou <strong>selecione do computador</strong></p>
-                <small>XLS legado ou XLSX · leitura local</small>
+                <h2>{tipoArquivoDetectado === 'PLANTAO' ? 'Importar outra planilha' : 'Enviar planilha'}</h2>
+                <p><strong>Selecionar XLS ou XLSX</strong><span className="dropzone-dica"> · também aceita arrastar</span></p>
+                <small>Leitura local, sem envio automático</small>
               </div>
             </div>
             {(tipoArquivoDetectado === null || tipoArquivoDetectado === 'ESCALA_6X1') && (
@@ -7453,7 +7623,6 @@ export function DashboardApp() {
               origem={origemPlantaoAtual}
               nomeArquivo={nomeArquivo}
               participantes={participantesPlantao}
-              atribuicoes={atribuicoesPlantaoComVinculo}
               vinculos={vinculosPlantao}
               usuarios={usuarios}
               aba={abaPreviaPlantao}
@@ -7468,7 +7637,7 @@ export function DashboardApp() {
               podeValidar={previaPlantaoPodeValidar}
               validada={previaPlantaoValidada}
               onValidar={validarPreviaPlantao}
-              onIrParaUsuarios={() => setTela('usuarios')}
+              onCriarUsuarioParaVinculo={abrirCadastroUsuarioParaVinculo}
               atribuicoesEditaveis={atribuicoesEditaveisPlantao}
               competencia={competenciaRascunho}
               periodoInicio={periodoInicioRascunho}
@@ -7845,7 +8014,15 @@ export function DashboardApp() {
           </header>
           {painelCarregamentoOperacoes()}
           {estadoCarregamentoOperacoes.fase === 'sucesso' && <>
-          {erroContextoEscala !== '' && <div className="alert error" role="alert">{erroContextoEscala}</div>}
+          {avisoContextoEscala !== '' && <div className="alert warning" role="status">{avisoContextoEscala}</div>}
+          {erroContextoEscala !== '' && (
+            <div className="alert error" role="alert">
+              <span>{erroContextoEscala}</span>
+              <button className="secondary-button" type="button" onClick={recarregarOperacoes}>
+                <RotateCcw size={16} /> Recarregar operações
+              </button>
+            </div>
+          )}
           {contextoEscalaAtivo === null && (
             <article className="panel organization-empty-state">
               <CalendarDays size={28} aria-hidden="true" />
@@ -8636,7 +8813,8 @@ export function DashboardApp() {
                       <p className="organization-detail-tipo">Equipe · <code>{item.sigla}</code></p>
                       {item.caminhoUnidade && <OrganizationBreadcrumb caminho={item.caminhoUnidade} unidades={unidadesAdmin} />}
                       <dl className="organization-detail-lista">
-                        <div><dt>Identificador</dt><dd><code className="login-code">{item.id}</code></dd></div>
+                        <div><dt>Código organizacional</dt><dd><code className="login-code">{codigoOrganizacionalEquipe(item, unidadesAdmin)}</code></dd></div>
+                        <div><dt>ID técnico</dt><dd><code className="login-code">{item.id}</code></dd></div>
                       </dl>
                       {/*
                        * Fase PROVISIONAMENTO-GRUPO-PLANTAO-1 — deixa
@@ -8769,7 +8947,7 @@ export function DashboardApp() {
             </div>
             <div className="table-scroll">
               <table className="data-table">
-                <thead><tr><th>ID</th><th>Nome</th><th>Sigla</th><th>Unidade</th><th>Destino operacional</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>Código organizacional</th><th>Nome</th><th>Sigla</th><th>Unidade</th><th>Destino operacional</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                   {equipesAdmin.map((item) => {
                     /**
@@ -8782,7 +8960,11 @@ export function DashboardApp() {
                     const grupoVinculado = gruposPlantaoAdmin.find((grupo) => grupo.ativo && grupo.equipeResponsavelId === item.id);
                     return (
                     <tr key={item.id}>
-                      <td><code className="login-code">{item.id}</code></td>
+                      <td>
+                        <code className="login-code" title={`ID técnico: ${item.id}`}>
+                          {codigoOrganizacionalEquipe(item, unidadesAdmin)}
+                        </code>
+                      </td>
                       <td>{item.nome}</td>
                       <td>{item.sigla}</td>
                       <td title={item.caminhoUnidade ? caminhoLegivel(item.caminhoUnidade, unidadesAdmin) : undefined}>
@@ -8997,7 +9179,7 @@ export function DashboardApp() {
                 </table>
               </div>
               <div className="legacy-panel-form toolbar">
-                <input aria-label="ID do setor" placeholder="ID (ex.: SET_SOC)" value={formSetor.id} onChange={(evento) => setFormSetor((atual) => ({ ...atual, id: evento.target.value }))} />
+                <input aria-label="ID do setor" placeholder="ID (ex.: SET_OPERACAO)" value={formSetor.id} onChange={(evento) => setFormSetor((atual) => ({ ...atual, id: evento.target.value }))} />
                 <input aria-label="Nome do setor" placeholder="Nome" value={formSetor.nome} onChange={(evento) => setFormSetor((atual) => ({ ...atual, nome: evento.target.value }))} />
                 <input aria-label="Sigla do setor" placeholder="Sigla" value={formSetor.sigla} onChange={(evento) => setFormSetor((atual) => ({ ...atual, sigla: evento.target.value }))} />
                 <label className="checkbox-row" htmlFor="setor-legado-ativo">
@@ -9045,6 +9227,7 @@ export function DashboardApp() {
         <ResponsavelEscalaModal
           escopo={modalResponsavelEscala === 'novo' ? null : modalResponsavelEscala}
           equipes={equipesAdmin}
+          unidades={unidadesAdmin}
           grupos={gruposPlantaoAdmin}
           usuarios={todosUsuariosAdmin.length > 0 ? todosUsuariosAdmin : usuarios}
           loginAtual={usuarioReal.login}
@@ -9482,10 +9665,15 @@ export function DashboardApp() {
           >
             <div className="panel-title">
               <div>
-                <p className="eyebrow">{formularioUsuario.loginOriginal === null ? 'Novo colaborador' : 'Editar colaborador'}</p>
+                <p className="eyebrow">{participanteVinculoCadastro !== null ? 'Vínculo da planilha' : formularioUsuario.loginOriginal === null ? 'Novo colaborador' : 'Editar colaborador'}</p>
                 <h2 id="user-form-title">
-                  {formularioUsuario.loginOriginal === null ? 'Cadastrar usuário' : formularioUsuario.nome || 'Editar usuário'}
+                  {participanteVinculoCadastro !== null
+                    ? 'Criar e vincular colaborador'
+                    : formularioUsuario.loginOriginal === null ? 'Cadastrar usuário' : formularioUsuario.nome || 'Editar usuário'}
                 </h2>
+                {participanteVinculoCadastro !== null && (
+                  <p>Cadastre <strong>{participanteVinculoCadastro}</strong>. Ao salvar, o vínculo desta importação será confirmado automaticamente.</p>
+                )}
               </div>
               <button className="icon-button" type="button" onClick={fecharFormularioUsuario} aria-label="Fechar"><X size={18} /></button>
             </div>
@@ -9525,19 +9713,22 @@ export function DashboardApp() {
               </label>
               <label>
                 Equipe
-                <input value={usuarioEfetivo?.equipeId ?? ''} disabled />
+                <input value={rotuloEquipeCadastroUsuario} disabled />
               </label>
               <label>
-                Nível hierárquico
+                Nível hierárquico{!souAdmin && formularioUsuario.loginOriginal === null ? ' (colaborador)' : ''}
                 <input
                   type="number"
-                  min={1}
+                  min={!souAdmin && formularioUsuario.loginOriginal === null ? 6 : 1}
                   value={formularioUsuario.nivelHierarquico}
                   onChange={(evento) => setFormularioUsuario({
                     ...formularioUsuario,
                     nivelHierarquico: Number(evento.target.value),
                   })}
                 />
+                {!souAdmin && formularioUsuario.loginOriginal === null && (
+                  <small>Perfis de coordenação e supervisão são concedidos somente por ADMIN_SISTEMA.</small>
+                )}
               </label>
               <label>
                 Turno padrão
@@ -9545,6 +9736,7 @@ export function DashboardApp() {
                   value={formularioUsuario.turnoPadrao}
                   onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, turnoPadrao: evento.target.value })}
                 >
+                  <option value="">Selecione o período padrão</option>
                   {Object.values(catalogo).map((tipo) => (
                     <option key={tipo.codigo} value={tipo.codigo}>{tipo.descricao}</option>
                   ))}
@@ -9592,7 +9784,7 @@ export function DashboardApp() {
                   </div>
                 </div>
               </label>
-              {souAdmin && (
+              {souAdmin && participanteVinculoCadastro === null && (
                 <fieldset className="user-form-full admin-only-fields">
                   <legend>Administração (perfil/escopo/organização)</legend>
                   <label>
@@ -9687,7 +9879,9 @@ export function DashboardApp() {
             <div className="rollback-actions">
               <button className="secondary-button" type="button" onClick={fecharFormularioUsuario}>Cancelar</button>
               <button className="primary-button" type="button" onClick={() => void salvarFormularioUsuario()}>
-                <Save size={16} /> {formularioUsuario.loginOriginal === null ? 'Cadastrar' : 'Salvar alterações'}
+                <Save size={16} /> {participanteVinculoCadastro !== null
+                  ? 'Cadastrar e vincular'
+                  : formularioUsuario.loginOriginal === null ? 'Cadastrar' : 'Salvar alterações'}
               </button>
             </div>
           </section>

@@ -662,3 +662,23 @@ chamado por `lib/editorPlantao.ts`/`lib/conciliacaoPlantoes.ts`
 
 Ver `CHECKPOINT-FASE-ESCALAS-UX-2B1-LIMITES-COMPETENCIA.md` para o
 detalhamento completo desta correção.
+
+## 13. Hierarquia visual da revisão importada de Plantão
+
+A revisão importada abre diretamente em **Calendário**, seguido pelos cards de
+fonte e divergências. O upload identificado como Plantão usa uma faixa compacta
+para substituir o arquivo. Permanecem apenas **Calendário**,
+**Contabilidade** e **Vínculos**; as abas **Resumo** e **Lista** não integram
+mais o editor. Isso não remove diagnóstico: erros estruturais, contabilidade
+de origem e divergências continuam disponíveis abaixo da visualização
+operacional.
+
+Os cartões do calendário importado usam linha horizontal com iniciais maiores
+e intervalo compacto (`19h–07h`). O valor completo continua no nome acessível
+do botão e a working copy não é modificada pela formatação.
+
+Em **Vínculos**, um participante sem correspondência oferece **Criar e
+vincular**. O modal reutiliza o cadastro existente, vincula somente após
+`salvarUsuario()` concluir e fixa a equipe no `equipeResponsavelId` do Grupo.
+Não se usa a equipe nem o UID do coordenador como fallback, e falha de Rules
+permanece erro do modal, sem vínculo local enganoso.

@@ -31,6 +31,61 @@ export interface GrupoGrade {
   documentos: TurnosMes[];
 }
 
+export interface ResultadoGradeInicial {
+  documentos: TurnosMes[];
+  colaboradoresSemTurnoPadrao: Usuario[];
+}
+
+function chaveTurno(valor: string): string {
+  return valor
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/gu, '')
+    .trim()
+    .toUpperCase();
+}
+
+/**
+ * Resolve o período cadastrado sem assumir Manhã como fallback. Cadastros
+ * antigos podem guardar o código, a descrição ou um alias do catálogo; os
+ * três formatos apontam para o mesmo código canônico usado pela grade.
+ */
+export function resolverTurnoPadraoCadastrado(
+  turnoPadrao: string,
+  catalogo: Record<string, TipoTurno>,
+): string | null {
+  const procurado = chaveTurno(turnoPadrao);
+  if (procurado === '') return null;
+  const direto = catalogo[turnoPadrao] ?? catalogo[procurado];
+  if (direto !== undefined) return direto.codigo;
+  return Object.values(catalogo).find((tipo) => [
+    tipo.codigo,
+    tipo.descricao,
+    ...tipo.aliasesXLS,
+  ].some((valor) => chaveTurno(valor) === procurado))?.codigo ?? null;
+}
+
+/**
+ * Monta a nova Jornada somente com colaboradores ativos da equipe e preserva
+ * o período padrão individual do cadastro. Cadastro ausente/inválido fica em
+ * OUTROS para correção explícita; nunca é convertido silenciosamente em M.
+ * Os dias continuam vazios e editáveis porque o cadastro não informa a folga
+ * individual necessária para inventar um ciclo 6x1 seguro.
+ */
+export function criarGradeInicialEquipe(
+  usuarios: readonly Usuario[],
+  referencia: ReferenciaGrade,
+  catalogo: Record<string, TipoTurno>,
+): ResultadoGradeInicial {
+  const colaboradores = usuarios.filter((usuario) => usuario.ativo && usuario.equipeId === referencia.equipeId);
+  const colaboradoresSemTurnoPadrao: Usuario[] = [];
+  const documentos = colaboradores.map((colaborador) => {
+    const turnoPadrao = resolverTurnoPadraoCadastrado(colaborador.turnoPadrao, catalogo);
+    if (turnoPadrao === null) colaboradoresSemTurnoPadrao.push(colaborador);
+    return criarMembroGrade(colaborador, turnoPadrao ?? '', referencia, catalogo);
+  });
+  return { documentos, colaboradoresSemTurnoPadrao };
+}
+
 export function membroJaNaGrade(
   documentos: readonly TurnosMes[],
   login: string,

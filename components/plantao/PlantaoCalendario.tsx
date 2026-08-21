@@ -80,6 +80,13 @@ function iniciaisPlantonista(nomeOriginal: string): string {
   return `${partes[0][0] ?? ''}${partes[partes.length - 1]?.[0] ?? ''}`.toUpperCase();
 }
 
+function rotuloHorarioCompacto(horario: string): string {
+  if (!horario.includes(' → ')) return horario;
+  const compactar = (valor: string) => valor.endsWith(':00') ? `${valor.slice(0, 2)}h` : valor;
+  const [inicio, fim] = horario.split(' → ');
+  return `${compactar(inicio ?? '')}–${compactar(fim ?? '')}`;
+}
+
 export interface PlantaoCalendarioProps {
   competencia: string;
   periodoInicio: string;
@@ -182,6 +189,7 @@ export function PlantaoCalendario({
           {atribuicoesDoDia.map((atribuicao) => {
             const atipica = duracaoPlantaoAtipica(atribuicao.duracaoMinutos);
             const horario = rotuloHorarioCartaoPlantao(atribuicao);
+            const horarioCompacto = rotuloHorarioCompacto(horario);
             return (
               <button
                 key={atribuicao.idLocal}
@@ -205,7 +213,7 @@ export function PlantaoCalendario({
                     <span className="plantao-card-pessoa">
                       <span className="plantao-card-iniciais" aria-hidden="true">{iniciaisPlantonista(atribuicao.plantonistaNomeOriginal)}</span>
                     </span>
-                    <span className="plantao-card-horario">{horario}</span>
+                    <span className="plantao-card-horario">{horarioCompacto}</span>
                   </>
                 ) : (
                   <>

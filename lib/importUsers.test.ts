@@ -50,6 +50,16 @@ describe('usuários da importação', () => {
     expect(usuario.atualizadoEm).toBe('2026-08-05T00:00:00.000Z');
   });
 
+  it('preserva o período detectado na escala ao cadastrar um login faltante', () => {
+    const usuario = novoUsuario(1, gestora, 'login.noturno', true, '2026-08-05T00:00:00.000Z', 'N');
+    expect(usuario.turnoPadrao).toBe('N');
+  });
+
+  it('não assume Manhã quando o período ainda não foi informado', () => {
+    const usuario = novoUsuario(1, gestora, 'login.sem.periodo', true);
+    expect(usuario.turnoPadrao).toBe('');
+  });
+
   /**
    * Causa raiz da AUTH-2C: `cargo` é texto livre puramente descritivo (nunca
    * usado por `firestore.rules` nem por `perfilEfetivo()`), mas nascia com
@@ -96,9 +106,9 @@ describe('validação de edição de usuário', () => {
     expect(validarEdicaoUsuario(gestora, equipe, gestora.login)).toEqual([]);
   });
 
-  it('recusa nome, e-mail, login e cargo vazios', () => {
+  it('recusa nome, e-mail, login, cargo e período padrão vazios', () => {
     const erros = validarEdicaoUsuario(
-      { ...gestora, nome: ' ', email: 'invalido', login: '', cargo: '  ' },
+      { ...gestora, nome: ' ', email: 'invalido', login: '', cargo: '  ', turnoPadrao: ' ' },
       equipe,
       gestora.login,
     );
@@ -106,6 +116,7 @@ describe('validação de edição de usuário', () => {
     expect(erros).toContain('Informe um e-mail válido.');
     expect(erros).toContain('Informe o login usado na planilha.');
     expect(erros).toContain('Informe o cargo do colaborador.');
+    expect(erros).toContain('Informe o período padrão do colaborador.');
   });
 
   it('recusa login já usado por outro colaborador ativo da equipe ao cadastrar', () => {

@@ -130,6 +130,14 @@ lideranças e equipes, com níveis deliberativo, estratégico, tático e
 operacional quando aplicável. A árvore é contexto; não é autorização
 operacional.
 
+O padrão de cadastro usa siglas institucionais para unidades e códigos de
+equipe no formato **Gerência_Coordenação_FunçãoOuLocalidade**, por exemplo
+`GEDSI_CODB_NOC`, `GEDSI_COSI_N3_SEGURANCA` e `GESUP_COSD_N1`. Unidade sem
+sigla confirmada permanece sem código inventado. Equipe e Grupo de Plantão
+continuam entidades próprias vinculadas à árvore, ainda que apareçam como
+níveis operacionais na taxonomia ampla. IDs persistidos não são renomeados e
+nenhum segmento desses códigos participa da autorização.
+
 As listas de Jornadas/Plantões administráveis vêm de `lib/escoposOperacionais.ts`, alimentado prioritariamente por `escoposOperacionais` (ver `docs/spec/ESCOPO_OPERACIONAL_MATRIZ.md`). Organograma, cargo, unidade pai e equipe do usuário são contexto/fallback transitório, não autorização operacional automática. Um Plantão administrável nunca aparece simultaneamente como monitorado; `GrupoPlantao ativo:false` fica fora do seletor operacional e do Wizard.
 
 Responsável humano de escala é usuário ativo com perfil elegível de gestão/
@@ -156,6 +164,31 @@ publicar o alvo compatível. `equipesConsulta` permanece estritamente de
 leitura/monitoramento. O fallback legado só existe quando o alvo ainda não
 possui documento de matriz e a compatibilidade foi explicitamente habilitada
 por `VITE_ESCALA_FALLBACK_OPERACIONAL_LEGADO=true`.
+
+Durante a migração de staging, essa compatibilidade fica explicitamente ativa
+no build `staging.dashboard`, permitindo que alvos ainda não migrados convivam
+com alvos já presentes na matriz. Uma matriz existente, inclusive inativa,
+sempre prevalece; o fallback não amplia autorização de escrita.
+
+O read model operacional preserva resultados parciais: publicação carregada
+com sucesso continua visível mesmo que rascunho, histórico ou estado de
+publicação sejam recusados. `permission-denied` nas fontes determinantes da
+escala diagnostica Rules de staging que ainda não reconhecem a matriz; falha
+de rede usa mensagem recuperável distinta. A UI oferece **Recarregar
+operações**, encerra loading em todos os caminhos e nunca converte uma recusa
+de Rules em **Sem escala**.
+
+Importar arquivo é preparação local, não escrita: o Wizard deve mostrar erros
+de arquivo/parser no próprio modal, sempre encerrar o processamento e permitir
+abrir a revisão de Plantão mesmo quando uma checagem auxiliar é recusada por
+Rules antigas. Salvar/publicar permanecem protegidos e podem exigir a
+publicação das Rules de staging.
+
+Uma Jornada nova organiza cada colaborador pelo `turnoPadrao` do cadastro,
+normalizando código, descrição ou alias do catálogo. Valor ausente/inválido
+vai para **Outros**, nunca para Manhã por fallback. Cadastros criados durante
+conciliação herdam o período detectado na planilha. Dias e folgas permanecem
+editáveis e não são inventados quando o cadastro não informa o DSR individual.
 
 ## 10. Trocas
 
@@ -228,3 +261,41 @@ A entrega deve conter ZIP completo sem `node_modules`, `dist`, `.git` ou caches,
 - `CHECKPOINT-FASE-REVIEW-JORNADA-6X1-VISUAL.md`
 - `CHECKPOINT-VISAO-GERAL-OPERACIONAL-2026-08.md`
 - `docs/validation/dashboard-overview-research-2026-08.md`
+
+## 17. Revisão de importação de Plantão
+
+A tela de importação deve colocar o calendário mensal no topo e reduzir o
+seletor de arquivo a uma ação compacta após detectar Plantão. Diagnósticos da
+planilha e divergências ficam ao final. A navegação da revisão contém somente
+Calendário, Contabilidade e Vínculos; não recriar abas vazias de Resumo nem uma
+Lista paralela ao calendário.
+
+Cartões importados apresentam iniciais e horário lado a lado, com intervalo
+compacto quando possível, sem perder o rótulo acessível completo. Usuário
+ausente pode ser criado pelo modal da própria aba Vínculos e só é vinculado
+após persistência bem-sucedida. O cadastro usa a equipe responsável pelo Grupo
+de Plantão, nunca a equipe/UID do operador autenticado, e não altera as
+permissões das Firestore Rules.
+
+## 18. Cadastro e promoção de coordenadores
+
+Somente `ADMIN_SISTEMA` pode criar ou promover outro coordenador/supervisor.
+Para documentos novos, `nivelHierarquico <= 5` sem perfil explícito não é
+aceito de um ator não-admin, pois o fallback legado transformaria o cadastro
+em `GESTOR_EQUIPE`. O Dashboard bloqueia antes da escrita e as Firestore Rules
+repetem a mesma defesa. Cargo e nível permanecem dados organizacionais; a
+autorização nova vem de `perfil` explícito e o acesso a uma escala vem da
+Matriz de Responsáveis.
+
+## 19. Identificação organizacional de equipes
+
+O produto distingue o ID técnico imutável (`Equipe.id`/`equipeId`) do código
+organizacional apresentado ao usuário. O código é derivado da árvore atual e
+segue o formato **Gerência_Area_Equipe**, por exemplo
+`GEDSI_COSI_SOC`, `GEDSI_CODB_NOC` e `GEDSI_COSI_PLANTAO`.
+
+Administração → Equipes, o detalhe da árvore e a Matriz de Responsáveis exibem
+esse código. Seletores continuam enviando o ID técnico como valor; Rules,
+repositórios e documentos de escala nunca autorizam nem consultam por código
+visual. Mover uma equipe recalcula sua apresentação sem renomear documentos ou
+romper usuários, publicações, trocas e histórico.

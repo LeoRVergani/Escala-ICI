@@ -416,3 +416,61 @@ test('37. contexto do localStorage é revalidado e removido quando o alvo some o
   assert.match(dashboard, /limparContextoEscalaPersistido/u);
   assert.match(dashboard, /A operação selecionada foi desativada ou removida/u);
 });
+
+test('38. leituras parciais preservam dados válidos e diagnosticam Rules sem voltar ao erro genérico antigo', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /Promise\.allSettled\(\[\s*carregarRascunhosEquipe/u);
+  assert.match(dashboard, /Promise\.allSettled\(\[\s*obterCompetenciaPlantaoRascunho/u);
+  assert.match(dashboard, /Os dados disponíveis foram preservados\./u);
+  assert.match(dashboard, /As Firestore Rules de staging ainda não reconhecem a Matriz de Responsáveis\./u);
+  assert.match(dashboard, /mensagemFalhaLeituraParcial/u);
+  assert.match(dashboard, /erroContextoEscala[\s\S]*?> Recarregar operações/u);
+});
+
+test('39. staging habilita a compatibilidade legada de forma explícita; o padrão geral continua fechado', async () => {
+  const [staging, geral, dashboard] = await Promise.all([
+    ler('.env.staging.dashboard.example'),
+    ler('.env.example'),
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+  ]);
+  assert.match(staging, /^VITE_ESCALA_FALLBACK_OPERACIONAL_LEGADO=true$/mu);
+  assert.match(geral, /^VITE_ESCALA_FALLBACK_OPERACIONAL_LEGADO=false$/mu);
+  assert.match(dashboard, /import\.meta\.env\.VITE_ESCALA_FALLBACK_OPERACIONAL_LEGADO === 'true'/u);
+});
+
+test('40. importação mostra a falha dentro do wizard e sempre encerra o processamento', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const selecionar = /async function selecionarArquivoWizard\(file: File\) \{([\s\S]*?)\n {2}\}\n {2}async function continuarWizard/u.exec(dashboard);
+  assert.ok(selecionar, 'selecionarArquivoWizard precisa existir');
+  assert.match(selecionar[1], /aoFalhar: setWizardErro/u, 'a falha precisa aparecer no modal, não somente atrás dele');
+  assert.match(selecionar[1], /finally \{\s*setWizardProcessando\(false\)/u, 'qualquer resultado precisa finalizar o spinner do wizard');
+
+  const receber = /async function receberArquivo\(file: File \| undefined, opcoes: OpcoesInicioImportacao = \{\}\): Promise<boolean> \{([\s\S]*?)\n {2}\}\n\n {2}function soltar/u.exec(dashboard);
+  assert.ok(receber, 'receberArquivo precisa existir');
+  assert.match(receber[1], /opcoes\.aoFalhar\?\.\(texto\)/u);
+  assert.match(receber[1], /try \{[\s\S]*?await file\.arrayBuffer\(\)[\s\S]*?processarArquivoImportado/u);
+  assert.match(receber[1], /catch \(falha\) \{\s*return falhar/u, 'falha de leitura/parser precisa ser recuperável');
+});
+
+test('41. Rules atrasadas não bloqueiam a working copy local do Plantão nem liberam sua gravação', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const criar = /async function criarPlantaoEmBrancoAcao\(grupoIdArg = '', competenciaArg = ''\) \{([\s\S]*?)async function usarPeriodoAnteriorAcao/u.exec(dashboard);
+  assert.ok(criar, 'criarPlantaoEmBrancoAcao precisa existir');
+  assert.match(criar[1], /if \(!falhaEhPermissionDenied\(falha\)\) throw falha/u, 'somente permission-denied pode limitar a checagem local');
+  assert.match(criar[1], /As Firestore Rules de staging precisam ser publicadas antes de salvar ou publicar/u);
+  assert.match(criar[1], /Já existe um rascunho para este Plantão e competência/u, 'um rascunho confirmado nunca pode ser sobrescrito');
+  assert.match(criar[1], /let participantesAtivos: ParticipantePlantao\[\] = \[\]/u, 'a lista recusada não pode inventar participantes');
+  assert.doesNotMatch(criar[1], /salvarCompetenciaPlantaoRascunho|publicarCompetenciaPlantao/u, 'abrir o editor continua sem gravar nem publicar');
+});
+
+test('42. nova Jornada usa o período do cadastro e o cadastro vindo da planilha preserva o turno importado', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /const gradeInicial = criarGradeInicialEquipe\(/u);
+  assert.match(dashboard, /const turnoPorLogin = new Map\(\(resultado\?\.documentos \?\? \[\]\)\.map/u);
+  assert.match(dashboard, /turnoPorLogin\.get\(login\) \?\? ''/u, 'login importado sem turno não pode virar Manhã silenciosamente');
+
+  const grade = semComentarios(await ler('lib/gradeMembros.ts'));
+  assert.match(grade, /resolverTurnoPadraoCadastrado/u);
+  assert.match(grade, /turnoPadrao \?\? ''/u);
+  assert.doesNotMatch(grade, /turnoPadrao \?\? 'M'/u);
+});

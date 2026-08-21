@@ -133,3 +133,18 @@ test('13. o repository de Plantão preserva as escritas existentes e acrescenta 
   }
   assert.match(writeRepo, /export async function publicarCompetenciaPlantao/u);
 });
+
+test('14. código organizacional é apresentação derivada; equipeId continua sendo a chave técnica', async () => {
+  const [organizacao, dashboard, modalResponsaveis] = await Promise.all([
+    ler('lib/organizacao.ts'),
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('components/admin/ResponsavelEscalaModal.tsx'),
+  ]);
+
+  assert.match(organizacao, /export function codigoOrganizacionalEquipe/u);
+  assert.match(organizacao, /equipe\.caminhoUnidade/u);
+  assert.match(dashboard, /<th>Código organizacional<\/th>/u);
+  assert.match(dashboard, /title=\{`ID técnico: \$\{item\.id\}`\}/u);
+  assert.match(modalResponsaveis, /codigoOrganizacionalEquipe\(equipe, unidades\)/u);
+  assert.doesNotMatch(organizacao, /salvarEquipe|setDoc|updateDoc|deleteDoc/u);
+});

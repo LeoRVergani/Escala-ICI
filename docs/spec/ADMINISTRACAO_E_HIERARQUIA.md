@@ -63,6 +63,18 @@ Separação normativa:
 - **Administração → Responsáveis por escala** define quem administra cada
   Jornada ou Plantão.
 
+O cadastro organizacional usa as siglas de referência consolidadas em
+`ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md`. Unidade sem sigla confirmada não
+recebe código inventado. O padrão de equipe apresentado ao operador combina
+Gerência, Coordenação e função/localidade, como `GEDSI_CODB_NOC` ou
+`GESUP_COSD_N1`; o valor é contexto de cadastro e pesquisa, não permissão.
+
+A taxonomia ampla admite os conceitos Equipe e Grupo Operacional, mas a tela
+**Organização** não deve criar cópias deles como unidades. Equipes continuam
+em **Administração → Equipes**, e grupos de Plantão continuam em
+**Administração → Grupos de Plantão**. O vínculo por `unidadeId` preserva uma
+única árvore de contexto.
+
 A coluna Unidade/Área é contexto administrativo e visual. Ela não deve levar
 a interface a sugerir que coordenador, supervisor ou gerente ganha
 automaticamente todas as escalas abaixo.
@@ -161,6 +173,40 @@ Rules **nunca percorrem `parentId`** — só leem arrays explícitos (`caminho`,
 | Excluir usuário | sim | não | não (Rules: `delete` só `souAdminSistema()`) | não |
 | Conceder/alterar `perfil` de outro usuário | sim, qualquer usuário | não | não (bloqueado explicitamente nas Rules) | não |
 | Simular gestor (impersonation) | sim (nunca é alvo de simulação) | não | é alvo possível de simulação | não |
+
+### Cadastro de outro coordenador
+
+`nivelHierarquico` descreve posição organizacional e não é um mecanismo de
+delegação. Embora documentos legados sem `perfil` ainda usem o fallback
+`nivelHierarquico <= 5 → GESTOR_EQUIPE`, um cadastro **novo** feito por ator
+não-admin deve ter nível maior que 5. Essa restrição existe tanto no Dashboard
+quanto em `firestore.rules`, impedindo que o formulário seja usado para uma
+promoção implícita.
+
+Somente `ADMIN_SISTEMA` cadastra ou promove coordenador/supervisor, definindo
+um `perfil` explícito (`GESTOR_UNIDADE`, `GESTOR_EQUIPE` ou
+`SUPERVISOR_EQUIPE`). Depois disso, a responsabilidade por Jornada/Plantão é
+configurada separadamente em **Administração → Responsáveis por escala**. Um
+responsável operacional não pode criar outro responsável apenas informando
+cargo textual ou nível 1–5.
+
+Quando staging recusar o cadastro, a UI deve distinguir esse bloqueio do erro
+genérico: criação comum exige `ADMIN_SISTEMA` ou responsabilidade ativa na
+Jornada da equipe; se a matriz já estiver correta, o diagnóstico orienta a
+publicação das Firestore Rules atuais. Nenhuma falha confirma cadastro ou
+vínculo apenas no estado local.
+
+### Código organizacional da equipe
+
+A tela de Equipes não tenta renomear `Equipe.id`: essa chave já referencia
+usuários, Jornadas, Grupos de Plantão, matriz e histórico. Em seu lugar, exibe
+um código hierárquico derivado de `caminhoUnidade` e das siglas cadastradas,
+como `GEDSI_COSI_SOC`, `GEDSI_CODB_NOC` e `GEDSI_COSI_PLANTAO`.
+
+O formulário mantém **ID técnico** e **Código organizacional** separados. O
+primeiro é imutável; o segundo acompanha a posição atual na árvore e também é
+mostrado ao associar equipes na Matriz de Responsáveis. Nenhuma Rule ou decisão
+de permissão usa o código calculado.
 
 Guards puros usados nessas decisões:
 - `lib/adminGuards.ts`: `podeExcluirUsuario` (bloqueia autoexclusão),

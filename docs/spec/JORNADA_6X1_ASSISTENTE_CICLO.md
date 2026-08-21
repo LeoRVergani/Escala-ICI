@@ -32,6 +32,29 @@ O assistente é apresentado somente quando o coordenador abre uma célula vazia 
 
 A contagem inclui o dia escolhido. Portanto, o ciclo contém no máximo seis datas: `D`, `D+1`, `D+2`, `D+3`, `D+4` e `D+5`.
 
+## Criação de uma nova competência
+
+Ao criar uma Jornada nova, a equipe é carregada a partir dos usuários ativos
+do alvo e cada linha usa o `turnoPadrao` do próprio cadastro. O valor pode ser
+o código, a descrição ou um alias do catálogo e é normalizado para o código
+canônico (`MD`, `M`, `T`, `N` ou outro tipo cadastrado). Ausência ou valor
+inválido fica no grupo **Outros** com aviso explícito; nunca existe fallback
+silencioso para Manhã.
+
+Um cadastro manual novo começa sem período selecionado e só pode ser salvo
+após uma escolha explícita. O helper de cadastro também não possui fallback
+para `M`; importações devem informar o período detectado para cada login.
+
+O `turnoPadrao` define o período/agrupamento inicial, não uma folga inventada.
+Como o cadastro atual não possui o dia de DSR individual, a criação mantém as
+células vazias para o gestor preencher dias e folgas pelo editor e pelo
+assistente 6x1. Cada célula e seus horários continuam alteráveis antes de
+salvar.
+
+Quando um login faltante é cadastrado durante a conciliação de uma planilha,
+seu `turnoPadrao` deve vir do documento interpretado daquela pessoa. O fluxo
+nunca cadastra todos os faltantes como `M` por conveniência.
+
 | Regra | Comportamento |
 |---|---|
 | Código de trabalho | Replica o mesmo `TipoTurno`, incluindo início, fim, duração e virada de dia do catálogo |
@@ -68,6 +91,10 @@ O NIOSH/CDC descreve que trabalho em turnos e jornadas longas podem aumentar fad
 ## Testes obrigatórios
 
 A IA que alterar essa área deve manter testes para: seis datas exatas; competência terminando antes de seis dias; preservação de células existentes; mensagem com datas ignoradas; aplicação somente ao colaborador alvo; não expansão para códigos que não sejam de trabalho; coluna fixa com janela completa de competência; e edição manual independente depois da expansão.
+
+Também são obrigatórios testes para distribuição inicial por `turnoPadrao`,
+normalização de descrição/alias, ausência de fallback silencioso para `M` e
+preservação do período detectado ao cadastrar login faltante da importação.
 
 Os testes puros atuais ficam em `lib/cicloJornada6x1.test.ts`, e a implementação do helper fica em `lib/cicloJornada6x1.ts`.
 
