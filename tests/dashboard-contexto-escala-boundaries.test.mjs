@@ -474,3 +474,70 @@ test('42. nova Jornada usa o período do cadastro e o cadastro vindo da planilha
   assert.match(grade, /turnoPadrao \?\? ''/u);
   assert.doesNotMatch(grade, /turnoPadrao \?\? 'M'/u);
 });
+
+// --- Fase SOC-VISIVEL-1: falha do Plantão nunca apaga Jornada (e vice-versa) ---
+
+test('43. a busca de Grupos de Plantão na carga central tem try/catch próprio, isolado da resolução de Jornada', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const carregar = /carregar: async \(\) => \{([\s\S]*?)\n {6}\},\n[\s\S]*?estaVazio:/u.exec(dashboard);
+  assert.ok(carregar, 'a função carregar() da carga central de operações precisa existir');
+  assert.match(
+    carregar[1],
+    /let grupos: GrupoPlantao\[\] = \[\];\s*let erroPlantao: unknown = null;\s*try \{/u,
+    'a resolução de Plantão precisa rodar em try/catch próprio, com fallback para lista vazia',
+  );
+  assert.match(
+    carregar[1],
+    /const \[equipes, unidades, escopos\] = await Promise\.all/u,
+  );
+  assert.doesNotMatch(
+    carregar[1].split('try {')[0] ?? '',
+    /obterGrupoPlantao/u,
+    'nada de Plantão pode rodar fora do try/catch isolado',
+  );
+});
+
+test('44. uma falha isolada do lado Plantão nunca marca a carga inteira como vazia, nem apaga Jornada já resolvida', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(
+    dashboard,
+    /estaVazio: \(\{ resolucao, erroPlantao \}\) =>\s*erroPlantao === null\s*&&/u,
+    'erroPlantao != null nunca pode contar como "sem nenhuma operação" quando a Jornada resolveu',
+  );
+  assert.match(
+    dashboard,
+    /setErroResumoPlantaoDashboard\(resultadoCarga\.dados\.erroPlantao === null/u,
+    'a falha de Plantão vira aviso local, nunca falha global que apaga equipes\\/escopos já carregados',
+  );
+});
+
+test('45. consulta aguardando índice do Firestore vira aviso local — nunca bloqueia seletor, card SOC ou "Abrir editor"', async () => {
+  const carga = await ler('lib/carregamentoOperacoes.ts');
+  const erros = await ler('lib/firebase/errors.ts');
+  assert.match(carga, /'RULES' \| 'REDE' \| 'INDICE' \| 'DESCONHECIDO'/u);
+  assert.match(carga, /codigo\.includes\('failed-precondition'\) && mensagem\.includes\('index'\)/u);
+  assert.match(carga, /Consulta aguardando índice do Firestore\. O editor continua disponível\./u);
+  assert.match(erros, /codigo === 'failed-precondition' && mensagem\.toLowerCase\(\)\.includes\('index'\)/u);
+});
+
+test('46. label da Jornada usa o nome real da equipe (ex.: SOC) — nunca "Jornada 6x1" genérica quando o alvo existe', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(
+    dashboard,
+    /const nomeJornadaDashboard = equipeJornadaDashboard\?\.nome \?\? 'Nenhuma Jornada configurada para este usuário\.';/u,
+  );
+});
+
+test('47. os efeitos de resumo (Jornada e Plantão) nunca lançam por uma falha isolada de um único alvo — um card ruim não apaga os demais', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.doesNotMatch(
+    dashboard,
+    /throw motivoLeituraRecusada\(\[resultadoRascunhos, resultadoPublicadas\]\)/u,
+    'a falha total de UMA equipe de Jornada não pode derrubar o Promise.all de todas',
+  );
+  assert.doesNotMatch(
+    dashboard,
+    /throw motivoLeituraRecusada\(\[resultadoRascunho, resultadoPublicada\]\)/u,
+    'a falha total de UM grupo de Plantão não pode derrubar o Promise.all de todos',
+  );
+});

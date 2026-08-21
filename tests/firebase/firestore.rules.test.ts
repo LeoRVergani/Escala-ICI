@@ -1139,6 +1139,187 @@ describe('regras Firestore do Escala ICI', () => {
     });
   });
 
+  /**
+   * ESCOPO-OPERACIONAL-MATRIZ-2 — aprovar/recusar/publicar uma troca
+   * PENDENTE_GESTOR deixa de depender só de `souGestor() +
+   * podeOperarNaEquipe()` (ACL legada de equipe) e passa a aceitar o
+   * responsável operacional ATIVO na Matriz para `tipo=JORNADA` e
+   * `alvoId=equipeId` da troca — mesmo quando ele não pertence à equipe
+   * (`minhaEquipe()` não bate) e não é "gestor" no sentido legado. Espelha
+   * exatamente `podeAdministrarJornada()`. `usuarios.gestor` (marina.azevedo)
+   * já é usado nos testes de ESCOPO-OPERACIONAL-MATRIZ-2 acima como
+   * responsável de `JORNADA/EQ_SOC` — reaproveitado aqui.
+   */
+  describe('trocasEscala — aprovação pelo responsável operacional da Jornada (Matriz)', () => {
+    function escopoJornadaSoc(ajustes: Record<string, unknown> = {}) {
+      return escopoOperacional({
+        tipo: 'JORNADA',
+        alvoId: 'EQ_SOC',
+        alvoNome: 'SOC',
+        equipesConsulta: [],
+        responsaveisLogin: [usuarios.gestor.login],
+        ...ajustes,
+      });
+    }
+
+    function trocaJornadaSoc(ajustes: Record<string, unknown> = {}) {
+      return troca({
+        trocaId: 'troca-jornada-soc',
+        equipeId: 'EQ_SOC',
+        status: 'PENDENTE_GESTOR',
+        ...ajustes,
+      });
+    }
+
+    async function semearTrocaSoc(ajustesMatriz: Record<string, unknown> = {}, ajustesTroca: Record<string, unknown> = {}) {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        const db = contexto.firestore();
+        await Promise.all([
+          setDoc(doc(db, 'escoposOperacionais', 'JORNADA_EQ_SOC'), escopoJornadaSoc(ajustesMatriz)),
+          setDoc(doc(db, 'trocasEscala', 'troca-jornada-soc'), trocaJornadaSoc(ajustesTroca)),
+        ]);
+      });
+    }
+
+    it('Marina (responsável operacional ativo de JORNADA/EQ_SOC) aprova e publica a troca', async () => {
+      await semearTrocaSoc();
+      const gestor = autenticarComo(usuarios.gestor);
+      await assertSucceeds(updateDoc(doc(gestor, 'trocasEscala', 'troca-jornada-soc'), {
+        status: 'APROVADA_PUBLICADA',
+        aprovadoEm: '2026-08-07T15:00:00.000Z',
+        publicadoEm: '2026-08-07T15:00:00.000Z',
+        gestorLogin: usuarios.gestor.login,
+        gestorNome: usuarios.gestor.nome,
+        historico: [
+          ...trocaJornadaSoc().historico,
+          { tipo: 'APROVADA_PUBLICADA', porLogin: usuarios.gestor.login, porNome: usuarios.gestor.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'Aprovada' },
+        ],
+      }));
+    });
+
+    it('Marina (responsável operacional ativo de JORNADA/EQ_SOC) recusa a troca', async () => {
+      await semearTrocaSoc();
+      const gestor = autenticarComo(usuarios.gestor);
+      await assertSucceeds(updateDoc(doc(gestor, 'trocasEscala', 'troca-jornada-soc'), {
+        status: 'RECUSADA_GESTOR',
+        motivoRecusa: 'Sem cobertura suficiente.',
+        gestorLogin: usuarios.gestor.login,
+        gestorNome: usuarios.gestor.nome,
+        historico: [
+          ...trocaJornadaSoc().historico,
+          { tipo: 'RECUSA_GESTOR', porLogin: usuarios.gestor.login, porNome: usuarios.gestor.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'Recusada' },
+        ],
+      }));
+    });
+
+    it('a aprovação também permite criar as notificações de solicitante e destinatário', async () => {
+      await semearTrocaSoc();
+      const gestor = autenticarComo(usuarios.gestor);
+      await assertSucceeds(updateDoc(doc(gestor, 'trocasEscala', 'troca-jornada-soc'), {
+        status: 'APROVADA_PUBLICADA',
+        aprovadoEm: '2026-08-07T15:00:00.000Z',
+        publicadoEm: '2026-08-07T15:00:00.000Z',
+        gestorLogin: usuarios.gestor.login,
+        gestorNome: usuarios.gestor.nome,
+        historico: [
+          ...trocaJornadaSoc().historico,
+          { tipo: 'APROVADA_PUBLICADA', porLogin: usuarios.gestor.login, porNome: usuarios.gestor.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'Aprovada' },
+        ],
+      }));
+      for (const destinatarioLogin of [usuarios.colaborador.login, usuarios.colega.login]) {
+        await assertSucceeds(setDoc(doc(gestor, 'notificacoesTroca', `notif-aprovada-${destinatarioLogin}`), notificacaoTroca({
+          id: `notif-aprovada-${destinatarioLogin}`,
+          destinatarioLogin,
+          equipeId: 'EQ_SOC',
+          tipo: 'TROCA_APROVADA_PUBLICADA',
+          criadoPorLogin: usuarios.gestor.login,
+          trocaId: 'troca-jornada-soc',
+        })));
+      }
+    });
+
+    it('usuário responsável só por PLANTAO/PLANTAO_COSI não aprova troca de Jornada SOC', async () => {
+      await semearTrocaSoc();
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'escoposOperacionais', 'PLANTAO_PLANTAO_COSI'),
+          escopoOperacional({
+            tipo: 'PLANTAO',
+            alvoId: 'PLANTAO_COSI',
+            alvoNome: 'Plantão COSI',
+            responsaveisLogin: [usuarios.externo.login],
+            equipesConsulta: [usuarios.externo.equipeId],
+          }),
+        );
+      });
+      const responsavelPlantao = autenticarComo(usuarios.externo);
+      await assertFails(getDoc(doc(responsavelPlantao, 'trocasEscala', 'troca-jornada-soc')));
+      await assertFails(updateDoc(doc(responsavelPlantao, 'trocasEscala', 'troca-jornada-soc'), {
+        status: 'APROVADA_PUBLICADA',
+        gestorLogin: usuarios.externo.login,
+        historico: [
+          ...trocaJornadaSoc().historico,
+          { tipo: 'FORJADO', porLogin: usuarios.externo.login, porNome: usuarios.externo.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'forjado' },
+        ],
+      }));
+    });
+
+    it('usuário sem matriz e fora da equipe não aprova, mesmo com matriz de JORNADA existindo para outro responsável', async () => {
+      await semearTrocaSoc();
+      const externo = autenticarComo(usuarios.externo);
+      await assertFails(getDoc(doc(externo, 'trocasEscala', 'troca-jornada-soc')));
+      await assertFails(updateDoc(doc(externo, 'trocasEscala', 'troca-jornada-soc'), {
+        status: 'RECUSADA_GESTOR',
+        gestorLogin: usuarios.externo.login,
+        historico: [
+          ...trocaJornadaSoc().historico,
+          { tipo: 'FORJADO', porLogin: usuarios.externo.login, porNome: usuarios.externo.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'forjado' },
+        ],
+      }));
+    });
+
+    it('equipe só em equipesConsulta de um Plantão (nunca responsável) não aprova troca de Jornada', async () => {
+      await semearTrocaSoc({ responsaveisLogin: [], responsaveisEquipe: ['EQ_OUTRA_RESPONSAVEL'] });
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'escoposOperacionais', 'PLANTAO_PLANTAO_COSI'),
+          escopoOperacional({
+            tipo: 'PLANTAO',
+            alvoId: 'PLANTAO_COSI',
+            alvoNome: 'Plantão COSI',
+            responsaveisLogin: [usuarios.externo.login],
+            equipesConsulta: [usuarios.colega.equipeId],
+          }),
+        );
+      });
+      const consultaSomente = autenticarComo(usuarios.colega);
+      await assertFails(getDoc(doc(consultaSomente, 'trocasEscala', 'troca-jornada-soc')));
+      await assertFails(updateDoc(doc(consultaSomente, 'trocasEscala', 'troca-jornada-soc'), {
+        status: 'APROVADA_PUBLICADA',
+        gestorLogin: usuarios.colega.login,
+        historico: [
+          ...trocaJornadaSoc().historico,
+          { tipo: 'FORJADO', porLogin: usuarios.colega.login, porNome: usuarios.colega.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'forjado' },
+        ],
+      }));
+    });
+
+    it('solicitante e destinatário da própria troca continuam sem poder decidir como gestor, mesmo com Matriz ativa', async () => {
+      await semearTrocaSoc();
+      for (const ator of [usuarios.colaborador, usuarios.colega]) {
+        const db = autenticarComo(ator);
+        await assertFails(updateDoc(doc(db, 'trocasEscala', 'troca-jornada-soc'), {
+          status: 'APROVADA_PUBLICADA',
+          gestorLogin: ator.login,
+          historico: [
+            ...trocaJornadaSoc().historico,
+            { tipo: 'FORJADO', porLogin: ator.login, porNome: ator.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'forjado' },
+          ],
+        }));
+      }
+    });
+  });
+
   describe('notificacoesTroca', () => {
     it('permite ao destinatário ler a própria notificação e nega a outro login', async () => {
       await ambiente.withSecurityRulesDisabled(async (contexto) => {
@@ -1192,6 +1373,86 @@ describe('regras Firestore do Escala ICI', () => {
       });
       const db = autenticarComo(usuarios.colega);
       await assertFails(deleteDoc(doc(db, 'notificacoesTroca', 'notif-1')));
+    });
+
+    /**
+     * ESCOPO-OPERACIONAL-MATRIZ-2 — segundo ramo do `create`: o responsável
+     * operacional da Jornada (Matriz) cria a notificação da própria ação
+     * gerencial (aprovar/recusar) mesmo fora da equipe (`minhaEquipe()` não
+     * bate). Restrito ao alvo que ele realmente administra e aos dois
+     * `tipo`s de notificação gerencial — nunca abre criação livre.
+     */
+    describe('create pelo responsável operacional da Jornada (Matriz)', () => {
+      beforeEach(async () => {
+        await ambiente.withSecurityRulesDisabled(async (contexto) => {
+          await setDoc(
+            doc(contexto.firestore(), 'escoposOperacionais', 'JORNADA_EQ_SOC'),
+            escopoOperacional({
+              tipo: 'JORNADA',
+              alvoId: 'EQ_SOC',
+              alvoNome: 'SOC',
+              equipesConsulta: [],
+              responsaveisLogin: [usuarios.gestor.login],
+            }),
+          );
+        });
+      });
+
+      it('permite criar notificação de recusa/aprovação gerencial para alvo administrado fora da própria equipe', async () => {
+        const gestor = autenticarComo(usuarios.gestor);
+        await assertSucceeds(setDoc(doc(gestor, 'notificacoesTroca', 'notif-recusada-soc'), notificacaoTroca({
+          id: 'notif-recusada-soc',
+          destinatarioLogin: usuarios.colaborador.login,
+          equipeId: 'EQ_SOC',
+          tipo: 'TROCA_RECUSADA_GESTOR',
+          criadoPorLogin: usuarios.gestor.login,
+          trocaId: 'troca-jornada-soc',
+        })));
+        await assertSucceeds(setDoc(doc(gestor, 'notificacoesTroca', 'notif-aprovada-soc'), notificacaoTroca({
+          id: 'notif-aprovada-soc',
+          destinatarioLogin: usuarios.colega.login,
+          equipeId: 'EQ_SOC',
+          tipo: 'TROCA_APROVADA_PUBLICADA',
+          criadoPorLogin: usuarios.gestor.login,
+          trocaId: 'troca-jornada-soc',
+        })));
+      });
+
+      it('nega tipo fora da lista gerencial permitida para quem não pertence à equipe', async () => {
+        const gestor = autenticarComo(usuarios.gestor);
+        await assertFails(setDoc(doc(gestor, 'notificacoesTroca', 'notif-solicitada-soc'), notificacaoTroca({
+          id: 'notif-solicitada-soc',
+          destinatarioLogin: usuarios.colaborador.login,
+          equipeId: 'EQ_SOC',
+          tipo: 'TROCA_SOLICITADA',
+          criadoPorLogin: usuarios.gestor.login,
+          trocaId: 'troca-jornada-soc',
+        })));
+      });
+
+      it('nega criar notificação de outra equipe sem Matriz para o alvo', async () => {
+        const gestor = autenticarComo(usuarios.gestor);
+        await assertFails(setDoc(doc(gestor, 'notificacoesTroca', 'notif-outra-equipe'), notificacaoTroca({
+          id: 'notif-outra-equipe',
+          destinatarioLogin: usuarios.colaborador.login,
+          equipeId: 'EQ_SEM_MATRIZ',
+          tipo: 'TROCA_APROVADA_PUBLICADA',
+          criadoPorLogin: usuarios.gestor.login,
+          trocaId: 'troca-jornada-soc',
+        })));
+      });
+
+      it('continua impedindo forjar criadoPorLogin mesmo com Matriz ativa', async () => {
+        const externo = autenticarComo(usuarios.externo);
+        await assertFails(setDoc(doc(externo, 'notificacoesTroca', 'notif-forjada-soc'), notificacaoTroca({
+          id: 'notif-forjada-soc',
+          destinatarioLogin: usuarios.colaborador.login,
+          equipeId: 'EQ_SOC',
+          tipo: 'TROCA_APROVADA_PUBLICADA',
+          criadoPorLogin: usuarios.gestor.login,
+          trocaId: 'troca-jornada-soc',
+        })));
+      });
     });
   });
 

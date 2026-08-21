@@ -59,6 +59,16 @@ export function mensagemErroFirebase(
   if (codigo === 'aborted' || mensagem.includes('shutting down') || mensagem.includes('has already been terminated')) {
     return 'A conexão com o Firestore foi reiniciada. Atualize a tela e tente novamente.';
   }
+  /**
+   * "The query requires an index..." — uma consulta nova (típico de query
+   * composta recém-introduzida) esperando o índice do Firestore terminar de
+   * ser criado (`firestore.indexes.json`). Nunca deve aparecer como erro
+   * vermelho bloqueante: é sempre transitório, e o restante da tela (seletor,
+   * cards, "Abrir editor") continua funcionando normalmente.
+   */
+  if (codigo === 'failed-precondition' && mensagem.toLowerCase().includes('index')) {
+    return 'Consulta aguardando índice do Firestore. O editor continua disponível.';
+  }
   if (codigo === 'unavailable' || codigo === 'deadline-exceeded') {
     return 'Conexão temporariamente indisponível. Tente novamente em alguns segundos.';
   }

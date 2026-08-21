@@ -69,6 +69,39 @@
         { "fieldPath": "destinatarioEquipeId", "order": "ASCENDING" },
         { "fieldPath": "data", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "usuarios",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "equipeId", "order": "ASCENDING" },
+        { "fieldPath": "cadastroOperacional.tipo", "order": "ASCENDING" },
+        { "fieldPath": "cadastroOperacional.alvoId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "rascunhosCompetenciasPlantao",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "grupoId", "order": "ASCENDING" },
+        { "fieldPath": "competencia", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "competenciasPlantao",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "grupoId", "order": "ASCENDING" },
+        { "fieldPath": "competencia", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "atribuicoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "grupoId", "order": "ASCENDING" },
+        { "fieldPath": "atribuicaoId", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

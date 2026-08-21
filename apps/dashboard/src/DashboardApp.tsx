@@ -407,19 +407,21 @@ function formatarDataCurta(dataIso: string | null | undefined): string {
 }
 
 /**
- * Mensagem específica para ações de gestor em trocas: quando o erro é
- * permission-denied, o texto genérico de `mensagemErroFirebase` fala em
- * "conta com permissão de gestor" — aqui deixamos explícito que o motivo
- * mais provável é a equipe (gestor de outra equipe, ou trocado de conta
- * sem recarregar a sessão). Para qualquer outro tipo de erro, cai no
- * mapeamento genérico (já cobre "Firestore shutting down" etc.).
+ * Mensagem específica para ações de gestor em trocas: desde a Matriz
+ * Operacional (ESCOPO-OPERACIONAL-MATRIZ-2), aprovar/recusar/publicar não
+ * depende mais de "ser gestor da equipe" — depende de ser responsável
+ * operacional ativo da Jornada na Matriz de Responsáveis (ou, no fallback
+ * legado, gestor da equipe enquanto não existir matriz para o alvo). O texto
+ * antigo ("verifique se é gestor da equipe") ficou enganoso para quem
+ * administra a Jornada só pela Matriz. Para qualquer outro tipo de erro, cai
+ * no mapeamento genérico (já cobre "Firestore shutting down" etc.).
  */
 function mensagemErroTrocaGestor(falha: unknown, fallback: string): string {
   const codigo = typeof falha === 'object' && falha !== null && 'code' in falha
     ? String((falha as { code?: unknown }).code)
     : '';
   if (codigo.includes('permission-denied')) {
-    return 'A operação foi recusada pelas regras do Firestore. Verifique se o usuário atual é gestor da equipe.';
+    return 'Você não é responsável por esta Jornada na Matriz de Responsáveis.';
   }
   return mensagemErroFirebase(falha, fallback, ambienteFirebaseAtual);
 }
@@ -3465,7 +3467,7 @@ export function DashboardApp() {
     }
     : resumoJornadaPersistidoDashboard;
   const estadoJornadaOperacionalDashboard = estadoJornadaDashboard(resumoJornadaDashboard);
-  const nomeJornadaDashboard = equipeJornadaDashboard?.nome ?? 'Jornada 6x1';
+  const nomeJornadaDashboard = equipeJornadaDashboard?.nome ?? 'Nenhuma Jornada configurada para este usuário.';
   const grupoPlantaoDashboard = gruposPlantaoAdmin.find((grupo) =>
     contextoEhPlantao(contextoEscalaAtivo) && grupo.grupoId === contextoEscalaAtivo.alvoId,
   ) ?? escoposOperacionais.plantoesAdministraveis[0] ?? null;
@@ -3551,14 +3553,10 @@ export function DashboardApp() {
       const rascunhos = valorLeitura(resultadoRascunhos, []);
       const publicadas = valorLeitura(resultadoPublicadas, []);
       const usuariosDaEquipe = valorLeitura(resultadoUsuarios, []);
-      if (resultadoUsuarios.status === 'rejected') throw resultadoUsuarios.reason;
-      if (
-        rascunhos.length === 0
-        && publicadas.length === 0
-        && (resultadoRascunhos.status === 'rejected' || resultadoPublicadas.status === 'rejected')
-      ) {
-        throw motivoLeituraRecusada([resultadoRascunhos, resultadoPublicadas]);
-      }
+      // Nunca lançar aqui: uma falha total nesta `equipeId` não pode
+      // derrubar o `Promise.all` de TODAS as Jornadas — o card desta Jornada
+      // mostra "Sem escala" e o aviso de `falhaParcial` abaixo, mas as
+      // demais (e o Plantão, resolvido em outro efeito) continuam intactas.
       const documentosBase = rascunhos.length > 0 ? rascunhos : publicadas;
       const periodo = periodoDaCompetencia(competenciaDashboard);
       const datas = documentosBase.flatMap((documento) => Object.keys(documento.dias)).sort();
@@ -3618,14 +3616,11 @@ export function DashboardApp() {
       const competenciaRascunho = valorLeitura(resultadoRascunho, null);
       const competenciaPublicada = valorLeitura(resultadoPublicada, null);
       const participantes = valorLeitura(resultadoParticipantes, []);
-      if (resultadoParticipantes.status === 'rejected') throw resultadoParticipantes.reason;
-      if (
-        competenciaRascunho === null
-        && competenciaPublicada === null
-        && (resultadoRascunho.status === 'rejected' || resultadoPublicada.status === 'rejected')
-      ) {
-        throw motivoLeituraRecusada([resultadoRascunho, resultadoPublicada]);
-      }
+      // Nunca lançar aqui: uma falha total neste `grupoId` (ex.: índice do
+      // Firestore ainda sendo criado) não pode derrubar o `Promise.all` de
+      // TODOS os grupos — o card deste grupo mostra "Sem escala"/contagem 0 e
+      // o aviso de `falhaParcial` abaixo, mas os demais cards (e o editor,
+      // que nem depende deste efeito) continuam intactos.
       return {
         resumo: {
           grupoId,
@@ -6822,41 +6817,69 @@ export function DashboardApp() {
     });
     void carregarOperacoesComEstado({
       carregar: async () => {
+        // Jornada (equipes/unidades/escopos) é a base de que TODA a
+        // resolução depende (inclusive a de Plantão, que também lê
+        // `escopos`) — segue lançando normalmente: sem isso não há operação
+        // nenhuma pra mostrar. O que NUNCA pode acontecer é uma falha
+        // exclusivamente do lado Plantão (ex.: grupoId órfão na matriz,
+        // consulta ainda sem índice) apagar a Jornada/SOC que já resolveu
+        // com sucesso — por isso a busca de `grupos` roda num try/catch
+        // próprio, nunca dentro do mesmo `await` que decide o estado global.
         const [equipes, unidades, escopos] = await Promise.all([
           listarEquipes(),
           listarUnidadesOrganizacionais(),
           listarEscoposOperacionais(),
         ]);
-        const idsPlantaoMatriz = [...new Set(escopos
-          .filter((escopo) => escopo.ativo && escopo.tipo === 'PLANTAO')
-          .filter((escopo) =>
-            usuarioPodeAdministrarAlvoOperacional(usuarioReal, escopos, 'PLANTAO', escopo.alvoId)
-            || usuarioPodeConsultarPlantaoOperacional(usuarioReal, escopos, escopo.alvoId))
-          .map((escopo) => escopo.alvoId))];
-        const gruposDaMatriz = (await Promise.all(idsPlantaoMatriz.map((grupoId) => obterGrupoPlantao(grupoId))))
-          .filter((grupo): grupo is GrupoPlantao => grupo !== null);
 
-        let gruposLegados: GrupoPlantao[] = [];
-        if (PERMITIR_FALLBACK_OPERACIONAL_LEGADO) {
-          const perfil = perfilEfetivo(usuarioReal);
-          if (ehAdminSistema(usuarioReal)) {
-            gruposLegados = await listarTodosGruposPlantao();
-          } else {
-            const listas = await Promise.all([
-              ...equipesPermitidasEfetivas(usuarioReal).map((equipeId) => listarGruposPlantaoPermitidos(equipeId)),
-              ...(perfil === 'GESTOR_UNIDADE'
-                ? unidadesPermitidasEfetivas(usuarioReal).map((unidadeId) => listarGruposPlantaoPorUnidadeResponsavel(unidadeId))
-                : []),
-              ...(perfil === 'GESTOR_EQUIPE' || perfil === 'SUPERVISOR_EQUIPE'
-                ? [listarTodosGruposPlantao()]
-                : []),
-            ]);
-            gruposLegados = listas.flat();
+        let grupos: GrupoPlantao[] = [];
+        let erroPlantao: unknown = null;
+        try {
+          const idsPlantaoMatriz = [...new Set(escopos
+            .filter((escopo) => escopo.ativo && escopo.tipo === 'PLANTAO')
+            .filter((escopo) =>
+              usuarioPodeAdministrarAlvoOperacional(usuarioReal, escopos, 'PLANTAO', escopo.alvoId)
+              || usuarioPodeConsultarPlantaoOperacional(usuarioReal, escopos, escopo.alvoId))
+            .map((escopo) => escopo.alvoId))];
+          const resultadosGruposMatriz = await Promise.allSettled(
+            idsPlantaoMatriz.map((grupoId) => obterGrupoPlantao(grupoId)),
+          );
+          const gruposDaMatriz = resultadosGruposMatriz
+            .filter((resultado): resultado is PromiseFulfilledResult<GrupoPlantao | null> => resultado.status === 'fulfilled')
+            .map((resultado) => resultado.value)
+            .filter((grupo): grupo is GrupoPlantao => grupo !== null);
+          const falhaGrupoMatriz = motivoLeituraRecusada(resultadosGruposMatriz);
+
+          let gruposLegados: GrupoPlantao[] = [];
+          let falhaLegado: unknown = null;
+          if (PERMITIR_FALLBACK_OPERACIONAL_LEGADO) {
+            try {
+              const perfil = perfilEfetivo(usuarioReal);
+              if (ehAdminSistema(usuarioReal)) {
+                gruposLegados = await listarTodosGruposPlantao();
+              } else {
+                const listas = await Promise.all([
+                  ...equipesPermitidasEfetivas(usuarioReal).map((equipeId) => listarGruposPlantaoPermitidos(equipeId)),
+                  ...(perfil === 'GESTOR_UNIDADE'
+                    ? unidadesPermitidasEfetivas(usuarioReal).map((unidadeId) => listarGruposPlantaoPorUnidadeResponsavel(unidadeId))
+                    : []),
+                  ...(perfil === 'GESTOR_EQUIPE' || perfil === 'SUPERVISOR_EQUIPE'
+                    ? [listarTodosGruposPlantao()]
+                    : []),
+                ]);
+                gruposLegados = listas.flat();
+              }
+            } catch (falha) {
+              falhaLegado = falha;
+            }
           }
+          const gruposPorId = new Map<string, GrupoPlantao>();
+          for (const grupo of [...gruposDaMatriz, ...gruposLegados]) gruposPorId.set(grupo.grupoId, grupo);
+          grupos = [...gruposPorId.values()];
+          erroPlantao = falhaGrupoMatriz ?? falhaLegado;
+        } catch (falha) {
+          erroPlantao = falha;
         }
-        const gruposPorId = new Map<string, GrupoPlantao>();
-        for (const grupo of [...gruposDaMatriz, ...gruposLegados]) gruposPorId.set(grupo.grupoId, grupo);
-        const grupos = [...gruposPorId.values()];
+
         const resolucao = resolverEscoposOperacionais(
           usuarioReal,
           unidades,
@@ -6865,10 +6888,16 @@ export function DashboardApp() {
           escopos,
           { permitirFallbackLegado: PERMITIR_FALLBACK_OPERACIONAL_LEGADO },
         );
-        return { equipes, unidades, escopos, grupos, resolucao };
+        return { equipes, unidades, escopos, grupos, resolucao, erroPlantao };
       },
-      estaVazio: ({ resolucao }) =>
-        resolucao.jornadasAdministraveis.length === 0
+      // Vazio de verdade é "sem NENHUMA Jornada e NENHUM Plantão" — uma
+      // falha isolada do lado Plantão (erroPlantao != null) não conta como
+      // "vazio" quando a Jornada resolveu operações; o aviso da falha some
+      // como card local (`erroResumoPlantaoDashboard`), nunca como bloqueio
+      // da tela inteira.
+      estaVazio: ({ resolucao, erroPlantao }) =>
+        erroPlantao === null
+        && resolucao.jornadasAdministraveis.length === 0
         && resolucao.plantoesAdministraveis.length === 0
         && resolucao.plantoesMonitorados.length === 0,
     }).then((resultadoCarga) => {
@@ -6881,7 +6910,9 @@ export function DashboardApp() {
         setEscoposOperacionaisAdmin(resultadoCarga.dados.escopos);
         setGruposPlantaoAdmin(resultadoCarga.dados.grupos);
         setErroResumoJornadaDashboard('');
-        setErroResumoPlantaoDashboard('');
+        setErroResumoPlantaoDashboard(resultadoCarga.dados.erroPlantao === null
+          ? ''
+          : mensagemFalhaLeituraParcial(resultadoCarga.dados.erroPlantao));
       }
     });
     return () => {

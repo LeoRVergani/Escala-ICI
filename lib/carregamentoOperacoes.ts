@@ -1,4 +1,4 @@
-export type DiagnosticoErroOperacoes = 'RULES' | 'REDE' | 'DESCONHECIDO';
+export type DiagnosticoErroOperacoes = 'RULES' | 'REDE' | 'INDICE' | 'DESCONHECIDO';
 
 export type EstadoCarregamentoOperacoes =
   | { fase: 'carregando' }
@@ -11,6 +11,18 @@ export const MENSAGEM_MATRIZ_SEM_RULES =
 
 export const MENSAGEM_REDE_OPERACOES =
   'Não foi possível conectar ao Firestore para carregar as operações. Verifique sua conexão e tente novamente.';
+
+/**
+ * `failed-precondition` com "requires an index"/"index" na mensagem nunca é
+ * um erro de permissão nem de rede — é uma consulta nova esperando o índice
+ * composto terminar de ser criado no Firestore (ver firestore.indexes.json).
+ * Isso é sempre transitório e nunca deve virar um bloqueio: o card/consulta
+ * afetado mostra este aviso, mas seletor, card SOC e "Abrir editor" continuam
+ * disponíveis (`estadoCarregamentoOperacoes.fase` some dessa erro; ver
+ * `mensagemFalhaLeituraParcial()`/`estaVazio()` em DashboardApp.tsx).
+ */
+export const MENSAGEM_INDICE_OPERACOES =
+  'Consulta aguardando índice do Firestore. O editor continua disponível.';
 
 const MENSAGEM_ERRO_OPERACOES =
   'Não foi possível carregar as operações de escala. Tente novamente.';
@@ -30,6 +42,9 @@ export function estadoErroOperacoes(falha: unknown): Extract<EstadoCarregamentoO
   const mensagem = mensagemDaFalha(falha);
   if (codigo.includes('permission-denied') || mensagem.includes('permission_denied')) {
     return { fase: 'erro', diagnostico: 'RULES', mensagem: MENSAGEM_MATRIZ_SEM_RULES };
+  }
+  if (codigo.includes('failed-precondition') && mensagem.includes('index')) {
+    return { fase: 'erro', diagnostico: 'INDICE', mensagem: MENSAGEM_INDICE_OPERACOES };
   }
   if (
     codigo.includes('unavailable')

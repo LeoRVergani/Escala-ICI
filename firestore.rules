@@ -910,15 +910,28 @@ service cloud.firestore {
      * colega, não só a própria).
      */
     match /trocasEscala/{id} {
+      // ESCOPO-OPERACIONAL-MATRIZ-2 — o responsável operacional da Jornada
+      // (Matriz) precisa poder LER a troca antes de poder aprová-la/
+      // recusá-la, mesmo quando ele não pertence à equipe (podeOperarNaEquipe)
+      // e não é "gestor" no sentido legado (souGestor()). `podeAdministrarJornada()`
+      // já cobre ADMIN_SISTEMA + matriz ativa + fallback legado quando a
+      // matriz não existe para o alvo — mesmo caminho usado no `update` de
+      // aprovação abaixo.
       allow get: if autenticado()
-        && podeOperarNaEquipe(resource.data.equipeId)
         && (
-          souGestor()
-          || resource.data.solicitanteLogin == loginDoAuth()
-          || resource.data.destinatarioLogin == loginDoAuth()
+          (
+            podeOperarNaEquipe(resource.data.equipeId)
+            && (
+              souGestor()
+              || resource.data.solicitanteLogin == loginDoAuth()
+              || resource.data.destinatarioLogin == loginDoAuth()
+            )
+          )
+          || podeAdministrarJornada(resource.data.equipeId)
         );
 
-      allow list: if autenticado() && podeOperarNaEquipe(resource.data.equipeId);
+      allow list: if autenticado()
+        && (podeOperarNaEquipe(resource.data.equipeId) || podeAdministrarJornada(resource.data.equipeId));
 
       // Autoatendimento — quem cria age como membro da própria equipe, não
       // como admin cross-equipe. Deliberadamente não usa
@@ -930,21 +943,32 @@ service cloud.firestore {
         && request.resource.data.status == 'PENDENTE_USUARIO';
 
       allow update: if autenticado()
-        && podeOperarNaEquipe(resource.data.equipeId)
         && request.resource.data.historico.size() > resource.data.historico.size()
         && (
           (
-            resource.data.destinatarioLogin == loginDoAuth()
+            podeOperarNaEquipe(resource.data.equipeId)
+            && resource.data.destinatarioLogin == loginDoAuth()
             && resource.data.status == 'PENDENTE_USUARIO'
             && request.resource.data.status in ['RECUSADA_USUARIO', 'PENDENTE_GESTOR']
           )
           || (
-            resource.data.solicitanteLogin == loginDoAuth()
+            podeOperarNaEquipe(resource.data.equipeId)
+            && resource.data.solicitanteLogin == loginDoAuth()
             && resource.data.status == 'PENDENTE_USUARIO'
             && request.resource.data.status == 'CANCELADA_SOLICITANTE'
           )
+          // ESCOPO-OPERACIONAL-MATRIZ-2 — a parte gerencial (aprovar/recusar
+          // como gestor) não é mais "souGestor() + podeOperarNaEquipe()"
+          // pura: passa a ser autorização operacional da Jornada.
+          // `podeAdministrarJornada()` já cobre, nesta ordem: ADMIN_SISTEMA;
+          // responsável operacional ativo na Matriz para tipo=JORNADA e
+          // alvoId=equipeId da troca; fallback para souGestor() +
+          // podeOperarNaEquipe() só quando não existe matriz para essa
+          // Jornada. Nunca aceita responsável de PLANTAO administrar troca
+          // de Jornada — `podeAdministrarJornada` só olha a matriz tipo
+          // JORNADA.
           || (
-            souGestor()
+            podeAdministrarJornada(resource.data.equipeId)
             && resource.data.status == 'PENDENTE_GESTOR'
             && request.resource.data.status in ['RECUSADA_GESTOR', 'APROVADA_PUBLICADA']
           )
@@ -985,11 +1009,26 @@ service cloud.firestore {
           || (resource.data.get('equipeId', null) != null && souAdminSistema())
         );
 
+      // ESCOPO-OPERACIONAL-MATRIZ-2 — a notificação de uma ação GERENCIAL
+      // (aprovar/recusar/publicar troca) é criada no mesmo batch da
+      // atualização de `trocasEscala`, pelo responsável operacional da
+      // Jornada — que pode não pertencer à equipe (`minhaEquipe()` falha
+      // para ele). Segundo ramo (OR) cobre exatamente esse caso, sem abrir
+      // criação de notificação de QUALQUER equipe: exige matriz ativa de
+      // JORNADA para o `equipeId` da notificação e `tipo` restrito às duas
+      // notificações que uma ação gerencial de fato gera. Nunca permite
+      // forjar `criadoPorLogin` (mesma checagem do ramo de autoatendimento).
       allow create: if autenticado()
-        && request.resource.data.equipeId == minhaEquipe()
         && request.resource.data.criadoPorLogin == loginDoAuth()
         && request.resource.data.destinatarioLogin != loginDoAuth()
-        && request.resource.data.lidaEm == null;
+        && request.resource.data.lidaEm == null
+        && (
+          request.resource.data.equipeId == minhaEquipe()
+          || (
+            podeAdministrarJornada(request.resource.data.equipeId)
+            && request.resource.data.tipo in ['TROCA_RECUSADA_GESTOR', 'TROCA_APROVADA_PUBLICADA']
+          )
+        );
 
       allow update: if autenticado()
         && resource.data.destinatarioLogin == loginDoAuth()
