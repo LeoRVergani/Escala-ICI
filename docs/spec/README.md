@@ -43,6 +43,21 @@ escala são lidos pelo ID real do alvo. Jornada usa `equipeId`; Plantão usa
 `grupoId`. A Visão geral deve distinguir **Sem escala**, **Rascunho** e
 **Publicada**, contar colaboradores/participantes do alvo e nunca cair para a
 equipe do responsável logado quando uma operação válida foi aberta.
+
+Nota ESCOPO-OPERACIONAL-MATRIZ-2: a mesma matriz agora governa leitura e
+escrita operacional. Jornada usa `equipeId`; Plantão usa `grupoId`; o contexto
+ativo preserva `tipo`, `alvoId`, `label` e competência. `label` é apresentação,
+`equipesConsulta` é somente leitura e o fallback legado vale exclusivamente
+quando não existe documento de matriz para o alvo. Colaboradores continuam
+pertencendo à equipe/grade da Jornada, nunca ao responsável.
+
+Nota ESCOPO-OPERACIONAL-MATRIZ-2.1: o carregamento da matriz tem estados
+explícitos de carregando/sucesso/vazio/erro e timeout; a UI nunca permanece em
+loading infinito. `permission-denied` diagnostica Rules de staging não
+publicadas, rede oferece **Recarregar operações**, e vazio orienta o vínculo em
+**Administração → Responsáveis por escala**. Contexto salvo inválido ou ligado
+a alvo/grupo inativo é removido. O fallback legado só roda com
+`VITE_ESCALA_FALLBACK_OPERACIONAL_LEGADO=true`.
 - `PLANTOES.md` e `EDITOR_ESCALAS.md` — contêm histórico e detalhes de domínio anteriores; para UI nova de Plantão/Jornada, preferir as specs novas acima.
 
 ## Decisões que não devem regredir
@@ -58,6 +73,7 @@ equipe do responsável logado quando uma operação válida foi aberta.
 - Não listar analista/técnico comum, usuário inativo ou usuário sem perfil de gestão como responsável humano de escala.
 - Não confundir Responsáveis, Equipes administradoras e Equipes que consultam.
 - `equipesConsulta` permite consulta/monitoramento, nunca edição.
+- Criar, importar, salvar e publicar requer responsabilidade na matriz ativa ou `ADMIN_SISTEMA`.
 - `GrupoPlantao ativo:false` não aparece em seletor operacional ou Wizard; aparece somente na Administração com badge Inativo.
 - Visão geral e seletor superior usam `equipeId` para Jornada e `grupoId` para Plantão; nomes visuais não são chave de busca.
 - Não tratar ausência de publicação como ausência total quando existe rascunho.

@@ -4,7 +4,7 @@ import type { Equipe, UnidadeOrganizacional, Usuario } from './modelos';
 import {
   plantoesDisponiveisParaMonitoramento,
   plantoesMonitoradosPelaEquipe,
-  resolverEscoposOperacionais,
+  resolverEscoposOperacionais as resolverEscoposOperacionaisBase,
 } from './escoposOperacionais';
 import { resolverGrupoParaPlantao } from './inicioEscala';
 
@@ -70,7 +70,36 @@ const UNIDADES = [UNIDADE_COSI, UNIDADE_CODB];
 const EQUIPES = [EQ_SOC, EQ_PLANTAO_COSI, EQ_NOC];
 const GRUPOS = [GRUPO_PLANTAO_COSI];
 
+function resolverEscoposOperacionais(
+  usuarioEfetivo: Usuario,
+  unidades: readonly UnidadeOrganizacional[],
+  equipes: readonly Equipe[],
+  grupos: readonly GrupoPlantao[],
+) {
+  return resolverEscoposOperacionaisBase(
+    usuarioEfetivo,
+    unidades,
+    equipes,
+    grupos,
+    [],
+    { permitirFallbackLegado: true },
+  );
+}
+
 describe('resolverEscoposOperacionais', () => {
+  it('fallback legado só roda quando explicitamente permitido', () => {
+    const gestorEquipe = usuario({ perfil: 'GESTOR_EQUIPE', equipeId: 'EQ_SOC', equipesPermitidas: ['EQ_SOC'] });
+    expect(resolverEscoposOperacionaisBase(gestorEquipe, UNIDADES, EQUIPES, GRUPOS).jornadasAdministraveis).toEqual([]);
+    expect(resolverEscoposOperacionais(gestorEquipe, UNIDADES, EQUIPES, GRUPOS).jornadasAdministraveis.map((item) => item.id))
+      .toEqual(['EQ_SOC']);
+  });
+
+  it('ADMIN_SISTEMA sem matriz também depende do opt-in para o fallback operacional', () => {
+    const admin = usuario({ perfil: 'ADMIN_SISTEMA' });
+    expect(resolverEscoposOperacionaisBase(admin, UNIDADES, EQUIPES, GRUPOS).jornadasAdministraveis).toEqual([]);
+    expect(resolverEscoposOperacionaisBase(admin, UNIDADES, EQUIPES, GRUPOS).plantoesAdministraveis).toEqual([]);
+  });
+
   it('GESTOR_UNIDADE de COSI administra a unidade COSI, as equipes SOC e Plantão COSI, e o Grupo de Plantão COSI', () => {
     const gestorCosi = usuario({ perfil: 'GESTOR_UNIDADE', escopo: 'UNIDADE', unidadesPermitidas: ['COSI'] });
     const escopos = resolverEscoposOperacionais(gestorCosi, UNIDADES, EQUIPES, GRUPOS);

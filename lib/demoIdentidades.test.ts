@@ -40,6 +40,8 @@ describe('contextos de demonstração do COSI', () => {
       [UNIDADE_COSI_DEMO],
       [EQUIPE_DEMO, EQUIPE_PLANTAO_DEMO],
       [GRUPO_PLANTAO_DEMO],
+      [],
+      { permitirFallbackLegado: true },
     );
     expect(escopos.equipesAdministraveis.map((item) => item.id)).toEqual(
       expect.arrayContaining([EQUIPE_DEMO.id, EQUIPE_PLANTAO_DEMO.id]),

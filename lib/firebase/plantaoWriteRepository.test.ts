@@ -56,6 +56,7 @@ vi.mock('firebase/firestore', () => ({
 const {
   atualizarEquipeConsultaPlantao,
   desativarParticipantePlantao,
+  publicarCompetenciaPlantao,
   salvarAtribuicoesPlantaoRascunho,
   salvarCompetenciaPlantaoRascunho,
   salvarGrupoPlantao,
@@ -310,7 +311,7 @@ describe('salvarCompetenciaPlantaoRascunho', () => {
     expect(estado.operacoes[0]?.colecao).toBe('rascunhosCompetenciasPlantao');
   });
 
-  it('recusa salvar como PUBLICADA nesta fase (publicação é PLANTÃO-3C)', async () => {
+  it('recusa salvar como PUBLICADA pelo caminho de rascunho', async () => {
     await expect(salvarCompetenciaPlantaoRascunho(competenciaValida({ status: 'PUBLICADA' })))
       .rejects.toThrow();
     expect(estado.operacoes).toHaveLength(0);
@@ -319,6 +320,28 @@ describe('salvarCompetenciaPlantaoRascunho', () => {
   it('rejeita domínio inválido antes de enviar (competência malformada)', async () => {
     await expect(salvarCompetenciaPlantaoRascunho(competenciaValida({ competencia: '08/2026' })))
       .rejects.toThrow();
+    expect(estado.operacoes).toHaveLength(0);
+  });
+});
+
+describe('publicarCompetenciaPlantao — ESCOPO-OPERACIONAL-MATRIZ-2', () => {
+  it('publica competência e atribuições pelo grupoId e remove o rascunho depois', async () => {
+    const publicada = await publicarCompetenciaPlantao(competenciaValida(), [atribuicaoValida()]);
+
+    expect(publicada.status).toBe('PUBLICADA');
+    expect(publicada.grupoId).toBe('PLANTAO_SEGURANCA');
+    expect(publicada.revisao).toBe(1);
+    expect(estado.operacoes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ tipo: 'set', colecao: 'competenciasPlantao', id: 'PLANTAO_SEGURANCA_2026-08' }),
+      expect.objectContaining({ tipo: 'set', colecao: 'atribuicoes', id: '0001' }),
+      expect.objectContaining({ tipo: 'delete', colecao: 'rascunhosCompetenciasPlantao', id: 'PLANTAO_SEGURANCA_2026-08' }),
+    ]));
+  });
+
+  it('rejeita atribuição de outro grupo antes de escrever qualquer documento', async () => {
+    await expect(publicarCompetenciaPlantao(competenciaValida(), [
+      atribuicaoValida({ grupoId: 'PLANTAO_OUTRO' }),
+    ])).rejects.toThrow('mesmo Grupo e competência');
     expect(estado.operacoes).toHaveLength(0);
   });
 });

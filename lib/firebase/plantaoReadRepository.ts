@@ -12,11 +12,9 @@ import { exigirFirebase } from './shared';
 /**
  * Leitura pura de Plantão (Fase PLANTÃO-3A) — sem React, sem parser XLS.
  * Cada função corresponde a uma consulta da seção "Operações de leitura"
- * de `docs/spec/PLANTOES.md`. Deliberadamente NÃO inclui
- * `localizarPlantaoNoInstante()`/`localizarProximoPlantao()` — essas só
- * fazem sentido sobre `competenciasPlantao` (PUBLICADA), que hoje não tem
- * nenhum dado real (a escrita está bloqueada até PLANTÃO-3C); adicionar
- * essas funções agora seria API especulativa sem dado para exercitar.
+ * de `docs/spec/PLANTOES.md`. ESCOPO-OPERACIONAL-MATRIZ-2 acrescenta a
+ * leitura direta da competência publicada; consultas temporais do App
+ * continuam fora deste repository administrativo.
  */
 
 export async function obterGrupoPlantao(grupoId: string): Promise<GrupoPlantao | null> {
@@ -85,6 +83,16 @@ export async function obterCompetenciaPlantaoRascunho(
   const { db } = exigirFirebase();
   const id = idCompetenciaPlantao(grupoId, competencia);
   const snapshot = await getDoc(doc(db, 'rascunhosCompetenciasPlantao', id));
+  return snapshot.exists() ? (snapshot.data() as CompetenciaPlantao) : null;
+}
+
+export async function obterCompetenciaPlantaoPublicada(
+  grupoId: string,
+  competencia: string,
+): Promise<CompetenciaPlantao | null> {
+  const { db } = exigirFirebase();
+  const id = idCompetenciaPlantao(grupoId, competencia);
+  const snapshot = await getDoc(doc(db, 'competenciasPlantao', id));
   return snapshot.exists() ? (snapshot.data() as CompetenciaPlantao) : null;
 }
 

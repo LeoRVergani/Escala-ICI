@@ -229,6 +229,40 @@ function escopoOperacional(ajustes: Record<string, unknown> = {}) {
   };
 }
 
+function grupoPlantaoMatriz(grupoId = 'PLANTAO_COSI') {
+  return {
+    grupoId,
+    nome: 'Plantão COSI',
+    equipeResponsavelId: 'EQ_PLANTAO_COSI',
+    equipesConsulta: ['EQ_PLANTAO_COSI'],
+    timezone: 'America/Sao_Paulo',
+    ativo: true,
+    schemaVersion: 1,
+    criadoPorLogin: usuarios.admin.login,
+    criadoEm: '2026-08-01T00:00:00.000Z',
+    atualizadoEm: '2026-08-01T00:00:00.000Z',
+  };
+}
+
+function competenciaPlantaoMatriz(status: 'RASCUNHO' | 'PUBLICADA' = 'RASCUNHO') {
+  return {
+    id: 'PLANTAO_COSI_2026-08',
+    grupoId: 'PLANTAO_COSI',
+    competencia: '2026-08',
+    periodoInicio: '2026-07-26',
+    periodoFim: '2026-08-25',
+    status,
+    revisao: status === 'PUBLICADA' ? 1 : 0,
+    origem: 'MANUAL',
+    totaisInformadosOrigem: null,
+    totalBruto: { quantidade: 0, minutos: 0 },
+    schemaVersion: 1,
+    criadoPorLogin: usuarios.gestor.login,
+    criadoEm: '2026-08-01T00:00:00.000Z',
+    atualizadoEm: '2026-08-01T00:00:00.000Z',
+  };
+}
+
 beforeEach(async () => {
   await ambiente.clearFirestore();
   await ambiente.withSecurityRulesDisabled(async (contexto) => {
@@ -347,6 +381,228 @@ describe('regras Firestore do Escala ICI', () => {
       await assertSucceeds(getDoc(doc(db, 'escoposOperacionais', 'PLANTAO_PLANTAO_TESTE')));
       await assertFails(updateDoc(doc(db, 'escoposOperacionais', 'PLANTAO_PLANTAO_TESTE'), {
         responsaveisLogin: [usuarios.colaborador.login],
+      }));
+    });
+  });
+
+  describe('ESCOPO-OPERACIONAL-MATRIZ-2 — escrita e leitura pelo alvo', () => {
+    async function semearMatriz(ajustesPlantao: Record<string, unknown> = {}) {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        const db = contexto.firestore();
+        await Promise.all([
+          setDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoMatriz()),
+          setDoc(doc(db, 'escoposOperacionais', 'JORNADA_EQ_SOC'), escopoOperacional({
+            tipo: 'JORNADA',
+            alvoId: 'EQ_SOC',
+            alvoNome: 'SOC',
+            equipesConsulta: [],
+            responsaveisLogin: [usuarios.gestor.login],
+          })),
+          setDoc(doc(db, 'escoposOperacionais', 'PLANTAO_PLANTAO_COSI'), escopoOperacional({
+            tipo: 'PLANTAO',
+            alvoId: 'PLANTAO_COSI',
+            alvoNome: 'Plantão COSI',
+            responsaveisLogin: [usuarios.gestor.login],
+            equipesConsulta: [usuarios.colaborador.equipeId],
+            ...ajustesPlantao,
+          })),
+        ]);
+      });
+    }
+
+    it('ADMIN_SISTEMA escreve qualquer alvo de Jornada e Plantão', async () => {
+      await semearMatriz();
+      const db = autenticarComo(usuarios.admin);
+      await assertSucceeds(setDoc(doc(db, 'rascunhosTurnosMes', 'admin-eq-soc'), escala('alguem', 'EQ_SOC', 'RASCUNHO')));
+      await assertSucceeds(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_COSI_2026-08'),
+        { ...competenciaPlantaoMatriz(), criadoPorLogin: usuarios.admin.login },
+      ));
+    });
+
+    it('Marina responsável por JORNADA/EQ_SOC salva rascunho, turno publicado e estado de publicação pelo equipeId alvo', async () => {
+      await semearMatriz();
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(setDoc(doc(db, 'rascunhosTurnosMes', 'EQ_SOC_caio_2026-08'), escala('caio', 'EQ_SOC', 'RASCUNHO')));
+      await assertSucceeds(setDoc(doc(db, 'turnosMes', 'EQ_SOC_caio_2026-08'), escala('caio', 'EQ_SOC', 'PUBLICADA')));
+      await assertSucceeds(setDoc(doc(db, 'publicacoesEscala', 'EQ_SOC_2026-08'), {
+        id: 'EQ_SOC_2026-08', equipeId: 'EQ_SOC', competencia: '2026-08', revisaoAtual: 1,
+      }));
+    });
+
+    it('responsável por JORNADA lê a equipe-alvo, cadastra ausente e reconcilia somente aliases', async () => {
+      await semearMatriz();
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'usuarios', 'pessoa.soc'), {
+          login: 'pessoa.soc',
+          nome: 'Pessoa SOC',
+          email: 'pessoa.soc@teste.local',
+          equipeId: 'EQ_SOC',
+          nivelHierarquico: 6,
+          ativo: true,
+        });
+      });
+
+      const db = autenticarComo(usuarios.gestor);
+      const pessoas = await assertSucceeds(getDocs(query(
+        collection(db, 'usuarios'),
+        where('equipeId', '==', 'EQ_SOC'),
+      )));
+      expect(pessoas.docs.map((item) => item.id)).toContain('pessoa.soc');
+
+      await assertSucceeds(setDoc(doc(db, 'usuarios', 'nova.pessoa.soc'), {
+        login: 'nova.pessoa.soc',
+        nome: 'Nova Pessoa SOC',
+        email: 'nova.pessoa.soc@teste.local',
+        cargo: 'ANALISTA_SOC',
+        equipeId: 'EQ_SOC',
+        gestorUid: usuarios.gestor.login,
+        nivelHierarquico: 6,
+        turnoPadrao: 'M',
+        ativo: true,
+      }));
+      await assertSucceeds(updateDoc(doc(db, 'usuarios', 'pessoa.soc'), {
+        aliasesPlanilha: ['PESSOA SOC'],
+        atualizadoEm: '2026-08-02T00:00:00.000Z',
+      }));
+
+      await assertFails(updateDoc(doc(db, 'usuarios', 'pessoa.soc'), {
+        nome: 'Nome adulterado',
+      }));
+      await assertFails(updateDoc(doc(db, 'usuarios', 'pessoa.soc'), {
+        equipeId: usuarios.gestor.equipeId,
+      }));
+      await assertFails(setDoc(doc(db, 'usuarios', 'admin.forjado'), {
+        login: 'admin.forjado',
+        nome: 'Admin forjado',
+        email: 'admin.forjado@teste.local',
+        equipeId: 'EQ_SOC',
+        nivelHierarquico: 0,
+        perfil: 'ADMIN_SISTEMA',
+        ativo: true,
+      }));
+    });
+
+    it('responsável por JORNADA administra o catálogo de turnos do alvo', async () => {
+      await semearMatriz();
+      const db = autenticarComo(usuarios.gestor);
+      const ref = doc(db, 'tiposTurno', 'EQ_SOC_M');
+      await assertSucceeds(setDoc(ref, {
+        equipeId: 'EQ_SOC', codigo: 'M', nome: 'Manhã', inicio: '07:00', fim: '13:00',
+      }));
+      await assertSucceeds(updateDoc(ref, { nome: 'Manhã SOC' }));
+      await assertFails(deleteDoc(ref));
+    });
+
+    it('Marina responsável por PLANTAO/PLANTAO_COSI salva rascunho e publicação pelo grupoId alvo', async () => {
+      await semearMatriz();
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_COSI_2026-08'),
+        competenciaPlantaoMatriz(),
+      ));
+      await assertSucceeds(setDoc(
+        doc(db, 'competenciasPlantao', 'PLANTAO_COSI_2026-08'),
+        competenciaPlantaoMatriz('PUBLICADA'),
+      ));
+    });
+
+    it('equipesConsulta lê/monitora Plantão, mas não salva nem publica', async () => {
+      await semearMatriz({ responsaveisLogin: [usuarios.gestor.login] });
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'rascunhosCompetenciasPlantao', 'PLANTAO_COSI_2026-08'),
+          competenciaPlantaoMatriz(),
+        );
+      });
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI')));
+      await assertSucceeds(getDoc(doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_COSI_2026-08')));
+      await assertFails(updateDoc(doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_COSI_2026-08'), {
+        atualizadoEm: '2026-08-02T00:00:00.000Z',
+      }));
+      await assertFails(setDoc(
+        doc(db, 'competenciasPlantao', 'PLANTAO_COSI_2026-08'),
+        competenciaPlantaoMatriz('PUBLICADA'),
+      ));
+    });
+
+    it('usuário sem matriz e escopo inativo não escrevem no alvo', async () => {
+      await semearMatriz({ ativo: false });
+      const semMatriz = autenticarComo(usuarios.externo);
+      const inativo = autenticarComo(usuarios.gestor);
+      await assertFails(setDoc(doc(semMatriz, 'rascunhosTurnosMes', 'sem-matriz'), escala('ravi', 'EQ_SOC', 'RASCUNHO')));
+      await assertFails(setDoc(
+        doc(inativo, 'rascunhosCompetenciasPlantao', 'PLANTAO_COSI_2026-08'),
+        competenciaPlantaoMatriz(),
+      ));
+    });
+
+    it('matriz de Plantão inativa bloqueia leitura operacional mesmo quando a ACL legada permitiria', async () => {
+      await semearMatriz({ ativo: false });
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        const db = contexto.firestore();
+        await Promise.all([
+          setDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), {
+            ...grupoPlantaoMatriz(),
+            equipesConsulta: [usuarios.colaborador.equipeId],
+          }),
+          setDoc(
+            doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_COSI_2026-08'),
+            competenciaPlantaoMatriz(),
+          ),
+          setDoc(
+            doc(db, 'gruposPlantao', 'PLANTAO_COSI', 'participantes', usuarios.colaborador.login),
+            { grupoId: 'PLANTAO_COSI', login: usuarios.colaborador.login, ativo: true },
+          ),
+        ]);
+      });
+
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(getDoc(doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_COSI_2026-08')));
+      await assertFails(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI', 'participantes', usuarios.colaborador.login)));
+    });
+
+    it('responsável não consegue reendereçar rascunho ou estado de publicação de Jornada pelo payload', async () => {
+      await semearMatriz();
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        const db = contexto.firestore();
+        await Promise.all([
+          setDoc(
+            doc(db, 'rascunhosTurnosMes', 'EQ_FORA_pessoa_2026-08'),
+            escala('pessoa', 'EQ_FORA', 'RASCUNHO'),
+          ),
+          setDoc(doc(db, 'publicacoesEscala', 'EQ_FORA_2026-08'), {
+            id: 'EQ_FORA_2026-08', equipeId: 'EQ_FORA', competencia: '2026-08', revisaoAtual: 1,
+          }),
+        ]);
+      });
+
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(setDoc(
+        doc(db, 'rascunhosTurnosMes', 'EQ_FORA_pessoa_2026-08'),
+        escala('pessoa', 'EQ_SOC', 'RASCUNHO'),
+      ));
+      await assertFails(setDoc(doc(db, 'publicacoesEscala', 'EQ_FORA_2026-08'), {
+        id: 'EQ_FORA_2026-08', equipeId: 'EQ_SOC', competencia: '2026-08', revisaoAtual: 2,
+      }));
+    });
+
+    it('responsável não consegue reendereçar uma publicação alheia para o próprio grupo no payload', async () => {
+      await semearMatriz();
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'competenciasPlantao', 'PLANTAO_FORA_2026-08'), {
+          ...competenciaPlantaoMatriz('PUBLICADA'),
+          id: 'PLANTAO_FORA_2026-08',
+          grupoId: 'PLANTAO_FORA',
+        });
+      });
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(setDoc(doc(db, 'competenciasPlantao', 'PLANTAO_FORA_2026-08'), {
+        ...competenciaPlantaoMatriz('PUBLICADA'),
+        id: 'PLANTAO_FORA_2026-08',
+        grupoId: 'PLANTAO_COSI',
+        revisao: 2,
       }));
     });
   });
@@ -2318,7 +2574,7 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
         doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.externo.login),
         participantePlantao(usuarios.externo.login),
       ));
-      await assertFails(getDoc(doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08')));
+      await assertSucceeds(getDoc(doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08')));
       await assertFails(setDoc(
         doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-09'),
         competenciaRascunhoPlantao({ id: 'PLANTAO_TESTE_2026-09', competencia: '2026-09' }),
@@ -2429,7 +2685,7 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
     });
   });
 
-  describe('competência PUBLICADA — leitura pronta para o futuro, escrita bloqueada nesta fase', () => {
+  describe('competência PUBLICADA — leitura e escrita operacional por responsável', () => {
     it('consulta autorizada lê a competência publicada', async () => {
       const db = autenticarComo(usuarios.externo);
       const documento = await assertSucceeds(
@@ -2438,16 +2694,21 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       expect(documento.data()?.status).toBe('PUBLICADA');
     });
 
-    it('ninguém escreve na competência publicada — nem o gestor autorizado, nem o admin', async () => {
+    it('gestor responsável e ADMIN_SISTEMA escrevem; consulta continua sem escrita', async () => {
       const gestorDb = autenticarComo(usuarios.gestor);
-      await assertFails(updateDoc(
+      await assertSucceeds(updateDoc(
         doc(gestorDb, 'competenciasPlantao', 'PLANTAO_TESTE_2026-08'),
         { revisao: 1 },
       ));
       const adminDb = autenticarComo(usuarios.admin);
-      await assertFails(setDoc(
+      await assertSucceeds(setDoc(
         doc(adminDb, 'competenciasPlantao', 'PLANTAO_TESTE_2026-09'),
-        { ...competenciaRascunhoPlantao({ id: 'PLANTAO_TESTE_2026-09', competencia: '2026-09' }), status: 'PUBLICADA' },
+        { ...competenciaRascunhoPlantao({ id: 'PLANTAO_TESTE_2026-09', competencia: '2026-09' }), status: 'PUBLICADA', revisao: 1 },
+      ));
+      const consultaDb = autenticarComo(gestorForaEscopo);
+      await assertFails(updateDoc(
+        doc(consultaDb, 'competenciasPlantao', 'PLANTAO_TESTE_2026-08'),
+        { revisao: 2 },
       ));
     });
   });
@@ -2728,11 +2989,9 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       )));
       expect(comFiltro.docs.map((item) => item.id)).toEqual(['0001']);
 
-      // Um gestor de outro grupo (fora do escopo) continua sem conseguir
-      // ler — o `where` melhora a validação do `list`, nunca relaxa quem
-      // pode ler.
+      // Consulta operacional também lê o rascunho, sem ganhar escrita.
       const foraDeEscopoDb = autenticarComo(gestorForaEscopo);
-      await assertFails(getDocs(query(
+      await assertSucceeds(getDocs(query(
         collection(foraDeEscopoDb, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08', 'atribuicoes'),
         where('grupoId', '==', 'PLANTAO_TESTE'),
         orderBy('atribuicaoId'),
@@ -2747,9 +3006,9 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       )));
       expect(resultado.docs.map((item) => item.id)).toEqual(['PLANTAO_TESTE_2026-08']);
 
-      // Um gestor de outro grupo não vê o rascunho deste grupo.
+      // Uma equipe em consulta monitora o rascunho deste grupo.
       const foraDeEscopoDb = autenticarComo(gestorForaEscopo);
-      await assertFails(getDocs(query(
+      await assertSucceeds(getDocs(query(
         collection(foraDeEscopoDb, 'rascunhosCompetenciasPlantao'),
         where('grupoId', '==', 'PLANTAO_TESTE'),
       )));

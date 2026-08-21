@@ -3,7 +3,9 @@
  * explícita para "qual escala o usuário está trabalhando agora", que o
  * Dashboard nunca teve (ver `docs/spec/REDESIGN_WORKSPACE_ESCALAS.md`
  * § 32). Puro, sem React/Firebase — identidade é sempre por ID real
- * (`equipeId`/`grupoId`), nunca nome/sigla/cargo/UID. Estado de FRONTEND
+ * (`alvoId`), nunca nome/sigla/cargo/UID. `label` é somente a apresentação
+ * já resolvida no momento da seleção e nunca participa da identidade nem de
+ * qualquer consulta/escrita. Estado de FRONTEND
  * apenas, nunca persistido no Firestore nesta fase.
  *
  * Nunca confundir com perfil/pertencimento organizacional: trocar de
@@ -11,8 +13,37 @@
  * está em tela", igual a trocar de aba num editor de texto.
  */
 export type ContextoEscalaAtivo =
-  | { tipo: 'JORNADA'; equipeId: string; competencia: string }
-  | { tipo: 'PLANTAO'; grupoId: string; competencia: string };
+  | { tipo: 'JORNADA'; alvoId: string; label: string; competencia: string }
+  | { tipo: 'PLANTAO'; alvoId: string; label: string; competencia: string };
+
+export interface ArmazenamentoContextoEscala {
+  getItem(chave: string): string | null;
+  setItem(chave: string, valor: string): void;
+  removeItem(chave: string): void;
+}
+
+export type ResultadoRestauracaoContextoEscala =
+  | { estado: 'ausente' }
+  | { estado: 'invalido' }
+  | { estado: 'valido'; contexto: ContextoEscalaAtivo };
+
+const PREFIXO_CONTEXTO_ESCALA = 'escala-ici:contexto-escala:';
+
+export function chaveArmazenamentoContextoEscala(login: string): string {
+  return `${PREFIXO_CONTEXTO_ESCALA}${login.trim().toLowerCase()}`;
+}
+
+export function criarContextoEscala(
+  tipo: ContextoEscalaAtivo['tipo'],
+  alvoId: string,
+  label: string,
+  competencia: string,
+): ContextoEscalaAtivo {
+  if (alvoId.trim() === '') {
+    throw new Error('Não é permitido abrir uma escala sem alvo operacional.');
+  }
+  return { tipo, alvoId, label: label.trim() || alvoId, competencia };
+}
 
 export function contextoEhJornada(
   contexto: ContextoEscalaAtivo | null,
@@ -32,9 +63,7 @@ export function contextoEhPlantao(
  * contexto: a mesma equipe em meses diferentes é um contexto diferente).
  */
 export function chaveContextoEscala(contexto: ContextoEscalaAtivo): string {
-  return contexto.tipo === 'JORNADA'
-    ? `JORNADA:${contexto.equipeId}:${contexto.competencia}`
-    : `PLANTAO:${contexto.grupoId}:${contexto.competencia}`;
+  return `${contexto.tipo}:${contexto.alvoId}:${contexto.competencia}`;
 }
 
 export function contextosEscalaIguais(
@@ -45,4 +74,71 @@ export function contextosEscalaIguais(
     return a === b;
   }
   return chaveContextoEscala(a) === chaveContextoEscala(b);
+}
+
+function contextoPersistidoBemFormado(valor: unknown): valor is ContextoEscalaAtivo {
+  if (typeof valor !== 'object' || valor === null) return false;
+  const candidato = valor as Partial<ContextoEscalaAtivo>;
+  return (candidato.tipo === 'JORNADA' || candidato.tipo === 'PLANTAO')
+    && typeof candidato.alvoId === 'string'
+    && candidato.alvoId.trim() !== ''
+    && typeof candidato.label === 'string'
+    && /^\d{4}-(0[1-9]|1[0-2])$/u.test(candidato.competencia ?? '');
+}
+
+/**
+ * Persiste somente a preferência visual do usuário. A autorização continua
+ * vindo da matriz; por isso a restauração abaixo sempre revalida o alvo
+ * contra as opções ativas carregadas antes de devolvê-lo à UI.
+ */
+export function salvarContextoEscalaPersistido(
+  login: string,
+  contexto: ContextoEscalaAtivo,
+  armazenamento: ArmazenamentoContextoEscala,
+): void {
+  armazenamento.setItem(chaveArmazenamentoContextoEscala(login), JSON.stringify(contexto));
+}
+
+export function limparContextoEscalaPersistido(
+  login: string,
+  armazenamento: ArmazenamentoContextoEscala,
+): void {
+  armazenamento.removeItem(chaveArmazenamentoContextoEscala(login));
+}
+
+export function restaurarContextoEscalaPersistido(
+  login: string,
+  contextosValidos: readonly ContextoEscalaAtivo[],
+  armazenamento: ArmazenamentoContextoEscala,
+): ResultadoRestauracaoContextoEscala {
+  const chave = chaveArmazenamentoContextoEscala(login);
+  const bruto = armazenamento.getItem(chave);
+  if (bruto === null) return { estado: 'ausente' };
+
+  let persistido: unknown;
+  try {
+    persistido = JSON.parse(bruto);
+  } catch {
+    armazenamento.removeItem(chave);
+    return { estado: 'invalido' };
+  }
+  if (!contextoPersistidoBemFormado(persistido)) {
+    armazenamento.removeItem(chave);
+    return { estado: 'invalido' };
+  }
+  const alvoAtual = contextosValidos.find((contexto) =>
+    contexto.tipo === persistido.tipo && contexto.alvoId === persistido.alvoId);
+  if (alvoAtual === undefined) {
+    armazenamento.removeItem(chave);
+    return { estado: 'invalido' };
+  }
+  return {
+    estado: 'valido',
+    contexto: criarContextoEscala(
+      alvoAtual.tipo,
+      alvoAtual.alvoId,
+      alvoAtual.label,
+      persistido.competencia,
+    ),
+  };
 }

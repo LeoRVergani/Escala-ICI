@@ -76,7 +76,7 @@ test('5. o seletor de equipe responsável do ModalGrupoPlantao reaproveita Organ
   assert.doesNotMatch(corpo, /function construirArvore/u, 'não pode declarar uma segunda função de montagem de árvore');
 });
 
-test('6. o Dashboard não tem nenhum botão/rótulo de publicação de Plantão', async () => {
+test('6. o Dashboard publica Plantão somente por uma ação explícita', async () => {
   const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
   const corpo = semComentarios(dashboard);
   // Fase ESCALAS-UX-2A — 'plantoes' deixou de ser um item de NAVEGACAO
@@ -86,9 +86,9 @@ test('6. o Dashboard não tem nenhum botão/rótulo de publicação de Plantão'
   // atual, no lugar do antigo item de array `id: 'plantoes'`.
   const inicioNav = corpo.indexOf("tela === 'plantoes'");
   assert.ok(inicioNav > 0, 'a tela interna "plantoes" precisa continuar existindo');
-  for (const proibido of [/Publicar Plantão/iu, /publicarPlantao/u]) {
-    assert.doesNotMatch(corpo, proibido, String(proibido));
-  }
+  assert.match(corpo, /Publicar Plantão/iu);
+  assert.match(corpo, /publicarPlantaoAcao/u);
+  assert.match(corpo, /publicarCompetenciaPlantao\(/u);
 });
 
 test('7. apps/app (colaborador) continua sem qualquer símbolo novo desta fase', async () => {

@@ -20,12 +20,14 @@ Descrever quem pode fazer o quê no Escala ICI: perfis de usuário, unidades
 organizacionais, equipes, escopo de atuação de cada perfil, modo de
 simulação e auditoria administrativa.
 
-**Atualização ESCOPO-OPERACIONAL-MATRIZ-1:** este documento descreve escopo
+**Atualização ESCOPO-OPERACIONAL-MATRIZ-2:** este documento descreve escopo
 administrativo. Escopo operacional de escala (criar/importar/editar/salvar/
 publicar Jornada ou Plantão) é configurado em
 `escoposOperacionais`, conforme `ESCOPO_OPERACIONAL_MATRIZ.md`. Qualquer
 permissão operacional antiga derivada de perfil, unidade ou equipe é
-**Regra transitória / fallback de compatibilidade**.
+**Regra transitória / fallback de compatibilidade**, usado somente quando o
+alvo ainda não possui documento de matriz. Matriz existente e inativa não
+reativa a autorização antiga.
 
 A operação diária da matriz acontece em **Administração → Responsáveis por
 escala**. Seed/fixture é apenas bootstrap de staging/demo; não substitui a
@@ -44,6 +46,12 @@ Responsáveis humanos, equipes administradoras e equipes que consultam são
 conceitos diferentes. `responsaveisEquipe` só deve ser usado quando a equipe
 inteira representa um grupo de gestão; `equipesConsulta` é somente leitura/
 monitoramento e nunca concede salvar, importar ou publicar escala.
+
+Nas operações de escala, `responsaveisLogin` e `responsaveisEquipe` de uma
+matriz ativa autorizam o alvo compatível. Jornada é endereçada por `equipeId`;
+Plantão, por `grupoId`. `alvoNome`/`label` não participa da autorização nem da
+persistência. Os colaboradores carregados pertencem à equipe/grade da Jornada,
+e não ao responsável que abriu o editor.
 
 Separação normativa:
 
@@ -73,6 +81,10 @@ automaticamente todas as escalas abaixo.
 Indiretamente ligadas à administração: `turnosMes`, `rascunhosTurnosMes`,
 `trocasEscala`, `notificacoesTroca` (afetadas por `excluirUsuario`/
 `excluirEscalaPublicada`, `lib/firebase/adminRepository.ts`).
+
+`escoposOperacionais/{tipo}_{alvoId}` liga a administração ao alvo real.
+As Rules consultam essa coleção para as escritas de rascunho, publicação,
+histórico e eventos de Jornada e para rascunho/publicação de Plantão.
 
 ## Perfis (`PerfilUsuario`, `lib/modelos.ts`)
 
@@ -144,6 +156,7 @@ Rules **nunca percorrem `parentId`** — só leem arrays explícitos (`caminho`,
 | Criar/editar equipe | sempre | só se a `unidadeId` da equipe estiver em `podeOperarNaUnidade` | não cria; opera sobre equipe já existente | não |
 | Ler/escrever escala (`turnosMes`/rascunhos) | qualquer equipe (`podeOperarNaEquipe`) | não diretamente (perfil não é gestor de equipe) | própria(s) equipe(s) permitida(s) | só leitura da escala publicada da própria equipe |
 | Criar/editar usuário | qualquer campo, qualquer equipe, inclusive `perfil`/`escopo` | não (painel restrito a `ADMIN_SISTEMA` no Dashboard) | só na própria equipe, nunca `perfil`/`escopo`/campos organizacionais | não |
+| Importar usuário ausente/conciliar alias em Jornada | sempre | somente quando responsável pela matriz da Jornada-alvo; cadastro sem campos de perfil/escopo e update só de aliases | mesma regra da matriz; fallback legado somente na própria equipe | não |
 | Ativar/desativar usuário | sim | não visto no Dashboard (painel restrito a admin) | sim, dentro da própria equipe | não |
 | Excluir usuário | sim | não | não (Rules: `delete` só `souAdminSistema()`) | não |
 | Conceder/alterar `perfil` de outro usuário | sim, qualquer usuário | não | não (bloqueado explicitamente nas Rules) | não |
@@ -253,12 +266,21 @@ bloqueando o acesso ao Dashboard.
 
 ## Proteções das Firestore Rules
 
-- `usuarios/{login}`: `read` — o próprio usuário ou quem `podeOperarNaEquipe`
-  do dono do doc. `update` — autoatualização só de `nome`; admin qualquer
-  campo (exceto `login`); gestor não-admin só dentro da própria equipe, nunca
-  `perfil`/`escopo`/campos organizacionais. `create` — admin livre; gestor só
-  na própria equipe e sem setar nenhum campo organizacional/perfil/escopo.
-  `delete` — só admin.
+- Operações de Jornada usam `podeAdministrarJornada(equipeId)`; operações de
+  Plantão usam `podeAdministrarEscalaPlantao(grupoId)`. Ambos aceitam
+  `ADMIN_SISTEMA` ou responsabilidade em matriz ativa e usam a ACL anterior
+  apenas quando não existe matriz. Consulta de Plantão aceita
+  `equipesConsulta`, mas escrita nunca aceita. Delete físico publicado
+  continua negado.
+
+- `usuarios/{login}`: `read` — o próprio usuário, quem `podeOperarNaEquipe`
+  do dono do doc ou o responsável pela matriz da Jornada dessa equipe.
+  `update` — autoatualização só de `nome`; admin qualquer campo (exceto
+  `login`); gestor não-admin só dentro da própria equipe, nunca
+  `perfil`/`escopo`/campos organizacionais; responsável de Jornada externo à
+  equipe pode alterar somente `aliasesPlanilha`/`atualizadoEm`. `create` —
+  admin livre; responsável da Jornada pode cadastrar ausente na equipe-alvo
+  sem setar nenhum campo organizacional/perfil/escopo. `delete` — só admin.
 - `equipes/{equipeId}`: `read` livre para autenticados; `create`/`update` —
   admin sempre, ou `GESTOR_UNIDADE` se a `unidadeId` do documento estiver em
   `podeOperarNaUnidade` (match exato) ou se `caminhoUnidade` contiver uma

@@ -149,7 +149,9 @@ import {
   listarGruposPlantaoPorUnidadeResponsavel,
   listarParticipantesPlantao,
   listarTodosGruposPlantao,
+  obterCompetenciaPlantaoPublicada,
   obterCompetenciaPlantaoRascunho,
+  obterGrupoPlantao,
 } from '@/lib/firebase/plantaoReadRepository';
 import {
   atualizarEquipeConsultaPlantao,
@@ -158,6 +160,7 @@ import {
   salvarCompetenciaPlantaoRascunho,
   salvarGrupoPlantao,
   salvarParticipantePlantao,
+  publicarCompetenciaPlantao,
 } from '@/lib/firebase/plantaoWriteRepository';
 import {
   competenciaAnterior,
@@ -221,7 +224,16 @@ import {
 } from '@/lib/firebase/lembretesRepository';
 import { exclusaoZeraGestores, podeExcluirCompetencia, podeExcluirUsuario } from '@/lib/adminGuards';
 import { areaNavegacaoDaTela } from '@/lib/navegacaoDashboard';
-import { contextoEhJornada, contextoEhPlantao, contextosEscalaIguais, type ContextoEscalaAtivo } from '@/lib/contextoEscala';
+import {
+  contextoEhJornada,
+  contextoEhPlantao,
+  contextosEscalaIguais,
+  criarContextoEscala,
+  limparContextoEscalaPersistido,
+  restaurarContextoEscalaPersistido,
+  salvarContextoEscalaPersistido,
+  type ContextoEscalaAtivo,
+} from '@/lib/contextoEscala';
 import { ScheduleContextSwitcher, type OpcaoContextoEscala } from '@/components/escalas/ScheduleContextSwitcher';
 import { ScheduleCompetenceControl } from '@/components/escalas/ScheduleCompetenceControl';
 import { ScheduleStatusBadge, type StatusContextoEscala } from '@/components/escalas/ScheduleStatusBadge';
@@ -302,6 +314,16 @@ import {
   resolverEscoposOperacionais,
   type EscoposOperacionais,
 } from '@/lib/escoposOperacionais';
+import {
+  usuarioPodeAdministrarAlvoOperacional,
+  usuarioPodeConsultarPlantaoOperacional,
+} from '@/lib/escoposOperacionaisMatriz';
+import {
+  carregarOperacoesComEstado,
+  executarComLimiteDeTempo,
+  estadoErroOperacoes,
+  type EstadoCarregamentoOperacoes,
+} from '@/lib/carregamentoOperacoes';
 import {
   listarEscoposOperacionais,
   salvarEscopoOperacional,
@@ -394,15 +416,20 @@ function mensagemErroTrocaGestor(falha: unknown, fallback: string): string {
   return mensagemErroFirebase(falha, fallback, ambienteFirebaseAtual);
 }
 
-function mensagemErroEscritaOperacional(falha: unknown, fallback: string): string {
+function mensagemErroEscritaOperacional(
+  falha: unknown,
+  fallback: string,
+  matrizReconheceUsuario = true,
+): string {
   const codigo = typeof falha === 'object' && falha !== null && 'code' in falha
     ? String((falha as { code?: unknown }).code)
     : '';
-  const mensagem = mensagemErroFirebase(falha, fallback, ambienteFirebaseAtual);
   if (codigo.includes('permission-denied')) {
-    return `${mensagem} A matriz já permite selecionar a escala, mas a escrita operacional ainda está em modo de transição.`;
+    return matrizReconheceUsuario
+      ? 'As regras de escrita ainda não reconhecem a matriz operacional neste ambiente.'
+      : 'Você não está configurado como responsável por esta escala.';
   }
-  return mensagem;
+  return mensagemErroFirebase(falha, fallback, ambienteFirebaseAtual);
 }
 
 function formatarHorasDescanso(horas: number): string {
@@ -435,6 +462,7 @@ interface ResumoPlantaoDashboard {
   grupoId: string;
   competencia: string;
   competenciaRascunho: CompetenciaPlantao | null;
+  competenciaPublicada: CompetenciaPlantao | null;
   participantesAtivos: number;
 }
 
@@ -446,7 +474,9 @@ function estadoJornadaDashboard(resumo: ResumoJornadaDashboard | null): EstadoEs
 }
 
 function estadoPlantaoDashboard(resumo: ResumoPlantaoDashboard | null): EstadoEscalaOperacionalDashboard {
-  return resumo?.competenciaRascunho === null || resumo === null ? 'sem-escala' : 'rascunho';
+  if (resumo === null) return 'sem-escala';
+  if (resumo.competenciaRascunho !== null) return 'rascunho';
+  return resumo.competenciaPublicada !== null ? 'publicada' : 'sem-escala';
 }
 
 function classeSaudeOperacional(estado: EstadoEscalaOperacionalDashboard, alertas: number): 'stable' | 'attention' | 'empty' {
@@ -782,6 +812,10 @@ const ESCOPOS_OPERACIONAIS_VAZIOS: EscoposOperacionais = {
     plantoes: [],
   },
 };
+
+/** Compatibilidade opt-in: sem esta variável a matriz é a única fonte operacional. */
+const PERMITIR_FALLBACK_OPERACIONAL_LEGADO =
+  import.meta.env.VITE_ESCALA_FALLBACK_OPERACIONAL_LEGADO === 'true';
 
 interface CelulaEditando {
   documento: TurnosMes;
@@ -3023,6 +3057,10 @@ export function DashboardApp() {
   const [contextoSemEscala, setContextoSemEscala] = useState(false);
   const [carregandoContexto, setCarregandoContexto] = useState(false);
   const [erroContextoEscala, setErroContextoEscala] = useState('');
+  const [estadoCarregamentoOperacoes, setEstadoCarregamentoOperacoes] =
+    useState<EstadoCarregamentoOperacoes>({ fase: 'carregando' });
+  const [tentativaCarregamentoOperacoes, setTentativaCarregamentoOperacoes] = useState(0);
+  const usuarioContextoRestauradoRef = useRef<string | null>(null);
   /**
    * Guarda de "alterações não salvas" (§ 24-§ 28 do redesign) — a MESMA
    * intenção pendente serve tanto para trocar de contexto quanto para
@@ -3087,6 +3125,7 @@ export function DashboardApp() {
   const [periodoInicioRascunho, setPeriodoInicioRascunho] = useState('');
   const [periodoFimRascunho, setPeriodoFimRascunho] = useState('');
   const [salvandoRascunhoPlantao, setSalvandoRascunhoPlantao] = useState(false);
+  const [publicandoPlantao, setPublicandoPlantao] = useState(false);
   const [erroRascunhoPlantao, setErroRascunhoPlantao] = useState('');
   const [rascunhoPlantaoSalvoEm, setRascunhoPlantaoSalvoEm] = useState<string | null>(null);
   const [formularioUsuario, setFormularioUsuario] = useState<FormularioUsuario | null>(null);
@@ -3250,9 +3289,17 @@ export function DashboardApp() {
    * de um `GESTOR_UNIDADE`, não só o pertencimento explícito por
    * `equipesPermitidas`.
    */
-  const escoposOperacionais = usuarioReal !== null
-    ? resolverEscoposOperacionais(usuarioReal, unidadesAdmin, equipesAdmin, gruposPlantaoAdmin, escoposOperacionaisAdmin)
-    : ESCOPOS_OPERACIONAIS_VAZIOS;
+  const escoposOperacionais = useMemo(() => usuarioReal !== null
+    ? resolverEscoposOperacionais(
+      usuarioReal,
+      unidadesAdmin,
+      equipesAdmin,
+      gruposPlantaoAdmin,
+      escoposOperacionaisAdmin,
+      { permitirFallbackLegado: PERMITIR_FALLBACK_OPERACIONAL_LEGADO },
+    )
+    : ESCOPOS_OPERACIONAIS_VAZIOS,
+  [equipesAdmin, escoposOperacionaisAdmin, gruposPlantaoAdmin, unidadesAdmin, usuarioReal]);
   const minhasUnidadesPermitidas = escoposOperacionais.unidadesAdministraveis.map((item) => item.unidadeId);
   /**
    * Gate na identidade REAL — espelha `souGestorDePlantao()` de
@@ -3265,7 +3312,17 @@ export function DashboardApp() {
    * abaixo (que já reflete o escopo de unidade — ver
    * `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`).
    */
-  const podeAcessarPlantoes = usuarioReal !== null && souGestorDePlantao(usuarioReal);
+  const equipesDaSessao = usuarioReal === null ? [] : equipesPermitidasEfetivas(usuarioReal);
+  const possuiEscopoPlantaoNaMatriz = usuarioReal !== null && escoposOperacionaisAdmin.some((escopo) =>
+    escopo.ativo
+    && escopo.tipo === 'PLANTAO'
+    && (
+      escopo.responsaveisLogin.includes(usuarioReal.login)
+      || escopo.responsaveisEquipe.some((equipeId) => equipesDaSessao.includes(equipeId))
+      || escopo.equipesConsulta.some((equipeId) => equipesDaSessao.includes(equipeId))
+    ));
+  const podeAcessarPlantoes = usuarioReal !== null
+    && (souGestorDePlantao(usuarioReal) || possuiEscopoPlantaoNaMatriz);
   const carregandoEquipesPlantaoParaExibir = carregandoEquipesPlantao && podeAcessarPlantoes && !modoDemo;
   const minhasEquipesPermitidas = escoposOperacionais.equipesAdministraveis.map((item) => item.id);
   const minhasEquipesDeJornadaPermitidas = escoposOperacionais.jornadasAdministraveis.map((item) => item.id);
@@ -3276,7 +3333,7 @@ export function DashboardApp() {
    * `equipesCandidatasParaPlantao()` (`lib/inicioEscala.ts`).
    */
   const equipeJornadaReferenciaId = contextoEhJornada(contextoEscalaAtivo)
-    ? contextoEscalaAtivo.equipeId
+    ? contextoEscalaAtivo.alvoId
     : usuarioReal?.equipeId ?? null;
   // Fase ESCALAS-UX-2A — 'plantoes' não é mais um id presente em NAVEGACAO
   // (ver comentário acima do array); só 'administracao' precisa de gate.
@@ -3325,7 +3382,7 @@ export function DashboardApp() {
     [resultado?.documentos],
   );
   const equipeIdDaGradeAtiva = contextoEhJornada(contextoEscalaAtivo)
-    ? contextoEscalaAtivo.equipeId
+    ? contextoEscalaAtivo.alvoId
     : resultado?.documentos[0]?.equipeId ?? null;
   const usuariosElegiveisGrade = useMemo(
     () => usuariosElegiveisParaAdicionarNaGrade(usuarios, documentos, equipeIdDaGradeAtiva),
@@ -3376,7 +3433,7 @@ export function DashboardApp() {
    */
   const competenciaDashboard = contextoEscalaAtivo?.competencia ?? COMPETENCIA_ATUAL;
   const equipeJornadaOperacionalDashboard = contextoEhJornada(contextoEscalaAtivo)
-    ? escoposOperacionais.jornadasAdministraveis.find((equipe) => equipe.id === contextoEscalaAtivo.equipeId)
+    ? escoposOperacionais.jornadasAdministraveis.find((equipe) => equipe.id === contextoEscalaAtivo.alvoId)
     : undefined;
   const equipeJornadaDashboard = equipeJornadaOperacionalDashboard
     ?? escoposOperacionais.jornadasAdministraveis[0]
@@ -3387,7 +3444,7 @@ export function DashboardApp() {
     : resumosJornadaDashboard[`${equipeJornadaDashboardId}:${competenciaDashboard}`] ?? null;
   const jornadaEmContextoDashboard = equipeJornadaDashboardId !== null
     && contextoEhJornada(contextoEscalaAtivo)
-    && contextoEscalaAtivo.equipeId === equipeJornadaDashboardId;
+    && contextoEscalaAtivo.alvoId === equipeJornadaDashboardId;
   const resumoJornadaDashboard: ResumoJornadaDashboard | null = jornadaEmContextoDashboard && resultado !== null
     ? {
       equipeId: equipeJornadaDashboardId,
@@ -3403,7 +3460,7 @@ export function DashboardApp() {
   const estadoJornadaOperacionalDashboard = estadoJornadaDashboard(resumoJornadaDashboard);
   const nomeJornadaDashboard = equipeJornadaDashboard?.nome ?? 'Jornada 6x1';
   const grupoPlantaoDashboard = gruposPlantaoAdmin.find((grupo) =>
-    contextoEhPlantao(contextoEscalaAtivo) && grupo.grupoId === contextoEscalaAtivo.grupoId,
+    contextoEhPlantao(contextoEscalaAtivo) && grupo.grupoId === contextoEscalaAtivo.alvoId,
   ) ?? escoposOperacionais.plantoesAdministraveis[0] ?? null;
   const rascunhosPlantaoDashboard = grupoPlantaoDashboard === null
     ? []
@@ -3416,19 +3473,23 @@ export function DashboardApp() {
     : resumosPlantaoDashboard[`${grupoPlantaoDashboard.grupoId}:${competenciaDashboard}`] ?? null;
   const plantaoEmContextoDashboard = grupoPlantaoDashboard !== null
     && contextoEhPlantao(contextoEscalaAtivo)
-    && contextoEscalaAtivo.grupoId === grupoPlantaoDashboard.grupoId;
+    && contextoEscalaAtivo.alvoId === grupoPlantaoDashboard.grupoId;
   const resumoPlantaoDashboard: ResumoPlantaoDashboard | null = plantaoEmContextoDashboard
     ? {
       grupoId: grupoPlantaoDashboard.grupoId,
       competencia: competenciaDashboard,
       competenciaRascunho: competenciaPlantaoDashboard,
+      competenciaPublicada: resumoPlantaoPersistidoDashboard?.competenciaPublicada ?? null,
       participantesAtivos: participantesPlantao.length,
     }
     : resumoPlantaoPersistidoDashboard;
   const estadoPlantaoOperacionalDashboard = estadoPlantaoDashboard(resumoPlantaoDashboard);
+  const competenciaPlantaoExibidaDashboard = resumoPlantaoDashboard?.competenciaRascunho
+    ?? resumoPlantaoDashboard?.competenciaPublicada
+    ?? null;
   const plantaoTotalBrutoDashboard = plantaoEmContextoDashboard && resultadoPlantao !== null
     ? resultadoPlantao.totalBrutoCalculado
-    : resumoPlantaoDashboard?.competenciaRascunho?.totalBruto ?? null;
+    : (resumoPlantaoDashboard?.competenciaRascunho ?? resumoPlantaoDashboard?.competenciaPublicada)?.totalBruto ?? null;
   const participantesPlantaoDashboard = resumoPlantaoDashboard?.participantesAtivos ?? 0;
   const plantaoPossuiEscalaDashboard = estadoPlantaoOperacionalDashboard !== 'sem-escala'
     || (plantaoEmContextoDashboard && atribuicoesEditaveisPlantao.length > 0);
@@ -3454,9 +3515,9 @@ export function DashboardApp() {
   const periodoJornadaDashboard = resumoJornadaDashboard === null
     ? 'Sem competência criada'
     : `${formatarData(resumoJornadaDashboard.periodoInicio, opcoesDataResumoDashboard)} — ${formatarData(resumoJornadaDashboard.periodoFim, opcoesDataResumoDashboard)}`;
-  const periodoPlantaoDashboard = competenciaPlantaoDashboard === null
+  const periodoPlantaoDashboard = competenciaPlantaoExibidaDashboard === null
     ? 'Sem competência criada'
-    : `${formatarData(competenciaPlantaoDashboard.periodoInicio, opcoesDataResumoDashboard)} — ${formatarData(competenciaPlantaoDashboard.periodoFim, opcoesDataResumoDashboard)}`;
+    : `${formatarData(competenciaPlantaoExibidaDashboard?.periodoInicio, opcoesDataResumoDashboard)} — ${formatarData(competenciaPlantaoExibidaDashboard?.periodoFim, opcoesDataResumoDashboard)}`;
   const resumoPublicacaoDashboard = resumoPublicacaoJornada(resumoJornadaDashboard);
   const plantaoMetricasDashboard = plantaoPossuiEscalaDashboard
     ? `${participantesPlantaoDashboard} ${participantesPlantaoDashboard === 1 ? 'participante' : 'participantes'} · ${plantaoTotalBrutoDashboard?.quantidade ?? 0} ${plantaoTotalBrutoDashboard?.quantidade === 1 ? 'plantão' : 'plantões'}`
@@ -3523,14 +3584,16 @@ export function DashboardApp() {
     }
     let cancelado = false;
     void Promise.all(grupoIds.map(async (grupoId): Promise<ResumoPlantaoDashboard> => {
-      const [competenciaRascunho, participantes] = await Promise.all([
+      const [competenciaRascunho, competenciaPublicada, participantes] = await Promise.all([
         obterCompetenciaPlantaoRascunho(grupoId, competenciaDashboard),
+        obterCompetenciaPlantaoPublicada(grupoId, competenciaDashboard),
         listarParticipantesPlantao(grupoId),
       ]);
       return {
         grupoId,
         competencia: competenciaDashboard,
         competenciaRascunho,
+        competenciaPublicada,
         participantesAtivos: participantes.filter((participante) => participante.ativo).length,
       };
     }))
@@ -3589,11 +3652,12 @@ export function DashboardApp() {
           });
           setJornadaPossuiAlteracoesNaoSalvas(false);
           if (usuarioEfetivo !== null) {
-            setContextoEscalaAtivo({
-              tipo: 'JORNADA',
-              equipeId: usuarioEfetivo.equipeId,
-              competencia: escala.documentos[0]?.competencia ?? '2026-08',
-            });
+            setContextoEscalaAtivo(criarContextoEscala(
+              'JORNADA',
+              usuarioEfetivo.equipeId,
+              EQUIPE_DEMO.nome,
+              escala.documentos[0]?.competencia ?? '2026-08',
+            ));
             setContextoSemEscala(false);
           }
         }
@@ -3680,7 +3744,8 @@ export function DashboardApp() {
     const documentosCarregados = rascunhosRemotos.length > 0
       ? rascunhosRemotos
       : escalasRemotas;
-    setContextoEscalaAtivo({ tipo: 'JORNADA', equipeId: alvo.equipeId, competencia: '2026-08' });
+    const equipeAlvo = equipesAdmin.find((equipe) => equipe.id === alvo.equipeId);
+    setContextoEscalaAtivo(criarContextoEscala('JORNADA', alvo.equipeId, equipeAlvo?.nome ?? alvo.equipeId, '2026-08'));
     if (documentosCarregados.length > 0) {
       const datas = documentosCarregados.flatMap((documento) => Object.keys(documento.dias));
       const periodoInicio = datas.sort()[0] ?? '2026-07-26';
@@ -3707,6 +3772,9 @@ export function DashboardApp() {
   }
 
   async function autenticar(autenticado: Usuario, demonstracao: boolean) {
+    usuarioContextoRestauradoRef.current = null;
+    setTentativaCarregamentoOperacoes(0);
+    setEstadoCarregamentoOperacoes({ fase: demonstracao ? 'sucesso' : 'carregando' });
     setUsuarioReal(autenticado);
     setModoDemo(demonstracao);
     if (demonstracao) {
@@ -3754,11 +3822,16 @@ export function DashboardApp() {
         [GRUPO_PLANTAO_DEMO.grupoId]: PARTICIPANTES_PLANTAO_DEMO,
       });
     } else {
+      setEquipesAdmin([]);
+      setUnidadesAdmin([]);
+      setGruposPlantaoAdmin([]);
+      setEscoposOperacionaisAdmin([]);
       setResultado(null);
       setResultadoPlantao(null);
       setUsuarios([]);
       setLinhasConciliacao([]);
-      await carregarDadosDaEquipe(autenticado);
+      setContextoEscalaAtivo(null);
+      setContextoSemEscala(false);
     }
   }
 
@@ -4025,7 +4098,9 @@ export function DashboardApp() {
     opcoes: OpcoesInicioImportacao = {},
   ): ResultadoParse {
     return parsePlanilhaEscala(buffer, {
-      equipeId: opcoes.equipeId ?? usuarioEfetivo?.equipeId ?? EQUIPE_DEMO.id,
+      equipeId: opcoes.equipeId
+        ?? (contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : usuarioEfetivo?.equipeId)
+        ?? EQUIPE_DEMO.id,
       competencia: opcoes.competencia ?? '2026-08',
       catalogo,
       loginParaUid,
@@ -4067,11 +4142,15 @@ export function DashboardApp() {
       const parseado = aplicarConciliacao(buffer, linhas, opcoes);
       setCorrecoes({});
       if (usuarioEfetivo !== null) {
-        setContextoEscalaAtivo({
-          tipo: 'JORNADA',
-          equipeId: opcoes.equipeId ?? usuarioEfetivo.equipeId,
-          competencia: opcoes.competencia ?? parseado.documentos[0]?.competencia ?? '2026-08',
-        });
+        const equipeId = opcoes.equipeId
+          ?? (contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : usuarioEfetivo.equipeId);
+        const equipe = equipesAdmin.find((item) => item.id === equipeId);
+        setContextoEscalaAtivo(criarContextoEscala(
+          'JORNADA',
+          equipeId,
+          equipe?.nome ?? equipeId,
+          opcoes.competencia ?? parseado.documentos[0]?.competencia ?? '2026-08',
+        ));
         setContextoSemEscala(false);
       }
       if (!parseado.ok) {
@@ -4122,7 +4201,8 @@ export function DashboardApp() {
     setErroRascunhoPlantao('');
     setRascunhoPlantaoSalvoEm(null);
     if (usuarioEfetivo !== null && grupoIdEscolhido !== '') {
-      setContextoEscalaAtivo({ tipo: 'PLANTAO', grupoId: grupoIdEscolhido, competencia: competenciaEscolhida });
+      const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === grupoIdEscolhido);
+      setContextoEscalaAtivo(criarContextoEscala('PLANTAO', grupoIdEscolhido, grupo?.nome ?? grupoIdEscolhido, competenciaEscolhida));
       setContextoSemEscala(false);
     }
     setMensagem(resultado.ok
@@ -4348,11 +4428,12 @@ export function DashboardApp() {
         setTela('escalas');
         return;
       }
-      const alvo: ContextoEscalaAtivo = {
-        tipo: 'JORNADA',
-        equipeId: equipeJornadaDashboard.id,
-        competencia: competenciaDashboard,
-      };
+      const alvo = criarContextoEscala(
+        'JORNADA',
+        equipeJornadaDashboard.id,
+        equipeJornadaDashboard.nome,
+        competenciaDashboard,
+      );
       if (contextosEscalaIguais(contextoEscalaAtivo, alvo)) {
         setTela('grade');
         return;
@@ -4364,11 +4445,12 @@ export function DashboardApp() {
       setTela('escalas');
       return;
     }
-    const alvo: ContextoEscalaAtivo = {
-      tipo: 'PLANTAO',
-      grupoId: grupoPlantaoDashboard.grupoId,
-      competencia: competenciaPlantaoDashboard?.competencia ?? competenciaDashboard,
-    };
+    const alvo = criarContextoEscala(
+      'PLANTAO',
+      grupoPlantaoDashboard.grupoId,
+      grupoPlantaoDashboard.nome,
+      competenciaPlantaoDashboard?.competencia ?? competenciaDashboard,
+    );
     if (contextosEscalaIguais(contextoEscalaAtivo, alvo)) {
       setTela(plantaoPossuiEscalaDashboard ? 'importar' : 'escalas');
       return;
@@ -4647,12 +4729,12 @@ export function DashboardApp() {
         documentos: documentosNovos,
         erros: [],
         avisos: documentosNovos.length === 0
-          ? ['Nenhum usuário ativo encontrado para esta equipe. Cadastre ou importe usuários antes de montar a escala.']
+          ? ['Nenhum colaborador ativo encontrado para esta equipe. Cadastre ou importe usuários antes de montar a escala.']
           : ['Escala criada vazia. Preencha os turnos no editor antes de salvar.'],
       });
       setLinhasConciliacao([]);
       setJornadaPossuiAlteracoesNaoSalvas(true);
-      setContextoEscalaAtivo({ tipo: 'JORNADA', equipeId: wizardEquipeId, competencia: wizardCompetencia });
+      setContextoEscalaAtivo(criarContextoEscala('JORNADA', wizardEquipeId, equipe?.nome ?? wizardEquipeId, wizardCompetencia));
       setContextoSemEscala(false);
       fecharNovaEscala();
       setTela('grade');
@@ -4755,7 +4837,7 @@ export function DashboardApp() {
       setErroRascunhoPlantao('');
       setRascunhoPlantaoSalvoEm(null);
       setTipoArquivoDetectado('PLANTAO');
-      setContextoEscalaAtivo({ tipo: 'PLANTAO', grupoId: grupo.grupoId, competencia });
+      setContextoEscalaAtivo(criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, competencia));
       setContextoSemEscala(false);
       setMensagem(`Escala de Plantão criada — "${grupo.nome}" (${competencia}). Nenhum dado foi publicado.`);
       fecharNovaEscala();
@@ -4866,7 +4948,7 @@ export function DashboardApp() {
       setErroRascunhoPlantao('');
       setRascunhoPlantaoSalvoEm(null);
       setTipoArquivoDetectado('PLANTAO');
-      setContextoEscalaAtivo({ tipo: 'PLANTAO', grupoId: grupo.grupoId, competencia });
+      setContextoEscalaAtivo(criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, competencia));
       setContextoSemEscala(false);
       setMensagem(resultadoCopia.quantidadeNaoCopiada > 0
         ? `Escala baseada na competência anterior (${labelAnterior}) — "${grupo.nome}" (${competencia}). ${resultadoCopia.quantidadeNaoCopiada} plantão(ões) da competência anterior não coube(ram) na nova janela e não foram copiados. Nenhum dado foi publicado.`
@@ -4957,8 +5039,11 @@ export function DashboardApp() {
     }
 
     const buffer = await file.arrayBuffer();
+    const equipeImportacaoId = opcoes.equipeId
+      ?? (contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : usuarioEfetivo?.equipeId)
+      ?? EQUIPE_DEMO.id;
     const processado = processarArquivoImportado(buffer, {
-      equipeId: opcoes.equipeId ?? usuarioEfetivo?.equipeId ?? EQUIPE_DEMO.id,
+      equipeId: equipeImportacaoId,
       competencia: opcoes.competencia ?? '2026-08',
       catalogo,
       loginParaUid: mapaLogins(usuarios),
@@ -4983,7 +5068,7 @@ export function DashboardApp() {
       return false;
     }
     if (processado.tipo === 'PLANTAO') {
-      const grupoAtual = contextoEhPlantao(contextoEscalaAtivo) ? contextoEscalaAtivo.grupoId : '';
+      const grupoAtual = contextoEhPlantao(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : '';
       const opcoesPlantao = {
         ...opcoes,
         grupoId: opcoes.grupoId ?? (grupoAtual || undefined),
@@ -5048,8 +5133,12 @@ export function DashboardApp() {
           .map((erro) => erro.login)
           .filter((login): login is string => login !== undefined),
       )];
+      const equipeAlvoId = contextoEhJornada(contextoEscalaAtivo)
+        ? contextoEscalaAtivo.alvoId
+        : usuarioEfetivo.equipeId;
+      const responsavelDoAlvo = { ...usuarioEfetivo, equipeId: equipeAlvoId };
       const novos = logins.map((login, indice) =>
-        novoUsuario(usuarios.length + indice + 1, usuarioEfetivo, login, true));
+        novoUsuario(usuarios.length + indice + 1, responsavelDoAlvo, login, true));
       if (!modoDemo) {
         await salvarUsuarios(novos);
         await registrarAuditoriaSeSimulando('CADASTRAR_USUARIOS');
@@ -5058,8 +5147,8 @@ export function DashboardApp() {
       setUsuarios(atualizados);
       if (arquivo !== null) {
         const parseado = parsePlanilhaEscala(arquivo, {
-          equipeId: usuarioEfetivo.equipeId,
-          competencia: '2026-08',
+          equipeId: equipeAlvoId,
+          competencia: contextoEscalaAtivo?.competencia ?? '2026-08',
           catalogo,
           loginParaUid: mapaLogins(atualizados),
         });
@@ -5090,6 +5179,17 @@ export function DashboardApp() {
       setMensagem('Resolva as pendências de conciliação de nomes antes de salvar.');
       return;
     }
+    const equipeAlvoId = contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : null;
+    const matrizReconheceUsuario = equipeAlvoId !== null
+      && escoposOperacionais.jornadasAdministraveis.some((equipe) => equipe.id === equipeAlvoId);
+    if (!matrizReconheceUsuario) {
+      setMensagem('Você não está configurado como responsável por esta escala.');
+      return;
+    }
+    if (resultado.documentos.some((documento) => documento.equipeId !== equipeAlvoId)) {
+      setMensagem('A escala aberta não pertence ao alvo operacional selecionado. Reabra a operação antes de salvar.');
+      return;
+    }
     setProcessando(true);
     try {
       if (!modoDemo) {
@@ -5107,7 +5207,7 @@ export function DashboardApp() {
       setMensagem('Rascunho salvo com sucesso. Nenhum arquivo foi enviado.');
       setTela('escalas');
     } catch (falha) {
-      setMensagem(mensagemErroEscritaOperacional(falha, 'Não foi possível salvar.'));
+      setMensagem(mensagemErroEscritaOperacional(falha, 'Não foi possível salvar.', matrizReconheceUsuario));
     } finally {
       setProcessando(false);
     }
@@ -5129,6 +5229,17 @@ export function DashboardApp() {
     }
     if (revisaoAtual > 0 && motivoPublicacao.trim().length < 3) {
       setErroPublicacao('Informe um motivo curto para explicar o que mudou nesta publicação.');
+      return;
+    }
+    const equipeAlvoId = contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : null;
+    const matrizReconheceUsuario = equipeAlvoId !== null
+      && escoposOperacionais.jornadasAdministraveis.some((equipe) => equipe.id === equipeAlvoId);
+    if (!matrizReconheceUsuario) {
+      setErroPublicacao('Você não está configurado como responsável por esta escala.');
+      return;
+    }
+    if (resultado.documentos.some((documento) => documento.equipeId !== equipeAlvoId)) {
+      setErroPublicacao('A escala aberta não pertence ao alvo operacional selecionado. Reabra a operação antes de publicar.');
       return;
     }
     setProcessando(true);
@@ -5160,7 +5271,7 @@ export function DashboardApp() {
       setPublicacaoPendente(false);
       setMotivoPublicacao('');
     } catch (falha) {
-      const texto = mensagemErroEscritaOperacional(falha, 'Falha na publicação.');
+      const texto = mensagemErroEscritaOperacional(falha, 'Falha na publicação.', matrizReconheceUsuario);
       // O modal continua aberto (não chamamos setPublicacaoPendente(false))
       // e mostra o erro localmente — o toast global fica atrás do modal
       // visualmente, então não basta avisar só por ele.
@@ -5181,7 +5292,7 @@ export function DashboardApp() {
       return;
     }
     try {
-      const eventos = await listarEventosPublicacao(usuarioEfetivo.equipeId, publicacao.id);
+      const eventos = await listarEventosPublicacao(publicacao.equipeId, publicacao.id);
       setDetalhesPublicacao((atuais) => ({ ...atuais, [publicacao.id]: eventos }));
     } catch (falha) {
       setMensagem(mensagemErroFirebase(falha, 'Não foi possível carregar os detalhes da revisão.', ambienteFirebaseAtual));
@@ -5271,7 +5382,7 @@ export function DashboardApp() {
     setProcessando(true);
     try {
       const restaurada = await reverterPublicacao(
-        usuarioEfetivo.equipeId,
+        revisaoParaRestaurar.equipeId,
         revisaoParaRestaurar.competencia,
         revisaoParaRestaurar.revisao,
         usuarioEfetivo.login,
@@ -5282,7 +5393,8 @@ export function DashboardApp() {
       const datas = restaurada.documentos.flatMap((documento) => Object.keys(documento.dias));
       setResultado({
         ok: true,
-        equipeNome: usuarioEfetivo.equipeId,
+        equipeNome: equipesAdmin.find((equipe) => equipe.id === revisaoParaRestaurar.equipeId)?.nome
+          ?? revisaoParaRestaurar.equipeId,
         periodoInicio: datas.sort()[0] ?? '2026-07-26',
         periodoFim: datas.sort().at(-1) ?? '2026-08-25',
         totalDias: new Set(datas).size,
@@ -5824,7 +5936,7 @@ export function DashboardApp() {
       setErroRascunhoPlantao('');
       setRascunhoPlantaoSalvoEm(null);
       setTipoArquivoDetectado('PLANTAO');
-      setContextoEscalaAtivo({ tipo: 'PLANTAO', grupoId: grupo.grupoId, competencia: reidratado.competencia.competencia });
+      setContextoEscalaAtivo(criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, reidratado.competencia.competencia));
       setContextoSemEscala(false);
       setMensagem(`Rascunho de Plantão reaberto — "${grupo.nome}" (${reidratado.competencia.competencia}). Nenhum dado foi publicado.`);
       setAbrirRascunhoPlantaoStatus(null);
@@ -5940,7 +6052,7 @@ export function DashboardApp() {
       return;
     }
     if (!podeGerenciarEsteGrupoPlantao(grupo)) {
-      setErroRascunhoPlantao('Você não administra este grupo de Plantão — só quem gerencia a equipe responsável pode salvar o rascunho.');
+      setErroRascunhoPlantao('Você não está configurado como responsável por esta escala.');
       return;
     }
     const competencia = competenciaRascunho.trim();
@@ -6020,9 +6132,68 @@ export function DashboardApp() {
       setRascunhoPlantaoSalvoEm(grupo.grupoId);
       setMensagem(`Rascunho de Plantão salvo para "${grupo.nome}" (${competencia}). Nenhum dado foi publicado.`);
     } catch (falha) {
-      setErroRascunhoPlantao(mensagemErroFirebase(falha, 'Não foi possível salvar o rascunho de Plantão.', ambienteFirebaseAtual));
+      setErroRascunhoPlantao(mensagemErroEscritaOperacional(
+        falha,
+        'Não foi possível salvar o rascunho de Plantão.',
+        podeGerenciarEsteGrupoPlantao(grupo),
+      ));
     } finally {
       setSalvandoRascunhoPlantao(false);
+    }
+  }
+
+  async function publicarPlantaoAcao() {
+    if (usuarioReal === null || contextoPlantaoSomenteConsulta) {
+      setErroRascunhoPlantao('Você não está configurado como responsável por esta escala.');
+      return;
+    }
+    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === grupoRascunhoEscolhido);
+    const competencia = (rascunhosPlantaoPorGrupo[grupoRascunhoEscolhido] ?? [])
+      .find((item) => item.competencia === competenciaRascunho);
+    if (grupo === undefined || competencia === undefined) {
+      setErroRascunhoPlantao('Salve o rascunho antes de publicar o Plantão.');
+      return;
+    }
+    if (!podeGerenciarEsteGrupoPlantao(grupo)) {
+      setErroRascunhoPlantao('Você não está configurado como responsável por esta escala.');
+      return;
+    }
+    setPublicandoPlantao(true);
+    setErroRascunhoPlantao('');
+    try {
+      const atribuicoes = montarAtribuicoesPlantaoRascunho({
+        grupoId: grupo.grupoId,
+        competenciaId: competencia.id,
+        atribuicoes: atribuicoesPlantaoComVinculo,
+        timezone: grupo.timezone,
+        origem: origemPlantaoAtual ?? competencia.origem,
+        agoraIso: new Date().toISOString(),
+      });
+      const publicada = modoDemo
+        ? { ...competencia, status: 'PUBLICADA' as const, revisao: Math.max(1, competencia.revisao + 1) }
+        : await publicarCompetenciaPlantao(competencia, atribuicoes);
+      setRascunhosPlantaoPorGrupo((atuais) => ({
+        ...atuais,
+        [grupo.grupoId]: (atuais[grupo.grupoId] ?? []).filter((item) => item.id !== competencia.id),
+      }));
+      setResumosPlantaoDashboard((atuais) => ({
+        ...atuais,
+        [`${grupo.grupoId}:${competencia.competencia}`]: {
+          grupoId: grupo.grupoId,
+          competencia: competencia.competencia,
+          competenciaRascunho: null,
+          competenciaPublicada: publicada,
+          participantesAtivos: (participantesPorGrupoPlantao[grupo.grupoId] ?? []).filter((item) => item.ativo).length,
+        },
+      }));
+      setRascunhoPlantaoSalvoEm(null);
+      setContextoSemEscala(false);
+      setMensagem(`Plantão "${grupo.nome}" publicado para ${competencia.competencia}.`);
+      setTela('escalas');
+    } catch (falha) {
+      setErroRascunhoPlantao(mensagemErroEscritaOperacional(falha, 'Não foi possível publicar o Plantão.', true));
+    } finally {
+      setPublicandoPlantao(false);
     }
   }
 
@@ -6114,6 +6285,7 @@ export function DashboardApp() {
         return [...semAtual, escopo].sort((a, b) => `${a.tipo}:${a.alvoNome}`.localeCompare(`${b.tipo}:${b.alvoNome}`));
       });
       setModalResponsavelEscala(null);
+      if (!modoDemo) recarregarOperacoes();
     } catch (falha) {
       setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível salvar o responsável por escala.', ambienteFirebaseAtual));
     } finally {
@@ -6266,14 +6438,13 @@ export function DashboardApp() {
     // gestor" (ambos presos a `souAdmin` na renderização), então nem
     // dispara essa leitura.
     const carregarUsuarios = souAdmin ? listarTodosUsuarios() : Promise.resolve<Usuario[]>([]);
-    void Promise.all([carregarUsuarios, listarEquipes(), listarSetores(), listarUnidadesOrganizacionais(), listarEscoposOperacionais()])
-      .then(([todos, equipes, setores, unidades, escopos]) => {
+    void Promise.all([carregarUsuarios, listarEquipes(), listarSetores(), listarUnidadesOrganizacionais()])
+      .then(([todos, equipes, setores, unidades]) => {
         if (!cancelado) {
           setTodosUsuariosAdmin(todos);
           setEquipesAdmin(equipes);
           setSetoresAdmin(setores);
           setUnidadesAdmin(unidades);
-          setEscoposOperacionaisAdmin(escopos);
         }
       })
       .catch((falha: unknown) => {
@@ -6361,8 +6532,8 @@ export function DashboardApp() {
      * `catch` genérico mascarando qual delas falhou como se fosse "nenhuma
      * equipe cadastrada".
      */
-    void Promise.allSettled([carregarGrupos, listarEquipes(), listarUnidadesOrganizacionais(), carregarUsuariosParaBusca, listarEscoposOperacionais()])
-      .then(([grupos, equipes, unidades, todosUsuarios, escopos]) => {
+    void Promise.allSettled([carregarGrupos, listarEquipes(), listarUnidadesOrganizacionais(), carregarUsuariosParaBusca])
+      .then(([grupos, equipes, unidades, todosUsuarios]) => {
         if (cancelado) {
           return;
         }
@@ -6382,9 +6553,6 @@ export function DashboardApp() {
         if (souAdmin && todosUsuarios.status === 'fulfilled') {
           setTodosUsuariosAdmin(todosUsuarios.value);
         }
-        if (escopos.status === 'fulfilled') {
-          setEscoposOperacionaisAdmin(escopos.value);
-        }
         setCarregandoEquipesPlantao(false);
       });
     return () => {
@@ -6393,37 +6561,90 @@ export function DashboardApp() {
   }, [podeAcessarPlantoes, souAdmin, souGestorUnidade, modoDemo, usuarioReal]);
 
   /**
-   * Fase ESCALAS-UX-2A.1 — `equipesAdmin` precisa estar disponível para o
-   * `ScheduleContextSwitcher` resolver os rótulos das Jornadas
-   * (`equipeId` → nome) mesmo para quem NÃO é gestor de Plantão (o efeito
-   * acima só carrega para `podeAcessarPlantoes`) e mesmo antes de visitar
-   * Administração (o outro efeito só carrega para `tela === 'administracao'`).
-   * `equipes` é uma coleção de leitura franqueada a qualquer usuário
-   * autenticado (`docs/spec/ADMINISTRACAO_E_HIERARQUIA.md` § "Limitações
-   * e riscos") — carregar uma vez por sessão aqui não amplia nenhuma
-   * autorização, só evita esperar por uma tela específica. O modo demo
-   * (sem Firestore) já semeia `equipesAdmin` diretamente em `autenticar()`
-   * — nunca dentro deste efeito.
+   * Carga única e total da matriz para o seletor e para as telas. O estado
+   * terminal é sempre sucesso, vazio ou erro; o timeout impede que uma
+   * conexão interrompida deixe a UI eternamente em "Carregando...".
    */
   useEffect(() => {
-    if (modoDemo || usuarioReal === null || equipesAdmin.length > 0) {
-      return undefined;
-    }
+    if (modoDemo || usuarioReal === null) return undefined;
     let cancelado = false;
-    void listarEquipes().then((equipes) => {
-      if (!cancelado) {
-        setEquipesAdmin(equipes);
+    void Promise.resolve().then(() => {
+      if (!cancelado) setEstadoCarregamentoOperacoes({ fase: 'carregando' });
+    });
+    void carregarOperacoesComEstado({
+      carregar: async () => {
+        const [equipes, unidades, escopos] = await Promise.all([
+          listarEquipes(),
+          listarUnidadesOrganizacionais(),
+          listarEscoposOperacionais(),
+        ]);
+        const idsPlantaoMatriz = [...new Set(escopos
+          .filter((escopo) => escopo.ativo && escopo.tipo === 'PLANTAO')
+          .filter((escopo) =>
+            usuarioPodeAdministrarAlvoOperacional(usuarioReal, escopos, 'PLANTAO', escopo.alvoId)
+            || usuarioPodeConsultarPlantaoOperacional(usuarioReal, escopos, escopo.alvoId))
+          .map((escopo) => escopo.alvoId))];
+        const gruposDaMatriz = (await Promise.all(idsPlantaoMatriz.map((grupoId) => obterGrupoPlantao(grupoId))))
+          .filter((grupo): grupo is GrupoPlantao => grupo !== null);
+
+        let gruposLegados: GrupoPlantao[] = [];
+        if (PERMITIR_FALLBACK_OPERACIONAL_LEGADO) {
+          const perfil = perfilEfetivo(usuarioReal);
+          if (ehAdminSistema(usuarioReal)) {
+            gruposLegados = await listarTodosGruposPlantao();
+          } else {
+            const listas = await Promise.all([
+              ...equipesPermitidasEfetivas(usuarioReal).map((equipeId) => listarGruposPlantaoPermitidos(equipeId)),
+              ...(perfil === 'GESTOR_UNIDADE'
+                ? unidadesPermitidasEfetivas(usuarioReal).map((unidadeId) => listarGruposPlantaoPorUnidadeResponsavel(unidadeId))
+                : []),
+              ...(perfil === 'GESTOR_EQUIPE' || perfil === 'SUPERVISOR_EQUIPE'
+                ? [listarTodosGruposPlantao()]
+                : []),
+            ]);
+            gruposLegados = listas.flat();
+          }
+        }
+        const gruposPorId = new Map<string, GrupoPlantao>();
+        for (const grupo of [...gruposDaMatriz, ...gruposLegados]) gruposPorId.set(grupo.grupoId, grupo);
+        const grupos = [...gruposPorId.values()];
+        const resolucao = resolverEscoposOperacionais(
+          usuarioReal,
+          unidades,
+          equipes,
+          grupos,
+          escopos,
+          { permitirFallbackLegado: PERMITIR_FALLBACK_OPERACIONAL_LEGADO },
+        );
+        return { equipes, unidades, escopos, grupos, resolucao };
+      },
+      estaVazio: ({ resolucao }) =>
+        resolucao.jornadasAdministraveis.length === 0
+        && resolucao.plantoesAdministraveis.length === 0
+        && resolucao.plantoesMonitorados.length === 0,
+    }).then((resultadoCarga) => {
+      if (cancelado) return;
+      setEstadoCarregamentoOperacoes(resultadoCarga.estado);
+      setCarregandoEquipesPlantao(false);
+      if ('dados' in resultadoCarga) {
+        setEquipesAdmin(resultadoCarga.dados.equipes);
+        setUnidadesAdmin(resultadoCarga.dados.unidades);
+        setEscoposOperacionaisAdmin(resultadoCarga.dados.escopos);
+        setGruposPlantaoAdmin(resultadoCarga.dados.grupos);
+        setErroResumoOperacionalDashboard('');
       }
-    }).catch(() => {
-      // Silencioso: `equipesAdmin` também é recarregado (com tratamento de
-      // erro completo) pelos dois efeitos acima assim que o usuário visitar
-      // Administração ou Plantões — esta leitura eager é só uma otimização
-      // para o seletor de contexto, nunca o único lugar que a garante.
     });
     return () => {
       cancelado = true;
     };
-  }, [modoDemo, usuarioReal, equipesAdmin.length]);
+  }, [modoDemo, usuarioReal, tentativaCarregamentoOperacoes]);
+
+  function recarregarOperacoes() {
+    usuarioContextoRestauradoRef.current = null;
+    setErroContextoEscala('');
+    setEstadoCarregamentoOperacoes({ fase: 'carregando' });
+    setTentativaCarregamentoOperacoes((tentativa) => tentativa + 1);
+  }
 
   /**
    * Fase ESCALAS-UX-2A.1 — sincronização do contexto ativo a partir de
@@ -6471,21 +6692,40 @@ export function DashboardApp() {
   async function aplicarTrocaContexto(alvo: ContextoEscalaAtivo) {
     setErroContextoEscala('');
     if (alvo.tipo === 'PLANTAO') {
-      const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === alvo.grupoId);
+      const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === alvo.alvoId);
       if (grupo === undefined) {
         setErroContextoEscala('Grupo de Plantão não encontrado — recarregue a página.');
         return;
       }
       setCarregandoContexto(true);
       try {
-        const competenciaExistente = modoDemo ? null : await obterCompetenciaPlantaoRascunho(grupo.grupoId, alvo.competencia);
+        const [competenciaExistente, competenciaPublicada] = modoDemo
+          ? [null, null] as const
+          : await executarComLimiteDeTempo(Promise.all([
+            obterCompetenciaPlantaoRascunho(grupo.grupoId, alvo.competencia),
+            obterCompetenciaPlantaoPublicada(grupo.grupoId, alvo.competencia),
+          ]));
         if (competenciaExistente === null) {
           setContextoEscalaAtivo(alvo);
-          setContextoSemEscala(true);
+          setContextoSemEscala(competenciaPublicada === null);
+          if (competenciaPublicada !== null) {
+            setResumosPlantaoDashboard((atuais) => ({
+              ...atuais,
+              [`${grupo.grupoId}:${alvo.competencia}`]: {
+                grupoId: grupo.grupoId,
+                competencia: alvo.competencia,
+                competenciaRascunho: null,
+                competenciaPublicada,
+                participantesAtivos: (participantesPorGrupoPlantao[grupo.grupoId] ?? []).filter((item) => item.ativo).length,
+              },
+            }));
+          }
           setTela('escalas');
           return;
         }
-        const resultadoAbertura = await abrirRascunhoNoEditorAcao(grupo, competenciaExistente);
+        const resultadoAbertura = await executarComLimiteDeTempo(
+          abrirRascunhoNoEditorAcao(grupo, competenciaExistente),
+        );
         if (resultadoAbertura.ok) {
           setContextoEscalaAtivo(alvo);
           setContextoSemEscala(false);
@@ -6496,6 +6736,11 @@ export function DashboardApp() {
           setContextoSemEscala(true);
           setTela('escalas');
         }
+      } catch (falha) {
+        const erro = estadoErroOperacoes(falha);
+        setErroContextoEscala(erro.diagnostico === 'REDE'
+          ? erro.mensagem
+          : mensagemErroFirebase(falha, 'Não foi possível carregar este Plantão.', ambienteFirebaseAtual));
       } finally {
         setCarregandoContexto(false);
       }
@@ -6515,14 +6760,14 @@ export function DashboardApp() {
           historico,
           null,
         ] as const
-        : await Promise.all([
-          carregarRascunhosEquipe(alvo.equipeId, alvo.competencia),
-          carregarEscalasEquipe(alvo.equipeId, alvo.competencia, true),
-          listarUsuarios(alvo.equipeId),
-          listarCatalogo(alvo.equipeId),
-          listarHistoricoPublicacoes(alvo.equipeId, alvo.competencia),
-          carregarEstadoPublicacao(alvo.equipeId, alvo.competencia),
-        ]);
+        : await executarComLimiteDeTempo(Promise.all([
+          carregarRascunhosEquipe(alvo.alvoId, alvo.competencia),
+          carregarEscalasEquipe(alvo.alvoId, alvo.competencia, true),
+          listarUsuarios(alvo.alvoId),
+          listarCatalogo(alvo.alvoId),
+          listarHistoricoPublicacoes(alvo.alvoId, alvo.competencia),
+          carregarEstadoPublicacao(alvo.alvoId, alvo.competencia),
+        ]));
       const documentosExistentes: TurnosMes[] = rascunhosExistentes.length > 0
         ? [...rascunhosExistentes]
         : [...publicadasExistentes];
@@ -6545,7 +6790,7 @@ export function DashboardApp() {
       const periodo = periodoDaCompetencia(alvo.competencia);
       setResultado({
         ok: true,
-        equipeNome: alvo.equipeId,
+        equipeNome: alvo.label,
         periodoInicio: datas.sort()[0] ?? periodo?.periodoInicio ?? '',
         periodoFim: datas.sort().at(-1) ?? periodo?.periodoFim ?? '',
         totalDias: new Set(datas).size,
@@ -6558,7 +6803,10 @@ export function DashboardApp() {
       setContextoSemEscala(false);
       setTela('grade');
     } catch (falha) {
-      setErroContextoEscala(mensagemErroFirebase(falha, 'Não foi possível carregar esta jornada.', ambienteFirebaseAtual));
+      const erro = estadoErroOperacoes(falha);
+      setErroContextoEscala(erro.diagnostico === 'REDE'
+        ? erro.mensagem
+        : mensagemErroFirebase(falha, 'Não foi possível carregar esta jornada.', ambienteFirebaseAtual));
     } finally {
       setCarregandoContexto(false);
     }
@@ -6568,9 +6816,12 @@ export function DashboardApp() {
     if (contextoEscalaAtivo === null) {
       return;
     }
-    const alvo: ContextoEscalaAtivo = contextoEscalaAtivo.tipo === 'JORNADA'
-      ? { tipo: 'JORNADA', equipeId: contextoEscalaAtivo.equipeId, competencia: novaCompetencia }
-      : { tipo: 'PLANTAO', grupoId: contextoEscalaAtivo.grupoId, competencia: novaCompetencia };
+    const alvo = criarContextoEscala(
+      contextoEscalaAtivo.tipo,
+      contextoEscalaAtivo.alvoId,
+      contextoEscalaAtivo.label,
+      novaCompetencia,
+    );
     void aplicarTrocaContexto(alvo);
   }
 
@@ -6617,6 +6868,85 @@ export function DashboardApp() {
     }
   }
 
+  const contextosOperacionaisValidos: ContextoEscalaAtivo[] = useMemo(() => [
+    ...escoposOperacionais.jornadasAdministraveis.map((equipe) =>
+      criarContextoEscala('JORNADA', equipe.id, equipe.nome, COMPETENCIA_ATUAL)),
+    ...escoposOperacionais.plantoesAdministraveis.map((grupo) =>
+      criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, COMPETENCIA_ATUAL)),
+    ...escoposOperacionais.plantoesMonitorados.map((grupo) =>
+      criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, COMPETENCIA_ATUAL)),
+  ], [escoposOperacionais]);
+  const chaveAlvosOperacionaisValidos = contextosOperacionaisValidos
+    .map((contexto) => `${contexto.tipo}:${contexto.alvoId}`)
+    .sort()
+    .join('|');
+
+  /** Restaura somente após a matriz terminar; alvo inválido é removido e exige nova seleção. */
+  useEffect(() => {
+    if (usuarioReal === null || estadoCarregamentoOperacoes.fase === 'carregando' || estadoCarregamentoOperacoes.fase === 'erro') {
+      return undefined;
+    }
+    if (estadoCarregamentoOperacoes.fase === 'vazio') {
+      if (typeof window !== 'undefined') limparContextoEscalaPersistido(usuarioReal.login, window.localStorage);
+      usuarioContextoRestauradoRef.current = usuarioReal.login;
+      void Promise.resolve().then(() => {
+        setContextoEscalaAtivo(null);
+        setContextoSemEscala(false);
+      });
+      return undefined;
+    }
+    if (usuarioContextoRestauradoRef.current === usuarioReal.login || carregandoContexto) return undefined;
+    usuarioContextoRestauradoRef.current = usuarioReal.login;
+    const restaurado = modoDemo || typeof window === 'undefined'
+      ? { estado: 'ausente' as const }
+      : restaurarContextoEscalaPersistido(usuarioReal.login, contextosOperacionaisValidos, window.localStorage);
+    if (restaurado.estado === 'invalido') {
+      void Promise.resolve().then(() => {
+        setContextoEscalaAtivo(null);
+        setContextoSemEscala(false);
+        setErroContextoEscala('A operação salva não está mais disponível. Selecione outra operação.');
+      });
+      return undefined;
+    }
+    const alvoInicial = restaurado.estado === 'valido'
+      ? restaurado.contexto
+      : contextosOperacionaisValidos[0] ?? null;
+    if (alvoInicial !== null) {
+      void Promise.resolve().then(() => aplicarTrocaContexto(alvoInicial));
+    }
+    return undefined;
+    // A carga é deliberadamente única por login; as alterações posteriores
+    // são tratadas pelo validador abaixo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [carregandoContexto, chaveAlvosOperacionaisValidos, contextosOperacionaisValidos, estadoCarregamentoOperacoes.fase, modoDemo, usuarioReal]);
+
+  /** Uma matriz alterada/inativada invalida imediatamente o contexto corrente. */
+  useEffect(() => {
+    if (usuarioReal === null || contextoEscalaAtivo === null || estadoCarregamentoOperacoes.fase !== 'sucesso') return;
+    const aindaValido = contextosOperacionaisValidos.some((contexto) =>
+      contexto.tipo === contextoEscalaAtivo.tipo && contexto.alvoId === contextoEscalaAtivo.alvoId);
+    if (aindaValido) return;
+    if (typeof window !== 'undefined') limparContextoEscalaPersistido(usuarioReal.login, window.localStorage);
+    void Promise.resolve().then(() => {
+      setContextoEscalaAtivo(null);
+      setContextoSemEscala(false);
+      setErroContextoEscala('A operação selecionada foi desativada ou removida. Selecione outra operação.');
+    });
+  }, [chaveAlvosOperacionaisValidos, contextoEscalaAtivo, contextosOperacionaisValidos, estadoCarregamentoOperacoes.fase, usuarioReal]);
+
+  useEffect(() => {
+    if (
+      modoDemo
+      || usuarioReal === null
+      || contextoEscalaAtivo === null
+      || estadoCarregamentoOperacoes.fase !== 'sucesso'
+      || typeof window === 'undefined'
+    ) return;
+    const valido = contextosOperacionaisValidos.some((contexto) =>
+      contexto.tipo === contextoEscalaAtivo.tipo && contexto.alvoId === contextoEscalaAtivo.alvoId);
+    if (valido) salvarContextoEscalaPersistido(usuarioReal.login, contextoEscalaAtivo, window.localStorage);
+  }, [chaveAlvosOperacionaisValidos, contextoEscalaAtivo, contextosOperacionaisValidos, estadoCarregamentoOperacoes.fase, modoDemo, usuarioReal]);
+
   async function encerrarSessao() {
     await sair();
     setUsuarioReal(null);
@@ -6632,6 +6962,8 @@ export function DashboardApp() {
     setTrocas([]);
     setTrocaSelecionadaId(null);
     setErroTroca('');
+    usuarioContextoRestauradoRef.current = null;
+    setEstadoCarregamentoOperacoes({ fase: 'carregando' });
   }
 
   if (usuarioReal === null) {
@@ -6705,13 +7037,14 @@ export function DashboardApp() {
    * o contexto Jornada já ativo continua preservado.
    */
   const opcoesContextoJornada: OpcaoContextoEscala[] = escoposOperacionais.jornadasAdministraveis.map((equipe) => ({
-    contexto: {
-      tipo: 'JORNADA',
-      equipeId: equipe.id,
-      competencia: contextoEhJornada(contextoEscalaAtivo) && contextoEscalaAtivo.equipeId === equipe.id
+    contexto: criarContextoEscala(
+      'JORNADA',
+      equipe.id,
+      equipe.nome,
+      contextoEhJornada(contextoEscalaAtivo) && contextoEscalaAtivo.alvoId === equipe.id
         ? contextoEscalaAtivo.competencia
         : competenciaParaNovasOpcoes,
-    },
+    ),
     rotuloPrincipal: equipe.nome,
     rotuloSecundario: 'Jornada 6x1',
   }));
@@ -6730,13 +7063,14 @@ export function DashboardApp() {
    */
   const opcoesContextoPlantao: OpcaoContextoEscala[] = escoposOperacionais.plantoesAdministraveis
     .map((grupo) => ({
-      contexto: {
-        tipo: 'PLANTAO',
-        grupoId: grupo.grupoId,
-        competencia: contextoEhPlantao(contextoEscalaAtivo) && contextoEscalaAtivo.grupoId === grupo.grupoId
+      contexto: criarContextoEscala(
+        'PLANTAO',
+        grupo.grupoId,
+        grupo.nome,
+        contextoEhPlantao(contextoEscalaAtivo) && contextoEscalaAtivo.alvoId === grupo.grupoId
           ? contextoEscalaAtivo.competencia
           : competenciaParaNovasOpcoes,
-      },
+      ),
       rotuloPrincipal: grupo.nome,
       rotuloSecundario: equipesAdmin.find((item) => item.id === grupo.equipeResponsavelId)?.nome ?? grupo.equipeResponsavelId,
     }));
@@ -6749,13 +7083,14 @@ export function DashboardApp() {
    */
   const opcoesContextoPlantaoMonitorados: OpcaoContextoEscala[] = escoposOperacionais.plantoesMonitorados
     .map((grupo) => ({
-      contexto: {
-        tipo: 'PLANTAO' as const,
-        grupoId: grupo.grupoId,
-        competencia: contextoEhPlantao(contextoEscalaAtivo) && contextoEscalaAtivo.grupoId === grupo.grupoId
+      contexto: criarContextoEscala(
+        'PLANTAO',
+        grupo.grupoId,
+        grupo.nome,
+        contextoEhPlantao(contextoEscalaAtivo) && contextoEscalaAtivo.alvoId === grupo.grupoId
           ? contextoEscalaAtivo.competencia
           : competenciaParaNovasOpcoes,
-      },
+      ),
       rotuloPrincipal: grupo.nome,
       rotuloSecundario: equipesAdmin.find((item) => item.id === grupo.equipeResponsavelId)?.nome ?? grupo.equipeResponsavelId,
     }));
@@ -6768,15 +7103,14 @@ export function DashboardApp() {
    * consulta".
    */
   const contextoPlantaoSomenteConsulta = contextoEhPlantao(contextoEscalaAtivo)
-    && escoposOperacionais.plantoesConsultaveis.some((grupo) => grupo.grupoId === contextoEscalaAtivo.grupoId);
+    && escoposOperacionais.plantoesConsultaveis.some((grupo) => grupo.grupoId === contextoEscalaAtivo.alvoId);
   const rotuloContextoAtivo = contextoEscalaAtivo === null
-    ? 'Selecionar escala'
-    : contextoEhJornada(contextoEscalaAtivo)
-      ? ((equipesAdmin.find((item) => item.id === contextoEscalaAtivo.equipeId)?.nome ?? contextoEscalaAtivo.equipeId)
-        .split('>')
-        .at(-1)
-        ?.trim() || contextoEscalaAtivo.equipeId)
-      : (gruposPlantaoAdmin.find((item) => item.grupoId === contextoEscalaAtivo.grupoId)?.nome ?? contextoEscalaAtivo.grupoId);
+    ? estadoCarregamentoOperacoes.fase === 'erro'
+      ? 'Operações indisponíveis'
+      : estadoCarregamentoOperacoes.fase === 'vazio'
+        ? 'Nenhuma operação configurada'
+        : 'Selecionar escala'
+    : contextoEscalaAtivo.label;
   /**
    * Status contextual (§ 17/§ 18 do redesign): "Publicada" para Jornada só
    * reflete um fato já calculado por `publicados`/`documentos` (nunca uma
@@ -6787,13 +7121,65 @@ export function DashboardApp() {
     ? null
     : contextoSemEscala
       ? 'sem-escala'
+      : contextoEhPlantao(contextoEscalaAtivo)
+        ? estadoPlantaoOperacionalDashboard === 'publicada' ? 'publicada' : 'rascunho'
       : (contextoEhJornada(contextoEscalaAtivo) && documentos.length > 0 && publicados.length === documentos.length)
         ? 'publicada'
         : 'rascunho';
-  const rotuloEscalaAtiva = contextoEscalaAtivo === null ? 'Escala' : rotuloContextoAtivo;
-  const periodoEscalaAtiva = resultado === null
-    ? formatarCompetencia(contextoEscalaAtivo?.competencia ?? competenciaDashboard)
-    : `${formatarData(resultado.periodoInicio, opcoesDataResumoDashboard)} até ${formatarData(resultado.periodoFim, opcoesDataResumoDashboard)}`;
+  const rotuloEscalaAtiva = contextoEscalaAtivo?.label ?? 'Nenhuma escala selecionada';
+  const periodoEscalaAtiva = contextoEhJornada(contextoEscalaAtivo) && resultado !== null
+    ? `${formatarData(resultado.periodoInicio, opcoesDataResumoDashboard)} até ${formatarData(resultado.periodoFim, opcoesDataResumoDashboard)}`
+    : contextoEhPlantao(contextoEscalaAtivo) && competenciaPlantaoExibidaDashboard !== null
+      ? `${formatarData(competenciaPlantaoExibidaDashboard.periodoInicio, opcoesDataResumoDashboard)} até ${formatarData(competenciaPlantaoExibidaDashboard.periodoFim, opcoesDataResumoDashboard)}`
+      : formatarCompetencia(contextoEscalaAtivo?.competencia ?? competenciaDashboard);
+  const quantidadePessoasEscalaAtiva = contextoEhPlantao(contextoEscalaAtivo)
+    ? participantesPlantaoDashboard
+    : documentos.length;
+  const estadoEscalaAtiva = contextoEhPlantao(contextoEscalaAtivo)
+    ? estadoPlantaoOperacionalDashboard
+    : estadoJornadaOperacionalDashboard;
+  const [anoEscalaAtiva = '', mesEscalaAtiva = ''] = (contextoEscalaAtivo?.competencia ?? competenciaDashboard).split('-');
+  const mesCurtoEscalaAtiva = /^\d{4}$/u.test(anoEscalaAtiva) && /^\d{2}$/u.test(mesEscalaAtiva)
+    ? new Intl.DateTimeFormat('pt-BR', { month: 'short', timeZone: 'UTC' })
+      .format(new Date(`${anoEscalaAtiva}-${mesEscalaAtiva}-01T00:00:00.000Z`))
+      .replace('.', '')
+      .toUpperCase()
+    : '—';
+
+  function painelCarregamentoOperacoes(): ReactNode {
+    if (estadoCarregamentoOperacoes.fase === 'sucesso') return null;
+    if (estadoCarregamentoOperacoes.fase === 'carregando') {
+      return (
+        <article className="panel organization-empty-state" role="status">
+          <LoaderCircle className="spin" size={28} aria-hidden="true" />
+          <h2>Carregando operações de escala…</h2>
+          <p>A Matriz de Responsáveis está sendo consultada.</p>
+        </article>
+      );
+    }
+    const vazio = estadoCarregamentoOperacoes.fase === 'vazio';
+    return (
+      <article className="panel organization-empty-state" role={vazio ? 'status' : 'alert'}>
+        <AlertTriangle size={28} aria-hidden="true" />
+        <h2>{vazio
+          ? 'Nenhuma operação de escala configurada para este usuário.'
+          : 'Não foi possível carregar as operações de escala'}</h2>
+        <p>{vazio
+          ? 'Peça para um ADMIN_SISTEMA criar um vínculo em Administração → Responsáveis por escala.'
+          : estadoCarregamentoOperacoes.mensagem}</p>
+        <div className="grade-header-actions">
+          <button className="secondary-button" type="button" onClick={recarregarOperacoes}>
+            <RotateCcw size={16} /> Recarregar operações
+          </button>
+          {souAdmin && (
+            <button className="primary-button" type="button" onClick={() => setTela('responsaveisEscala')}>
+              Ir para Responsáveis por escala
+            </button>
+          )}
+        </div>
+      </article>
+    );
+  }
   return (
     <AppFrame
       produto="dashboard"
@@ -6813,7 +7199,7 @@ export function DashboardApp() {
             opcoesPlantao={opcoesContextoPlantao}
             opcoesPlantaoMonitorados={opcoesContextoPlantaoMonitorados}
             onSelecionar={solicitarTrocaContexto}
-            carregando={carregandoContexto}
+            carregando={carregandoContexto || estadoCarregamentoOperacoes.fase === 'carregando'}
           />
           <ScheduleCompetenceControl
             competencia={contextoEscalaAtivo?.competencia ?? null}
@@ -6860,7 +7246,7 @@ export function DashboardApp() {
 
       {tela === 'visao' && (
         <section className="overview-dashboard overview-operations">
-          {erroResumoOperacionalDashboard !== '' && (
+          {estadoCarregamentoOperacoes.fase === 'sucesso' && erroResumoOperacionalDashboard !== '' && (
             <div className="alert error" role="alert">{erroResumoOperacionalDashboard}</div>
           )}
           <header className="page-heading overview-page-heading">
@@ -6869,15 +7255,18 @@ export function DashboardApp() {
               <h1>Visão geral</h1>
               <p className="overview-subtitle">Acompanhe as duas operações em um só lugar.</p>
             </div>
-              <div className="overview-header-actions">
+              {estadoCarregamentoOperacoes.fase === 'sucesso' && <div className="overview-header-actions">
                 <button className="secondary-button" type="button" onClick={abrirNovaEscala}>
                   <Plus size={17} /> Nova escala
                 </button>
                 <button className="primary-button" type="button" onClick={abrirImportarEscala}>
                   <Plus size={17} /> Importar escala
                 </button>
-              </div>
+              </div>}
           </header>
+
+          {painelCarregamentoOperacoes()}
+          {estadoCarregamentoOperacoes.fase === 'sucesso' && <>
 
           <div className="overview-operation-grid">
             <button
@@ -6961,6 +7350,7 @@ export function DashboardApp() {
               <button className="overview-card-link" type="button" onClick={abrirTrocasDoDashboard}>Gerenciar trocas <ChevronRight size={16} /></button>
             </article>
           </div>
+          </>}
         </section>
       )}
 
@@ -7165,7 +7555,13 @@ export function DashboardApp() {
                           setRascunhoPlantaoSalvoEm(null);
                           setErroRascunhoPlantao('');
                           if (evento.target.value !== '') {
-                            setContextoEscalaAtivo({ tipo: 'PLANTAO', grupoId: evento.target.value, competencia: competenciaRascunho });
+                            const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === evento.target.value);
+                            setContextoEscalaAtivo(criarContextoEscala(
+                              'PLANTAO',
+                              evento.target.value,
+                              grupo?.nome ?? evento.target.value,
+                              competenciaRascunho,
+                            ));
                             setContextoSemEscala(false);
                           }
                         }}
@@ -7233,6 +7629,15 @@ export function DashboardApp() {
                     >
                       {salvandoRascunhoPlantao ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}
                       {' '}Salvar rascunho
+                    </button>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={publicandoPlantao || salvandoRascunhoPlantao || rascunhoPlantaoSalvoEm !== grupoRascunhoEscolhido}
+                      onClick={() => void publicarPlantaoAcao()}
+                    >
+                      {publicandoPlantao ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
+                      {' '}Publicar Plantão
                     </button>
                   </div>
                 </>
@@ -7429,16 +7834,25 @@ export function DashboardApp() {
         <section>
           <header className="page-heading">
             <div><h1>Escalas</h1><p>Rascunhos e publicações disponíveis para a equipe.</p></div>
-            <div className="grade-header-actions">
+            {estadoCarregamentoOperacoes.fase === 'sucesso' && !contextoPlantaoSomenteConsulta && <div className="grade-header-actions">
               <button className="secondary-button" type="button" onClick={abrirImportarEscala}>
                 <UploadCloud size={17} /> Importar escala
               </button>
               <button className="primary-button" type="button" onClick={abrirNovaEscala}>
                 <Plus size={17} /> Nova escala
               </button>
-            </div>
+            </div>}
           </header>
+          {painelCarregamentoOperacoes()}
+          {estadoCarregamentoOperacoes.fase === 'sucesso' && <>
           {erroContextoEscala !== '' && <div className="alert error" role="alert">{erroContextoEscala}</div>}
+          {contextoEscalaAtivo === null && (
+            <article className="panel organization-empty-state">
+              <CalendarDays size={28} aria-hidden="true" />
+              <h2>Nenhuma operação de escala selecionada</h2>
+              <p>Selecione uma Jornada ou um Plantão no seletor superior.</p>
+            </article>
+          )}
           {contextoSemEscala && contextoEscalaAtivo !== null && (
             /*
              * Fase ESCALAS-UX-2A.1 — § 16 do redesign: trocar de contexto/
@@ -7455,20 +7869,26 @@ export function DashboardApp() {
               <p>Use &ldquo;Nova escala&rdquo; acima para importar uma planilha, criar vazia ou usar o período anterior.</p>
             </article>
           )}
-          {!contextoSemEscala && (
+          {contextoEscalaAtivo !== null && !contextoSemEscala && (
             <article className="panel scale-record">
-              <div className="scale-period"><span>AGO</span><strong>2026</strong></div>
+              <div className="scale-period"><span>{mesCurtoEscalaAtiva}</span><strong>{anoEscalaAtiva}</strong></div>
               <div className="scale-info">
                 <h2>{rotuloEscalaAtiva}</h2>
-                <p>{periodoEscalaAtiva} · {documentos.length} colaboradores</p>
-                <span className={`status-badge ${publicados.length === documentos.length && documentos.length ? 'success' : 'warning'}`}>
-                  {publicados.length === documentos.length && documentos.length ? 'Publicada' : 'Rascunho'}
+                <p>{periodoEscalaAtiva} · {quantidadePessoasEscalaAtiva} {contextoEhPlantao(contextoEscalaAtivo) ? 'participantes' : 'colaboradores'}</p>
+                <span className={`status-badge ${estadoEscalaAtiva === 'publicada' ? 'success' : 'warning'}`}>
+                  {rotuloEstadoEscalaOperacional(estadoEscalaAtiva)}
                 </span>
                 {revisaoAtual > 0 && <span className="revision-label">Revisão ativa {revisaoAtual}</span>}
               </div>
               <div className="scale-actions">
-                <button className="secondary-button" type="button" onClick={() => setTela('grade')}>Abrir editor</button>
-                {documentos.length > 0 && publicados.length !== documentos.length && (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => setTela(contextoEhPlantao(contextoEscalaAtivo) ? 'importar' : 'grade')}
+                >
+                  {contextoPlantaoSomenteConsulta ? 'Abrir consulta' : 'Abrir editor'}
+                </button>
+                {contextoEhJornada(contextoEscalaAtivo) && documentos.length > 0 && publicados.length !== documentos.length && (
                   <button
                     className="secondary-button danger-button"
                     type="button"
@@ -7478,7 +7898,7 @@ export function DashboardApp() {
                     <Trash2 size={16} /> Descartar rascunho
                   </button>
                 )}
-                <button
+                {contextoEhJornada(contextoEscalaAtivo) && <button
                   className="primary-button"
                   type="button"
                   disabled={!documentos.length || !resultado?.ok || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
@@ -7488,7 +7908,7 @@ export function DashboardApp() {
                   }}
                 >
                   <Send size={16} /> Publicar
-                </button>
+                </button>}
               </div>
             </article>
           )}
@@ -7596,6 +8016,7 @@ export function DashboardApp() {
               </div>
             )}
           </article>
+          </>}
         </section>
       )}
 
@@ -8973,7 +9394,7 @@ export function DashboardApp() {
             <div className="user-form-grid">
               {usuariosElegiveisGrade.length === 0 && (
                 <p className="admin-form-erro user-form-full" role="status">
-                  Nenhum usuário ativo encontrado para esta equipe. Cadastre ou importe usuários antes de montar a escala.
+                  Nenhum colaborador ativo encontrado para esta equipe. Cadastre ou importe usuários antes de montar a escala.
                 </p>
               )}
               <label className="user-form-full">

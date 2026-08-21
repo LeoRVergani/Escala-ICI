@@ -103,17 +103,17 @@ test('8. nenhum drag-and-drop foi introduzido por esta fase', async () => {
   }
 });
 
-test('9. nenhuma publicação de Plantão foi introduzida — publicarPlantao continua inexistente', async () => {
-  const arquivos = await Promise.all([
+test('9. a publicação de Plantão é explícita e protegida pela matriz; exclusão física publicada segue bloqueada', async () => {
+  const [writeRepo, dashboard] = await Promise.all([
     ler('lib/firebase/plantaoWriteRepository.ts'),
-    ler('lib/montagemRascunhoPlantao.ts'),
     ler('apps/dashboard/src/DashboardApp.tsx'),
   ]);
-  for (const fonte of arquivos) {
-    assert.doesNotMatch(fonte, /function publicarPlantao\(/u, 'publicarPlantao pertence a PLANTÃO-3C — a função em si não pode existir (menções em comentário explicando a ausência são esperadas)');
-  }
+  assert.match(writeRepo, /export async function publicarCompetenciaPlantao/u);
+  assert.match(dashboard, /function publicarPlantaoAcao\(/u);
   const rules = await ler('firestore.rules');
-  assert.match(rules, /allow create, update, delete: if false;/u, 'escrita de competenciasPlantao continua bloqueada');
+  const blocoPublicada = /match \/competenciasPlantao\/\{id\} \{([\s\S]*?)\n {4}\}/u.exec(rules)?.[1] ?? '';
+  assert.match(blocoPublicada, /podeAdministrarEscalaPlantao/u);
+  assert.match(blocoPublicada, /allow delete: if false/u, 'exclusão física da competência publicada continua bloqueada');
 });
 
 test('10. Firestore Rules: leitura de gruposPlantao continua incluindo o caminho de equipesConsulta (Fase ESCOPO-CONSULTA-PLANTAO-1 só ACRESCENTOU caminhos novos, nunca removeu este); nenhum deles menciona o campo de padrão semanal', async () => {

@@ -134,14 +134,19 @@ No modo Nova, o coordenador escolhe Jornada ou Plantão, define destino e compet
 
 O wizard não deve duplicar a lógica de colaboradores, turnos ou atribuições.
 
-**Atualização ESCOPO-OPERACIONAL-MATRIZ-1-CORRECAO:** ao criar Jornada vazia,
+**Atualização ESCOPO-OPERACIONAL-MATRIZ-2:** ao criar Jornada vazia,
 os colaboradores iniciais vêm de usuários ativos da equipe selecionada para a
 Jornada, não da equipe do coordenador/responsável. Em staging real, o wizard
 não pode preencher Lia Vilar, Noah Campos ou qualquer outro usuário
 sintético de demo salvo modo demo explícito. Se a equipe não tiver usuário
 ativo elegível, a escala abre sem membros e mostra o diagnóstico:
-**"Nenhum usuário ativo encontrado para esta equipe. Cadastre ou importe
+**"Nenhum colaborador ativo encontrado para esta equipe. Cadastre ou importe
 usuários antes de montar a escala."**
+
+O contexto aberto pelo wizard preserva `{ tipo, alvoId, label, competencia }`.
+Salvar/importar/publicar reutiliza esse `alvoId` e exige administração na matriz
+ativa. Jornada grava `equipeId`; Plantão grava `grupoId`. `label` nunca é chave,
+e `equipesConsulta` não habilita nenhuma ação de escrita.
 
 ## 12. Rascunho existente
 
@@ -149,7 +154,8 @@ Quando já existe rascunho para destino e competência, o aviso permanece visív
 
 Para Jornada, a verificação de rascunho/publicação deve consultar
 `rascunhosTurnosMes` e `turnosMes` por `equipeId` + competência. Para Plantão,
-deve consultar `rascunhosCompetenciasPlantao` por `grupoId` + competência. A
+deve consultar `rascunhosCompetenciasPlantao` e `competenciasPlantao` por
+`grupoId` + competência. A
 ausência de publicação não equivale a ausência total de escala quando existe
 rascunho.
 

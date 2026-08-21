@@ -80,24 +80,20 @@ test('o Dashboard roteia o preview de Plantão pelo importador/conciliação pur
  * Fase PLANTÃO-3B: a integração real acontece agora — o Dashboard PASSA a
  * importar `plantaoReadRepository.ts`/`plantaoWriteRepository.ts` (o
  * teste acima, de PLANTÃO-2, dizia o oposto porque a integração ainda não
- * existia). O que continua absolutamente proibido, em qualquer fase antes
- * de PLANTÃO-3C, é publicar: nenhuma função `publicarPlantao()` pode
- * existir, e a coleção `competenciasPlantao` (só a PUBLICADA) nunca pode
- * ser alvo de escrita a partir do Dashboard.
+ * existia). A MATRIZ-2 acrescenta a publicação explícita por `grupoId`,
+ * mantendo importador e conciliação puros.
  */
-test('o Dashboard passa a integrar plantaoReadRepository/plantaoWriteRepository (Fase PLANTÃO-3B), mas nunca publica', async () => {
+test('o Dashboard integra os repositories e publica Plantão por ação explícita', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
 
   assert.match(dashboard, /plantaoReadRepository/, 'o Dashboard deve importar a leitura persistente de Plantão');
-  assert.match(dashboard, /plantaoWriteRepository/, 'o Dashboard deve importar a escrita persistente de Plantão (rascunho)');
-
-  for (const proibido of ['publicarPlantao', /salvarDoc\(\s*['"]competenciasPlantao['"]/u]) {
-    assert.doesNotMatch(dashboard, proibido instanceof RegExp ? proibido : new RegExp(proibido, 'iu'), String(proibido));
-  }
+  assert.match(dashboard, /plantaoWriteRepository/, 'o Dashboard deve importar a escrita persistente de Plantão');
+  assert.match(dashboard, /publicarCompetenciaPlantao\(/u);
+  assert.match(dashboard, /function publicarPlantaoAcao\(/u);
 });
 
-test('plantaoWriteRepository.ts continua sem nenhuma função de publicação — publicar é PLANTÃO-3C', async () => {
+test('plantaoWriteRepository.ts publica a competência e suas atribuições na coleção PUBLICADA', async () => {
   const writeRepo = await ler('lib/firebase/plantaoWriteRepository.ts');
-  assert.doesNotMatch(writeRepo, /function\s+publicar/iu, 'nenhuma função de publicação pode existir nesta fase');
-  assert.doesNotMatch(writeRepo, /['"]competenciasPlantao['"]/u, 'a coleção PUBLICADA nunca é gravada por esta fase');
+  assert.match(writeRepo, /export async function publicarCompetenciaPlantao/u);
+  assert.match(writeRepo, /['"]competenciasPlantao['"]/u);
 });

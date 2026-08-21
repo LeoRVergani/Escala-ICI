@@ -1,6 +1,6 @@
 # Especificação — Matriz de Responsáveis por Escala
 
-**Fase:** ESCOPO-OPERACIONAL-MATRIZ-1  
+**Fase:** ESCOPO-OPERACIONAL-MATRIZ-2
 **Status:** normativa  
 **Data:** agosto de 2026
 
@@ -155,7 +155,7 @@ Seed de staging real não deve criar colaboradores sintéticos automaticamente. 
 
 Responsável por escala não é dono dos colaboradores. Colaboradores pertencem à equipe/grade da escala aberta.
 
-Para Jornada, a grade usa usuários ativos vinculados à equipe da Jornada ou membros já existentes daquela grade, conforme o modelo atual. Se não houver usuário ativo elegível para a equipe, o Dashboard deve mostrar: **“Nenhum usuário ativo encontrado para esta equipe. Cadastre ou importe usuários antes de montar a escala.”**
+Para Jornada, a grade usa usuários ativos vinculados à equipe da Jornada ou membros já existentes daquela grade, conforme o modelo atual. Se não houver usuário ativo elegível para a equipe, o Dashboard deve mostrar: **“Nenhum colaborador ativo encontrado para esta equipe. Cadastre ou importe usuários antes de montar a escala.”**
 
 O modal **Adicionar colaborador à grade** lista apenas usuários ativos da equipe da escala que ainda não estão na grade. Nunca deve usar a equipe do coordenador como fallback e nunca deve injetar nomes demo/sintéticos em staging real.
 
@@ -179,6 +179,35 @@ guard de alterações não salvas.
 
 `GrupoPlantao ativo:false` não influencia destino operacional de Equipe. Uma equipe vinculada a um grupo inativo continua aparecendo conforme seu domínio real de Jornada, quando aplicável, e o grupo inativo aparece apenas em **Administração → Grupos de Plantão** com badge **Inativo**.
 
+## 9.5. Carregamento, diagnóstico e recuperação
+
+A leitura de `escoposOperacionais` é uma carga única, com timeout e quatro
+estados explícitos: **carregando**, **sucesso**, **vazio** e **erro**. Toda
+tentativa deve terminar em um dos três estados terminais; lista vazia é
+resultado válido e nunca mantém o seletor em loading.
+
+- `permission-denied` mostra: **“Não foi possível carregar a Matriz de
+  Responsáveis. Verifique se as Firestore Rules de staging foram
+  publicadas.”**;
+- indisponibilidade de rede mostra erro recuperável e **Recarregar
+  operações**;
+- usuário sem alvo administrável/consultável mostra **“Nenhuma operação de
+  escala configurada para este usuário.”** e orienta solicitar o vínculo em
+  **Administração → Responsáveis por escala**;
+- `ADMIN_SISTEMA` também recebe **Ir para Responsáveis por escala**;
+- esses estados nunca são mascarados como **Sem escala**, que significa que
+  o alvo existe, mas não possui rascunho/publicação na competência.
+
+O contexto salvo no `localStorage` é somente preferência de UI. Depois da
+carga, ele é revalidado por `tipo + alvoId` contra os alvos ativos da matriz.
+Alvo inexistente, desativado ou Grupo de Plantão inativo é removido e exige
+nova seleção; nunca pode travar a página.
+
+O fallback operacional legado é opt-in por
+`VITE_ESCALA_FALLBACK_OPERACIONAL_LEGADO=true`. Sem essa autorização
+explícita, ausência de vínculo na matriz produz estado vazio. Mesmo com o
+opt-in, matriz existente — inclusive inativa — continua vencendo para o alvo.
+
 ## 10. Rules
 
 `escoposOperacionais`:
@@ -191,4 +220,36 @@ guard de alterações não salvas.
 - usuário comum não cria/edita escopo nem se coloca como responsável;
 - consulta não vira administração.
 
-Nesta fase, as escritas de Jornada/Plantão ainda podem depender das Rules antigas. Essa limitação é transitória: o caminho preparado é migrar a autorização operacional de escrita para a matriz.
+**Atualização ESCOPO-OPERACIONAL-MATRIZ-2:** a matriz governa também a
+escrita operacional. `ADMIN_SISTEMA` continua global. Fora dele, criar,
+importar, salvar e publicar exige um documento ativo e compatível cujo
+`responsaveisLogin` contenha o login autenticado ou cujo
+`responsaveisEquipe` contenha uma das equipes permitidas do usuário.
+`equipesConsulta` concede somente leitura/monitoramento.
+
+O alvo é a identidade persistente do contexto, nunca o rótulo visual:
+
+- Jornada escreve e lê por `equipeId == alvoId`;
+- Plantão escreve e lê por `grupoId == alvoId`;
+- `label`/`alvoNome` é apenas apresentação;
+- o responsável não substitui o alvo e não se torna dono dos colaboradores.
+
+O fallback de autorização anterior permanece somente para alvos sem qualquer
+documento de matriz e quando a compatibilidade legada estiver explicitamente
+habilitada. A existência de matriz inativa ou incompatível bloqueia o fallback.
+Deletes físicos que já eram negados continuam negados, inclusive nas
+competências e atribuições publicadas de Plantão.
+
+Para que a importação de Jornada funcione quando responsável e equipe-alvo são
+distintos, a mesma autorização permite listar `usuarios` da equipe-alvo,
+cadastrar os usuários ausentes dessa equipe sem `perfil`, `escopo` ou campos
+organizacionais e atualizar somente `aliasesPlanilha`/`atualizadoEm` durante a
+conciliação. Isso não concede edição geral, promoção, realocação ou exclusão de
+usuários. Updates de rascunho, turno publicado e estado de publicação também
+validam o alvo já persistido e mantêm `equipeId`/competência imutáveis, para o
+payload não poder redirecionar um documento de outro alvo.
+
+Quando a conta não consta como responsável, a UI informa **“Você não está
+configurado como responsável por esta escala.”**. Quando o cliente reconhece a
+matriz, mas o ambiente ainda responde `permission-denied`, informa **“As regras
+de escrita ainda não reconhecem a matriz operacional neste ambiente.”**.

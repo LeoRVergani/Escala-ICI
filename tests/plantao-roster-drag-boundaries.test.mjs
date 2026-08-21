@@ -154,9 +154,9 @@ test('15. nenhuma sigla hardcoded (COSI/SOC/NOC/CODB) nos componentes/funções 
   }
 });
 
-test('16. nenhuma publicação de Plantão foi introduzida — publicarPlantao continua inexistente, status "Rascunho" não muda automaticamente', async () => {
+test('16. publicação de Plantão é explícita; criar atribuição não muda automaticamente o status do rascunho', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  assert.doesNotMatch(dashboard, /function publicarPlantao\(/u, 'publicarPlantao pertence a PLANTÃO-3C');
+  assert.match(dashboard, /function publicarPlantaoAcao\(/u);
   const criar = /function criarAtribuicaoPlantaoNaWorkingCopy\(valores: FormularioAtribuicaoPlantao\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.doesNotMatch(criar[1], /status:\s*'PUBLICADA'/u, 'criar uma atribuição nunca pode mudar o status para PUBLICADA');
 });

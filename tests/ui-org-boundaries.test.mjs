@@ -126,10 +126,10 @@ test('12. nenhuma dependência de testing-library/jsdom foi adicionada ao packag
   }
 });
 
-test('13. as funções de escrita de Plantão continuam com diff zero nesta fase — só a UI que as chama mudou', async () => {
+test('13. o repository de Plantão preserva as escritas existentes e acrescenta publicação explícita', async () => {
   const writeRepo = await ler('lib/firebase/plantaoWriteRepository.ts');
   for (const esperado of ['export async function salvarGrupoPlantao', 'export async function salvarParticipantePlantao', 'export async function salvarCompetenciaPlantaoRascunho', 'export async function salvarAtribuicoesPlantaoRascunho']) {
     assert.match(writeRepo, new RegExp(esperado.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'), esperado);
   }
-  assert.doesNotMatch(writeRepo, /function publicar/iu, 'nenhuma função de publicação pode existir nesta fase');
+  assert.match(writeRepo, /export async function publicarCompetenciaPlantao/u);
 });

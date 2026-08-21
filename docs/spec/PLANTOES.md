@@ -2242,3 +2242,16 @@ periodoFim`, via `dataPertenceCompetencia()`) — dias de contexto visual
 já existentes/importadas nunca são afetadas — a regra vale só para
 criação nova pela UI. Ver `docs/spec/EDITOR_ESCALAS.md` §12.10 e
 `CHECKPOINT-FASE-ESCALAS-UX-2B1-LIMITES-COMPETENCIA.md`.
+
+## 30. ESCOPO-OPERACIONAL-MATRIZ-2 — publicação por grupo
+
+As limitações históricas de fases anteriores que registravam Plantão “sem
+publicação” foram superadas por esta fase. A publicação agora é uma ação
+explícita do Dashboard, implementada por `publicarCompetenciaPlantao()`.
+
+- a chave mensal é `grupoId`, nunca `equipeResponsavelId` ou nome visual;
+- somente `ADMIN_SISTEMA` ou responsável em matriz operacional ativa pode
+  salvar/publicar;
+- `equipesConsulta` lê e monitora, mas não escreve;
+- o read model consulta rascunho e publicação para distinguir os três estados;
+- competências e atribuições publicadas continuam sem delete físico.

@@ -120,6 +120,14 @@ export async function salvarRascunho(
   if (!resultado.ok) {
     throw new Error('Não é permitido persistir uma importação com erros.');
   }
+  const primeiro = resultado.documentos[0];
+  if (primeiro === undefined) {
+    throw new Error('Não é permitido salvar uma escala sem colaboradores.');
+  }
+  if (resultado.documentos.some((documento) =>
+    documento.equipeId !== primeiro.equipeId || documento.competencia !== primeiro.competencia)) {
+    throw new Error('Todos os documentos do rascunho devem pertencer ao mesmo alvo e competência.');
+  }
 
   const { db } = exigirFirebase();
   const importacaoId = gerarUuid();
@@ -145,8 +153,8 @@ export async function salvarRascunho(
 
     if (indice === 0) {
       batch.set(doc(db, 'importacoes', importacaoId), removerUndefined({
-        equipeId: enviadoPor.equipeId,
-        competencia: resultado.documentos[0]?.competencia ?? '',
+        equipeId: primeiro.equipeId,
+        competencia: primeiro.competencia,
         enviadoPor: enviadoPor.login,
         nomeArquivo,
         periodoInicio: resultado.periodoInicio,

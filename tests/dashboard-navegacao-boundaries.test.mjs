@@ -121,10 +121,11 @@ test('10. ESCALAS-UX-2A em si não implementou ContextoEscalaAtivo — isso fico
   }
 });
 
-test('11. nenhuma mudança de schema/Rules — firestore.rules e a origem de Plantão continuam exatamente como na ESCALAS-UX-1C', async () => {
+test('11. a origem de Plantão preserva os quatro valores após a autorização matricial nas Rules', async () => {
   const rules = await ler('firestore.rules');
   const ocorrenciasCopiado = rules.match(/COPIADO/gu) ?? [];
-  assert.equal(ocorrenciasCopiado.length, 5, 'firestore.rules precisa ter exatamente as mesmas 5 ocorrências de COPIADO da ESCALAS-UX-1C (4 no enum + 1 no comentário) — nenhuma mudança de schema nesta fase');
+  assert.ok(ocorrenciasCopiado.length >= 5, 'as validações de origem de Plantão precisam continuar aceitando COPIADO');
+  assert.match(rules, /podeAdministrarEscalaPlantao/u, 'as Rules precisam aplicar a matriz operacional à escrita de Plantão');
   const modelo = await ler('packages/contrato/src/modeloPlantaoPersistente.ts');
   assert.match(modelo, /export type OrigemPlantao = 'IMPORTADO' \| 'MANUAL' \| 'GERADO' \| 'COPIADO';/u, 'OrigemPlantao precisa continuar exatamente com os mesmos 4 valores, nenhum novo');
 });

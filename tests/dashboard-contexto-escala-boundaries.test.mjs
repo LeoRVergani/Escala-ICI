@@ -34,15 +34,15 @@ test('3. Escala/Competência ficam à esquerda; notificações/tema/conta contin
   assert.ok(indiceContexto > 0 && indiceAcoes > indiceContexto, 'o cluster de contexto precisa vir antes das ações globais no header');
 });
 
-test('4. ContextoEscalaAtivo nunca usa nome/sigla/UID/cargo como identidade — só equipeId/grupoId (IDs reais)', async () => {
+test('4. ContextoEscalaAtivo usa tipo+alvoId como identidade e mantém label somente para apresentação', async () => {
   const fonte = semComentarios(await ler('lib/contextoEscala.ts'));
   const tipo = /export type ContextoEscalaAtivo =([\s\S]*?);\n\n/u.exec(fonte);
   assert.ok(tipo, 'o tipo ContextoEscalaAtivo precisa existir');
-  for (const proibido of ['nome', 'sigla', 'uid', 'cargo', 'rotulo']) {
+  for (const proibido of ['nome', 'sigla', 'uid', 'cargo', 'equipeId', 'grupoId']) {
     assert.doesNotMatch(tipo[1].toLowerCase(), new RegExp(`\\b${proibido}\\b`, 'u'), `ContextoEscalaAtivo não pode ter um campo "${proibido}"`);
   }
-  assert.match(tipo[1], /equipeId: string/u);
-  assert.match(tipo[1], /grupoId: string/u);
+  assert.match(tipo[1], /alvoId: string/u);
+  assert.match(tipo[1], /label: string/u);
 });
 
 // --- § 44/§ 47: guarda única de alterações não salvas ---
@@ -167,7 +167,7 @@ test('28. Adicionar colaborador à grade usa elegibilidade da equipe da escala, 
   const adicionarMembro = /async function confirmarAdicionarMembroGrade\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(adicionarMembro, 'confirmarAdicionarMembroGrade precisa existir');
   assert.match(dashboard, /usuariosElegiveisParaAdicionarNaGrade\(usuarios, documentos, equipeIdDaGradeAtiva\)/u);
-  assert.match(dashboard, /Nenhum usuário ativo encontrado para esta equipe\. Cadastre ou importe usuários antes de montar a escala\./u);
+  assert.match(dashboard, /Nenhum colaborador ativo encontrado para esta equipe\. Cadastre ou importe usuários antes de montar a escala\./u);
   assert.doesNotMatch(adicionarMembro[1], /usuarioEfetivo\.equipeId/u, 'colaborador da grade pertence à equipe da escala, não ao coordenador');
   assert.match(adicionarMembro[1], /equipeId:\s*equipeIdDaGradeAtiva/u);
 });
@@ -214,8 +214,8 @@ test('33. Abrir operação na Visão geral seleciona o contexto superior pelo ID
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const abrir = /function abrirOperacaoDoDashboard\(tipo: 'JORNADA' \| 'PLANTAO'\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(abrir, 'abrirOperacaoDoDashboard precisa existir');
-  assert.match(abrir[1], /equipeId: equipeJornadaDashboard\.id/u, 'Jornada deve selecionar a equipeId real do alvo no switcher');
-  assert.match(abrir[1], /grupoId: grupoPlantaoDashboard\.grupoId/u, 'Plantão deve selecionar o grupoId real do alvo no switcher');
+  assert.match(abrir[1], /criarContextoEscala\([\s\S]*?equipeJornadaDashboard\.id/u, 'Jornada deve selecionar o equipeId real como alvo no switcher');
+  assert.match(abrir[1], /criarContextoEscala\([\s\S]*?grupoPlantaoDashboard\.grupoId/u, 'Plantão deve selecionar o grupoId real como alvo no switcher');
   assert.match(abrir[1], /solicitarTrocaContexto\(alvo\)/u, 'abertura deve passar pelo guard de alterações não salvas');
 });
 
@@ -265,20 +265,21 @@ test('12. aplicarTrocaContexto (Jornada) carrega rascunho/publicada por equipeId
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const corpo = /async function aplicarTrocaContexto\(alvo: ContextoEscalaAtivo\) \{([\s\S]*?)\n {2}\}\n/u.exec(dashboard);
   assert.ok(corpo);
-  assert.match(corpo[1], /carregarRascunhosEquipe\(alvo\.equipeId, alvo\.competencia\)/u);
-  assert.match(corpo[1], /carregarEscalasEquipe\(alvo\.equipeId, alvo\.competencia, true\)/u);
+  assert.match(corpo[1], /carregarRascunhosEquipe\(alvo\.alvoId, alvo\.competencia\)/u);
+  assert.match(corpo[1], /carregarEscalasEquipe\(alvo\.alvoId, alvo\.competencia, true\)/u);
   assert.match(corpo[1], /periodoDaCompetencia\(alvo\.competencia\)/u);
 });
 
 // --- § 50: competência ausente nunca cria automaticamente ---
 
-test('13. quando não existe rascunho de Plantão para o alvo, aplicarTrocaContexto marca "sem escala" e vai para Escalas — nunca cria/salva nada', async () => {
+test('13. quando não existe rascunho de Plantão, aplicarTrocaContexto só marca vazio se também não houver publicação', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const corpo = /async function aplicarTrocaContexto\(alvo: ContextoEscalaAtivo\) \{([\s\S]*?)\n {2}\}\n/u.exec(dashboard);
   assert.ok(corpo);
   const blocoSemRascunho = /if \(competenciaExistente === null\) \{([\s\S]*?)\}/u.exec(corpo[1]);
   assert.ok(blocoSemRascunho, 'o branch de "competência sem rascunho" precisa existir');
-  assert.match(blocoSemRascunho[1], /setContextoSemEscala\(true\)/u);
+  assert.match(corpo[1], /obterCompetenciaPlantaoPublicada\(grupo\.grupoId, alvo\.competencia\)/u);
+  assert.match(blocoSemRascunho[1], /setContextoSemEscala\(competenciaPublicada === null\)/u);
   assert.doesNotMatch(blocoSemRascunho[1], /salvarCompetenciaPlantaoRascunho|salvarAtribuicoesPlantaoRascunho|montarCompetenciaPlantaoRascunho/u, 'nunca criar/salvar uma competência automaticamente');
 });
 
@@ -296,21 +297,19 @@ test('15. a tela Escalas mostra "Nenhuma escala criada" só quando contextoSemEs
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   assert.match(dashboard, /contextoSemEscala && contextoEscalaAtivo !== null && \(/u, 'o estado vazio precisa ser condicionado a contextoSemEscala');
   assert.match(dashboard, /Nenhuma escala criada para/u);
-  assert.match(dashboard, /\{!contextoSemEscala && \(/u, 'o card de escala existente precisa ficar mutuamente exclusivo com o estado vazio');
+  assert.match(dashboard, /\{contextoEscalaAtivo !== null && !contextoSemEscala && \(/u, 'o card de escala existente precisa ficar mutuamente exclusivo com o estado vazio');
 });
 
 // --- § 51: status ---
 
-test('16. status "publicada" para Jornada só reflete um cálculo já existente (publicados/documentos) — Plantão nunca mostra "publicada" nesta fase', async () => {
+test('16. status publicado reflete o estado persistido de Jornada ou Plantão', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  const statusVar = /const statusContextoAtivo: StatusContextoEscala \| null = ([\s\S]*?);\n {2}return/u.exec(dashboard);
+  const statusVar = /const statusContextoAtivo: StatusContextoEscala \| null = ([\s\S]*?);\n {2}const rotuloEscalaAtiva/u.exec(dashboard);
   assert.ok(statusVar, 'statusContextoAtivo precisa existir');
   assert.match(statusVar[1], /publicados\.length === documentos\.length/u, 'Jornada precisa reaproveitar o cálculo já existente de "publicados"');
-  assert.doesNotMatch(statusVar[1], /'publicada'\s*:\s*'publicada'/u);
-  // Fora do branch de Jornada, o único status possível para Plantão é 'rascunho' (ou 'sem-escala' já tratado antes).
+  assert.match(statusVar[1], /estadoPlantaoOperacionalDashboard/u);
   const badge = semComentarios(await ler('components/escalas/ScheduleStatusBadge.tsx'));
   assert.match(badge, /publicada: 'Publicada'/u);
-  assert.doesNotMatch(badge, /publicarPlantao|PLANTAO.*publicad/iu, 'nenhuma funcionalidade nova de publicação de Plantão');
 });
 
 test('17. status nunca vira um controle editável — ScheduleStatusBadge não tem nenhum onClick/onChange', async () => {
@@ -370,4 +369,50 @@ test('20. o roster lateral, drag-and-drop, padrão de horário e importação in
   }
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   assert.doesNotMatch(dashboard, /ScheduleRoster/u, 'ScheduleRoster pertence a ESCALAS-UX-2B');
+});
+
+test('34. matriz tem uma única carga central com estados terminais e tentativa manual', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.equal(
+    (dashboard.match(/listarEscoposOperacionais\(\)/gu) ?? []).length,
+    1,
+    'o Dashboard não pode manter leituras concorrentes da matriz',
+  );
+  assert.match(dashboard, /useState<EstadoCarregamentoOperacoes>\(\{ fase: 'carregando' \}\)/u);
+  assert.match(dashboard, /carregarOperacoesComEstado\(/u);
+  assert.match(dashboard, /estaVazio:/u);
+  assert.match(dashboard, /function recarregarOperacoes\(\)/u);
+  assert.match(dashboard, /> Recarregar operações/u);
+});
+
+test('35. seletor superior combina a carga da matriz e do contexto, mas volta a ficar utilizável após erro', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(
+    dashboard,
+    /carregando=\{carregandoContexto \|\| estadoCarregamentoOperacoes\.fase === 'carregando'\}/u,
+  );
+  assert.match(dashboard, /'Operações indisponíveis'/u);
+  assert.match(dashboard, /'Nenhuma operação configurada'/u);
+  const switcher = await ler('components/escalas/ScheduleContextSwitcher.tsx');
+  assert.match(switcher, /disabled=\{carregando\}/u);
+  assert.match(switcher, /Nenhuma operação de escala configurada para este usuário\./u);
+});
+
+test('36. UI diferencia vazio, Rules, rede e não renderiza card de escala sem alvo', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const carga = await ler('lib/carregamentoOperacoes.ts');
+  assert.match(dashboard, /Nenhuma operação de escala configurada para este usuário\./u);
+  assert.match(dashboard, /Peça para um ADMIN_SISTEMA criar um vínculo em Administração → Responsáveis por escala\./u);
+  assert.match(carga, /Não foi possível carregar a Matriz de Responsáveis\. Verifique se as Firestore Rules de staging foram publicadas\./u);
+  assert.match(carga, /Verifique sua conexão e tente novamente\./u);
+  assert.match(dashboard, /\{contextoEscalaAtivo !== null && !contextoSemEscala && \(/u);
+});
+
+test('37. contexto do localStorage é revalidado e removido quando o alvo some ou é inativado', async () => {
+  const contexto = semComentarios(await ler('lib/contextoEscala.ts'));
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(contexto, /restaurarContextoEscalaPersistido/u);
+  assert.match(contexto, /armazenamento\.removeItem\(chave\)/u);
+  assert.match(dashboard, /limparContextoEscalaPersistido/u);
+  assert.match(dashboard, /A operação selecionada foi desativada ou removida/u);
 });

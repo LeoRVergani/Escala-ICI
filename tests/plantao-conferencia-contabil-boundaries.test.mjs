@@ -50,13 +50,14 @@ test('4. ausência (linha de total não declarada) nunca vira zero — sempre nu
   assert.doesNotMatch(dashboard, /totaisInformados\?\.[a-zA-Z]+\s*\?\?\s*'—'/u);
 });
 
-test('5. nenhuma publicação foi implementada — publicarPlantao continua inexistente como função real', async () => {
+test('5. a publicação explícita de Plantão usa o repository dedicado', async () => {
   const [writeRepo, dashboard] = await Promise.all([
     ler('lib/firebase/plantaoWriteRepository.ts'),
     ler('apps/dashboard/src/DashboardApp.tsx'),
   ]);
-  assert.doesNotMatch(semComentarios(writeRepo), /function publicar/iu);
-  assert.doesNotMatch(semComentarios(dashboard), /publicarPlantao\(/u, 'nenhuma CHAMADA real a publicarPlantao() — menções em comentários explicando a ausência são esperadas');
+  assert.match(semComentarios(writeRepo), /export async function publicarCompetenciaPlantao/u);
+  assert.match(semComentarios(dashboard), /publicarCompetenciaPlantao\(/u);
+  assert.match(semComentarios(dashboard), /function publicarPlantaoAcao\(/u);
 });
 
 test('6. nenhum novo campo foi acrescentado ao schema Firestore de Plantão — modelo persistente com diff de conteúdo compatível', async () => {

@@ -198,7 +198,7 @@ export function ScheduleContextSwitcher({
           )}
           {opcoesJornadaFiltradas.length === 0 && opcoesPlantaoFiltradas.length === 0 && opcoesPlantaoMonitoradosFiltradas.length === 0 && (
             <p className="escala-context-vazio">
-              {totalOpcoes === 0 ? 'Nenhuma escala disponível para o seu perfil.' : 'Nenhuma escala encontrada.'}
+              {totalOpcoes === 0 ? 'Nenhuma operação de escala configurada para este usuário.' : 'Nenhuma escala encontrada.'}
             </p>
           )}
         </div>

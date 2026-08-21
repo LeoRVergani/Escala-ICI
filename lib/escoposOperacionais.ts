@@ -85,6 +85,7 @@ export function resolverEscoposOperacionais(
   equipes: readonly Equipe[],
   gruposPlantao: readonly GrupoPlantao[],
   escoposOperacionais: readonly EscopoOperacional[] = [],
+  opcoes: { permitirFallbackLegado?: boolean } = {},
 ): EscoposOperacionais {
   const admin = ehAdminSistema(usuarioEfetivo);
   const perfil = perfilEfetivo(usuarioEfetivo);
@@ -113,14 +114,18 @@ export function resolverEscoposOperacionais(
   });
 
   const idsEquipeResponsavelPlantao = new Set(gruposPlantao.filter((grupo) => grupo.ativo).map((grupo) => grupo.equipeResponsavelId));
-  const jornadasFallback = equipesAdministraveis.filter((equipe) => !idsEquipeResponsavelPlantao.has(equipe.id));
+  const permitirFallbackLegado = opcoes.permitirFallbackLegado === true;
+  const jornadasFallback = permitirFallbackLegado
+    ? equipesAdministraveis.filter((equipe) => !idsEquipeResponsavelPlantao.has(equipe.id))
+    : [];
   const jornadasAdministraveis = [
     ...matriz.jornadasAdministraveis,
     ...jornadasFallback.filter((equipe) => !matriz.alvoTemMatriz('JORNADA', equipe.id)),
   ].filter((equipe, indice, lista) => lista.findIndex((item) => item.id === equipe.id) === indice);
 
-  const gruposPlantaoFallback = gruposPlantao.filter((grupo) =>
-    grupo.ativo && podeGerenciarGrupoPlantao(usuarioEfetivo, grupo));
+  const gruposPlantaoFallback = permitirFallbackLegado
+    ? gruposPlantao.filter((grupo) => grupo.ativo && podeGerenciarGrupoPlantao(usuarioEfetivo, grupo))
+    : [];
   const gruposPlantaoAdministraveis = [
     ...matriz.plantoesAdministraveis,
     ...gruposPlantaoFallback.filter((grupo) => !matriz.alvoTemMatriz('PLANTAO', grupo.grupoId)),
@@ -137,7 +142,7 @@ export function resolverEscoposOperacionais(
    */
   const idsGruposAdministraveis = new Set(gruposPlantaoAdministraveis.map((grupo) => grupo.grupoId));
   const equipesConsultaBase = equipesPermitidasEfetivas(usuarioEfetivo);
-  const plantoesConsultaveisFallback = admin
+  const plantoesConsultaveisFallback = admin || !permitirFallbackLegado
     ? []
     : gruposPlantao.filter((grupo) =>
       grupo.ativo

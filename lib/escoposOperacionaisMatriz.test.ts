@@ -4,6 +4,8 @@ import type { Equipe, EscopoOperacional, Usuario } from './modelos';
 import { resolverEscoposOperacionais } from './escoposOperacionais';
 import {
   particionarResponsaveisLoginPorElegibilidade,
+  usuarioPodeAdministrarAlvoOperacional,
+  usuarioPodeConsultarPlantaoOperacional,
   usuariosResponsaveisOperacionaisElegiveis,
 } from './escoposOperacionaisMatriz';
 
@@ -78,6 +80,8 @@ describe('matriz operacional explícita', () => {
     expect(resultado.jornadasAdministraveis.map((item) => item.id)).toEqual([EQ_SOC.id]);
     expect(resultado.plantoesAdministraveis.map((item) => item.grupoId)).toEqual([PLANTAO_COSI.grupoId]);
     expect(resultado.plantoesMonitorados.map((item) => item.grupoId)).not.toContain(PLANTAO_COSI.grupoId);
+    expect(usuarioPodeAdministrarAlvoOperacional(marina, escopos, 'JORNADA', EQ_SOC.id)).toBe(true);
+    expect(usuarioPodeAdministrarAlvoOperacional(marina, escopos, 'PLANTAO', PLANTAO_COSI.grupoId)).toBe(true);
   });
 
   it('usuário comum SOC vê Plantão COSI apenas como monitorado quando está em equipesConsulta', () => {
@@ -86,6 +90,8 @@ describe('matriz operacional explícita', () => {
 
     expect(resultado.plantoesAdministraveis).toEqual([]);
     expect(resultado.plantoesMonitorados.map((item) => item.grupoId)).toEqual([PLANTAO_COSI.grupoId]);
+    expect(usuarioPodeConsultarPlantaoOperacional(analista, escopos, PLANTAO_COSI.grupoId)).toBe(true);
+    expect(usuarioPodeAdministrarAlvoOperacional(analista, escopos, 'PLANTAO', PLANTAO_COSI.grupoId)).toBe(false);
   });
 
   it('Wanessa administra Jornada NOC, mas consulta não vira administração de Plantão COSI/CODB', () => {

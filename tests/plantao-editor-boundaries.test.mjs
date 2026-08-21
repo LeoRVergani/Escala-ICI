@@ -246,21 +246,22 @@ test('23. a limpeza de documentos órfãos em salvarAtribuicoesPlantaoRascunho()
   assert.match(fonte, /batch\.delete\(/u, 'a limpeza de documentos órfãos precisa existir');
 });
 
-test('24. nenhuma publicação, nenhum copiar-anterior, nenhum drag-and-drop foram introduzidos por esta fase', async () => {
-  const arquivos = await Promise.all([
+test('24. a publicação fica isolada no repository; módulos puros continuam sem copiar-anterior ou drag-and-drop', async () => {
+  const arquivosPuros = await Promise.all([
     ler('lib/montagemRascunhoPlantao.ts'),
     ler('lib/editorPlantao.ts'),
-    ler('lib/firebase/plantaoWriteRepository.ts'),
     ler('lib/firebase/plantaoReadRepository.ts'),
   ]);
-  for (const fonteBruta of arquivos) {
+  for (const fonteBruta of arquivosPuros) {
     const fonte = semComentarios(fonteBruta);
-    assert.doesNotMatch(fonte, /function\s+publicarPlantao/u, 'nenhuma função de publicação pode existir nesta fase');
-    assert.doesNotMatch(fonte, /['"]competenciasPlantao['"]/u, 'a coleção PUBLICADA nunca é escrita por esta fase');
+    assert.doesNotMatch(fonte, /function\s+publicarCompetenciaPlantao/u, 'módulos puros não publicam');
     for (const proibido of ['onDragStart', 'onDrop', 'draggable', 'copiarPeriodoAnterior', 'copiarEscalaAnterior']) {
       assert.doesNotMatch(fonte, new RegExp(proibido, 'iu'), proibido);
     }
   }
+  const writeRepo = semComentarios(await ler('lib/firebase/plantaoWriteRepository.ts'));
+  assert.match(writeRepo, /export async function publicarCompetenciaPlantao/u);
+  assert.match(writeRepo, /['"]competenciasPlantao['"]/u);
 });
 
 test('25. firestore.rules continua com diff zero — a correção de leitura para GESTOR_EQUIPE foi feita no repository, nunca na Rule', async () => {

@@ -260,7 +260,8 @@ test('o laboratório importa XLS na equipe autenticada e limita a leitura do App
   ]);
 
   assert.match(dashboard, /interpretar\(await resposta\.arrayBuffer\(\)/);
-  assert.match(dashboard, /novoUsuario\(usuarios\.length \+ indice \+ 1, usuarioEfetivo, login, true\)/);
+  assert.match(dashboard, /const responsavelDoAlvo = \{ \.\.\.usuarioEfetivo, equipeId: equipeAlvoId \}/);
+  assert.match(dashboard, /novoUsuario\(usuarios\.length \+ indice \+ 1, responsavelDoAlvo, login, true\)/);
   assert.match(dashboard, /salvarUsuarios\(novos\)/);
   assert.match(dashboard, /!resultado\?\.ok/);
   assert.match(app, /autenticado\.equipeId/);
@@ -406,7 +407,7 @@ test('a fase 3K-D2 mantém a gestão de usuários e a conciliação exclusivas d
   assert.match(dashboard, /excluirRascunho/);
   assert.match(dashboard, /abrirEdicaoUsuario/);
   assert.match(dashboard, /alternarAtivoUsuario/);
-  assert.match(dashboard, /novoUsuario\(usuarios\.length \+ indice \+ 1, usuarioEfetivo, login, true\)/);
+  assert.match(dashboard, /novoUsuario\(usuarios\.length \+ indice \+ 1, responsavelDoAlvo, login, true\)/);
 
   // Contrato de usuário estendido e regra de edição pelo gestor da própria equipe.
   assert.match(modelos, /aliasesPlanilha/);

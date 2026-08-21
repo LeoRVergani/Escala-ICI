@@ -86,6 +86,27 @@ function usuarioConsultaEscopo(usuario: Usuario, escopo: EscopoOperacional | und
   return escopo.equipesConsulta.some((equipeId) => equipesUsuario.includes(equipeId));
 }
 
+/** Gate puro compartilhável por comandos de abrir/salvar/publicar. */
+export function usuarioPodeAdministrarAlvoOperacional(
+  usuario: Usuario,
+  escopos: readonly EscopoOperacional[],
+  tipo: EscopoOperacional['tipo'],
+  alvoId: string,
+): boolean {
+  return ehAdminSistema(usuario) || usuarioAdministraEscopo(usuario, escopoDoAlvo(escopos, tipo, alvoId));
+}
+
+/** Consulta/monitoramento nunca equivale ao gate de administração acima. */
+export function usuarioPodeConsultarPlantaoOperacional(
+  usuario: Usuario,
+  escopos: readonly EscopoOperacional[],
+  grupoId: string,
+): boolean {
+  return ehAdminSistema(usuario)
+    || usuarioAdministraEscopo(usuario, escopoDoAlvo(escopos, 'PLANTAO', grupoId))
+    || usuarioConsultaEscopo(usuario, escopoDoAlvo(escopos, 'PLANTAO', grupoId));
+}
+
 export function resolverMatrizOperacional(params: {
   usuario: Usuario;
   equipes: readonly Equipe[];
@@ -97,15 +118,15 @@ export function resolverMatrizOperacional(params: {
   const equipesAtivas = equipes.filter((equipe) => equipe.ativa);
   const gruposAtivos = gruposPlantao.filter((grupo) => grupo.ativo);
 
-  const jornadasAdministraveis = admin
-    ? equipesAtivas
-    : equipesAtivas.filter((equipe) =>
-      usuarioAdministraEscopo(usuario, escopoDoAlvo(escoposOperacionais, 'JORNADA', equipe.id)));
+  const jornadasAdministraveis = equipesAtivas.filter((equipe) => {
+    const escopo = escopoDoAlvo(escoposOperacionais, 'JORNADA', equipe.id);
+    return admin ? escopo !== undefined : usuarioAdministraEscopo(usuario, escopo);
+  });
 
-  const plantoesAdministraveis = admin
-    ? gruposAtivos
-    : gruposAtivos.filter((grupo) =>
-      usuarioAdministraEscopo(usuario, escopoDoAlvo(escoposOperacionais, 'PLANTAO', grupo.grupoId)));
+  const plantoesAdministraveis = gruposAtivos.filter((grupo) => {
+    const escopo = escopoDoAlvo(escoposOperacionais, 'PLANTAO', grupo.grupoId);
+    return admin ? escopo !== undefined : usuarioAdministraEscopo(usuario, escopo);
+  });
 
   const idsPlantoesAdministraveis = new Set(plantoesAdministraveis.map((grupo) => grupo.grupoId));
   const plantoesConsultaveis = admin

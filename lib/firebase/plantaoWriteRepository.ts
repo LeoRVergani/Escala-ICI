@@ -15,11 +15,8 @@ import { removerUndefined } from './sanitizar';
 import { exigirEscritaAdministrativaHabilitada, exigirFirebase } from './shared';
 
 /**
- * Escrita pura de Plantão (Fase PLANTÃO-3A) — primitivas administrativas
- * de fundação. NENHUMA função aqui publica (`publicarPlantao()` não
- * existe: ver `docs/spec/PLANTOES.md`, publicação é PLANTÃO-3C). O
- * preview da PLANTÃO-2 (`apps/dashboard/src/DashboardApp.tsx`) NÃO chama
- * nenhuma função deste arquivo — a integração é PLANTÃO-3B.
+ * Escrita de Plantão. As primitivas de rascunho permanecem separadas da
+ * publicação explícita adicionada por ESCOPO-OPERACIONAL-MATRIZ-2.
  *
  * Cada função valida com `validar*()` de `@escala-ici/contrato` ANTES de
  * qualquer chamada ao SDK — os mesmos campos são revalidados pelo
@@ -103,7 +100,7 @@ export async function desativarParticipantePlantao(grupoId: string, login: strin
   });
 }
 
-/** Recusa qualquer status diferente de `RASCUNHO` — publicar é PLANTÃO-3C, não esta fase. */
+/** Recusa qualquer status diferente de `RASCUNHO`; publicação usa a função dedicada abaixo. */
 export async function salvarCompetenciaPlantaoRascunho(competencia: CompetenciaPlantao): Promise<void> {
   exigirEscritaAdministrativaHabilitada();
   if (competencia.status !== 'RASCUNHO') {
@@ -188,4 +185,86 @@ export async function salvarAtribuicoesPlantaoRascunho(
     }
     await batch.commit();
   }
+}
+
+/**
+ * Publica a competência pelo `grupoId` que já faz parte do próprio modelo.
+ * O Grupo — e nunca `equipeResponsavelId` — é a chave mensal. A cópia
+ * publicada recebe uma revisão positiva e o rascunho é removido apenas
+ * depois que todas as escritas publicadas terminam com sucesso.
+ */
+export async function publicarCompetenciaPlantao(
+  competenciaRascunho: CompetenciaPlantao,
+  atribuicoesRascunho: readonly AtribuicaoPlantaoPersistida[],
+): Promise<CompetenciaPlantao> {
+  exigirEscritaAdministrativaHabilitada();
+  if (competenciaRascunho.status !== 'RASCUNHO') {
+    throw new Error('Somente um rascunho de Plantão pode ser publicado.');
+  }
+  if (atribuicoesRascunho.some((atribuicao) =>
+    atribuicao.grupoId !== competenciaRascunho.grupoId
+    || atribuicao.competenciaId !== competenciaRascunho.id)) {
+    throw new Error('Todas as atribuições devem pertencer ao mesmo Grupo e competência.');
+  }
+
+  const { db } = exigirFirebase();
+  const publicadaRef = doc(db, 'competenciasPlantao', competenciaRascunho.id);
+  const publicadaAtual = await getDoc(publicadaRef);
+  const publicadaAnterior = publicadaAtual.exists() ? publicadaAtual.data() as CompetenciaPlantao : null;
+  const revisao = Number(publicadaAnterior?.revisao ?? 0) + 1;
+  const agora = new Date().toISOString();
+  const publicada: CompetenciaPlantao = {
+    ...competenciaRascunho,
+    status: 'PUBLICADA',
+    revisao,
+    criadoPorLogin: publicadaAnterior?.criadoPorLogin ?? competenciaRascunho.criadoPorLogin,
+    criadoEm: publicadaAnterior?.criadoEm ?? competenciaRascunho.criadoEm,
+    atualizadoEm: agora,
+  };
+  const errosCompetencia = validarCompetenciaPlantao(publicada);
+  if (errosCompetencia.length > 0) {
+    throw new Error(errosCompetencia.join(' '));
+  }
+  const atribuicoesPublicadas = atribuicoesRascunho.map((atribuicao) => ({
+    ...atribuicao,
+    revisao,
+    atualizadoEm: agora,
+  }));
+  for (const atribuicao of atribuicoesPublicadas) {
+    const erros = validarAtribuicaoPlantaoPersistida(atribuicao);
+    if (erros.length > 0) throw new Error(`Atribuição ${atribuicao.atribuicaoId}: ${erros.join(' ')}`);
+  }
+
+  const operacoes = [
+    { tipo: 'competencia' as const },
+    ...atribuicoesPublicadas.map((atribuicao) => ({ tipo: 'atribuicao' as const, atribuicao })),
+  ];
+  for (const lote of fatiarEmLotes(operacoes, 499)) {
+    const batch = writeBatch(db);
+    for (const operacao of lote) {
+      if (operacao.tipo === 'competencia') {
+        batch.set(publicadaRef, removerUndefined(publicada));
+      } else {
+        batch.set(
+          doc(db, 'competenciasPlantao', publicada.id, 'atribuicoes', operacao.atribuicao.atribuicaoId),
+          removerUndefined(operacao.atribuicao),
+        );
+      }
+    }
+    await batch.commit();
+  }
+
+  const rascunhos = await getDocs(query(
+    collection(db, 'rascunhosCompetenciasPlantao', competenciaRascunho.id, 'atribuicoes'),
+    where('grupoId', '==', competenciaRascunho.grupoId),
+  ));
+  for (const lote of fatiarEmLotes(rascunhos.docs, 499)) {
+    const batch = writeBatch(db);
+    for (const snapshot of lote) batch.delete(snapshot.ref);
+    await batch.commit();
+  }
+  const batchFinal = writeBatch(db);
+  batchFinal.delete(doc(db, 'rascunhosCompetenciasPlantao', competenciaRascunho.id));
+  await batchFinal.commit();
+  return publicada;
 }

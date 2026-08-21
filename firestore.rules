@@ -313,6 +313,69 @@ service cloud.firestore {
         && dados.schemaVersion in [1];
     }
 
+    /**
+     * ESCOPO-OPERACIONAL-MATRIZ-2 — autorização operacional por alvo.
+     * O ID canônico é o mesmo de `criarIdEscopoOperacional()` no cliente.
+     * `equipesConsulta` participa somente de leitura; nunca entra no helper
+     * de administração.
+     */
+    function idEscopoOperacional(tipo, alvoId) {
+      return tipo + '_' + alvoId;
+    }
+
+    function existeMatrizOperacional(tipo, alvoId) {
+      return exists(/databases/$(database)/documents/escoposOperacionais/$(idEscopoOperacional(tipo, alvoId)));
+    }
+
+    function matrizOperacional(tipo, alvoId) {
+      return get(/databases/$(database)/documents/escoposOperacionais/$(idEscopoOperacional(tipo, alvoId))).data;
+    }
+
+    function matrizConcedeAdministracao(tipo, alvoId) {
+      return autenticado()
+        && existeMatrizOperacional(tipo, alvoId)
+        && matrizOperacional(tipo, alvoId).ativo == true
+        && matrizOperacional(tipo, alvoId).tipo == tipo
+        && matrizOperacional(tipo, alvoId).alvoId == alvoId
+        && (
+          loginDoAuth() in matrizOperacional(tipo, alvoId).responsaveisLogin
+          || matrizOperacional(tipo, alvoId).responsaveisEquipe.hasAny(minhasEquipesPermitidas())
+        );
+    }
+
+    function matrizConcedeConsultaPlantao(grupoId) {
+      return autenticado()
+        && existeMatrizOperacional('PLANTAO', grupoId)
+        && matrizOperacional('PLANTAO', grupoId).ativo == true
+        && matrizOperacional('PLANTAO', grupoId).tipo == 'PLANTAO'
+        && matrizOperacional('PLANTAO', grupoId).alvoId == grupoId
+        && matrizOperacional('PLANTAO', grupoId).equipesConsulta.hasAny(minhasEquipesPermitidas());
+    }
+
+    function podeAdministrarJornada(equipeId) {
+      return souAdminSistema()
+        || matrizConcedeAdministracao('JORNADA', equipeId)
+        // Transição: alvos ainda sem documento de matriz conservam a ACL
+        // histórica. Assim que a matriz existe (mesmo inativa), ela manda.
+        || (!existeMatrizOperacional('JORNADA', equipeId) && souGestor() && podeOperarNaEquipe(equipeId));
+    }
+
+    function podeAdministrarEscalaPlantao(grupoId) {
+      return souAdminSistema()
+        || matrizConcedeAdministracao('PLANTAO', grupoId)
+        // Mesmo fallback transitório, restrito a alvos sem matriz.
+        || (!existeMatrizOperacional('PLANTAO', grupoId) && podeGerenciarGrupoPlantao(grupoPlantaoPorId(grupoId)));
+    }
+
+    function podeLerEscalaPlantao(grupoId) {
+      return podeAdministrarEscalaPlantao(grupoId)
+        || matrizConcedeConsultaPlantao(grupoId)
+        // A ACL histórica só é fallback enquanto o alvo não foi migrado.
+        // Uma matriz existente, mesmo inativa, é a fonte de verdade e não
+        // pode ser contornada por `gruposPlantao.equipesConsulta`.
+        || (!existeMatrizOperacional('PLANTAO', grupoId) && podeConsultarGrupoPlantao(grupoPlantaoPorId(grupoId)));
+    }
+
     match /config/{doc} {
       allow read: if true;
       allow write: if false;
@@ -323,6 +386,9 @@ service cloud.firestore {
         && (
           loginDoAuth() == login
           || podeOperarNaEquipe(resource.data.equipeId)
+          // O responsável operacional precisa enumerar os usuários do alvo
+          // para montar a grade de Jornada, mesmo pertencendo a outra equipe.
+          || matrizConcedeAdministracao('JORNADA', resource.data.equipeId)
         );
 
       allow update: if autenticado()
@@ -340,6 +406,18 @@ service cloud.firestore {
           || (
             souAdminSistema()
             && request.resource.data.login == resource.data.login
+          )
+
+          // Na importação da Jornada, o responsável do alvo pode apenas
+          // reconciliar os aliases da planilha. Isso não vira permissão de
+          // administração geral do cadastro do usuário.
+          || (
+            !souAdminSistema()
+            && matrizConcedeAdministracao('JORNADA', resource.data.equipeId)
+            && request.resource.data.equipeId == resource.data.equipeId
+            && request.resource.data.login == resource.data.login
+            && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['aliasesPlanilha', 'atualizadoEm'])
           )
 
           // gestor não-admin: exatamente como hoje (equipeId/login
@@ -369,10 +447,9 @@ service cloud.firestore {
           souAdminSistema()
 
           || (
-            souGestor()
-            && !souAdminSistema()
-            && request.resource.data.equipeId == minhaEquipe()
-            // gestor não-admin NUNCA pode setar perfil/escopo/campos
+            !souAdminSistema()
+            && podeAdministrarJornada(request.resource.data.equipeId)
+            // responsável não-admin NUNCA pode setar perfil/escopo/campos
             // organizacionais na criação — nem um valor "inofensivo": o
             // campo tem que estar ausente do payload. Novo usuário cai no
             // fallback (perfilEfetivo/unidadesPermitidasEfetivas/
@@ -627,6 +704,7 @@ service cloud.firestore {
     match /escoposOperacionais/{id} {
       allow read: if autenticado();
       allow create: if souAdminSistema()
+        && id == idEscopoOperacional(request.resource.data.tipo, request.resource.data.alvoId)
         && escopoOperacionalValido(request.resource.data);
       allow update: if souAdminSistema()
         && escopoOperacionalValido(request.resource.data)
@@ -638,84 +716,90 @@ service cloud.firestore {
 
     match /tiposTurno/{docId} {
       allow read: if autenticado();
-      allow write: if souGestor()
-        && podeOperarNaEquipe(request.resource.data.equipeId);
+      allow create: if podeAdministrarJornada(request.resource.data.equipeId);
+      allow update: if podeAdministrarJornada(resource.data.equipeId)
+        && request.resource.data.equipeId == resource.data.equipeId;
+      // O fluxo do produto não exige remoção física do catálogo.
+      allow delete: if false;
     }
 
     match /turnosMes/{docId} {
       allow read: if autenticado()
-        && podeOperarNaEquipe(resource.data.equipeId)
+        && (podeOperarNaEquipe(resource.data.equipeId) || podeAdministrarJornada(resource.data.equipeId))
         && (
           resource.data.status == 'PUBLICADA'
           || souGestor()
         );
 
-      allow create: if souGestor()
-        && podeOperarNaEquipe(request.resource.data.equipeId)
+      allow create: if podeAdministrarJornada(request.resource.data.equipeId)
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.status == 'PUBLICADA';
 
-      allow update: if souGestor()
-        && podeOperarNaEquipe(resource.data.equipeId)
+      allow update: if podeAdministrarJornada(resource.data.equipeId)
         && request.resource.data.equipeId == resource.data.equipeId
         && request.resource.data.login == resource.data.login
+        && request.resource.data.usuarioUid == resource.data.usuarioUid
+        && request.resource.data.competencia == resource.data.competencia
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.status == 'PUBLICADA';
 
-      allow delete: if souGestor()
-        && podeOperarNaEquipe(resource.data.equipeId);
+      allow delete: if podeAdministrarJornada(resource.data.equipeId);
     }
 
     match /rascunhosTurnosMes/{docId} {
-      allow read: if souGestor()
-        && podeOperarNaEquipe(resource.data.equipeId);
+      allow read: if podeAdministrarJornada(resource.data.equipeId);
 
-      allow create, update: if souGestor()
-        && podeOperarNaEquipe(request.resource.data.equipeId)
+      allow create: if podeAdministrarJornada(request.resource.data.equipeId)
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.status == 'RASCUNHO';
 
-      allow delete: if souGestor()
-        && podeOperarNaEquipe(resource.data.equipeId);
+      allow update: if podeAdministrarJornada(resource.data.equipeId)
+        && request.resource.data.equipeId == resource.data.equipeId
+        && request.resource.data.login == resource.data.login
+        && request.resource.data.usuarioUid == resource.data.usuarioUid
+        && request.resource.data.competencia == resource.data.competencia
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.status == 'RASCUNHO';
+
+      allow delete: if podeAdministrarJornada(resource.data.equipeId);
     }
 
     match /publicacoesEscala/{id} {
-      allow read: if souGestor()
+      allow read: if autenticado()
         && (
           resource == null
-          || podeOperarNaEquipe(resource.data.equipeId)
+          || podeAdministrarJornada(resource.data.equipeId)
         );
-      allow create, update: if souGestor()
-        && podeOperarNaEquipe(request.resource.data.equipeId);
+      allow create: if podeAdministrarJornada(request.resource.data.equipeId)
+        && request.resource.data.id == id;
+      allow update: if podeAdministrarJornada(resource.data.equipeId)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.equipeId == resource.data.equipeId
+        && request.resource.data.competencia == resource.data.competencia;
       allow delete: if false;
     }
 
     match /historicoPublicacoes/{id} {
-      allow read: if souGestor()
-        && podeOperarNaEquipe(resource.data.equipeId);
-      allow create: if souGestor()
-        && podeOperarNaEquipe(request.resource.data.equipeId);
+      allow read: if podeAdministrarJornada(resource.data.equipeId);
+      allow create: if podeAdministrarJornada(request.resource.data.equipeId);
       allow update, delete: if false;
     }
 
     match /versoesEscala/{id} {
-      allow read: if souGestor()
-        && podeOperarNaEquipe(resource.data.equipeId);
-      allow create: if souGestor()
-        && podeOperarNaEquipe(request.resource.data.equipeId)
+      allow read: if podeAdministrarJornada(resource.data.equipeId);
+      allow create: if podeAdministrarJornada(request.resource.data.equipeId)
         && request.resource.data.status == 'PUBLICADA';
       allow update, delete: if false;
     }
 
     match /eventosEscala/{id} {
       allow read: if autenticado()
-        && podeOperarNaEquipe(resource.data.equipeId)
+        && (podeOperarNaEquipe(resource.data.equipeId) || podeAdministrarJornada(resource.data.equipeId))
         && (
           souGestor()
           || resource.data.usuarioUid == loginDoAuth()
         );
-      allow create: if souGestor()
-        && podeOperarNaEquipe(request.resource.data.equipeId)
+      allow create: if podeAdministrarJornada(request.resource.data.equipeId)
         && request.resource.data.publicadoPor == loginDoAuth()
         && request.resource.data.alteracoes is list;
       allow update, delete: if false;
@@ -730,9 +814,9 @@ service cloud.firestore {
       // `trocasEscala` (ver comentário abaixo), por um ganho prático nulo
       // hoje. `souGestor()` já cobre ADMIN_SISTEMA.
       allow read: if souGestor();
-      allow create: if souGestor()
+      allow create: if autenticado()
         && request.resource.data.enviadoPor == loginDoAuth()
-        && podeOperarNaEquipe(request.resource.data.equipeId);
+        && podeAdministrarJornada(request.resource.data.equipeId);
       allow update, delete: if false;
     }
 
@@ -965,6 +1049,8 @@ service cloud.firestore {
           souAdminSistema()
           || minhaEquipe() in resource.data.equipesConsulta
           || podeGerenciarGrupoPlantao(resource.data)
+          || matrizConcedeAdministracao('PLANTAO', grupoId)
+          || matrizConcedeConsultaPlantao(grupoId)
           || meuPerfil() in ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE']
         );
 
@@ -1075,10 +1161,10 @@ service cloud.firestore {
      * cadastrado (`exists()`) — nunca inventa identidade.
      */
     match /gruposPlantao/{grupoId}/participantes/{login} {
-      allow read: if podeConsultarGrupoPlantao(grupoPlantaoPorId(grupoId));
+      allow read: if podeLerEscalaPlantao(grupoId);
 
       allow create: if autenticado()
-        && podeGerenciarGrupoPlantao(grupoPlantaoPorId(grupoId))
+        && podeAdministrarEscalaPlantao(grupoId)
         && exists(/databases/$(database)/documents/usuarios/$(login))
         && request.resource.data.grupoId == grupoId
         && request.resource.data.login == login
@@ -1092,7 +1178,7 @@ service cloud.firestore {
         ]);
 
       allow update: if autenticado()
-        && podeGerenciarGrupoPlantao(grupoPlantaoPorId(grupoId))
+        && podeAdministrarEscalaPlantao(grupoId)
         && request.resource.data.grupoId == resource.data.grupoId
         && request.resource.data.login == resource.data.login
         && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
@@ -1124,10 +1210,10 @@ service cloud.firestore {
      * autorização nova.
      */
     match /rascunhosCompetenciasPlantao/{id} {
-      allow read: if podeGerenciarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId));
+      allow read: if podeLerEscalaPlantao(resource.data.grupoId);
 
       allow create: if autenticado()
-        && podeGerenciarGrupoPlantao(grupoPlantaoPorId(request.resource.data.grupoId))
+        && podeAdministrarEscalaPlantao(request.resource.data.grupoId)
         && request.resource.data.id == id
         && request.resource.data.status == 'RASCUNHO'
         && request.resource.data.revisao == 0
@@ -1150,7 +1236,7 @@ service cloud.firestore {
         ]);
 
       allow update: if autenticado()
-        && podeGerenciarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId))
+        && podeAdministrarEscalaPlantao(resource.data.grupoId)
         && request.resource.data.id == resource.data.id
         && request.resource.data.grupoId == resource.data.grupoId
         && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
@@ -1171,7 +1257,7 @@ service cloud.firestore {
           'criadoPorLogin', 'criadoEm', 'atualizadoEm',
         ]);
 
-      allow delete: if autenticado() && podeGerenciarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId));
+      allow delete: if autenticado() && podeAdministrarEscalaPlantao(resource.data.grupoId);
     }
 
     /**
@@ -1184,10 +1270,10 @@ service cloud.firestore {
      * aritmética de datas ISO).
      */
     match /rascunhosCompetenciasPlantao/{id}/atribuicoes/{atribuicaoId} {
-      allow read: if podeGerenciarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId));
+      allow read: if podeLerEscalaPlantao(resource.data.grupoId);
 
       allow create: if autenticado()
-        && podeGerenciarGrupoPlantao(grupoPlantaoPorId(request.resource.data.grupoId))
+        && podeAdministrarEscalaPlantao(request.resource.data.grupoId)
         && request.resource.data.atribuicaoId == atribuicaoId
         && request.resource.data.competenciaId == id
         && request.resource.data.plantonistaLogin is string && request.resource.data.plantonistaLogin.size() > 0
@@ -1204,7 +1290,7 @@ service cloud.firestore {
         ]);
 
       allow update: if autenticado()
-        && podeGerenciarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId))
+        && podeAdministrarEscalaPlantao(resource.data.grupoId)
         && request.resource.data.atribuicaoId == resource.data.atribuicaoId
         && request.resource.data.grupoId == resource.data.grupoId
         && request.resource.data.competenciaId == resource.data.competenciaId
@@ -1220,26 +1306,70 @@ service cloud.firestore {
           'duracaoMinutos', 'papel', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
         ]);
 
-      allow delete: if autenticado() && podeGerenciarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId));
+      allow delete: if autenticado() && podeAdministrarEscalaPlantao(resource.data.grupoId);
     }
 
     /**
-     * Competência PUBLICADA — existe só para a LEITURA futura (App,
-     * PLANTÃO-4) não exigir uma migração de Rules quando a publicação
-     * chegar (PLANTÃO-3C). Escrita bloqueada de propósito nesta fase:
-     * nenhum fluxo real de publicação existe ainda, e abrir a transição
-     * RASCUNHO -> PUBLICADA antes de existir esse fluxo seria publicar
-     * escala de Plantão sem revisão nenhuma. Preferível bloquear
-     * explicitamente a criar uma regra "provisória" permissiva.
+     * Competência PUBLICADA — ESCOPO-OPERACIONAL-MATRIZ-2 habilita
+     * create/update somente para o administrador do alvo real (`grupoId`).
+     * Delete físico continua bloqueado.
      */
     match /competenciasPlantao/{id} {
-      allow read: if podeConsultarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId));
-      allow create, update, delete: if false;
+      allow read: if podeLerEscalaPlantao(resource.data.grupoId);
+      allow create, update: if podeAdministrarEscalaPlantao(request.resource.data.grupoId)
+        && request.resource.data.id == id
+        && request.resource.data.status == 'PUBLICADA'
+        && request.resource.data.revisao > 0
+        && request.resource.data.competencia is string && request.resource.data.competencia.size() > 0
+        && request.resource.data.periodoInicio is string
+        && request.resource.data.periodoFim is string
+        && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.totalBruto.keys().hasOnly(['quantidade', 'minutos'])
+        && request.resource.data.keys().hasOnly([
+          'id', 'grupoId', 'competencia', 'periodoInicio', 'periodoFim', 'status',
+          'revisao', 'origem', 'totaisInformadosOrigem', 'totalBruto', 'schemaVersion',
+          'criadoPorLogin', 'criadoEm', 'atualizadoEm',
+        ])
+        && (
+          !exists(/databases/$(database)/documents/competenciasPlantao/$(id))
+          || (
+            request.resource.data.grupoId == resource.data.grupoId
+            && request.resource.data.competencia == resource.data.competencia
+            && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
+            && request.resource.data.criadoEm == resource.data.criadoEm
+            && request.resource.data.revisao > resource.data.revisao
+          )
+        );
+      allow delete: if false;
     }
 
     match /competenciasPlantao/{id}/atribuicoes/{atribuicaoId} {
-      allow read: if podeConsultarGrupoPlantao(grupoPlantaoPorId(resource.data.grupoId));
-      allow create, update, delete: if false;
+      allow read: if podeLerEscalaPlantao(resource.data.grupoId);
+      allow create, update: if podeAdministrarEscalaPlantao(request.resource.data.grupoId)
+        && request.resource.data.atribuicaoId == atribuicaoId
+        && request.resource.data.competenciaId == id
+        && request.resource.data.plantonistaLogin is string && request.resource.data.plantonistaLogin.size() > 0
+        && request.resource.data.inicio is string
+        && request.resource.data.fim is string
+        && request.resource.data.duracaoMinutos is int && request.resource.data.duracaoMinutos > 0
+        && request.resource.data.papel in ['PRIMARIO', 'SECUNDARIO']
+        && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']
+        && request.resource.data.revisao > 0
+        && request.resource.data.schemaVersion in [1]
+        && request.resource.data.keys().hasOnly([
+          'atribuicaoId', 'grupoId', 'competenciaId', 'plantonistaLogin', 'inicio', 'fim',
+          'duracaoMinutos', 'papel', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
+        ])
+        && (
+          !exists(/databases/$(database)/documents/competenciasPlantao/$(id)/atribuicoes/$(atribuicaoId))
+          || (
+            request.resource.data.grupoId == resource.data.grupoId
+            && request.resource.data.competenciaId == resource.data.competenciaId
+            && request.resource.data.revisao > resource.data.revisao
+          )
+        );
+      allow delete: if false;
     }
 
     /**
@@ -1253,10 +1383,7 @@ service cloud.firestore {
      *   chicken-and-egg que o bootstrap do primeiro gestor sempre teve).
      *   Resolvido fora das rules: edição manual do documento no Console do
      *   Firestore (ver docs/operacao/BOOTSTRAP_ADMIN_STAGING.md).
-     * - Plantão (PLANTÃO-3A): `competenciasPlantao`/`.../atribuicoes`
-     *   (lado PUBLICADA) tem escrita bloqueada (`if false`) de propósito —
-     *   nenhum fluxo de publicação existe ainda (PLANTÃO-3C). Reatribuir
-     *   `equipeResponsavelId` de um Grupo já existente para outra equipe
+     * - Reatribuir `equipeResponsavelId` de um Grupo já existente para outra equipe
      *   também não é possível nesta fase (campo imutável no `update`) —
      *   decisão aceita para não abrir uma via de transferência de poder
      *   administrativo sem revisão dedicada.

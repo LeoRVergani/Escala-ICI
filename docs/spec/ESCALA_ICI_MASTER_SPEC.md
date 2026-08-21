@@ -104,6 +104,24 @@ O retorno às escalas usa o botão compacto **Escalas**, com seta, borda discret
 
 O seletor superior possui grupos de Jornadas e Plantões. SOC e Plantão são contextos independentes; o grupo de Plantão não deve ser tratado como uma segunda Jornada. A competência selecionada acompanha o contexto. A troca não deve perder working copy sem confirmação.
 
+O carregamento do seletor segue o estado da Matriz de Responsáveis:
+`carregando`, `sucesso`, `vazio` ou `erro`. Lista vazia e falha sempre encerram
+o loading; timeout/rede oferecem **Recarregar operações**. `permission-denied`
+ao ler a matriz diagnostica Rules de staging não publicadas, nunca **Sem
+escala**. Vazio orienta o usuário a pedir vínculo em **Administração →
+Responsáveis por escala**, com atalho direto para `ADMIN_SISTEMA`.
+
+O contexto ativo tem `{ tipo, alvoId, label, competencia }`. O ID é a chave de
+domínio e o rótulo é somente apresentação. Toda abertura, criação, leitura,
+salvamento e publicação preserva esse contexto: Jornada usa `equipeId` e
+Plantão usa `grupoId`, nunca `usuario.equipeId`, `label` ou
+`GrupoPlantao.equipeResponsavelId` quando já existe um alvo selecionado.
+
+Quando persistido como preferência no `localStorage`, o contexto é revalidado
+após a matriz carregar. Alvo inexistente/inativo ou Grupo de Plantão inativo é
+limpo e exige nova seleção. A tela Escalas nunca cria nem exibe um card de
+operação genérico sem alvo válido.
+
 `docs/spec/ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` define a estrutura
 organizacional de referência do produto para cadastro, navegação, filtros,
 agrupamento visual e exibição de unidade/caminho. Essa árvore separa
@@ -130,7 +148,14 @@ influencia destino operacional de Equipe.
 
 Uma equipe de Plantão sem `GrupoPlantao` vinculado não aparece em Plantões — o Wizard oferece criar o Grupo pelo fluxo oficial (nunca pelo Console do Firestore), ver `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md` § 9 (Fase PROVISIONAMENTO-GRUPO-PLANTAO-1).
 
-Os estados são `publicada`, `rascunho` e `sem-escala`, conforme o domínio existente. Plantão não deve ser rotulado como publicado quando o read model de publicação ainda não existir.
+Os estados são `publicada`, `rascunho` e `sem-escala`, conforme o domínio existente. O read model de Plantão consulta tanto `rascunhosCompetenciasPlantao` quanto `competenciasPlantao`; rascunho pendente tem precedência visual sobre a publicação anterior.
+
+Na Fase ESCOPO-OPERACIONAL-MATRIZ-2, a matriz ativa também autoriza escrita.
+`responsaveisLogin`, `responsaveisEquipe` e `ADMIN_SISTEMA` podem salvar e
+publicar o alvo compatível. `equipesConsulta` permanece estritamente de
+leitura/monitoramento. O fallback legado só existe quando o alvo ainda não
+possui documento de matriz e a compatibilidade foi explicitamente habilitada
+por `VITE_ESCALA_FALLBACK_OPERACIONAL_LEGADO=true`.
 
 ## 10. Trocas
 
@@ -145,7 +170,7 @@ As métricas da Visão geral usam estados já carregados pelo DashboardApp:
 | Domínio | Estado utilizado |
 |---|---|
 | Jornada | Resumo por alvo `equipeId` com `rascunhosTurnosMes`, `turnosMes`, `publicacoesEscala`/histórico quando aplicável, usuários ativos da equipe, `resultado` apenas quando o editor aberto é o mesmo alvo. |
-| Plantão | Resumo por alvo `grupoId` com `rascunhosCompetenciasPlantao`, participantes do grupo, `resultadoPlantao`/`atribuicoesEditaveisPlantao` apenas quando o editor aberto é o mesmo grupo. |
+| Plantão | Resumo por alvo `grupoId` com `rascunhosCompetenciasPlantao`, `competenciasPlantao`, participantes do grupo, `resultadoPlantao`/`atribuicoesEditaveisPlantao` apenas quando o editor aberto é o mesmo grupo. |
 | Vínculos | `pendenciasVinculoPlantao`. |
 | Trocas | `trocas`, `trocasPendentesGestor`. |
 | Contexto | `contextoEscalaAtivo`, `solicitarTrocaContexto`, `solicitarTrocaCompetencia`. |
