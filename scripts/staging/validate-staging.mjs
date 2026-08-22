@@ -1,16 +1,22 @@
 /**
- * STAGING-RESET-HIERARQUIA-ICI-1 — valida, só leitura, que
+ * STAGING-RESET-HIERARQUIA-ICI-1/2/3 — valida, só leitura, que
  * `seed-hierarquia-ici.mjs` deixou o staging (`escala-ici-staging`) no
  * estado esperado: organograma canônico presente, equipes/Grupo de
- * Plantão/Matriz/usuários de teste criados, `config/ambiente` ligado, e
+ * Plantão/Matriz/conta técnica `admin` criados, `config/ambiente` ligado, e
  * NENHUM documento novo usando os IDs legados (`EQ_SOC`, `EQ_PLANTAO_COSI`,
  * `EQ_NOC`) ou o `grupoId` legado (`PLANTAO_COSI`) — nem os IDs de unidade
  * simples de uma fase anterior (`COSI`/`CODB`/`COCR`, STAGING-RESET-HIERARQUIA-ICI-2),
  * nem unidade/equipe invertidas entre si.
  *
+ * STAGING-RESET-HIERARQUIA-ICI-3 — a estrutura passa mesmo SEM nenhuma
+ * pessoa real cadastrada: pessoas nunca são parte do seed estrutural.
+ * `avisarPessoasReaisPendentes()` só emite avisos informativos (nunca
+ * bloqueia o exit code) lembrando quais cadastros reais ainda faltam.
+ *
  * Nunca escreve nada — só `get()`/`.get()` de coleções via Admin SDK.
- * Sai com código 1 se qualquer checagem falhar (para poder ser usado como
- * gate de pipeline), sempre imprimindo o relatório completo antes de sair.
+ * Sai com código 1 se qualquer checagem BLOQUEANTE falhar (para poder ser
+ * usado como gate de pipeline), sempre imprimindo o relatório completo
+ * (checagens + avisos) antes de sair.
  *
  * USO
  *   GOOGLE_APPLICATION_CREDENTIALS=/caminho/service-account-staging.json \
@@ -261,6 +267,43 @@ export async function validarNaoInverteUnidadeEquipe(db) {
   };
 }
 
+/**
+ * STAGING-RESET-HIERARQUIA-ICI-3 — avisos informativos sobre pessoas reais,
+ * NUNCA bloqueantes: a estrutura (unidades/equipes/grupo/matriz) é válida
+ * mesmo sem nenhuma pessoa real cadastrada ainda — isto só lembra o
+ * operador do que falta cadastrar, sem fazer o script falhar por isso.
+ * `LOGIN_COORDENADOR_COSI_ESPERADO` é um lembrete operacional editável, não
+ * uma regra de produto — ver `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md`
+ * § 6 para a configuração completa esperada de cada pessoa.
+ */
+const LOGIN_COORDENADOR_COSI_ESPERADO = 'clis';
+
+export async function avisarPessoasReaisPendentes(db) {
+  const avisos = [];
+
+  const snapshotCoordenadorCosi = await db.doc(`usuarios/${LOGIN_COORDENADOR_COSI_ESPERADO}`).get();
+  if (!snapshotCoordenadorCosi.exists) {
+    avisos.push(`usuarios/${LOGIN_COORDENADOR_COSI_ESPERADO}: coordenador real do COSI ainda não cadastrado (esperado GESTOR_UNIDADE de GEDSI_COSI).`);
+  }
+
+  const usuariosSnapshot = await db.collection('usuarios').get();
+  const usuarios = usuariosSnapshot.docs.map((doc) => doc.data());
+
+  const temSupervisorNoc = usuarios.some((dados) =>
+    dados.perfil === 'SUPERVISOR_EQUIPE' && dados.equipeId === 'GEDSI_CODB_NOC' && dados.ativo !== false);
+  if (!temSupervisorNoc) {
+    avisos.push('usuarios: nenhum SUPERVISOR_EQUIPE ativo de GEDSI_CODB_NOC encontrado ainda (supervisora do NOC).');
+  }
+
+  const temGestorUnidadeCodb = usuarios.some((dados) =>
+    dados.perfil === 'GESTOR_UNIDADE' && dados.unidadeId === 'GEDSI_CODB' && dados.ativo !== false);
+  if (!temGestorUnidadeCodb) {
+    avisos.push('usuarios: coordenador do CODB (GESTOR_UNIDADE de GEDSI_CODB) ainda não cadastrado — ok, será cadastrado depois.');
+  }
+
+  return avisos;
+}
+
 export async function rodarValidacoes(db) {
   return Promise.all([
     validarUnidades(db),
@@ -290,12 +333,17 @@ async function main() {
     if (!resultado.ok) tudoOk = false;
   }
 
+  const avisos = await avisarPessoasReaisPendentes(db);
+  for (const aviso of avisos) {
+    console.log(`[validate-staging] AVISO (não bloqueia) — ${aviso}`);
+  }
+
   if (!tudoOk) {
     console.error('[validate-staging] validação falhou — ver detalhes acima.');
     process.exitCode = 1;
     return;
   }
-  console.log('[validate-staging] tudo certo.');
+  console.log('[validate-staging] tudo certo (estrutura válida — avisos acima, se houver, são só lembretes de cadastro pendente).');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

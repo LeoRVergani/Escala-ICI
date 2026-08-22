@@ -199,6 +199,13 @@ mesmo padrao ja usado para equipes (`GEDSI_COSI_SOC`):
 (`COSI`, `CODB`, `COCR`...) e um erro de cadastro — `scripts/staging/validate-staging.mjs`
 (`validarSemUnidadeIdSimples()`) falha explicitamente se encontrar isso.
 
+**STAGING-RESET-HIERARQUIA-ICI-3** — nomes de PESSOAS (coordenadores,
+supervisores) nunca fazem parte desta estrutura de referência nem do seed
+que a materializa: só unidades/equipes/siglas/tipos são dado estrutural. A
+pessoa que ocupa cada papel (coordenador do COSI, supervisora do NOC etc.)
+é sempre cadastro à parte, via Dashboard/Admin SDK — ver
+`docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 6.
+
 ## 5. Modelo recomendado e compatibilidade
 
 Cada unidade organizacional deve poder ter:

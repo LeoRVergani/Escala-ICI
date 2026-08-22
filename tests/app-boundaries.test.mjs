@@ -642,3 +642,31 @@ test('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em sta
   assert.match(organizacao, /export function descreverClassificacaoHierarquica/u);
   assert.match(dashboard, /descreverNivelHierarquico\(formularioUsuario\.nivelHierarquico\)/u);
 });
+
+test('STAGING-RESET-HIERARQUIA-ICI-3 — causa raiz do campo Equipe travado: env var precisa existir no build real, não só no .example', async () => {
+  const [dashboard, exemploStaging, dockerfile, compose] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('.env.staging.dashboard.example'),
+    ler('deploy/dashboard/Dockerfile'),
+    ler('deploy/dashboard/compose.yaml'),
+  ]);
+
+  // #1/#5 — a env var é lida e decide o modo livre vs. restrito do modal.
+  assert.match(dashboard, /const PERMITIR_AMPLO_STAGING =\s*\n\s*import\.meta\.env\.VITE_ESCALA_STAGING_PERMISSAO_AMPLA === 'true';/u);
+  assert.match(dashboard, /const usarCadastroLivreStaging = PERMITIR_AMPLO_STAGING/u);
+
+  // #2/#3 — precisa estar documentada no template de staging e propagada até o build Docker/compose.
+  assert.match(exemploStaging, /^VITE_ESCALA_STAGING_PERMISSAO_AMPLA=true$/mu);
+  assert.match(dockerfile, /ARG VITE_ESCALA_STAGING_PERMISSAO_AMPLA="false"/u);
+  assert.match(dockerfile, /VITE_ESCALA_STAGING_PERMISSAO_AMPLA=\$\{VITE_ESCALA_STAGING_PERMISSAO_AMPLA\}/u);
+  assert.match(compose, /VITE_ESCALA_STAGING_PERMISSAO_AMPLA: \$\{VITE_ESCALA_STAGING_PERMISSAO_AMPLA:-false\}/u);
+
+  // #10 — sem fallback antigo sobrescrevendo a equipe escolhida pela do ator
+  // no cadastro geral: o responsável do cadastro usa a equipe ESCOLHIDA
+  // (equipeIdCadastroUsuario), não usuarioEfetivo.equipeId, quando staging
+  // livre está ativo.
+  assert.match(dashboard, /participanteVinculoCadastro === null && !usarCadastroLivreStaging\s*\n\s*\? usuarioEfetivo\s*\n\s*:/u);
+
+  // Modo restrito precisa avisar explicitamente que staging amplo está desligado.
+  assert.match(dashboard, /Permissão ampla de staging não está ativa; cadastro restrito à equipe atual\./u);
+});

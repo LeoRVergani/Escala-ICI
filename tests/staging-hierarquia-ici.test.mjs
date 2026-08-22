@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { describe, it, test } from 'node:test';
 
 import {
   EQUIPES,
@@ -13,6 +13,7 @@ import {
   USUARIOS_SEED,
   idEscopoOperacional,
 } from '../scripts/staging/hierarquia-ici.mjs';
+import { USUARIOS_DEMO } from '../scripts/staging/usuarios-demo.mjs';
 
 const IDS_LEGADOS = Object.keys(MAPEAMENTO_LEGADO);
 const GRUPO_LEGADO = 'PLANTAO_COSI';
@@ -132,7 +133,7 @@ test('GRUPO_PLANTAO: entidade separada da equipe responsável, equipesConsulta s
   assert.deepEqual(GRUPO_PLANTAO.caminhoUnidadeResponsavel, ['PRE', 'DIO', 'GEDSI', 'GEDSI_COSI']);
 });
 
-test('MATRIZ_INICIAL: 3 entradas cobrindo SOC/Plantão COSI/NOC, com id derivado corretamente', () => {
+test('MATRIZ_INICIAL: 3 entradas cobrindo SOC/Plantão COSI/NOC, com id derivado corretamente e responsável PLACEHOLDER (admin), nunca uma pessoa real', () => {
   assert.equal(MATRIZ_INICIAL.length, 3);
   assert.deepEqual(
     IDS_MATRIZ,
@@ -148,56 +149,78 @@ test('MATRIZ_INICIAL: 3 entradas cobrindo SOC/Plantão COSI/NOC, com id derivado
   for (const escopo of MATRIZ_INICIAL) {
     assert.ok(escopo.ativo);
     assert.equal(escopo.schemaVersion, 1);
+    // STAGING-RESET-HIERARQUIA-ICI-3 — nunca uma pessoa (real ou fictícia)
+    // como responsável fixo do seed estrutural, só a conta técnica `admin`.
+    assert.deepEqual(escopo.responsaveisLogin, ['admin']);
     for (const login of escopo.responsaveisLogin) {
       assert.ok(loginsSeed.has(login), `responsável "${login}" precisa estar em USUARIOS_SEED`);
     }
   }
-
-  const plantao = MATRIZ_INICIAL.find((escopo) => escopo.tipo === 'PLANTAO');
-  assert.ok(plantao.responsaveisLogin.includes('marina.azevedo'), 'Marina (GESTOR_UNIDADE de GEDSI_COSI) também administra o Plantão COSI');
 });
 
-test('USUARIOS_SEED: os 4 usuários de teste pedidos, com perfil/escopo/equipeId/unidadeId corretos', () => {
-  assert.equal(USUARIOS_SEED.length, 4);
-  const porLogin = new Map(USUARIOS_SEED.map((usuario) => [usuario.login, usuario]));
-
-  const admin = porLogin.get('admin');
+test('STAGING-RESET-HIERARQUIA-ICI-3 — USUARIOS_SEED (estrutural) contém SÓ a conta técnica admin, nenhuma pessoa real ou fictícia', () => {
+  assert.equal(USUARIOS_SEED.length, 1);
+  const [admin] = USUARIOS_SEED;
+  assert.equal(admin.login, 'admin');
   assert.equal(admin.perfil, 'ADMIN_SISTEMA');
   assert.equal(admin.escopo, 'GLOBAL');
+  assert.equal(admin.ativo, true);
 
-  // STAGING-RESET-HIERARQUIA-ICI-2 — Marina é GESTOR_UNIDADE de GEDSI_COSI
-  // (a coordenação inteira), não mais GESTOR_EQUIPE só de SOC.
-  const marina = porLogin.get('marina.azevedo');
-  assert.equal(marina.perfil, 'GESTOR_UNIDADE');
-  assert.equal(marina.escopo, 'UNIDADE');
-  assert.equal(marina.unidadeId, 'GEDSI_COSI');
-  assert.deepEqual(marina.unidadesPermitidas, ['GEDSI_COSI']);
-  assert.equal(marina.equipeId, 'GEDSI_COSI_SOC', 'equipeId continua só como compatibilidade visual');
-  assert.equal(IDS_EQUIPES.includes(marina.unidadeId), false, 'unidadeId de Marina não pode ser um equipeId');
-
-  const coordenadorPlantao = porLogin.get('coordenador.plantao.cosi');
-  assert.equal(coordenadorPlantao.equipeId, 'GEDSI_COSI_PLANTAO');
-  assert.ok(['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'].includes(coordenadorPlantao.perfil));
-  assert.equal(coordenadorPlantao.escopo, 'EQUIPE');
-
-  // STAGING-RESET-HIERARQUIA-ICI-2 — Wanessa é GESTOR_UNIDADE de GEDSI_CODB.
-  const wanessa = porLogin.get('wanessa.moriyama');
-  assert.equal(wanessa.perfil, 'GESTOR_UNIDADE');
-  assert.equal(wanessa.escopo, 'UNIDADE');
-  assert.equal(wanessa.unidadeId, 'GEDSI_CODB');
-  assert.deepEqual(wanessa.unidadesPermitidas, ['GEDSI_CODB']);
-  assert.equal(wanessa.equipeId, 'GEDSI_CODB_NOC');
-  assert.equal(IDS_EQUIPES.includes(wanessa.unidadeId), false, 'unidadeId de Wanessa não pode ser um equipeId');
-
-  for (const usuario of USUARIOS_SEED) {
-    assert.equal(usuario.ativo, true);
-    if (usuario.unidadeId !== undefined) {
-      assert.equal(IDS_UNIDADE_SIMPLES_PROIBIDOS.includes(usuario.unidadeId), false, `${usuario.login}.unidadeId não pode ser um ID simples`);
-    }
+  // Nenhum nome de pessoa (real ou fictício) hardcoded no seed estrutural.
+  const serializado = JSON.stringify(USUARIOS_SEED);
+  for (const nomeProibido of ['marina', 'azevedo', 'wanessa', 'moriyama', 'claudio', 'clis']) {
+    assert.doesNotMatch(serializado.toLowerCase(), new RegExp(nomeProibido, 'u'), `"${nomeProibido}" não pode aparecer no seed estrutural`);
   }
 });
 
 test('idEscopoOperacional() espelha exatamente firestore.rules (tipo + "_" + alvoId)', () => {
   assert.equal(idEscopoOperacional('JORNADA', 'GEDSI_COSI_SOC'), 'JORNADA_GEDSI_COSI_SOC');
   assert.equal(idEscopoOperacional('PLANTAO', 'PLANTAO_GEDSI_COSI'), 'PLANTAO_PLANTAO_GEDSI_COSI');
+});
+
+/**
+ * STAGING-RESET-HIERARQUIA-ICI-3 — usuarios-demo.mjs é OPCIONAL (só entra
+ * com `seed-hierarquia-ici.mjs --with-demo-users`) e nunca deve usar nomes
+ * de pessoas reais ou fictícias com nome próprio.
+ */
+describe('USUARIOS_DEMO (opcional — scripts/staging/usuarios-demo.mjs)', () => {
+  it('usa só logins genéricos, nunca nomes próprios (Marina/Claudio/Wanessa)', () => {
+    const serializado = JSON.stringify(USUARIOS_DEMO).toLowerCase();
+    for (const nomeProibido of ['marina', 'azevedo', 'claudio', 'wanessa', 'moriyama', 'clis']) {
+      assert.doesNotMatch(serializado, new RegExp(nomeProibido, 'u'), `"${nomeProibido}" não pode aparecer em USUARIOS_DEMO`);
+    }
+    for (const usuario of USUARIOS_DEMO) {
+      assert.match(usuario.login, /teste/u, `${usuario.login} precisa deixar claro que é dado de teste/demo`);
+    }
+  });
+
+  it('cobre os 3 perfis de coordenação/supervisão, com unidade/equipe canônicas', () => {
+    const porLogin = new Map(USUARIOS_DEMO.map((usuario) => [usuario.login, usuario]));
+
+    const coordenadorCosi = porLogin.get('coordenador.cosi.teste');
+    assert.equal(coordenadorCosi.perfil, 'GESTOR_UNIDADE');
+    assert.equal(coordenadorCosi.escopo, 'UNIDADE');
+    assert.equal(coordenadorCosi.unidadeId, 'GEDSI_COSI');
+    assert.deepEqual(coordenadorCosi.unidadesPermitidas, ['GEDSI_COSI']);
+
+    const coordenadorPlantao = porLogin.get('coordenador.plantao.teste');
+    assert.equal(coordenadorPlantao.perfil, 'GESTOR_EQUIPE');
+    assert.equal(coordenadorPlantao.escopo, 'EQUIPE');
+    assert.equal(coordenadorPlantao.equipeId, 'GEDSI_COSI_PLANTAO');
+
+    const supervisorNoc = porLogin.get('supervisor.noc.teste');
+    assert.equal(supervisorNoc.perfil, 'SUPERVISOR_EQUIPE');
+    assert.equal(supervisorNoc.escopo, 'EQUIPE');
+    assert.equal(supervisorNoc.equipeId, 'GEDSI_CODB_NOC');
+  });
+
+  it('nunca referencia unidade/equipe simples (COSI/CODB soltos) nem IDs legados', () => {
+    const serializado = JSON.stringify(USUARIOS_DEMO);
+    for (const idProibido of IDS_UNIDADE_SIMPLES_PROIBIDOS) {
+      assert.doesNotMatch(serializado, new RegExp(`"unidadeId":"${idProibido}"`, 'u'));
+    }
+    for (const idLegado of [...IDS_LEGADOS, GRUPO_LEGADO]) {
+      assert.doesNotMatch(serializado, new RegExp(`"${idLegado}"`, 'u'));
+    }
+  });
 });

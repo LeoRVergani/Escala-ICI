@@ -4104,10 +4104,10 @@ describe('STAGING-RESET-HIERARQUIA-ICI-1 — liberação operacional de staging'
  * equipe/unidade referenciado existe de fato.
  */
 describe('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em staging', () => {
-  const wanessaGestoraUnidade = {
-    login: 'wanessa.moriyama',
-    nome: 'Wanessa Moriyama',
-    email: 'wanessa.moriyama@teste.local',
+  const gestoraUnidadeStagingTeste = {
+    login: 'gestor.unidade.staging.teste',
+    nome: 'Gestora de Unidade (teste staging)',
+    email: 'gestor.unidade.staging.teste@teste.local',
     equipeId: 'GEDSI_CODB_NOC',
     nivelHierarquico: 4,
     perfil: 'GESTOR_UNIDADE',
@@ -4124,15 +4124,15 @@ describe('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em
 
   beforeEach(async () => {
     await ambiente.withSecurityRulesDisabled(async (contexto) => {
-      await setDoc(doc(contexto.firestore(), 'usuarios', wanessaGestoraUnidade.login), wanessaGestoraUnidade);
+      await setDoc(doc(contexto.firestore(), 'usuarios', gestoraUnidadeStagingTeste.login), gestoraUnidadeStagingTeste);
     });
   });
 
   it('1-2. cadastra colaborador em qualquer equipe ativa, mesmo fora da própria unidade (GEDSI_COSI_SOC e GEDSI_CODB_NOC)', async () => {
     await habilitarStaging();
-    const wanessa = autenticarComo(wanessaGestoraUnidade);
+    const gestora = autenticarComo(gestoraUnidadeStagingTeste);
     for (const equipeId of ['GEDSI_COSI_SOC', 'GEDSI_CODB_NOC']) {
-      await assertSucceeds(setDoc(doc(wanessa, 'usuarios', `novo.colaborador.${equipeId.toLowerCase()}`), {
+      await assertSucceeds(setDoc(doc(gestora, 'usuarios', `novo.colaborador.${equipeId.toLowerCase()}`), {
         login: `novo.colaborador.${equipeId.toLowerCase()}`,
         nome: 'Novo Colaborador',
         equipeId,
@@ -4143,9 +4143,9 @@ describe('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em
 
   it('3-4. cadastra GESTOR_UNIDADE em qualquer unidade ativa, mesmo fora do próprio escopo (GEDSI_COSI e GEDSI_CODB)', async () => {
     await habilitarStaging();
-    const wanessa = autenticarComo(wanessaGestoraUnidade);
+    const gestora = autenticarComo(gestoraUnidadeStagingTeste);
     for (const unidadeId of ['GEDSI_COSI', 'GEDSI_CODB']) {
-      await assertSucceeds(setDoc(doc(wanessa, 'usuarios', `novo.gestor.${unidadeId.toLowerCase()}`), {
+      await assertSucceeds(setDoc(doc(gestora, 'usuarios', `novo.gestor.${unidadeId.toLowerCase()}`), {
         login: `novo.gestor.${unidadeId.toLowerCase()}`,
         nome: 'Novo Gestor de Unidade',
         equipeId: 'GEDSI_CODB_NOC',
@@ -4160,8 +4160,8 @@ describe('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em
 
   it('5. cadastra GESTOR_EQUIPE em GEDSI_COSI_PLANTAO, fora da própria unidade', async () => {
     await habilitarStaging();
-    const wanessa = autenticarComo(wanessaGestoraUnidade);
-    await assertSucceeds(setDoc(doc(wanessa, 'usuarios', 'novo.gestor.plantao'), {
+    const gestora = autenticarComo(gestoraUnidadeStagingTeste);
+    await assertSucceeds(setDoc(doc(gestora, 'usuarios', 'novo.gestor.plantao'), {
       login: 'novo.gestor.plantao',
       nome: 'Novo Gestor de Equipe',
       equipeId: 'GEDSI_COSI_PLANTAO',
@@ -4174,8 +4174,8 @@ describe('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em
 
   it('6. cadastra SUPERVISOR_EQUIPE em GEDSI_CODB_NOC', async () => {
     await habilitarStaging();
-    const wanessa = autenticarComo(wanessaGestoraUnidade);
-    await assertSucceeds(setDoc(doc(wanessa, 'usuarios', 'novo.supervisor.noc'), {
+    const gestora = autenticarComo(gestoraUnidadeStagingTeste);
+    await assertSucceeds(setDoc(doc(gestora, 'usuarios', 'novo.supervisor.noc'), {
       login: 'novo.supervisor.noc',
       nome: 'Novo Supervisor',
       equipeId: 'GEDSI_CODB_NOC',
@@ -4188,8 +4188,8 @@ describe('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em
 
   it('7-8. a mesma coordenadora escolhe uma unidade E uma equipe diferentes da sua própria unidade/equipe, na mesma sessão', async () => {
     await habilitarStaging();
-    const wanessa = autenticarComo(wanessaGestoraUnidade);
-    await assertSucceeds(setDoc(doc(wanessa, 'usuarios', 'escolha.unidade.diferente'), {
+    const gestora = autenticarComo(gestoraUnidadeStagingTeste);
+    await assertSucceeds(setDoc(doc(gestora, 'usuarios', 'escolha.unidade.diferente'), {
       login: 'escolha.unidade.diferente',
       nome: 'Escolha Unidade Diferente',
       equipeId: 'GEDSI_CODB_NOC',
@@ -4199,7 +4199,7 @@ describe('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em
       unidadeId: 'GEDSI_COSI',
       unidadesPermitidas: ['GEDSI_COSI'],
     }));
-    await assertSucceeds(setDoc(doc(wanessa, 'usuarios', 'escolha.equipe.diferente'), {
+    await assertSucceeds(setDoc(doc(gestora, 'usuarios', 'escolha.equipe.diferente'), {
       login: 'escolha.equipe.diferente',
       nome: 'Escolha Equipe Diferente',
       equipeId: 'GEDSI_COSI_SOC',
@@ -4209,8 +4209,8 @@ describe('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em
 
   it('9. nunca cria ADMIN_SISTEMA, mesmo em staging', async () => {
     await habilitarStaging();
-    const wanessa = autenticarComo(wanessaGestoraUnidade);
-    await assertFails(setDoc(doc(wanessa, 'usuarios', 'admin.forjado.livre'), {
+    const gestora = autenticarComo(gestoraUnidadeStagingTeste);
+    await assertFails(setDoc(doc(gestora, 'usuarios', 'admin.forjado.livre'), {
       login: 'admin.forjado.livre',
       nome: 'Admin Forjado',
       equipeId: 'GEDSI_CODB_NOC',
@@ -4222,8 +4222,8 @@ describe('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em
 
   it('10. nunca cria escopo GLOBAL, mesmo com perfil de equipe/unidade válido', async () => {
     await habilitarStaging();
-    const wanessa = autenticarComo(wanessaGestoraUnidade);
-    await assertFails(setDoc(doc(wanessa, 'usuarios', 'escopo.global.forjado.livre'), {
+    const gestora = autenticarComo(gestoraUnidadeStagingTeste);
+    await assertFails(setDoc(doc(gestora, 'usuarios', 'escopo.global.forjado.livre'), {
       login: 'escopo.global.forjado.livre',
       nome: 'Escopo Global Forjado',
       equipeId: 'GEDSI_CODB_NOC',
@@ -4232,7 +4232,7 @@ describe('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em
       escopo: 'GLOBAL',
       equipesPermitidas: ['GEDSI_CODB_NOC'],
     }));
-    await assertFails(setDoc(doc(wanessa, 'usuarios', 'escopo.global.forjado.unidade'), {
+    await assertFails(setDoc(doc(gestora, 'usuarios', 'escopo.global.forjado.unidade'), {
       login: 'escopo.global.forjado.unidade',
       nome: 'Escopo Global Forjado 2',
       equipeId: 'GEDSI_CODB_NOC',
@@ -4254,16 +4254,16 @@ describe('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em
         nivelHierarquico: 6,
       });
     });
-    const wanessa = autenticarComo(wanessaGestoraUnidade);
-    await assertFails(updateDoc(doc(wanessa, 'usuarios', 'colega.para.promover'), {
+    const gestora = autenticarComo(gestoraUnidadeStagingTeste);
+    await assertFails(updateDoc(doc(gestora, 'usuarios', 'colega.para.promover'), {
       perfil: 'ADMIN_SISTEMA',
       escopo: 'GLOBAL',
     }));
   });
 
   it('12. sem config/ambiente.staging=true, o cadastro livre continua indisponível (fail-closed)', async () => {
-    const wanessa = autenticarComo(wanessaGestoraUnidade);
-    await assertFails(setDoc(doc(wanessa, 'usuarios', 'sem.staging.livre'), {
+    const gestora = autenticarComo(gestoraUnidadeStagingTeste);
+    await assertFails(setDoc(doc(gestora, 'usuarios', 'sem.staging.livre'), {
       login: 'sem.staging.livre',
       nome: 'Sem Staging',
       equipeId: 'GEDSI_COSI_SOC',

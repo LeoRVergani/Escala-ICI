@@ -10052,6 +10052,9 @@ export function DashboardApp() {
                 <label>
                   Equipe
                   <input value={rotuloEquipeCadastroUsuario} disabled />
+                  {!souAdmin && !PERMITIR_AMPLO_STAGING && participanteVinculoCadastro === null && (
+                    <small className="empty-inline">Permissão ampla de staging não está ativa; cadastro restrito à equipe atual.</small>
+                  )}
                 </label>
               )}
               {!souAdmin && formularioUsuario.loginOriginal === null && (

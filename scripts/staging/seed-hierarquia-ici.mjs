@@ -1,10 +1,15 @@
 /**
- * STAGING-RESET-HIERARQUIA-ICI-1 — semeia o organograma canônico do ICI
+ * STAGING-RESET-HIERARQUIA-ICI-1/2/3 — semeia o organograma canônico do ICI
  * (`hierarquia-ici.mjs`) num staging (`escala-ici-staging`) recém-resetado:
  * unidades organizacionais, equipes canônicas, Grupo de Plantão, Matriz de
- * Responsáveis inicial, usuários de teste e o documento `config/ambiente`
- * (`{ staging: true }`) que liga a liberação operacional ampla de
- * `souCoordenadorOperacionalStaging()` em `firestore.rules`.
+ * Responsáveis inicial, a conta técnica `admin` e o documento
+ * `config/ambiente` (`{ staging: true }`) que liga a liberação operacional
+ * ampla de `souCoordenadorOperacionalStaging()` em `firestore.rules`.
+ *
+ * NUNCA semeia pessoas reais — isso é feito depois, via Dashboard/Admin SDK,
+ * ver `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 6. Com `--with-demo-users`,
+ * também grava `USUARIOS_DEMO` (`usuarios-demo.mjs`) — nomes genéricos,
+ * opcionais, só para testar os fluxos sem esperar o cadastro real.
  *
  * Usa o Admin SDK (bypassa `firestore.rules`) — por isso NÃO precisa de um
  * ADMIN_SISTEMA já cadastrado para rodar (diferente de
@@ -26,6 +31,9 @@
  *
  *   GOOGLE_APPLICATION_CREDENTIALS=/caminho/service-account-staging.json \
  *   node scripts/staging/seed-hierarquia-ici.mjs --execute --confirm=SEED_HIERARQUIA_ICI_STAGING
+ *
+ *   # Opcional — também grava usuários de demonstração (nomes genéricos):
+ *   node scripts/staging/seed-hierarquia-ici.mjs --with-demo-users --execute --confirm=SEED_HIERARQUIA_ICI_STAGING
  */
 import process from 'node:process';
 
@@ -38,6 +46,7 @@ import {
   USUARIOS_SEED,
   idEscopoOperacional,
 } from './hierarquia-ici.mjs';
+import { USUARIOS_DEMO } from './usuarios-demo.mjs';
 
 const CONFIRMACAO = 'SEED_HIERARQUIA_ICI_STAGING';
 
@@ -45,6 +54,7 @@ export function analisarArgumentos(argv) {
   return {
     execute: argv.includes('--execute'),
     confirmado: argv.includes(`--confirm=${CONFIRMACAO}`),
+    comUsuariosDemo: argv.includes('--with-demo-users'),
   };
 }
 
@@ -52,7 +62,7 @@ function agora() {
   return new Date().toISOString();
 }
 
-export function montarPlano({ carimbo = agora(), atorLogin = 'seed-hierarquia-ici' } = {}) {
+export function montarPlano({ carimbo = agora(), atorLogin = 'seed-hierarquia-ici', comUsuariosDemo = false } = {}) {
   const unidades = UNIDADES.map((unidade) => ({
     ref: ['unidadesOrganizacionais', unidade.unidadeId],
     dados: { ...unidade, criadoPorLogin: atorLogin, criadoEm: carimbo, atualizadoEm: carimbo },
@@ -79,7 +89,12 @@ export function montarPlano({ carimbo = agora(), atorLogin = 'seed-hierarquia-ic
     },
   }));
 
-  const usuarios = USUARIOS_SEED.map((usuario) => ({
+  // STAGING-RESET-HIERARQUIA-ICI-3 — `USUARIOS_SEED` é só a conta técnica
+  // `admin`. `USUARIOS_DEMO` (nomes genéricos) só entra com `--with-demo-users`.
+  const usuarios = [
+    ...USUARIOS_SEED,
+    ...(comUsuariosDemo ? USUARIOS_DEMO : []),
+  ].map((usuario) => ({
     ref: ['usuarios', usuario.login],
     dados: { ...usuario, criadoEm: carimbo, atualizadoEm: carimbo },
   }));
@@ -89,7 +104,7 @@ export function montarPlano({ carimbo = agora(), atorLogin = 'seed-hierarquia-ic
     dados: { staging: true, atualizadoEm: carimbo, atualizadoPorLogin: atorLogin },
   };
 
-  return { unidades, equipes, grupo, matriz, usuarios, ambiente };
+  return { unidades, equipes, grupo, matriz, usuarios, ambiente, comUsuariosDemo };
 }
 
 function imprimirPlano(plano, log) {
@@ -107,7 +122,7 @@ function imprimirPlano(plano, log) {
   for (const item of plano.matriz) {
     log(`  ${item.ref[1]} — responsaveisLogin=${item.dados.responsaveisLogin.join(', ')}`);
   }
-  log('[seed-hierarquia-ici] plano de usuarios:');
+  log(`[seed-hierarquia-ici] plano de usuarios${plano.comUsuariosDemo ? ' (inclui usuários de demonstração — nomes genéricos)' : ' (só a conta técnica admin — nenhuma pessoa real ou fictícia)'}:`);
   for (const item of plano.usuarios) {
     log(`  ${item.dados.login} — perfil=${item.dados.perfil} equipeId=${item.dados.equipeId} escopo=${item.dados.escopo}`);
   }
@@ -143,7 +158,7 @@ export async function aplicarPlano({ db, plano, log = console.log }) {
 }
 
 async function main() {
-  const { execute, confirmado } = analisarArgumentos(process.argv);
+  const { execute, confirmado, comUsuariosDemo } = analisarArgumentos(process.argv);
   if (execute && !confirmado) {
     throw new Error(`Para executar de verdade, use --execute --confirm=${CONFIRMACAO}.`);
   }
@@ -152,8 +167,11 @@ async function main() {
   const { db } = inicializarAdminStaging();
   console.log('[seed-hierarquia-ici] projeto: escala-ici-staging');
   console.log(`[seed-hierarquia-ici] modo: ${modo}`);
+  if (comUsuariosDemo) {
+    console.log('[seed-hierarquia-ici] --with-demo-users: também vai gravar USUARIOS_DEMO (nomes genéricos, opcional).');
+  }
 
-  const plano = montarPlano();
+  const plano = montarPlano({ comUsuariosDemo });
   imprimirPlano(plano, console.log);
 
   if (!execute) {

@@ -1,10 +1,10 @@
-# Especificação — STAGING-RESET-HIERARQUIA-ICI (fases 1 e 2)
+# Especificação — STAGING-RESET-HIERARQUIA-ICI (fases 1, 2 e 3)
 
 **Status:** implementado (código, scripts dry-run, specs, testes) — reset real,
 seed real, deploy de Rules/Índices e build/deploy de produção **não
 executados**, aguardando aprovação humana explícita.
 
-Este documento cobre duas fases:
+Este documento cobre três fases:
 
 - **STAGING-RESET-HIERARQUIA-ICI-1** — reset controlado do staging com o
   organograma canônico do ICI e liberação operacional ampla (Jornada/
@@ -17,6 +17,17 @@ Este documento cobre duas fases:
   cadastrar em qualquer unidade/equipe ativa (ainda não se conhece toda a
   árvore real do ICI). Também adiciona descrição textual obrigatória para
   `nivelHierarquico` na UI (nunca só o número/enum cru).
+- **STAGING-RESET-HIERARQUIA-ICI-3** — corrige a MODELAGEM DE PESSOAS: a
+  fase 2 tinha promovido "Marina" (um fixture de teste, nunca uma pessoa
+  real) a coordenadora fixa do COSI, e modelado "Wanessa" incorretamente
+  como coordenadora do CODB (ela é supervisora do NOC). Remove qualquer
+  pessoa do seed ESTRUTURAL (só a conta técnica `admin` permanece), separa
+  um seed OPCIONAL de demonstração com nomes genéricos
+  (`scripts/staging/usuarios-demo.mjs`), documenta a configuração real
+  esperada (coordenador do COSI, login `clis`; supervisora do NOC; futuro
+  coordenador do CODB) como dado de banco/configuração — nunca código — e
+  corrige a causa raiz de o campo Equipe do modal de cadastro continuar
+  travado em staging (§ 5.5).
 
 ## 1. Por que esta fase existe
 
@@ -39,6 +50,17 @@ equipe/unidade, e os IDs de coordenação (`COSI`/`CODB`/`COCR`) tinham sido
 persistidos como `unidadeId` — quando o padrão canônico exige o prefixo da
 gerência (`GEDSI_COSI`/`GEDSI_CODB`/`GEDSI_COCR`). As seções 3, 5.5, 6 e 13
 abaixo documentam a correção.
+
+Depois disso, um terceiro problema (STAGING-RESET-HIERARQUIA-ICI-3): o campo
+Equipe do modal AINDA aparecia travado em staging (causa raiz era de
+configuração de ambiente, não de código — ver § 5.5), e a modelagem de
+pessoas da fase 2 tinha dois erros — "Marina" nunca foi uma pessoa real
+(era um fixture de teste promovido, por engano, a coordenadora fixa do
+COSI), e "Wanessa" foi modelada como coordenadora do CODB quando na
+verdade é supervisora do NOC. A seção 6 documenta a correção: pessoas saem
+do seed estrutural, um seed opcional de demonstração usa nomes genéricos, e
+a configuração real esperada (coordenador do COSI = `clis`; supervisora do
+NOC; futuro coordenador do CODB) fica documentada, não codificada.
 
 ## 2. Organograma canônico
 
@@ -282,41 +304,124 @@ uma equipe real — ver § 13 e `validarNaoInverteUnidadeEquipe()`
 (`scripts/staging/validate-staging.mjs`) para a checagem correspondente do
 lado dos scripts.
 
-## 6. Usuários de teste
+Quando `VITE_ESCALA_STAGING_PERMISSAO_AMPLA` não está ligada (ou o cadastro
+é o de vínculo de planilha, que sempre tem um alvo já definido), o campo
+"Equipe" volta a ser o `<input disabled>` de antes — mas agora com uma
+mensagem explícita: **"Permissão ampla de staging não está ativa; cadastro
+restrito à equipe atual."** — para o coordenador nunca confundir "a flag
+está desligada" com "o sistema está quebrado".
 
-| Login | Perfil | Escopo | unidadeId / unidadesPermitidas | equipeId |
-|---|---|---|---|---|
-| `admin` | `ADMIN_SISTEMA` | `GLOBAL` | — | `ADMIN_ICI` (placeholder técnico, não operacional) |
-| `marina.azevedo` | `GESTOR_UNIDADE` | `UNIDADE` | `GEDSI_COSI` / `['GEDSI_COSI']` | `GEDSI_COSI_SOC` (compat visual) |
-| `coordenador.plantao.cosi` | `GESTOR_EQUIPE` | `EQUIPE` | — | `GEDSI_COSI_PLANTAO` |
-| `wanessa.moriyama` | `GESTOR_UNIDADE` | `UNIDADE` | `GEDSI_CODB` / `['GEDSI_CODB']` | `GEDSI_CODB_NOC` (compat visual) |
+**STAGING-RESET-HIERARQUIA-ICI-3 — causa raiz do campo Equipe continuar
+travado depois da fase 2**: o código já estava correto (`usarCadastroLivreStaging`
+já existia e já era usado pela JSX), mas o arquivo `.env.staging.dashboard`
+REAL usado no build local/Docker é gitignored (`.env*` no `.gitignore`,
+exceto os `.example`) e tinha sido criado ANTES da fase 1 introduzir
+`VITE_ESCALA_STAGING_PERMISSAO_AMPLA` — o `.env.staging.dashboard.example`
+já tinha a variável, mas o arquivo real de cada máquina/deploy precisa ser
+atualizado manualmente, já que não é versionado. `import.meta.env.VITE_ESCALA_STAGING_PERMISSAO_AMPLA`
+resolvia para `undefined` (nunca `'true'`), então `PERMITIR_AMPLO_STAGING`
+era sempre `false`, independentemente do perfil do usuário logado ou do
+estado de `config/ambiente.staging`. Isso é um problema de CONFIGURAÇÃO
+local/de ambiente, não de código — qualquer `.env.staging.dashboard` (ou
+variável equivalente passada ao `docker compose build`) criado antes desta
+fase precisa da linha `VITE_ESCALA_STAGING_PERMISSAO_AMPLA=true` adicionada
+manualmente.
 
-**STAGING-RESET-HIERARQUIA-ICI-2** — Marina e Wanessa passam a ser
-`GESTOR_UNIDADE` da coordenação inteira (`GEDSI_COSI`/`GEDSI_CODB`), não mais
-`GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` de uma única equipe: Marina "cuida do
-COSI inteiro" (SOC + Plantão COSI), Wanessa cuida do CODB inteiro (NOC, hoje
-a única equipe ali). `equipeId` continua presente só como compatibilidade
-visual — nunca a fonte de autorização, que é `unidadeId`/`unidadesPermitidas`
-(ver `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 2 do pedido original e
-`lib/sessao.ts:unidadesPermitidasEfetivas()`). `coordenador.plantao.cosi`
-continua como `GESTOR_EQUIPE` de `GEDSI_COSI_PLANTAO` — um segundo fixture,
-equipe-scoped, útil para testar delegação por equipe além de por unidade.
+## 6. Usuários — seed estrutural vs. pessoas reais (STAGING-RESET-HIERARQUIA-ICI-3)
 
-Fonte única: `USUARIOS_SEED` em `scripts/staging/hierarquia-ici.mjs`. Nenhum
-nome de pessoa é hardcoded em Rules ou em `lib/` — só existem como dado de
-seed, igual a qualquer usuário cadastrado pela Administração.
+**Decisão desta fase**: pessoas (reais ou fictícias) NUNCA fazem parte do
+seed estrutural. As fases 1 e 2 tratavam "Marina" e "Wanessa" como dado de
+seed fixo — Marina nunca foi uma pessoa real (era um fixture de teste
+promovido, por engano, a "verdade do produto"), e Wanessa foi modelada
+incorretamente como `GESTOR_UNIDADE` do CODB quando na verdade ela é
+**supervisora do NOC**, não coordenadora da coordenação inteira. Essa
+mistura de dado estrutural com identidade de pessoa é exatamente o problema
+que este parágrafo corrige.
+
+### 6.1 Seed estrutural (`USUARIOS_SEED`, sempre executado)
+
+| Login | Perfil | Escopo | Observação |
+|---|---|---|---|
+| `admin` | `ADMIN_SISTEMA` | `GLOBAL` | Única conta técnica aceita no seed estrutural — resolve o bootstrap do primeiro admin (`docs/operacao/BOOTSTRAP_ADMIN_STAGING.md`); não é uma pessoa. |
+
+Nenhuma outra conta é criada pelo seed estrutural. A Matriz inicial (§ 7)
+usa `admin` como `responsaveisLogin` placeholder, só para satisfazer a
+validação de schema (`escopoOperacionalValido()` exige a lista não vazia) —
+nunca uma afirmação de quem é o coordenador real.
+
+### 6.2 Pessoas reais — configuração esperada (documentação, não código)
+
+Cadastradas depois, via Dashboard (cadastro livre, § 5.5) ou diretamente no
+banco por um `ADMIN_SISTEMA` — **nunca neste repositório como dado
+versionado**:
+
+**Coordenador real do COSI** (login conhecido: `clis`):
+
+| Campo | Valor |
+|---|---|
+| `perfil` | `GESTOR_UNIDADE` |
+| `escopo` | `UNIDADE` |
+| `unidadeId` | `GEDSI_COSI` |
+| `unidadesPermitidas` | `['GEDSI_COSI']` |
+| `equipeId` | opcional/compatibilidade visual — preferencialmente `GEDSI_COSI_SOC` |
+| `ativo` | `true` |
+
+Administra conceitualmente `GEDSI_COSI_SOC`, `GEDSI_COSI_PLANTAO` e
+`PLANTAO_GEDSI_COSI` — via `unidadeId`/`unidadesPermitidas`, nunca via
+`equipeId`.
+
+**Supervisora do NOC** (Wanessa — login real não fixado neste documento):
+
+| Campo | Valor |
+|---|---|
+| `perfil` | `SUPERVISOR_EQUIPE` |
+| `escopo` | `EQUIPE` |
+| `equipeId` | `GEDSI_CODB_NOC` |
+| `equipesPermitidas` | `['GEDSI_CODB_NOC']` |
+| `unidadeId` | `GEDSI_CODB`, se o cadastro guardar a unidade junto (compatibilidade/contexto, não escopo) |
+| `ativo` | `true` |
+
+Ela é supervisora do NOC — **nunca** `GESTOR_UNIDADE`/coordenadora do CODB.
+
+**Coordenador do CODB** (ainda não cadastrado, chefe da supervisora do NOC):
+
+| Campo | Valor |
+|---|---|
+| `perfil` | `GESTOR_UNIDADE` |
+| `escopo` | `UNIDADE` |
+| `unidadeId` | `GEDSI_CODB` |
+| `unidadesPermitidas` | `['GEDSI_CODB']` |
+
+Sem nome/login fixado — será cadastrado quando a pessoa for definida. Até lá,
+`souCoordenadorOperacionalStaging()` já garante que qualquer
+`ADMIN_SISTEMA`/`GESTOR_UNIDADE`/`GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE`
+existente pode operar `GEDSI_CODB`/`GEDSI_CODB_NOC` em staging sem esperar
+esse cadastro (§ 4/§ 5.5) — a ausência do coordenador formal não bloqueia o
+uso do sistema.
+
+### 6.3 Usuários de demonstração (opcionais, `usuarios-demo.mjs`)
+
+Para testar os fluxos sem esperar o cadastro real, `scripts/staging/usuarios-demo.mjs`
+exporta `USUARIOS_DEMO` — nomes **genéricos** (`coordenador.cosi.teste`,
+`coordenador.plantao.teste`, `supervisor.noc.teste`), nunca nomes de pessoa.
+`seed-hierarquia-ici.mjs` só grava esses usuários com a flag explícita
+`--with-demo-users` — nunca por padrão, e `validate-staging.mjs` nunca exige
+que existam.
 
 ## 7. Matriz inicial
 
-| Tipo | Alvo | Responsável |
+| Tipo | Alvo | `responsaveisLogin` (seed estrutural) |
 |---|---|---|
-| `JORNADA` | `GEDSI_COSI_SOC` | `marina.azevedo` |
-| `PLANTAO` | `PLANTAO_GEDSI_COSI` | `coordenador.plantao.cosi` |
-| `JORNADA` | `GEDSI_CODB_NOC` | `wanessa.moriyama` |
+| `JORNADA` | `GEDSI_COSI_SOC` | `['admin']` (placeholder) |
+| `PLANTAO` | `PLANTAO_GEDSI_COSI` | `['admin']` (placeholder) |
+| `JORNADA` | `GEDSI_CODB_NOC` | `['admin']` (placeholder) |
 
 Existe para navegação/visualização normal do Dashboard — não é a única via de
 autorização: ver § 4 (a liberação ampla cobre o caso da Matriz ficar
-incompleta).
+incompleta ou apontar só para `admin`). Assim que `clis` (ou quem for o
+coordenador de cada alvo) for cadastrado, ele deve ser adicionado a
+`responsaveisLogin` via **Administração → Responsáveis por escala** — o seed
+nunca faz essa atualização sozinho depois do reset inicial.
 
 ## 8. Scripts (`scripts/staging/`)
 
@@ -415,14 +520,16 @@ administrar via Matriz uma equipe diferente da própria).
   `descreverNivelHierarquico`/`descreverClassificacaoHierarquica`.
 - **Dados** (`tests/staging-hierarquia-ici.test.mjs`): organograma com IDs
   canônicos de unidade (`GEDSI_COSI`/`GEDSI_CODB`/`GEDSI_COCR`, nunca
-  `COSI`/`CODB`/`COCR` soltos), ausência de IDs legados, Marina/Wanessa como
-  `GESTOR_UNIDADE`, nenhuma inversão unidade/equipe.
+  `COSI`/`CODB`/`COCR` soltos), ausência de IDs legados, `USUARIOS_SEED`
+  contendo só a conta técnica `admin` (nenhuma pessoa real ou fictícia),
+  `USUARIOS_DEMO` com nomes genéricos, nenhuma inversão unidade/equipe.
 - **Boundaries** (`tests/staging-reset-boundaries.test.mjs`,
   `tests/dashboard-contexto-escala-boundaries.test.mjs`,
   `tests/app-boundaries.test.mjs`): dry-run por padrão, confirmação exata,
-  guarda de projeto, env var separada, seletores livres de Unidade/Equipe
-  com rótulo técnico como principal, descrição de nível hierárquico sempre
-  presente.
+  guarda de projeto, env var separada (documentada e propagada até
+  Dockerfile/compose), seletores livres de Unidade/Equipe com rótulo
+  técnico como principal, descrição de nível hierárquico sempre presente,
+  seed estrutural e `usuarios-demo.mjs` sem nomes de pessoa real.
 
 ## 13. Nível hierárquico — descrição textual obrigatória
 

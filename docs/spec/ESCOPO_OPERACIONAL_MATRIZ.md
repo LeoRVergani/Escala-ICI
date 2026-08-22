@@ -272,6 +272,14 @@ mesmo uma sem nenhuma entrada aqui. As duas liberações usam a mesma condição
 de ambiente (`souCoordenadorOperacionalStaging()`), mas são coleções e regras
 distintas.
 
+**STAGING-RESET-HIERARQUIA-ICI-3**: o seed inicial desta Matriz usa
+`responsaveisLogin: ['admin']` (conta técnica, não uma pessoa) como
+placeholder de schema — nunca uma afirmação de quem é o coordenador real de
+cada alvo. Assim que a pessoa real for cadastrada (ex.: o coordenador do
+COSI), ela deve ser adicionada aqui por um `ADMIN_SISTEMA` via
+**Administração → Responsáveis por escala** — ver
+`docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 6/§ 7.
+
 ## 10. Rules
 
 `escoposOperacionais`:

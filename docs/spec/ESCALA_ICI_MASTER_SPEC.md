@@ -355,3 +355,9 @@ grafo completo de referências, validar Rules e índices genéricos, passar por
 dry-run/backup/smoke test e exigir aprovação humana antes de liberar escrita.
 O procedimento normativo está em
 `docs/spec/MIGRACAO_IDS_ORGANIZACIONAIS_PRODUCAO.md`.
+
+**STAGING-RESET-HIERARQUIA-ICI-3** reforça um princípio separado: IDs
+organizacionais (unidades/equipes) são estrutura e podem ser seed; pessoas
+(quem ocupa cada cargo) nunca são — mesmo em staging, ficam fora do código
+versionado, cadastradas via Dashboard/Admin SDK. Ver
+`docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 6.

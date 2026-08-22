@@ -223,6 +223,17 @@ reproduzia o mesmo problema que motivou STAGING-RESET-HIERARQUIA-ICI-1.
 Ver `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 5.5 para o detalhe completo
 (Rules, `lib/adminGuards.ts`, UI, persistência).
 
+**STAGING-RESET-HIERARQUIA-ICI-3**: o código do cadastro livre já estava
+correto desde a fase 2, mas o campo Equipe continuou aparecendo travado em
+staging por uma causa raiz de CONFIGURAÇÃO, não de código —
+`VITE_ESCALA_STAGING_PERMISSAO_AMPLA` precisa existir no arquivo real
+`.env.staging.dashboard` (gitignored, um por máquina/deploy), não só no
+`.env.staging.dashboard.example` versionado. Ver
+`docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 5.5 para o diagnóstico
+completo. Esta fase também corrigiu a modelagem de pessoas usada nos
+exemplos anteriores: nenhuma pessoa (real ou fictícia) é dado de seed
+estrutural — ver `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 6.
+
 ### Código organizacional da equipe
 
 A tela de Equipes não tenta renomear `Equipe.id`: essa chave já referencia

@@ -81,6 +81,41 @@ test('STAGING-RESET-HIERARQUIA-ICI-2 — hierarquia-ici.mjs usa GEDSI_COSI/GEDSI
   assert.doesNotMatch(codigo, /unidadeId: 'COSI'|unidadeId: 'CODB'|unidadeId: 'COCR'/u, 'nunca um unidadeId simples de coordenação');
 });
 
+test('STAGING-RESET-HIERARQUIA-ICI-3 — hierarquia-ici.mjs (seed estrutural) nunca hardcoda pessoas reais/fictícias', async () => {
+  const codigo = await ler('scripts/staging/hierarquia-ici.mjs');
+  const semComentarios = codigo.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/\/\/.*$/gmu, '').toLowerCase();
+  for (const nomeProibido of ['marina', 'azevedo', 'wanessa', 'moriyama', 'claudio', "login: 'clis'"]) {
+    assert.doesNotMatch(semComentarios, new RegExp(nomeProibido, 'u'), `"${nomeProibido}" não pode aparecer no seed estrutural (código, fora de comentários)`);
+  }
+  assert.match(codigo, /login: 'admin'/u, 'a única conta do seed estrutural é a técnica "admin"');
+});
+
+test('STAGING-RESET-HIERARQUIA-ICI-3 — usuarios-demo.mjs existe, é opcional e usa só nomes genéricos', async () => {
+  const codigo = await ler('scripts/staging/usuarios-demo.mjs');
+  assert.match(codigo, /export const USUARIOS_DEMO/u);
+  const semComentarios = codigo.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/\/\/.*$/gmu, '').toLowerCase();
+  for (const nomeProibido of ['marina', 'azevedo', 'wanessa', 'moriyama', 'claudio', 'clis']) {
+    assert.doesNotMatch(semComentarios, new RegExp(nomeProibido, 'u'), `"${nomeProibido}" não pode aparecer em usuarios-demo.mjs`);
+  }
+});
+
+test('STAGING-RESET-HIERARQUIA-ICI-3 — seed-hierarquia-ici.mjs só grava USUARIOS_DEMO com --with-demo-users explícito', async () => {
+  const codigo = await ler('scripts/staging/seed-hierarquia-ici.mjs');
+  assert.match(codigo, /--with-demo-users/u);
+  assert.match(codigo, /comUsuariosDemo/u);
+  assert.match(codigo, /import \{ USUARIOS_DEMO \} from '\.\/usuarios-demo\.mjs'/u);
+  assert.match(codigo, /\.\.\.\(comUsuariosDemo \? USUARIOS_DEMO : \[\]\)/u, 'sem a flag, USUARIOS_DEMO nunca entra no plano');
+});
+
+test('STAGING-RESET-HIERARQUIA-ICI-3 — validate-staging.mjs avisa sobre pessoas reais pendentes sem bloquear (não hardcoda Wanessa como coordenadora CODB)', async () => {
+  const codigo = await ler('scripts/staging/validate-staging.mjs');
+  assert.match(codigo, /export async function avisarPessoasReaisPendentes/u);
+  assert.match(codigo, /AVISO \(não bloqueia\)/u);
+  // O aviso sobre o CODB é por PAPEL (GESTOR_UNIDADE de GEDSI_CODB), nunca citando "Wanessa" como a coordenadora.
+  assert.doesNotMatch(codigo, /wanessa.*coordenad/iu, 'Wanessa nunca deve ser modelada como coordenadora do CODB');
+  assert.match(codigo, /SUPERVISOR_EQUIPE.*GEDSI_CODB_NOC/su, 'o papel esperado do NOC é supervisão, não coordenação de unidade');
+});
+
 test('hierarquia-ici.mjs é um módulo puro (sem I/O, sem firebase-admin, sem process.env)', async () => {
   const codigo = await ler('scripts/staging/hierarquia-ici.mjs');
   const semComentarios = codigo.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/\/\/.*$/gmu, '');

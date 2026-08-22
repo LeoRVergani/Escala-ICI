@@ -19,7 +19,7 @@ Esta pasta concentra a fonte normativa atual do projeto. Checkpoints e arquivos 
 
 ## Specs herdadas ainda válidas por domínio
 
-- `STAGING_RESET_HIERARQUIA_ICI.md` — fases STAGING-RESET-HIERARQUIA-ICI-1/2: reset controlado de staging, IDs canônicos de unidade/equipe, `souCoordenadorOperacionalStaging()`, cadastro livre de unidade/equipe e descrição textual de nível hierárquico.
+- `STAGING_RESET_HIERARQUIA_ICI.md` — fases STAGING-RESET-HIERARQUIA-ICI-1/2/3: reset controlado de staging, IDs canônicos de unidade/equipe, `souCoordenadorOperacionalStaging()`, cadastro livre de unidade/equipe, descrição textual de nível hierárquico, e separação de pessoas reais (nunca hardcoded) do seed estrutural.
 - `HIERARQUIA_ORGANIZACIONAL.md` — domínio organizacional, permissões e regra de não hardcode.
 - `ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` — estrutura organizacional de referência do produto, com níveis, unidades, siglas e regras sanitizadas para cadastro/contexto.
 - `ESCOPO_OPERACIONAL_MATRIZ.md` — fonte normativa atual para quem administra ou apenas consulta cada Jornada/Plantão.

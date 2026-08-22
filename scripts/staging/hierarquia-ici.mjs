@@ -1,6 +1,8 @@
 /**
- * STAGING-RESET-HIERARQUIA-ICI-1 — fonte única de dados do organograma
- * canônico do ICI para o staging reiniciado. Módulo PURO (sem I/O, sem
+ * STAGING-RESET-HIERARQUIA-ICI-1/2/3 — fonte única de dados ESTRUTURAIS do
+ * organograma canônico do ICI para o staging reiniciado (unidades, equipes,
+ * Grupo de Plantão, Matriz inicial, e só a conta técnica `admin` — nunca
+ * pessoas reais, ver `USUARIOS_SEED` abaixo). Módulo PURO (sem I/O, sem
  * `firebase-admin`, sem `process.env`) — importado tanto por
  * `seed-hierarquia-ici.mjs` (grava) quanto por `validate-staging.mjs`
  * (confere o que foi gravado), para as duas pontas nunca divergirem.
@@ -198,10 +200,20 @@ export const GRUPO_PLANTAO = Object.freeze({
 });
 
 /**
- * Usuários de teste mínimos pedidos para validar o organograma novo. Logins
- * são identificadores funcionais (nunca nomes hardcoded em regra de
- * negócio) — só existem aqui como dado de seed, igual a qualquer outro
- * usuário cadastrado pela Administração do Dashboard.
+ * STAGING-RESET-HIERARQUIA-ICI-3 — o seed ESTRUTURAL nunca fixa pessoas
+ * reais (nem fictícias) como verdade do produto. `admin` é a ÚNICA exceção
+ * aceita: uma conta técnica genérica (não uma pessoa), indispensável para
+ * resolver o bootstrap do primeiro `ADMIN_SISTEMA` (sem ela, ninguém
+ * consegue logar com poder administrativo depois do reset — nenhuma Rule
+ * cria o primeiro admin sozinha, `docs/operacao/BOOTSTRAP_ADMIN_STAGING.md`).
+ *
+ * Coordenadores/supervisores REAIS (ex.: o coordenador do COSI, a
+ * supervisora do NOC) NÃO entram aqui — são cadastrados depois, via
+ * Dashboard/Admin SDK, com os dados reais de cada pessoa. Ver
+ * `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 6 para a configuração
+ * esperada (documentação, não código) e `usuarios-demo.mjs` (opcional,
+ * nomes genéricos) se for preciso testar os fluxos sem esperar o cadastro
+ * real.
  */
 export const USUARIOS_SEED = Object.freeze([
   {
@@ -213,43 +225,6 @@ export const USUARIOS_SEED = Object.freeze([
     escopo: 'GLOBAL',
     ativo: true,
   },
-  {
-    // STAGING-RESET-HIERARQUIA-ICI-2 — Marina coordena a UNIDADE GEDSI_COSI
-    // inteira (SOC + Plantão COSI), não só a equipe SOC. `equipeId` fica só
-    // como compatibilidade visual (nunca a fonte de autorização — essa é
-    // `unidadeId`/`unidadesPermitidas`, ver docs/spec/STAGING_RESET_HIERARQUIA_ICI.md § 2).
-    login: 'marina.azevedo',
-    nome: 'Marina Azevedo',
-    equipeId: 'GEDSI_COSI_SOC',
-    unidadeId: 'GEDSI_COSI',
-    unidadesPermitidas: ['GEDSI_COSI'],
-    nivelHierarquico: 4,
-    perfil: 'GESTOR_UNIDADE',
-    escopo: 'UNIDADE',
-    ativo: true,
-  },
-  {
-    login: 'coordenador.plantao.cosi',
-    nome: 'Coordenador Plantão COSI',
-    equipeId: 'GEDSI_COSI_PLANTAO',
-    nivelHierarquico: 4,
-    perfil: 'GESTOR_EQUIPE',
-    escopo: 'EQUIPE',
-    ativo: true,
-  },
-  {
-    // STAGING-RESET-HIERARQUIA-ICI-2 — mesma lógica de Marina: Wanessa
-    // coordena a UNIDADE GEDSI_CODB inteira, não só a equipe NOC.
-    login: 'wanessa.moriyama',
-    nome: 'Wanessa Moriyama',
-    equipeId: 'GEDSI_CODB_NOC',
-    unidadeId: 'GEDSI_CODB',
-    unidadesPermitidas: ['GEDSI_CODB'],
-    nivelHierarquico: 4,
-    perfil: 'GESTOR_UNIDADE',
-    escopo: 'UNIDADE',
-    ativo: true,
-  },
 ]);
 
 /**
@@ -257,7 +232,17 @@ export const USUARIOS_SEED = Object.freeze([
  * Dashboard. NÃO é a única via de autorização em staging: a liberação
  * ampla de `souCoordenadorOperacionalStaging()` (`firestore.rules`) garante
  * que um coordenador/supervisor elegível nunca fica travado mesmo que esta
- * Matriz esteja incompleta ou desatualizada.
+ * Matriz esteja incompleta, desatualizada, ou (como aqui) só aponte para a
+ * conta técnica `admin`.
+ *
+ * STAGING-RESET-HIERARQUIA-ICI-3 — `responsaveisLogin: ['admin']` é
+ * PLACEHOLDER de bootstrap, não uma afirmação de quem é o coordenador real.
+ * `escopoOperacionalValido()` (`firestore.rules`) exige `responsaveisLogin`
+ * ou `responsaveisEquipe` não vazio — como o seed estrutural não conhece
+ * nenhuma pessoa real ainda, `admin` preenche essa exigência de schema sem
+ * inventar uma identidade. Assim que o coordenador real de cada alvo for
+ * cadastrado (Dashboard → Administração → Responsáveis por escala), ele deve
+ * ser adicionado aqui — este seed nunca remove `admin` automaticamente.
  */
 export const MATRIZ_INICIAL = Object.freeze([
   {
@@ -266,7 +251,7 @@ export const MATRIZ_INICIAL = Object.freeze([
     alvoNome: 'SOC',
     unidadeId: equipePorId.get('GEDSI_COSI_SOC').unidadeId,
     caminhoUnidade: equipePorId.get('GEDSI_COSI_SOC').caminhoUnidade,
-    responsaveisLogin: ['marina.azevedo'],
+    responsaveisLogin: ['admin'],
     responsaveisEquipe: [],
     equipesConsulta: [],
     ativo: true,
@@ -278,7 +263,7 @@ export const MATRIZ_INICIAL = Object.freeze([
     alvoNome: GRUPO_PLANTAO.nome,
     unidadeId: GRUPO_PLANTAO.unidadeResponsavelId,
     caminhoUnidade: GRUPO_PLANTAO.caminhoUnidadeResponsavel,
-    responsaveisLogin: ['coordenador.plantao.cosi', 'marina.azevedo'],
+    responsaveisLogin: ['admin'],
     responsaveisEquipe: [],
     equipesConsulta: GRUPO_PLANTAO.equipesConsulta,
     ativo: true,
@@ -290,7 +275,7 @@ export const MATRIZ_INICIAL = Object.freeze([
     alvoNome: 'NOC',
     unidadeId: equipePorId.get('GEDSI_CODB_NOC').unidadeId,
     caminhoUnidade: equipePorId.get('GEDSI_CODB_NOC').caminhoUnidade,
-    responsaveisLogin: ['wanessa.moriyama'],
+    responsaveisLogin: ['admin'],
     responsaveisEquipe: [],
     equipesConsulta: [],
     ativo: true,
