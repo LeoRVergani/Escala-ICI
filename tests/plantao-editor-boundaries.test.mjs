@@ -399,7 +399,25 @@ test('34. o calendário ocupa o topo visual e os diagnósticos da fonte ficam de
   assert.match(css, /\.plantao-preview-principal\s*\{[^}]*order:\s*1/u);
   assert.match(css, /\.plantao-preview-fonte\s*\{[^}]*order:\s*2/u);
   assert.match(css, /\.plantao-preview-divergencias\s*\{[^}]*order:\s*3/u);
-  assert.match(dashboard, /tipoArquivoDetectado === 'PLANTAO' \? ' import-panel-compact'/u);
+  assert.match(dashboard, /plantao-command-panel/u);
+});
+
+test('34.1 ações de validar, salvar e publicar ficam acima do calendário e o card inferior de salvamento não volta', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const inicioBarra = dashboard.indexOf('className="panel plantao-command-panel"');
+  const fimBarra = dashboard.indexOf('className="import-panel panel"', inicioBarra);
+  const inicioPreview = dashboard.indexOf('<PreviewPlantao', inicioBarra);
+  assert.ok(inicioBarra > 0 && fimBarra > inicioBarra && inicioPreview > fimBarra, 'a barra operacional precisa aparecer antes do calendário/preview');
+  const barra = dashboard.slice(inicioBarra, fimBarra);
+  assert.match(barra, /Importar outra planilha/u);
+  assert.match(barra, /Validar prévia/u);
+  assert.match(barra, /Salvar rascunho/u);
+  assert.match(barra, /Publicar Plantão/u);
+  assert.match(barra, /rascunho-plantao-grupo/u);
+  assert.match(barra, /rascunho-plantao-competencia/u);
+  assert.doesNotMatch(barra, /className=\{`dropzone/u, 'depois de detectar Plantão, importar deve ser botão e não um dropzone grande');
+  assert.match(barra, /rascunhoPlantaoProntoParaPublicar/u, 'publicar só habilita depois de salvar a versão atual');
+  assert.doesNotMatch(dashboard, />Salvar como rascunho</u, 'o card inferior antigo precisa ser removido');
 });
 
 test('35. cartões importados mostram iniciais maiores e horário compacto ao lado, preservando o horário completo no título acessível', async () => {

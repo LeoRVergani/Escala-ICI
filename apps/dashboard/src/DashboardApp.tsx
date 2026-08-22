@@ -2432,9 +2432,7 @@ interface PreviewPlantaoProps {
   /** Fase PLANTÃO-3B.1 — as três camadas de verdade + divergências entre elas, nunca uma reconciliação. `null` junto com `resultado`. */
   conferencia: ConferenciaContabilPlantao | null;
   pendencias: number;
-  podeValidar: boolean;
   validada: boolean;
-  onValidar: () => void;
   onCriarUsuarioParaVinculo: (participanteNomeOriginal: string) => void;
   /**
    * Fase ESCALAS-UX-1A — o Editor visual. `atribuicoesEditaveis` é a
@@ -2495,9 +2493,7 @@ function PreviewPlantao({
   onDesfazerVinculo,
   conferencia,
   pendencias,
-  podeValidar,
   validada,
-  onValidar,
   onCriarUsuarioParaVinculo,
   atribuicoesEditaveis,
   competencia,
@@ -2617,9 +2613,6 @@ function PreviewPlantao({
             <span className={`status-badge ${pendencias === 0 ? 'success' : 'warning'}`}>
               {pendencias === 0 ? 'Vínculos prontos' : `${pendencias} vínculo(s) pendente(s)`}
             </span>
-            <button className="primary-button compact-button" type="button" disabled={!podeValidar} onClick={onValidar}>
-              <CheckCircle2 size={15} /> Validar prévia
-            </button>
           </div>
         </div>
         {validada && (
@@ -3236,6 +3229,8 @@ export function DashboardApp() {
   );
   const pendenciasVinculoPlantao = contarPendenciasVinculoPlantao(vinculosPlantao);
   const previaPlantaoPodeValidar = previaPlantaoValidavel(vinculosPlantao);
+  const rascunhoPlantaoProntoParaPublicar = rascunhoPlantaoSalvoEm === grupoRascunhoEscolhido
+    && !plantaoPossuiAlteracoesNaoSalvas;
   /**
    * Gate na identidade REAL, nunca na simulada — a aba de Administração
    * precisa continuar acessível (para "Sair da simulação") mesmo enquanto o
@@ -7696,24 +7691,8 @@ export function DashboardApp() {
               <p className="eyebrow">Importação segura</p><h1>Importar escala</h1><p>O arquivo é processado somente na memória deste navegador.</p>
             </div>
           </header>
-          <article className={`import-panel panel${tipoArquivoDetectado === 'PLANTAO' ? ' import-panel-compact' : ''}`}>
-            <div
-              className={`dropzone ${arrastando ? 'dragging' : ''}`}
-              onDragOver={(evento) => {
-                evento.preventDefault();
-                setArrastando(true);
-              }}
-              onDragLeave={() => setArrastando(false)}
-              onDrop={soltar}
-              role="button"
-              tabIndex={0}
-              onClick={() => inputArquivo.current?.click()}
-              onKeyDown={(evento) => {
-                if (evento.key === 'Enter' || evento.key === ' ') {
-                  inputArquivo.current?.click();
-                }
-              }}
-            >
+          {tipoArquivoDetectado === 'PLANTAO' && origemPlantaoAtual !== null ? (
+            <article className="panel plantao-command-panel" aria-label="Ações da escala de Plantão">
               <input
                 ref={inputArquivo}
                 type="file"
@@ -7722,45 +7701,232 @@ export function DashboardApp() {
                 onChange={(evento: ChangeEvent<HTMLInputElement>) =>
                   void receberArquivo(evento.target.files?.[0])}
               />
-              <span className="drop-icon"><FileSpreadsheet size={28} /></span>
-              <div>
-                <h2>{tipoArquivoDetectado === 'PLANTAO' ? 'Importar outra planilha' : 'Enviar planilha'}</h2>
-                <p><strong>Selecionar XLS ou XLSX</strong><span className="dropzone-dica"> · também aceita arrastar</span></p>
-                <small>Leitura local, sem envio automático</small>
-              </div>
-            </div>
-            {(tipoArquivoDetectado === null || tipoArquivoDetectado === 'ESCALA_6X1') && (
-              <>
-                <div className="import-summary">
-                  <div><span>Período</span><strong>{resultado ? '26 jul – 25 ago' : '—'}</strong></div>
-                  <div><span>Colaboradores</span><strong>{resultado?.documentos.length ?? '—'}</strong></div>
-                  <div><span>Dias</span><strong>{resultado?.totalDias ?? '—'}</strong></div>
+              <div className="plantao-command-head">
+                <div className="plantao-command-file">
+                  <span className="plantao-command-file-icon"><FileSpreadsheet size={19} /></span>
+                  <span>
+                    <small>{origemPlantaoAtual === 'IMPORTADO' ? 'Planilha em revisão' : 'Origem da escala'}</small>
+                    <strong>
+                      {origemPlantaoAtual === 'IMPORTADO'
+                        ? (nomeArquivo || 'Planilha importada')
+                        : origemPlantaoAtual === 'COPIADO' ? 'Período anterior' : 'Criação manual'}
+                    </strong>
+                  </span>
                 </div>
-                <div className="file-row">
-                  <FileSpreadsheet size={20} />
-                  <div><strong>{nomeArquivo}</strong><span>{resultado?.ok ? 'Pronto para salvar' : 'Aguardando correções'}</span></div>
-                  {processando
-                    ? <LoaderCircle className="spin" />
-                    : resultado?.ok
-                      ? <CheckCircle2 className="success-icon" />
-                      : <AlertTriangle className="warning-icon" />}
-                </div>
-                <div className="import-actions">
-                  <button className="secondary-button" type="button" onClick={() => void carregarDemo()}>
-                    Carregar exemplo
-                  </button>
+                <div className="plantao-command-actions">
                   <button
-                    className="primary-button"
+                    className="secondary-button compact-button"
                     type="button"
-                    disabled={!resultado?.ok || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
-                    onClick={() => void salvar()}
+                    disabled={processando || contextoPlantaoSomenteConsulta}
+                    onClick={() => inputArquivo.current?.click()}
                   >
-                    <Save size={17} /> Salvar rascunho
+                    {processando ? <LoaderCircle className="spin" size={15} /> : <UploadCloud size={15} />}
+                    {origemPlantaoAtual === 'IMPORTADO' ? 'Importar outra planilha' : 'Importar planilha'}
                   </button>
+                  <span className={`status-badge ${previaPlantaoValidada ? 'success' : pendenciasVinculoPlantao > 0 ? 'warning' : 'neutral'}`}>
+                    {previaPlantaoValidada
+                      ? 'Prévia validada'
+                      : pendenciasVinculoPlantao > 0
+                        ? `${pendenciasVinculoPlantao} vínculo(s) pendente(s)`
+                        : 'Pronta para validar'}
+                  </span>
+                  {!contextoPlantaoSomenteConsulta && podeAcessarPlantoes && (
+                    <>
+                      <button
+                        className="secondary-button compact-button"
+                        type="button"
+                        disabled={!previaPlantaoPodeValidar || previaPlantaoValidada}
+                        onClick={validarPreviaPlantao}
+                      >
+                        <CheckCircle2 size={15} /> {previaPlantaoValidada ? 'Validada' : 'Validar prévia'}
+                      </button>
+                      <button
+                        className="secondary-button compact-button"
+                        type="button"
+                        title={!previaPlantaoValidada ? 'Valide a prévia antes de salvar.' : undefined}
+                        disabled={!previaPlantaoValidada || salvandoRascunhoPlantao || grupoRascunhoEscolhido === ''}
+                        onClick={() => void salvarRascunhoPlantaoAcao()}
+                      >
+                        {salvandoRascunhoPlantao ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}
+                        Salvar rascunho
+                      </button>
+                      <button
+                        className="primary-button compact-button"
+                        type="button"
+                        title={!rascunhoPlantaoProntoParaPublicar ? 'Salve o rascunho atual antes de publicar.' : undefined}
+                        disabled={publicandoPlantao || salvandoRascunhoPlantao || !rascunhoPlantaoProntoParaPublicar}
+                        onClick={() => void publicarPlantaoAcao()}
+                      >
+                        {publicandoPlantao ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}
+                        Publicar Plantão
+                      </button>
+                    </>
+                  )}
                 </div>
-              </>
-            )}
-          </article>
+              </div>
+
+              {contextoPlantaoSomenteConsulta ? (
+                <p className="plantao-command-note">
+                  <ShieldCheck size={15} /> Somente consulta: sua equipe monitora este Plantão, sem edição ou publicação.
+                </p>
+              ) : !podeAcessarPlantoes ? (
+                <p className="plantao-command-note warning">
+                  <AlertTriangle size={15} /> Você não administra nenhum Grupo de Plantão.
+                </p>
+              ) : (
+                <>
+                  <div className="plantao-command-context">
+                    <label htmlFor="rascunho-plantao-grupo">
+                      <span>Grupo</span>
+                      <select
+                        id="rascunho-plantao-grupo"
+                        value={grupoRascunhoEscolhido}
+                        onChange={(evento) => {
+                          setGrupoRascunhoEscolhido(evento.target.value);
+                          setRascunhoPlantaoSalvoEm(null);
+                          setPlantaoPossuiAlteracoesNaoSalvas(true);
+                          setErroRascunhoPlantao('');
+                          if (evento.target.value !== '') {
+                            const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === evento.target.value);
+                            setContextoEscalaAtivo(criarContextoEscala(
+                              'PLANTAO',
+                              evento.target.value,
+                              grupo?.nome ?? evento.target.value,
+                              competenciaRascunho,
+                            ));
+                            setContextoSemEscala(false);
+                          }
+                        }}
+                      >
+                        <option value="">Selecione o grupo</option>
+                        {gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao).map((grupo) => (
+                          <option key={grupo.grupoId} value={grupo.grupoId}>{grupo.nome}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label htmlFor="rascunho-plantao-competencia">
+                      <span>Competência</span>
+                      <input
+                        id="rascunho-plantao-competencia"
+                        type="month"
+                        value={competenciaRascunho}
+                        onChange={(evento) => {
+                          setCompetenciaRascunho(evento.target.value);
+                          setRascunhoPlantaoSalvoEm(null);
+                          setPlantaoPossuiAlteracoesNaoSalvas(true);
+                        }}
+                      />
+                    </label>
+                    <label htmlFor="rascunho-plantao-inicio">
+                      <span>Início</span>
+                      <input
+                        id="rascunho-plantao-inicio"
+                        type="date"
+                        value={periodoInicioRascunho}
+                        onChange={(evento) => {
+                          setPeriodoInicioRascunho(evento.target.value);
+                          setRascunhoPlantaoSalvoEm(null);
+                          setPlantaoPossuiAlteracoesNaoSalvas(true);
+                        }}
+                      />
+                    </label>
+                    <label htmlFor="rascunho-plantao-fim">
+                      <span>Fim</span>
+                      <input
+                        id="rascunho-plantao-fim"
+                        type="date"
+                        value={periodoFimRascunho}
+                        onChange={(evento) => {
+                          setPeriodoFimRascunho(evento.target.value);
+                          setRascunhoPlantaoSalvoEm(null);
+                          setPlantaoPossuiAlteracoesNaoSalvas(true);
+                        }}
+                      />
+                    </label>
+                    <button className="secondary-button compact-button" type="button" onClick={abrirNovoGrupoPlantao}>
+                      <Plus size={15} /> Novo grupo
+                    </button>
+                  </div>
+                  <div className="plantao-command-feedback">
+                    <span>
+                      {new Set(vinculosPlantao.map((vinculo) => vinculo.login).filter((login) => login !== null)).size}
+                      {' '}participante(s) vinculados
+                    </span>
+                    {erroRascunhoPlantao && <span className="plantao-command-error">{erroRascunhoPlantao}</span>}
+                    {rascunhoPlantaoSalvoEm !== null && (
+                      <span className="plantao-command-saved"><ShieldCheck size={14} /> Rascunho salvo e pronto para publicar.</span>
+                    )}
+                  </div>
+                </>
+              )}
+            </article>
+          ) : (
+            <article className="import-panel panel">
+              <div
+                className={`dropzone ${arrastando ? 'dragging' : ''}`}
+                onDragOver={(evento) => {
+                  evento.preventDefault();
+                  setArrastando(true);
+                }}
+                onDragLeave={() => setArrastando(false)}
+                onDrop={soltar}
+                role="button"
+                tabIndex={0}
+                onClick={() => inputArquivo.current?.click()}
+                onKeyDown={(evento) => {
+                  if (evento.key === 'Enter' || evento.key === ' ') {
+                    inputArquivo.current?.click();
+                  }
+                }}
+              >
+                <input
+                  ref={inputArquivo}
+                  type="file"
+                  accept=".xls,.xlsx"
+                  hidden
+                  onChange={(evento: ChangeEvent<HTMLInputElement>) =>
+                    void receberArquivo(evento.target.files?.[0])}
+                />
+                <span className="drop-icon"><FileSpreadsheet size={28} /></span>
+                <div>
+                  <h2>Enviar planilha</h2>
+                  <p><strong>Selecionar XLS ou XLSX</strong><span className="dropzone-dica"> · também aceita arrastar</span></p>
+                  <small>Leitura local, sem envio automático</small>
+                </div>
+              </div>
+              {(tipoArquivoDetectado === null || tipoArquivoDetectado === 'ESCALA_6X1') && (
+                <>
+                  <div className="import-summary">
+                    <div><span>Período</span><strong>{resultado ? '26 jul – 25 ago' : '—'}</strong></div>
+                    <div><span>Colaboradores</span><strong>{resultado?.documentos.length ?? '—'}</strong></div>
+                    <div><span>Dias</span><strong>{resultado?.totalDias ?? '—'}</strong></div>
+                  </div>
+                  <div className="file-row">
+                    <FileSpreadsheet size={20} />
+                    <div><strong>{nomeArquivo}</strong><span>{resultado?.ok ? 'Pronto para salvar' : 'Aguardando correções'}</span></div>
+                    {processando
+                      ? <LoaderCircle className="spin" />
+                      : resultado?.ok
+                        ? <CheckCircle2 className="success-icon" />
+                        : <AlertTriangle className="warning-icon" />}
+                  </div>
+                  <div className="import-actions">
+                    <button className="secondary-button" type="button" onClick={() => void carregarDemo()}>
+                      Carregar exemplo
+                    </button>
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={!resultado?.ok || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
+                      onClick={() => void salvar()}
+                    >
+                      <Save size={17} /> Salvar rascunho
+                    </button>
+                  </div>
+                </>
+              )}
+            </article>
+          )}
 
           {tipoArquivoDetectado === 'DESCONHECIDA' && (
             <article className="panel warning-panel">
@@ -7792,9 +7958,7 @@ export function DashboardApp() {
               onDesfazerVinculo={desfazerVinculoPlantaoAcao}
               conferencia={resultadoPlantao === null ? null : conferirContabilidadePlantao(resultadoPlantao)}
               pendencias={pendenciasVinculoPlantao}
-              podeValidar={previaPlantaoPodeValidar}
               validada={previaPlantaoValidada}
-              onValidar={validarPreviaPlantao}
               onCriarUsuarioParaVinculo={abrirCadastroUsuarioParaVinculo}
               atribuicoesEditaveis={atribuicoesEditaveisPlantao}
               competencia={competenciaRascunho}
@@ -7833,143 +7997,6 @@ export function DashboardApp() {
               onOutroHorario={abrirOutroHorarioQuickAddPlantao}
               onFechar={fecharQuickAddPlantao}
             />
-          )}
-
-          {/*
-           * Fase ESCOPO-CONSULTA-PLANTAO-1 — um contexto só consultável
-           * nunca mostra o painel de escrita "Salvar como rascunho",
-           * mesmo que os vínculos já estejam resolvidos
-           * (`previaPlantaoValidada`) — consulta nunca é administração.
-           */}
-          {tipoArquivoDetectado === 'PLANTAO' && origemPlantaoAtual !== null && contextoPlantaoSomenteConsulta && (
-            <article className="panel">
-              <div className="panel-title">
-                <div><h2>Somente consulta</h2></div>
-              </div>
-              <p className="admin-form-preview">
-                Sua equipe monitora este Plantão — a edição, importação e publicação continuam restritas ao
-                responsável pelo Plantão.
-              </p>
-            </article>
-          )}
-          {tipoArquivoDetectado === 'PLANTAO' && origemPlantaoAtual !== null && previaPlantaoValidada && !contextoPlantaoSomenteConsulta && (
-            <article className="panel">
-              <div className="panel-title">
-                <div>
-                  <h2>Salvar como rascunho</h2>
-                  <p>
-                    Grava o grupo, os participantes vinculados, a competência e as atribuições como
-                    RASCUNHO — a publicação ainda não está disponível.
-                  </p>
-                </div>
-              </div>
-              {!podeAcessarPlantoes && (
-                <p className="admin-form-preview">
-                  Você não administra nenhum grupo de Plantão — peça a um gestor da equipe responsável
-                  ou a um administrador do sistema.
-                </p>
-              )}
-              {podeAcessarPlantoes && (
-                <>
-                  <div className="toolbar">
-                    <label htmlFor="rascunho-plantao-grupo" className="search-control">
-                      <Radio size={16} />
-                      <select
-                        id="rascunho-plantao-grupo"
-                        value={grupoRascunhoEscolhido}
-                        onChange={(evento) => {
-                          setGrupoRascunhoEscolhido(evento.target.value);
-                          setRascunhoPlantaoSalvoEm(null);
-                          setErroRascunhoPlantao('');
-                          if (evento.target.value !== '') {
-                            const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === evento.target.value);
-                            setContextoEscalaAtivo(criarContextoEscala(
-                              'PLANTAO',
-                              evento.target.value,
-                              grupo?.nome ?? evento.target.value,
-                              competenciaRascunho,
-                            ));
-                            setContextoSemEscala(false);
-                          }
-                        }}
-                      >
-                        <option value="">Selecione um grupo que você administra</option>
-                        {gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao).map((grupo) => (
-                          <option key={grupo.grupoId} value={grupo.grupoId}>{grupo.nome}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <button className="secondary-button" type="button" onClick={abrirNovoGrupoPlantao}>
-                      <Plus size={16} /> Novo grupo
-                    </button>
-                  </div>
-                  {gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao).length === 0 && (
-                    <p className="admin-form-preview">
-                      Você ainda não administra nenhum grupo de Plantão — crie um novo grupo acima.
-                    </p>
-                  )}
-                  <div className="admin-form-grid">
-                    <label htmlFor="rascunho-plantao-competencia">
-                      Competência (AAAA-MM)
-                      <input
-                        id="rascunho-plantao-competencia"
-                        placeholder="2026-07"
-                        value={competenciaRascunho}
-                        onChange={(evento) => setCompetenciaRascunho(evento.target.value)}
-                      />
-                    </label>
-                    <label htmlFor="rascunho-plantao-inicio">
-                      Período — início
-                      <input
-                        id="rascunho-plantao-inicio"
-                        type="date"
-                        value={periodoInicioRascunho}
-                        onChange={(evento) => setPeriodoInicioRascunho(evento.target.value)}
-                      />
-                    </label>
-                    <label htmlFor="rascunho-plantao-fim">
-                      Período — fim
-                      <input
-                        id="rascunho-plantao-fim"
-                        type="date"
-                        value={periodoFimRascunho}
-                        onChange={(evento) => setPeriodoFimRascunho(evento.target.value)}
-                      />
-                    </label>
-                  </div>
-                  <p className="admin-form-preview">
-                    {new Set(vinculosPlantao.map((vinculo) => vinculo.login).filter((login) => login !== null)).size}
-                    {' '}participante(s) com login confirmado serão salvos neste grupo.
-                  </p>
-                  {erroRascunhoPlantao && <p className="admin-form-erro">{erroRascunhoPlantao}</p>}
-                  {rascunhoPlantaoSalvoEm !== null && (
-                    <p className="plantao-validado-nota">
-                      <ShieldCheck size={15} /> Rascunho salvo. Veja em &ldquo;Plantões&rdquo;.
-                    </p>
-                  )}
-                  <div className="rollback-actions">
-                    <button
-                      className="primary-button"
-                      type="button"
-                      disabled={salvandoRascunhoPlantao || grupoRascunhoEscolhido === ''}
-                      onClick={() => void salvarRascunhoPlantaoAcao()}
-                    >
-                      {salvandoRascunhoPlantao ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}
-                      {' '}Salvar rascunho
-                    </button>
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      disabled={publicandoPlantao || salvandoRascunhoPlantao || rascunhoPlantaoSalvoEm !== grupoRascunhoEscolhido}
-                      onClick={() => void publicarPlantaoAcao()}
-                    >
-                      {publicandoPlantao ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
-                      {' '}Publicar Plantão
-                    </button>
-                  </div>
-                </>
-              )}
-            </article>
           )}
 
           {tipoArquivoDetectado !== 'PLANTAO' && (

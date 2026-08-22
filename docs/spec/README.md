@@ -105,7 +105,9 @@ Resumo e Lista deixam de ser abas; Contabilidade e Vínculos permanecem. Os
 cartões exibem iniciais maiores e horário compacto ao lado. Participante sem
 usuário pode abrir o cadastro no próprio Vínculos e é ligado somente depois de
 salvar, sempre na equipe responsável do Grupo e sem associação automática ao
-coordenador autenticado.
+coordenador autenticado. A barra compacta anterior ao calendário concentra
+**Importar outra planilha**, **Validar prévia**, **Salvar rascunho** e
+**Publicar Plantão**; o card inferior de salvamento não deve reaparecer.
 
 Nota CADASTRO-COORDENADOR-2: responsável operacional cadastra colaboradores,
 coordenadores e supervisores na equipe da Jornada/Plantão administrado. A

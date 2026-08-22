@@ -270,6 +270,12 @@ planilha e divergências ficam ao final. A navegação da revisão contém somen
 Calendário, Contabilidade e Vínculos; não recriar abas vazias de Resumo nem uma
 Lista paralela ao calendário.
 
+A faixa operacional acima do calendário reúne o arquivo atual, o botão
+**Importar outra planilha**, Grupo, competência, período e as ações
+**Validar prévia**, **Salvar rascunho** e **Publicar Plantão**. Essas ações não
+podem voltar para um card no fim da página. Publicar permanece desabilitado até
+o rascunho atual ser salvo; mover o botão não altera Rules nem persistência.
+
 Cartões importados apresentam iniciais e horário lado a lado, com intervalo
 compacto quando possível, sem perder o rótulo acessível completo. Usuário
 ausente pode ser criado pelo modal da própria aba Vínculos e só é vinculado

@@ -1298,10 +1298,13 @@ cópia divergente client-side.
 
 ### 21.4 Salvar rascunho a partir da prévia validada
 
-Depois de "Validar prévia" (PLANTÃO-2), aparece um painel "Salvar como
-rascunho": escolher um Grupo já administrado pelo usuário (ou criar um novo,
-via §21.2), confirmar/ajustar competência (AAAA-MM) e período — sugeridos
-automaticamente por `sugerirCompetenciaPlantao()` (novo,
+Na revisão, uma barra operacional compacta aparece antes do calendário e
+mantém visíveis **Validar prévia**, **Salvar rascunho** e **Publicar Plantão**.
+O botão de salvar permanece desabilitado até a validação; publicar permanece
+desabilitado até o rascunho atual ser salvo. Grupo administrado, competência e
+período ficam na mesma barra, sem um segundo card de salvamento no fim da
+página. Os valores continuam sugeridos automaticamente por
+`sugerirCompetenciaPlantao()` (novo,
 `lib/montagemRascunhoPlantao.ts`, escolhe o mês com mais atribuições e
 calcula o último dia real do mês, inclusive fevereiro bissexto) — e clicar
 "Salvar rascunho".
@@ -2304,8 +2307,15 @@ A revisão da importação prioriza a conferência operacional. O painel princip
 com o **Calendário** é o primeiro card visível; **Planilha de Plantão
 detectada**, conferência consistente e **Divergências encontradas na fonte**
 ficam depois do calendário como diagnóstico da origem. O seletor de arquivo é
-uma faixa compacta depois que o tipo Plantão foi identificado, mantendo
-seleção por clique e arrastar/soltar sem ocupar a altura de um card de conteúdo.
+um botão **Importar outra planilha** depois que o tipo Plantão foi identificado,
+sem manter um dropzone ou card grande acima do conteúdo.
+
+A barra compacta anterior ao calendário também contém contexto e ações da
+working copy: Grupo, competência, início/fim, quantidade de participantes,
+status de validação, **Validar prévia**, **Salvar rascunho** e
+**Publicar Plantão**. O botão Publicar só habilita para o mesmo Grupo após
+salvamento bem-sucedido. Erros e confirmação do rascunho aparecem nessa barra;
+o antigo painel "Salvar como rascunho" no rodapé foi removido.
 
 As abas normativas da revisão são **Calendário**, **Contabilidade** e
 **Vínculos**. As antigas abas **Resumo** e **Lista** foram removidas: erros e
