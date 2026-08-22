@@ -96,6 +96,10 @@ import {
   observarEventosEscala,
 } from '@/lib/firebase/readRepository';
 import {
+  listarGruposPlantaoPermitidos,
+  listarParticipantesPlantao,
+} from '@/lib/firebase/plantaoReadRepository';
+import {
   cancelarSolicitacaoTroca as cancelarSolicitacaoTrocaFirebase,
   criarSolicitacaoTroca,
   marcarNotificacaoTrocaComoLida,
@@ -1194,6 +1198,38 @@ function AssistenteNovaTroca({
   );
 }
 
+/**
+ * PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 — antes desta função, ausência de
+ * Jornada 6x1 publicada sempre virava "Nenhuma escala publicada foi
+ * encontrada para o seu login neste período.", mesmo para um login com
+ * participação real em Plantão (o App nunca consultava Plantão — só
+ * Jornada). Verifica, de forma tolerante (nunca lança — uma Rules/Matriz
+ * ainda não reconhecer a consulta neste ambiente não pode quebrar o
+ * login), se o login aparece como participante ativo de algum Grupo de
+ * Plantão que a própria equipe já pode consultar (`equipesConsulta`, a
+ * mesma ACL que já autoriza `listarParticipantesPlantao` para quem não é
+ * administrador do grupo). Só troca a MENSAGEM — não implementa a visão
+ * detalhada de Plantão no App (fase futura, ver docs/spec/EDITOR_ESCALAS.md).
+ */
+async function mensagemAusenciaEscalaAcao(usuario: Usuario): Promise<string> {
+  try {
+    const grupos = await listarGruposPlantaoPermitidos(usuario.equipeId);
+    const participantesPorGrupo = await Promise.all(
+      grupos.map((grupo) => listarParticipantesPlantao(grupo.grupoId)),
+    );
+    const possuiParticipacaoPlantao = participantesPorGrupo.some((participantes) => participantes.some(
+      (participante) => participante.login === usuario.login && participante.ativo,
+    ));
+    if (possuiParticipacaoPlantao) {
+      return 'Você possui participação em Plantão. A visualização detalhada será exibida na aba Plantão.';
+    }
+  } catch {
+    // Consulta de Plantão indisponível (Rules/Matriz do ambiente) — trata
+    // como "sem informação de Plantão", nunca quebra o login.
+  }
+  return 'Nenhuma jornada 6x1 encontrada para este período.';
+}
+
 export function EmployeeApp() {
   const [agora, setAgora] = useState(() => new Date());
   const referencia = referenciaLocal(agora);
@@ -1584,7 +1620,7 @@ export function EmployeeApp() {
         setUsuarios(usuariosRemotos);
         setCompetenciaAtiva(competencia);
         if (minha === null) {
-          setErro('Nenhuma escala publicada foi encontrada para o seu login neste período.');
+          setErro(await mensagemAusenciaEscalaAcao(autenticado));
         }
       }
     } catch (falha) {

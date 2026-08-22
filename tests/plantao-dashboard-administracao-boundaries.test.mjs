@@ -98,11 +98,10 @@ test('6. o Dashboard publica Plantão somente por uma ação explícita', async 
   assert.match(corpo, /publicarCompetenciaPlantao\(/u);
 });
 
-test('7. apps/app (colaborador) continua sem qualquer símbolo novo desta fase', async () => {
+test('7. apps/app (colaborador) continua sem qualquer símbolo administrativo de Plantão desta fase — só a leitura tolerante de participação (PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1)', async () => {
   const app = await ler('apps/app/src/EmployeeApp.tsx');
   for (const proibido of [
     'plantaoWriteRepository',
-    'plantaoReadRepository',
     'ModalGrupoPlantao',
     'ModalContatosParticipante',
     'montagemRascunhoPlantao',
@@ -112,6 +111,11 @@ test('7. apps/app (colaborador) continua sem qualquer símbolo novo desta fase',
   ]) {
     assert.doesNotMatch(app, new RegExp(proibido), proibido);
   }
+  // PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 — o App passou a importar
+  // plantaoReadRepository, mas só para diferenciar a mensagem de "sem
+  // escala" (mensagemAusenciaEscalaAcao); nenhuma escrita, nenhum modal,
+  // nenhuma tela nova de Plantão.
+  assert.match(app, /import \{\s*listarGruposPlantaoPermitidos,\s*listarParticipantesPlantao,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
 });
 
 test('8. apps/push-worker continua sem qualquer menção a Plantão', async () => {

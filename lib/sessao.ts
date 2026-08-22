@@ -114,6 +114,23 @@ export function ehAdminSistema(usuario: Usuario): boolean {
 }
 
 /**
+ * PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 — o `cargo` real cadastrado em
+ * `usuarios/{login}` sempre prevalece; o fallback (baseado em `perfil`, via
+ * `perfilEfetivo()`, nunca em texto hardcoded por nome/equipe) só entra
+ * quando `cargo` está vazio, e nunca sobrescreve o valor real — esta
+ * função só formata para exibição, nunca grava nada.
+ */
+export function rotuloCargoExibicao(usuario: Usuario): string {
+  if (usuario.cargo.trim() !== '') {
+    return usuario.cargo;
+  }
+  const perfil = perfilEfetivo(usuario);
+  return perfil === 'ADMIN_SISTEMA' || perfil === 'GESTOR_EQUIPE' || perfil === 'GESTOR_UNIDADE' || perfil === 'SUPERVISOR_EQUIPE'
+    ? 'Coordenador'
+    : 'Analista SOC';
+}
+
+/**
  * `unidadesPermitidas` explícito (não-vazio) manda. Na ausência, um
  * `unidadeId` único vira lista implícita de 1 elemento (compat: usuário
  * migrado que só tem `unidadeId`, sem lista). Sem nenhum dos dois, lista

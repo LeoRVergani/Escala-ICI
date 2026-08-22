@@ -834,3 +834,84 @@ que é salvo ou publicado. Quando o Plantão é `somenteConsulta` (permissão
 real de só-consulta), o seletor some e o calendário fica sempre em
 `modo="consulta"`, independente da preferência salva — permissão real nunca
 é sobreposta por preferência cosmética.
+
+## 16. PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 — cargo real, usuários por escopo de Plantão e mensagem do App
+
+Três correções cirúrgicas, sem tocar seed/reset, sem novo grupo, sem alterar
+a publicação do Plantão COSI. Base de leitura para uma futura visão completa
+de Plantão no App — **não implementada nesta fase**.
+
+### 16.1 Cargo real prevalece sobre o fallback
+
+O cabeçalho do App (`components/AppFrame.tsx`) mostrava um rótulo fixo —
+`usuario.nivelHierarquico <= 5 ? 'Coordenador' : 'Analista SOC'` — que nunca
+lia `usuario.cargo`, mesmo quando o cargo real (ex.: "Analista de Segurança
+da Informação") já estava cadastrado em `usuarios/{login}`. A leitura
+(`lerUsuario()`, `lib/firebase/shared.ts`) e a escrita (criar/editar usuário,
+`DashboardApp.tsx`) já preservavam `cargo` corretamente — o bug era só de
+apresentação, em um único componente.
+
+Corrigido com `rotuloCargoExibicao(usuario)` (`lib/sessao.ts`): retorna
+`usuario.cargo` sempre que não estiver vazio; só cai no fallback (baseado em
+`perfilEfetivo()` — "Coordenador" para ADMIN_SISTEMA/GESTOR_EQUIPE/
+GESTOR_UNIDADE/SUPERVISOR_EQUIPE, "Analista SOC" para o resto) quando o
+cargo está vazio. O fallback nunca é persistido — é só uma função de
+formatação para exibição, chamada a cada render.
+
+### 16.2 Usuários visíveis no contexto Plantão
+
+A tela Usuários do Dashboard renderiza direto o estado `usuarios` — quem o
+alimenta é quem troca de contexto. `aplicarTrocaContexto()` já reidratava
+esse pool corretamente (via `listarUsuariosElegiveisPlantao(equipeResponsavelId,
+grupoId, unidadeResponsavelId, equipesConsulta)` — equipe responsável +
+equipesConsulta + unidade responsável, o mesmo pool amplo que o vínculo/
+importação de Plantão já usa) **somente quando havia um rascunho para
+reidratar** (dentro de `abrirRascunhoNoEditorAcao()`). Um Plantão já
+Publicado, sem rascunho aberto — o caso mais comum depois de publicar —
+tomava o branch de retorno antecipado sem popular `usuarios`, deixando a
+tela com o pool da última troca de equipe (ex.: busca por "jean" vazia,
+mesmo com Jean vinculado como participante ativo do Plantão COSI).
+
+Corrigido acrescentando a mesma chamada, tolerante a falha (nunca deriva a
+tela inteira), ao `Promise.allSettled` que já lê rascunho/publicada do
+Plantão em `aplicarTrocaContexto()` — populando `usuarios` incondicionalmente
+ao entrar no contexto, antes de qualquer branch de "sem rascunho". Nenhuma
+regra nova: mesma função, mesmo pool, um ponto de chamada a mais (5 no
+total, ver `tests/plantao-vinculo-gestor-participante-boundaries.test.mjs`).
+
+### 16.3 Participação em Plantão nunca altera perfil/cargo/equipe principal
+
+Confirmado (schema + testes): `ParticipantePlantao`
+(`packages/contrato/src/modeloPlantaoPersistente.ts`) não tem `perfil`,
+`escopo` nem `equipeId` — só `grupoId`/`login`/`ativo`/`contatos`/metadados
+de auditoria. Um usuário SOC (`equipeId GEDSI_COSI_SOC`) pode participar do
+Plantão COSI (`gruposPlantao/{grupoId}/participantes/{login}`) sem que isso
+toque `usuarios/{login}.perfil`/`.cargo`/`.equipeId` — vínculo de escala e
+cadastro de acesso são registros completamente separados, na mesma linha já
+estabelecida por `docs/spec/ESCOPO_OPERACIONAL_MATRIZ.md`.
+
+### 16.4 App diferencia ausência de Jornada de participação em Plantão
+
+Antes, não encontrar uma Jornada 6x1 publicada (`carregarMinhaEscala()`,
+único caminho consultado) sempre gerava "Nenhuma escala publicada foi
+encontrada para o seu login neste período." — mesmo para um login (como
+Jean) sem Jornada mas **com** participação real em Plantão. O App nunca
+consultava Plantão.
+
+`mensagemAusenciaEscalaAcao()` (`apps/app/src/EmployeeApp.tsx`) agora
+verifica, de forma tolerante (uma Rules/Matriz que ainda não reconhece a
+consulta neste ambiente nunca quebra o login — cai no fallback), se o login
+aparece como participante ativo em algum Grupo de Plantão que a própria
+equipe já pode consultar (`listarGruposPlantaoPermitidos(equipeId)` +
+`listarParticipantesPlantao(grupoId)`, funções de leitura já existentes,
+nenhuma Rule nova). Duas mensagens, nunca mais uma genérica:
+
+- Sem Jornada e sem Plantão: **"Nenhuma jornada 6x1 encontrada para este
+  período."**
+- Sem Jornada, mas com participação em Plantão: **"Você possui participação
+  em Plantão. A visualização detalhada será exibida na aba Plantão."**
+
+**Esta fase não implementa** a visão detalhada de Plantão no App (calendário,
+aba própria) — só a leitura/mensagem-base. Hoje, Agenda e Trocas continuam
+inalterados (nenhuma tela nova, nenhuma escrita administrativa de Plantão no
+App).

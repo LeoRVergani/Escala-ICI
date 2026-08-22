@@ -103,6 +103,9 @@ conciliação herda o período detectado na planilha.
 - Uma Equipe existir (mesmo com "Plantão" no nome) nunca implica que existe um `GrupoPlantao` — o seletor superior só mostra Plantões a partir de Grupo administrável.
 - O seletor de visualização do calendário de Plantão (Compacta/Edição) muda só apresentação/interação; a preferência (`localStorage`) nunca é fonte de participantes, atribuições ou vínculos, e nunca influencia o que é salvo ou publicado.
 - A tela inicial padrão do Dashboard é Visão geral; só navega para outra tela por ação do usuário ou por restauração de um contexto de escala explicitamente salvo.
+- `cargo` real cadastrado em `usuarios/{login}` sempre prevalece sobre qualquer rótulo derivado de perfil/nível — o fallback só entra quando `cargo` está vazio e nunca é persistido.
+- A tela Usuários, no contexto de um Grupo de Plantão, sempre inclui equipe responsável + `equipesConsulta` + unidade responsável — nunca só a equipe da última troca de contexto.
+- Participar de um Plantão (`ParticipantePlantao`) nunca altera `perfil`/`escopo`/`equipeId`/`cargo` do usuário — um colaborador de Jornada pode também ser plantonista sem qualquer mudança de acesso.
 
 Nota IMPORTACAO-PLANTAO-REVISAO-COMPACTA-1: a revisão de Plantão prioriza o
 Calendário no topo, usa upload compacto e move fonte/divergências para o final.
@@ -163,3 +166,19 @@ Plantão (compacta/prévia vs. edição/arrastar, ambos já existentes em
 `PlantaoCalendario`) por um seletor explícito e cosmético, e mudou a tela
 inicial padrão do Dashboard de "Escalas" para "Visão geral". Ver
 `docs/spec/EDITOR_ESCALAS.md` § 15.
+
+Nota PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1: corrigiu três bugs de
+leitura/apresentação — nenhuma Rule nova, nenhum seed/reset, publicação do
+Plantão COSI intacta. (1) o cabeçalho do App usava um rótulo fixo por
+`nivelHierarquico` em vez do `cargo` real cadastrado (`rotuloCargoExibicao()`,
+`lib/sessao.ts`, cargo real sempre primeiro). (2) a tela Usuários, no
+contexto de um Grupo de Plantão já Publicado sem rascunho aberto, ficava com
+o pool de uma troca de contexto anterior — `aplicarTrocaContexto()` agora
+sempre recarrega o mesmo pool amplo (`listarUsuariosElegiveisPlantao`) do
+vínculo/importação. (3) o App só consultava Jornada 6x1 para "sem escala
+publicada", ignorando Plantão — `mensagemAusenciaEscalaAcao()` agora
+diferencia "sem Jornada 6x1" de "tem participação em Plantão" (leitura
+tolerante a falha, nunca quebra o login). Confirmado que participação em
+Plantão nunca altera perfil/cargo/equipe principal. Não implementa a visão
+detalhada de Plantão no App nesta fase. Ver `docs/spec/EDITOR_ESCALAS.md`
+§ 16.

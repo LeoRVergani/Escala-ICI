@@ -35,10 +35,15 @@ test('1. listarUsuariosElegiveisPlantao existe e cobre equipeId (equipe respons�
   assert.ok(chamadasQuery.every((chamada) => !chamada.includes('array-contains')));
 });
 
-test('2. os 3 pontos de importação/abertura de Plantão usam o pool amplo, não mais o pool estreito, para popular os candidatos de vínculo', async () => {
+test('2. os 5 pontos de importação/abertura/troca de contexto de Plantão usam o pool amplo, não mais o pool estreito, para popular os candidatos de vínculo', async () => {
   const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
   const ocorrencias = dashboard.match(/listarUsuariosElegiveisPlantao\(grupo\.equipeResponsavelId, grupo\.grupoId, grupo\.unidadeResponsavelId, grupo\.equipesConsulta\)/gu) ?? [];
-  assert.equal(ocorrencias.length, 4, 'criar plantão vazio, usar período anterior, importar XLS e abrir rascunho existente devem usar o pool amplo');
+  // PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 acrescentou o 5º ponto: trocar
+  // para um contexto de Plantão (aplicarTrocaContexto) agora também carrega
+  // o pool amplo, mesmo sem rascunho aberto — antes a tela Usuários ficava
+  // com o pool de uma troca de equipe anterior (ex.: busca por "jean" vazia
+  // com Plantão COSI Publicado e sem rascunho).
+  assert.equal(ocorrencias.length, 5, 'criar plantão vazio, usar período anterior, importar XLS, abrir rascunho existente e trocar de contexto (aplicarTrocaContexto) devem usar o pool amplo');
   // O caminho estreito de checagem de duplicidade em "criar e vincular"
   // (dentro de salvarFormularioUsuario) continua existindo — não é o
   // mesmo problema, e trocá-lo mudaria o comportamento de deduplicação de

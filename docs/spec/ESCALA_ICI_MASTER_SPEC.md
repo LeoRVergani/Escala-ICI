@@ -384,3 +384,23 @@ edição/arrastar, ambos já existentes em `PlantaoCalendario`) por um seletor
 explícito, e mudou a tela inicial padrão do Dashboard de "Escalas" para
 "Visão geral" quando não há navegação/estado explicitamente salvo a
 restaurar.
+
+**PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1** corrigiu três bugs de leitura/
+apresentação, sem tocar seed/reset nem a publicação do Plantão COSI: (1) o
+cabeçalho do App mostrava um rótulo fixo por `nivelHierarquico` em vez do
+`cargo` real cadastrado — corrigido com `rotuloCargoExibicao()`
+(`lib/sessao.ts`), cargo real sempre primeiro, fallback por perfil só quando
+vazio; (2) a tela Usuários do Dashboard, no contexto de um Grupo de Plantão
+já Publicado sem rascunho aberto, ficava com o pool de usuários de uma troca
+de contexto anterior (busca por participante real, ex. Jean, vazia) —
+corrigido fazendo `aplicarTrocaContexto()` sempre recarregar o mesmo pool
+amplo (`listarUsuariosElegiveisPlantao`) que o vínculo/importação já usa,
+mesmo sem rascunho; (3) o App só consultava Jornada 6x1 para decidir "sem
+escala publicada", ignorando Plantão por completo — corrigido com
+`mensagemAusenciaEscalaAcao()` diferenciando "sem Jornada" de "tem
+participação em Plantão" (leitura tolerante, nenhuma Rule nova). Confirmado
+de novo que participação em Plantão (`ParticipantePlantao`) nunca carrega
+`perfil`/`escopo`/`equipeId` — um SOC pode participar do Plantão sem que
+isso altere o cadastro de acesso. **Não implementa** a visão detalhada de
+Plantão no App nesta fase (ver `docs/spec/EDITOR_ESCALAS.md` § 16 e
+`docs/spec/ESCOPO_OPERACIONAL_MATRIZ.md`).

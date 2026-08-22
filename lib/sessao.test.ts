@@ -19,6 +19,7 @@ import {
   podeIniciarListeners,
   preferenciaPadraoSessao,
   resolverManterConectado,
+  rotuloCargoExibicao,
   souGestorDePlantao,
   unidadesPermitidasEfetivas,
 } from './sessao';
@@ -138,6 +139,29 @@ describe('perfilEfetivo', () => {
     for (const nivelHierarquico of [-1, 0, 1, 5, 6, 10]) {
       expect(perfilEfetivo(usuarioBase({ nivelHierarquico }))).not.toBe('ADMIN_SISTEMA');
     }
+  });
+});
+
+describe('rotuloCargoExibicao (PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1)', () => {
+  it('mostra o cargo real quando cadastrado, mesmo para um perfil de coordenador', () => {
+    expect(rotuloCargoExibicao(usuarioBase({ cargo: 'Analista de Segurança da Informação', nivelHierarquico: 6 })))
+      .toBe('Analista de Segurança da Informação');
+    expect(rotuloCargoExibicao(usuarioBase({ cargo: 'Coordenador de Operações', perfil: 'GESTOR_UNIDADE', nivelHierarquico: 3 })))
+      .toBe('Coordenador de Operações');
+  });
+
+  it('só usa o fallback quando cargo está vazio (string vazia ou só espaços)', () => {
+    expect(rotuloCargoExibicao(usuarioBase({ cargo: '', nivelHierarquico: 6 }))).toBe('Analista SOC');
+    expect(rotuloCargoExibicao(usuarioBase({ cargo: '   ', nivelHierarquico: 6 }))).toBe('Analista SOC');
+  });
+
+  it('fallback é baseado em perfilEfetivo(), nunca sobrescreve um cargo real', () => {
+    expect(rotuloCargoExibicao(usuarioBase({ cargo: '', perfil: 'GESTOR_EQUIPE' }))).toBe('Coordenador');
+    expect(rotuloCargoExibicao(usuarioBase({ cargo: '', perfil: 'GESTOR_UNIDADE' }))).toBe('Coordenador');
+    expect(rotuloCargoExibicao(usuarioBase({ cargo: '', perfil: 'SUPERVISOR_EQUIPE' }))).toBe('Coordenador');
+    expect(rotuloCargoExibicao(usuarioBase({ cargo: '', perfil: 'ADMIN_SISTEMA' }))).toBe('Coordenador');
+    expect(rotuloCargoExibicao(usuarioBase({ cargo: '', perfil: 'ANALISTA_SOC' }))).toBe('Analista SOC');
+    expect(rotuloCargoExibicao(usuarioBase({ cargo: 'Analista Pleno', perfil: 'GESTOR_UNIDADE' }))).toBe('Analista Pleno');
   });
 });
 

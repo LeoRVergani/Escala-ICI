@@ -8,11 +8,18 @@ const semComentarios = (fonte) => fonte.replace(/\/\*[\s\S]*?\*\//g, '');
 // Fase PLANTÃO-3A: modelo persistente + Rules + repositories, sem UI, sem
 // publicação. Ver docs/spec/PLANTOES.md, seção 20.
 
+/**
+ * PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 — o App passou a importar
+ * `plantaoReadRepository` (leitura tolerante, só para diferenciar a
+ * mensagem de "sem escala" quando há participação em Plantão — ver
+ * `mensagemAusenciaEscalaAcao`), então saiu desta lista de proibidos. O
+ * título do teste sempre foi sobre ESCRITA administrativa — nunca sobre
+ * leitura — e essa garantia continua intacta abaixo.
+ */
 test('1. o App do colaborador não ganha nenhuma escrita administrativa de Plantão', async () => {
   const app = await ler('apps/app/src/EmployeeApp.tsx');
   for (const proibido of [
     'plantaoWriteRepository',
-    'plantaoReadRepository',
     'salvarGrupoPlantao',
     'salvarParticipantePlantao',
     'salvarCompetenciaPlantaoRascunho',

@@ -375,3 +375,18 @@ Essa segunda mensagem só pode nascer de uma falha de escrita **real e atual**
 (o booleano que escolhe entre as duas é recalculado a cada falha, nunca lido
 de um valor congelado nem de cache) — ver PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1
 em § 9.6 para a causa raiz de Plantão já corrigida.
+
+**PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1**: "quem o coordenador enxerga" na
+tela Usuários do Dashboard, quando o contexto ativo é um Grupo de Plantão,
+segue o mesmo pool amplo já normativo para vínculo/importação (§ 9,
+`listarUsuariosElegiveisPlantao`): equipe responsável + `equipesConsulta` do
+Grupo + `unidadeResponsavelId`. Antes, esse pool só era recarregado quando
+havia um rascunho aberto — um Grupo já Publicado sem rascunho ficava com o
+pool da troca de contexto anterior, escondendo participantes reais. Corrigido
+sem regra nova: a mesma chamada passou a acontecer também ao simplesmente
+entrar no contexto, publicado ou não. Confirmado também que participar de um
+Plantão (`ParticipantePlantao`) nunca é gravado com `perfil`/`escopo`/
+`equipeId` — um usuário SOC pode ser participante de Plantão sem que isso
+altere seu cadastro de acesso, e a mensagem de "matriz não reconhece" do
+App/Dashboard permanece exclusiva de falha de escrita real (nunca desta
+listagem de leitura, que é tolerante a falha por natureza).

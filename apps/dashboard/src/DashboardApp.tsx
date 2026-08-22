@@ -7400,9 +7400,23 @@ export function DashboardApp() {
           const resultados = await executarComLimiteDeTempo(Promise.allSettled([
             obterCompetenciaPlantaoRascunho(grupo.grupoId, alvo.competencia),
             obterCompetenciaPlantaoPublicada(grupo.grupoId, alvo.competencia),
+            /**
+             * PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 — antes, este pool só
+             * era carregado dentro de `abrirRascunhoNoEditorAcao()`
+             * (chamada só quando existe rascunho, logo abaixo). Um Plantão
+             * já Publicado sem rascunho aberto (cenário mais comum depois
+             * de publicar) deixava `usuarios` com o que quer que a última
+             * troca de equipe tivesse carregado — a tela Usuários não
+             * encontrava participantes reais do Plantão (ex.: busca por
+             * "jean" vazia). Mesma função já usada pelo fluxo de
+             * vínculo/importação — nenhuma regra nova, só chamada também
+             * aqui.
+             */
+            listarUsuariosElegiveisPlantao(grupo.equipeResponsavelId, grupo.grupoId, grupo.unidadeResponsavelId, grupo.equipesConsulta),
           ]));
           competenciaExistente = valorLeitura(resultados[0], null);
           competenciaPublicada = valorLeitura(resultados[1], null);
+          setUsuarios(valorLeitura(resultados[2], usuarios));
           if (
             competenciaExistente === null
           && competenciaPublicada === null

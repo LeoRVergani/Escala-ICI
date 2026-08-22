@@ -671,3 +671,49 @@ test('STAGING-RESET-HIERARQUIA-ICI-3 — causa raiz do campo Equipe travado: env
   // Modo restrito precisa avisar explicitamente que staging amplo está desligado.
   assert.match(dashboard, /Permissão ampla de staging não está ativa; cadastro restrito à equipe atual\./u);
 });
+
+/**
+ * PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 — Parte A: o cabeçalho do App
+ * mostrava um rótulo genérico derivado só de `nivelHierarquico`
+ * ("Analista SOC"/"Coordenador"), nunca o `cargo` real cadastrado em
+ * `usuarios/{login}`. Corrigido reaproveitando `rotuloCargoExibicao()`
+ * (lib/sessao.ts) — cargo real primeiro, fallback baseado em perfil só
+ * quando vazio.
+ */
+test('o cabeçalho do AppFrame mostra o cargo real (rotuloCargoExibicao), nunca mais o rótulo fixo por nivelHierarquico', async () => {
+  const frame = await ler('components/AppFrame.tsx');
+  assert.match(frame, /import \{ rotuloCargoExibicao \} from '@\/lib\/sessao';/u);
+  const ocorrencias = frame.match(/<small>\{rotuloCargoExibicao\(usuario\)\}<\/small>/gu) ?? [];
+  assert.equal(ocorrencias.length, 2, 'os dois pontos (topbar + popover da conta) precisam usar rotuloCargoExibicao');
+  assert.doesNotMatch(frame, /usuario\.nivelHierarquico <= 5 \? 'Coordenador' : 'Analista SOC'/u, 'o rótulo fixo antigo não pode sobreviver');
+});
+
+/**
+ * PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 — Parte C: ausência de Jornada 6x1
+ * publicada sempre virava a mesma mensagem genérica, mesmo para um login
+ * com participação real em Plantão (o App nunca consultava Plantão).
+ * `mensagemAusenciaEscalaAcao()` verifica participação (tolerante a
+ * falha de Rules/Matriz) antes de escolher a mensagem — nunca implementa a
+ * visão detalhada de Plantão no App nesta fase.
+ */
+test('o App diferencia "sem Jornada" de "tem participação em Plantão" ao não encontrar escala publicada', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+
+  assert.match(app, /import \{\s*listarGruposPlantaoPermitidos,\s*listarParticipantesPlantao,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
+  assert.match(app, /async function mensagemAusenciaEscalaAcao\(usuario: Usuario\): Promise<string> \{/u);
+  assert.match(app, /'Nenhuma jornada 6x1 encontrada para este período\.'/u);
+  assert.match(app, /'Você possui participação em Plantão\. A visualização detalhada será exibida na aba Plantão\.'/u);
+  assert.doesNotMatch(app, /'Nenhuma escala publicada foi encontrada para o seu login neste período\.'/u, 'a mensagem genérica antiga não pode mais aparecer sozinha para este caso');
+
+  // O call site precisa usar a nova função, não mais o literal fixo.
+  assert.match(app, /if \(minha === null\) \{\s*setErro\(await mensagemAusenciaEscalaAcao\(autenticado\)\);\s*\}/u);
+
+  // Tolerante a falha — uma Rules/Matriz que ainda não reconhece a consulta
+  // nunca pode quebrar o login (nunca deixa o catch escapar sem fallback).
+  const corpo = /async function mensagemAusenciaEscalaAcao\(usuario: Usuario\): Promise<string> \{([\s\S]*?)\n\}/u.exec(app);
+  assert.ok(corpo, 'mensagemAusenciaEscalaAcao precisa existir');
+  assert.match(corpo[1], /\} catch \{/u, 'precisa capturar falha da consulta de Plantão, nunca propagar');
+
+  // Não implementa a visão detalhada de Plantão nesta fase — nenhuma tela/aba nova.
+  assert.doesNotMatch(app, /obterCompetenciaPlantaoPublicada|listarAtribuicoesPlantao/u, 'a fase grande de visão de Plantão no App não deve ser antecipada aqui');
+});

@@ -22,6 +22,7 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import type { Usuario } from '@/lib/modelos';
+import { rotuloCargoExibicao } from '@/lib/sessao';
 import { BrandMark } from './BrandMark';
 import { ThemeToggle } from './ThemeProvider';
 
@@ -210,7 +211,7 @@ export function AppFrame({
               <span className="avatar">{usuario.nome.split(' ').map((parte) => parte[0]).slice(0, 2).join('')}</span>
               <div className="user-identity">
                 <strong>{usuario.nome}</strong>
-                <small>{usuario.nivelHierarquico <= 5 ? 'Coordenador' : 'Analista SOC'}</small>
+                <small>{rotuloCargoExibicao(usuario)}</small>
               </div>
               <button
                 className={`account-menu-trigger ${contaAberta ? 'open' : ''}`}
@@ -228,7 +229,7 @@ export function AppFrame({
                     <span className="avatar">{usuario.nome.split(' ').map((parte) => parte[0]).slice(0, 2).join('')}</span>
                     <div>
                       <strong>{usuario.nome}</strong>
-                      <small>{usuario.nivelHierarquico <= 5 ? 'Coordenador' : 'Analista SOC'}</small>
+                      <small>{rotuloCargoExibicao(usuario)}</small>
                     </div>
                   </div>
                   <button
