@@ -106,6 +106,8 @@ conciliação herda o período detectado na planilha.
 - `cargo` real cadastrado em `usuarios/{login}` sempre prevalece sobre qualquer rótulo derivado de perfil/nível — o fallback só entra quando `cargo` está vazio e nunca é persistido.
 - A tela Usuários, no contexto de um Grupo de Plantão, sempre inclui equipe responsável + `equipesConsulta` + unidade responsável — nunca só a equipe da última troca de contexto.
 - Participar de um Plantão (`ParticipantePlantao`) nunca altera `perfil`/`escopo`/`equipeId`/`cargo` do usuário — um colaborador de Jornada pode também ser plantonista sem qualquer mudança de acesso.
+- Trocar o contexto ativo (seletor superior) nunca força a navegação para "Escalas" quando a tela atual (Visão geral, Usuários, Trocas, Administração...) continua válida — só telas de editor/rascunho (`escalas`/`grade`/`importar`) podem ser redirecionadas automaticamente.
+- O filtro de setor/equipe da tela Usuários é gerado a partir do próprio Grupo de Plantão (equipe responsável, `equipesConsulta`, unidade responsável) — nunca hardcoded por sigla, nunca duplica quem aparece em mais de uma categoria (ex.: SOC e Plantão ao mesmo tempo).
 
 Nota IMPORTACAO-PLANTAO-REVISAO-COMPACTA-1: a revisão de Plantão prioriza o
 Calendário no topo, usa upload compacto e move fonte/divergências para o final.
@@ -182,3 +184,17 @@ tolerante a falha, nunca quebra o login). Confirmado que participação em
 Plantão nunca altera perfil/cargo/equipe principal. Não implementa a visão
 detalhada de Plantão no App nesta fase. Ver `docs/spec/EDITOR_ESCALAS.md`
 § 16.
+
+Nota PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1: corrigiu dois problemas de
+navegação/apresentação — nenhuma Rule/seed/reset/publicação tocada. (1)
+trocar o contexto (SOC ⇄ Plantão COSI) sempre forçava "Escalas", mesmo em
+Usuários/Visão geral/Trocas/Administração — agora só navega
+automaticamente quando a tela atual já dependia do editor/rascunho do
+contexto (`escalas`/`grade`/`importar`); qualquer outra tela é preservada.
+(2) o pool amplo do contexto Plantão mistura plantonistas com técnicos que
+só consultam o Grupo (ex.: Plantão COSI consulta o SOC) — corrigido com um
+filtro de setor/equipe na tela Usuários (`lib/usuariosTelaFiltros.ts`,
+gerado a partir do próprio Grupo, nunca hardcoded), na ordem pool → setor →
+busca textual (agora cobrindo nome/login/e-mail/aliases/cargo). Confirmado
+que um usuário pode aparecer em SOC e em Plantão sem duplicar. Ver
+`docs/spec/EDITOR_ESCALAS.md` § 17.

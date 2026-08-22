@@ -285,6 +285,12 @@ import { formatarDataHoraSafe } from '@/lib/dataSegura';
 import { useTeclaEsc } from '@/lib/hooks/useTeclaEsc';
 import { normalizarNome } from '@/lib/nomes';
 import {
+  FILTRO_SETOR_TODOS,
+  opcoesFiltroSetorUsuariosPlantao,
+  usuarioCorrespondeBuscaTextual,
+  usuarioPertenceAoFiltroSetorPlantao,
+} from '@/lib/usuariosTelaFiltros';
+import {
   construirIndiceAlertasGrade,
   detectarDescansoInsuficiente,
   detectarSequencias6x1,
@@ -371,6 +377,18 @@ import type {
 } from '@/lib/modelos';
 
 type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao' | 'responsaveisEscala';
+
+/**
+ * PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — telas cujo conteúdo é o
+ * editor/rascunho/importação do contexto de escala ATIVO ('grade' mostra a
+ * grade de Jornada, 'importar' o preview de Plantão, 'escalas' o hub que as
+ * duas usam como pouso seguro quando o estado fica inválido). Só ESSAS
+ * telas podem ser trocadas automaticamente por `aplicarTrocaContexto()` —
+ * qualquer outra tela (Visão geral, Usuários, Trocas, Administração,
+ * Responsáveis por escala, Plantões) é navegação principal e nunca deve
+ * ser abandonada só porque o seletor de contexto mudou.
+ */
+const TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA: ReadonlySet<Tela> = new Set(['escalas', 'grade', 'importar']);
 type OpcoesInicioImportacao = {
   tipoEsperado?: 'ESCALA_6X1' | 'PLANTAO';
   equipeId?: string;
@@ -3074,6 +3092,14 @@ export function DashboardApp() {
   const [correcoes, setCorrecoes] = useState<Record<number, string>>({});
   const [filtroTurno, setFiltroTurno] = useState('TODOS');
   const [buscaUsuario, setBuscaUsuario] = useState('');
+  /**
+   * PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — só relevante quando o
+   * contexto ativo é um Grupo de Plantão (o pool amplo mistura plantonistas
+   * com equipes que só consultam). Resetado para "Todos" a cada troca de
+   * contexto em `aplicarTrocaContexto()` — nunca herda um id de equipe que
+   * pode nem existir no novo Grupo.
+   */
+  const [filtroSetorUsuario, setFiltroSetorUsuario] = useState<string>(FILTRO_SETOR_TODOS);
   const [celulaEditando, setCelulaEditando] = useState<CelulaEditando | null>(null);
   const [cicloInicial6x1Ativo, setCicloInicial6x1Ativo] = useState(false);
   const [historico, setHistorico] = useState<PublicacaoEscala[]>([]);
@@ -3581,6 +3607,32 @@ export function DashboardApp() {
   const gestoresSimulaveis = [...gestoresParaSimulacao(todosUsuariosAdmin)]
     .sort((a, b) => a.nome.localeCompare(b.nome));
   const gestorSelecionadoParaSimular = gestoresSimulaveis.find((item) => item.login === gestorParaSimular) ?? null;
+
+  /**
+   * PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — a tela Usuários já lista o
+   * pool amplo do contexto (`usuarios`, alimentado por
+   * `aplicarTrocaContexto()`); estes derivados só CLASSIFICAM esse mesmo
+   * pool para o filtro de setor/equipe, sem nenhuma consulta nova. `undefined`
+   * quando o contexto ativo não é um Grupo de Plantão — nesse caso a tela
+   * de Usuários continua exatamente como antes (sem seletor de setor).
+   */
+  const grupoPlantaoParaFiltroUsuarios = contextoEhPlantao(contextoEscalaAtivo)
+    ? gruposPlantaoAdmin.find((item) => item.grupoId === contextoEscalaAtivo.alvoId)
+    : undefined;
+  const nomePorEquipeIdParaFiltroUsuarios = new Map(equipesAdmin.map((item) => [item.id, item.nome]));
+  const nomePorUnidadeIdParaFiltroUsuarios = new Map(unidadesAdmin.map((item) => [item.unidadeId, item.nome]));
+  const loginsParticipantesAtivosDoGrupoAtivo = new Set(
+    (participantesPorGrupoPlantao[grupoPlantaoParaFiltroUsuarios?.grupoId ?? ''] ?? [])
+      .filter((item) => item.ativo)
+      .map((item) => item.login),
+  );
+  const opcoesFiltroSetorUsuarios = grupoPlantaoParaFiltroUsuarios !== undefined
+    ? opcoesFiltroSetorUsuariosPlantao(grupoPlantaoParaFiltroUsuarios, nomePorEquipeIdParaFiltroUsuarios, nomePorUnidadeIdParaFiltroUsuarios)
+    : [];
+  const usuariosAposFiltroSetor = grupoPlantaoParaFiltroUsuarios !== undefined
+    ? usuarios.filter((item) => usuarioPertenceAoFiltroSetorPlantao(item, filtroSetorUsuario, grupoPlantaoParaFiltroUsuarios, loginsParticipantesAtivosDoGrupoAtivo))
+    : usuarios;
+  const usuariosFiltrados = usuariosAposFiltroSetor.filter((item) => usuarioCorrespondeBuscaTextual(item, buscaUsuario));
 
   const documentos = useMemo(
     () => resultado?.documentos ?? [],
@@ -7384,6 +7436,19 @@ export function DashboardApp() {
   async function aplicarTrocaContexto(alvo: ContextoEscalaAtivo) {
     setErroContextoEscala('');
     setAvisoContextoEscala('');
+    // PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — um id de "equipe:<id>" do
+    // Grupo anterior pode nem existir no novo; volta sempre para "Todos".
+    setFiltroSetorUsuario(FILTRO_SETOR_TODOS);
+    /**
+     * PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — capturado ANTES de qualquer
+     * leitura assíncrona, porque esta função nunca chama `setTela()` antes
+     * deste ponto: reflete exatamente a tela em que o usuário estava ao
+     * pedir a troca. Usado para decidir se um redirecionamento automático
+     * (`escalas`/`grade`) é necessário — nunca abandona uma tela de
+     * navegação principal (Visão geral, Usuários, Trocas, Administração...)
+     * só porque o contexto mudou.
+     */
+    const telaAntesDaTroca = tela;
     if (alvo.tipo === 'PLANTAO') {
       const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === alvo.alvoId);
       if (grupo === undefined) {
@@ -7443,7 +7508,9 @@ export function DashboardApp() {
               },
             }));
           }
-          setTela('escalas');
+          if (TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA.has(telaAntesDaTroca)) {
+            setTela('escalas');
+          }
           return;
         }
         const resultadoAbertura = await executarComLimiteDeTempo(
@@ -7457,7 +7524,9 @@ export function DashboardApp() {
         } else {
           setContextoEscalaAtivo(alvo);
           setContextoSemEscala(true);
-          setTela('escalas');
+          if (TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA.has(telaAntesDaTroca)) {
+            setTela('escalas');
+          }
         }
       } catch (falha) {
         const erro = estadoErroOperacoes(falha);
@@ -7533,7 +7602,9 @@ export function DashboardApp() {
         setLinhasConciliacao([]);
         setJornadaPossuiAlteracoesNaoSalvas(false);
         setContextoSemEscala(true);
-        setTela('escalas');
+        if (TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA.has(telaAntesDaTroca)) {
+          setTela('escalas');
+        }
         return;
       }
       const datas = documentosExistentes.flatMap((documento) => Object.keys(documento.dias));
@@ -7550,7 +7621,9 @@ export function DashboardApp() {
       });
       setJornadaPossuiAlteracoesNaoSalvas(false);
       setContextoSemEscala(false);
-      setTela('grade');
+      if (TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA.has(telaAntesDaTroca)) {
+        setTela('grade');
+      }
     } catch (falha) {
       const erro = estadoErroOperacoes(falha);
       setErroContextoEscala(falhaEhPermissionDenied(falha)
@@ -8897,15 +8970,39 @@ export function DashboardApp() {
           </header>
           <article className="panel grid-panel">
             <div className="toolbar">
-              <label className="search-control"><Search size={16} /><input value={buscaUsuario} onChange={(evento) => setBuscaUsuario(evento.target.value)} placeholder="Buscar nome ou login" /></label>
-              <span><Users size={16} /> {usuarios.length} usuários</span>
+              <label className="search-control"><Search size={16} /><input value={buscaUsuario} onChange={(evento) => setBuscaUsuario(evento.target.value)} placeholder="Buscar nome, login, e-mail, alias ou cargo" /></label>
+              {/*
+               * PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — só aparece quando o
+               * contexto ativo é um Grupo de Plantão (pool amplo, que mistura
+               * plantonistas com equipes que só consultam). Contexto Jornada
+               * continua exatamente como antes — sem seletor.
+               */}
+              {opcoesFiltroSetorUsuarios.length > 0 && (
+                <select
+                  className="filtro-setor-usuarios"
+                  value={filtroSetorUsuario}
+                  onChange={(evento) => setFiltroSetorUsuario(evento.target.value)}
+                  aria-label="Filtrar por setor/equipe"
+                >
+                  {opcoesFiltroSetorUsuarios.map((opcao) => <option key={opcao.id} value={opcao.id}>{opcao.rotulo}</option>)}
+                </select>
+              )}
+              <span>
+                <Users size={16} />
+                {' '}
+                {usuariosFiltrados.length === usuarios.length
+                  ? `${usuarios.length} usuário${usuarios.length === 1 ? '' : 's'}`
+                  : `${usuariosFiltrados.length} de ${usuarios.length} usuários`}
+              </span>
             </div>
+            {usuariosFiltrados.length === 0 ? (
+              <p className="empty-inline">Nenhum usuário encontrado para este filtro.</p>
+            ) : (
             <div className="table-scroll">
               <table className="data-table users-table">
                 <thead><tr><th>Colaborador</th><th>Login de importação</th><th>Turno</th><th>Perfil</th><th>Status</th><th>Aliases da planilha</th><th>Ações</th></tr></thead>
                 <tbody>
-                  {usuarios
-                    .filter((item) => `${item.nome} ${item.login}`.toLowerCase().includes(buscaUsuario.toLowerCase()))
+                  {usuariosFiltrados
                     .map((item) => (
                       <tr key={item.login}>
                         <td><strong>{item.nome}</strong><small>{item.email}</small></td>
@@ -8957,6 +9054,7 @@ export function DashboardApp() {
                 </tbody>
               </table>
             </div>
+            )}
           </article>
         </section>
       )}

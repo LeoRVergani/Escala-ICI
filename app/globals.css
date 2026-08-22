@@ -930,6 +930,8 @@ button.shift-chip:disabled { cursor: default; }
 .toolbar { min-height: 48px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: space-between; margin-bottom: 12px; }
 .toolbar label { min-height: var(--control-height); min-width: 0; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-control); padding: 0 12px; display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .toolbar select, .toolbar input { border: 0; outline: 0; background: transparent; color: var(--text); min-width: 0; width: 150px; max-width: 100%; }
+/* PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — rótulos como "Plantão <nome>" ou "<unidade> inteiro" tendem a ser mais longos que os outros selects do toolbar. */
+.filtro-setor-usuarios { width: 190px; }
 .toolbar > span { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; font-size: 11px; }
 .search-control input { min-width: 0; width: 220px; max-width: 100%; }
 /* `.toolbar` é compartilhado com o App — reforço de respiro só no Dashboard. */

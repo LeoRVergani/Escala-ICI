@@ -553,3 +553,64 @@ test('48. STAGING-RESET-HIERARQUIA-ICI-1 — VITE_ESCALA_STAGING_PERMISSAO_AMPLA
   assert.match(dashboard, /import\.meta\.env\.VITE_ESCALA_STAGING_PERMISSAO_AMPLA === 'true'/u);
   assert.match(dashboard, /permitirAmploStaging: PERMITIR_AMPLO_STAGING/u);
 });
+
+/**
+ * PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — Parte A: trocar o contexto
+ * (SOC ⇄ Plantão COSI) forçava sempre `setTela('escalas')`/`setTela('grade')`,
+ * mesmo quando o usuário estava numa tela de navegação principal (Usuários,
+ * Visão geral, Trocas, Administração) que continua perfeitamente válida no
+ * novo contexto. Corrigido capturando `telaAntesDaTroca` e só navegando
+ * automaticamente quando essa tela já era uma das que DEPENDEM do
+ * editor/rascunho do contexto (`escalas`/`grade`/`importar`).
+ */
+
+test('49. TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA cobre exatamente escalas/grade/importar — as únicas telas às quais aplicarTrocaContexto pode redirecionar sozinho', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /const TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA: ReadonlySet<Tela> = new Set\(\['escalas', 'grade', 'importar'\]\);/u);
+});
+
+test('50. telaAntesDaTroca é capturado logo no início de aplicarTrocaContexto, antes de qualquer branch PLANTAO/JORNADA', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const corpo = /async function aplicarTrocaContexto\(alvo: ContextoEscalaAtivo\) \{([\s\S]*?)\n {2}\}\n/u.exec(dashboard);
+  assert.ok(corpo, 'aplicarTrocaContexto precisa existir');
+  const indiceCaptura = corpo[1].indexOf('const telaAntesDaTroca = tela;');
+  const indiceBranchPlantao = corpo[1].indexOf("if (alvo.tipo === 'PLANTAO')");
+  assert.ok(indiceCaptura >= 0, 'telaAntesDaTroca precisa ser capturado');
+  assert.ok(indiceBranchPlantao >= 0);
+  assert.ok(indiceCaptura < indiceBranchPlantao, 'a captura precisa vir ANTES do primeiro branch — nunca depois de um setTela já ter rodado');
+});
+
+test('51. os 4 pontos de navegação automática de aplicarTrocaContexto (PLANTAO sem rascunho, PLANTAO rascunho não encontrado, JORNADA sem documentos, JORNADA com sucesso) só disparam quando a tela atual já dependia do contexto', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const corpo = /async function aplicarTrocaContexto\(alvo: ContextoEscalaAtivo\) \{([\s\S]*?)\n {2}\}\n/u.exec(dashboard);
+  assert.ok(corpo);
+
+  const gates = corpo[1].match(/if \(TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA\.has\(telaAntesDaTroca\)\) \{\s*setTela\('(?:escalas|grade)'\);\s*\}/gu) ?? [];
+  assert.equal(gates.length, 4, `esperados 4 setTela gateados por telaAntesDaTroca (encontrado ${gates.length})`);
+
+  // Nenhum setTela('escalas'|'grade') sobrou fora do gate.
+  const todosSetTelaEscalasOuGrade = corpo[1].match(/setTela\('(?:escalas|grade)'\)/gu) ?? [];
+  assert.equal(todosSetTelaEscalasOuGrade.length, 4, 'todo setTela(\'escalas\'|\'grade\') dentro de aplicarTrocaContexto precisa estar gateado — nenhum incondicional');
+});
+
+test('52. em Usuários/Visão geral/Trocas/Administração, trocar contexto nunca chama setTela — só telas de editor (escalas/grade/importar) podem ser redirecionadas', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  // A garantia central: TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA NUNCA inclui
+  // 'usuarios'/'visao'/'trocas'/'administracao'/'responsaveisEscala'/'plantoes'.
+  const declaracao = /const TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA: ReadonlySet<Tela> = new Set\(\[([^\]]*)\]\);/u.exec(dashboard);
+  assert.ok(declaracao);
+  for (const telaQueNuncaPodeSerForcada of ['usuarios', 'visao', 'trocas', 'administracao', 'responsaveisEscala', 'plantoes']) {
+    assert.doesNotMatch(declaracao[1], new RegExp(`'${telaQueNuncaPodeSerForcada}'`), `'${telaQueNuncaPodeSerForcada}' não pode ser uma tela dependente de contexto`);
+  }
+});
+
+test('53. o pool de usuários (setUsuarios) e os dados de escala continuam sendo recarregados em TODA troca de contexto, mesmo quando a tela não muda — só a navegação é preservada, nunca o dado', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const corpo = /async function aplicarTrocaContexto\(alvo: ContextoEscalaAtivo\) \{([\s\S]*?)\n {2}\}\n/u.exec(dashboard);
+  assert.ok(corpo);
+  // setUsuarios/setContextoEscalaAtivo continuam FORA de qualquer gate de tela.
+  assert.match(corpo[1], /setUsuarios\(valorLeitura\(resultados\[2\], usuarios\)\)/u);
+  assert.match(corpo[1], /setUsuarios\(usuariosDaEquipe\)/u);
+  const trechoAntesDoPrimeiroGate = corpo[1].slice(0, corpo[1].indexOf('if (TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA'));
+  assert.match(trechoAntesDoPrimeiroGate, /setContextoEscalaAtivo\(alvo\)/u, 'setContextoEscalaAtivo precisa continuar incondicional');
+});

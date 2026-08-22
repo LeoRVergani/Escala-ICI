@@ -404,3 +404,20 @@ de novo que participação em Plantão (`ParticipantePlantao`) nunca carrega
 isso altere o cadastro de acesso. **Não implementa** a visão detalhada de
 Plantão no App nesta fase (ver `docs/spec/EDITOR_ESCALAS.md` § 16 e
 `docs/spec/ESCOPO_OPERACIONAL_MATRIZ.md`).
+
+**PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1** corrigiu dois problemas de
+navegação/apresentação, sem tocar Rules/seed/reset/publicação: (1) trocar o
+contexto ativo (SOC ⇄ Plantão COSI) sempre forçava `setTela('escalas')`/
+`setTela('grade')`, mesmo estando em Usuários/Visão geral/Trocas/
+Administração — corrigido capturando a tela ANTES da troca e só navegando
+automaticamente quando ela já dependia do editor/rascunho do contexto
+(`escalas`/`grade`/`importar`); qualquer outra tela é preservada, o dado por
+trás continua recarregando normalmente. (2) o pool amplo do contexto Plantão
+(equipe responsável + `equipesConsulta` + unidade) mistura visualmente
+plantonistas com técnicos que só consultam o Grupo — corrigido com um filtro
+de setor/equipe na tela Usuários (`lib/usuariosTelaFiltros.ts`, puro, gerado
+a partir do próprio Grupo, nunca hardcoded por sigla), aplicado na ordem
+pool → setor → busca textual (agora cobrindo nome/login/e-mail/aliases/
+cargo). Confirmado de novo que um usuário pode aparecer em SOC e em Plantão
+ao mesmo tempo sem duplicar na lista, e que o filtro nunca altera `perfil`/
+`escopo`/`equipeId`/`cargo`. Ver `docs/spec/EDITOR_ESCALAS.md` § 17.

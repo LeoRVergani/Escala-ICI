@@ -915,3 +915,55 @@ nenhuma Rule nova). Duas mensagens, nunca mais uma genérica:
 aba própria) — só a leitura/mensagem-base. Hoje, Agenda e Trocas continuam
 inalterados (nenhuma tela nova, nenhuma escrita administrativa de Plantão no
 App).
+
+## 17. PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — navegação preservada na troca de contexto e filtro de setor em Usuários
+
+### 17.1 Trocar contexto não força mais "Escalas"
+
+`aplicarTrocaContexto()` sempre chamava `setTela('escalas')`/`setTela('grade')`
+ao trocar o seletor superior (SOC ⇄ Plantão COSI), mesmo quando o usuário
+estava numa tela de navegação principal (Usuários, Visão geral, Trocas,
+Administração) — telas que continuam perfeitamente válidas em qualquer
+contexto, já que não dependem do editor/rascunho da escala ativa.
+
+Corrigido capturando `telaAntesDaTroca` logo no início da função (antes de
+qualquer leitura assíncrona ou branch PLANTAO/JORNADA) e só disparando os
+quatro pontos de navegação automática existentes quando essa tela já era uma
+das que DEPENDEM do contexto: `TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA =
+{'escalas', 'grade', 'importar'}`. Qualquer outra tela (`visao`, `usuarios`,
+`trocas`, `administracao`, `responsaveisEscala`, `plantoes`) nunca é
+abandonada só porque o contexto mudou — o dado por trás (`usuarios`,
+`resultado`, `contextoEscalaAtivo` etc.) continua sendo recarregado
+normalmente em toda troca, só a navegação é preservada.
+
+### 17.2 Filtro de setor/equipe na tela Usuários
+
+O contexto de um Grupo de Plantão já lista o pool amplo
+(`listarUsuariosElegiveisPlantao`: equipe responsável + `equipesConsulta` +
+unidade responsável — ver `docs/spec/ESCOPO_OPERACIONAL_MATRIZ.md`), o que
+mistura visualmente plantonistas com técnicos de equipes que só CONSULTAM o
+Grupo (ex.: Plantão COSI consulta `GEDSI_COSI_SOC`). Isso é o comportamento
+correto do pool — o problema era só de apresentação.
+
+`lib/usuariosTelaFiltros.ts` (novo, puro, sem Firebase/React) resolve isso
+com um seletor ao lado da busca, só visível quando o contexto ativo é um
+Grupo de Plantão:
+
+- **Todos** — pool completo, sem filtro.
+- **Plantão \<nome do Grupo\>** — `equipeId` da equipe responsável, OU
+  `cadastroOperacional` tipo `PLANTAO` apontando este grupo, OU login
+  participante ativo publicado (cobre alguém como Jean: `equipeId` de SOC,
+  mas plantonista real).
+- Uma opção por equipe de `equipesConsulta` (exceto a responsável, já
+  coberta acima) — rotulada pelo nome real da equipe, nunca por sigla
+  hardcoded.
+- **\<unidade\> inteiro** — só quando o Grupo tem `unidadeResponsavelId`:
+  `unidadeId` ou `unidadesPermitidas` contendo essa unidade.
+
+A ordem é sempre pool do contexto → filtro de setor → busca textual (agora
+cobrindo nome/login/e-mail/aliases/cargo, não só nome/login). O filtro
+reseta para "Todos" a cada troca de contexto (`aplicarTrocaContexto`), nunca
+herda um id de equipe que pode não existir no novo Grupo. Confirmado (ver
+§ 16.3) que um usuário pode aparecer simultaneamente em SOC e em Plantão sem
+duplicar na lista — a classificação é sobre o mesmo pool já deduplicado por
+login, nunca uma união de arrays.

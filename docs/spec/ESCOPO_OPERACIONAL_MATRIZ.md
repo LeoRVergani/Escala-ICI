@@ -390,3 +390,20 @@ Plantão (`ParticipantePlantao`) nunca é gravado com `perfil`/`escopo`/
 altere seu cadastro de acesso, e a mensagem de "matriz não reconhece" do
 App/Dashboard permanece exclusiva de falha de escrita real (nunca desta
 listagem de leitura, que é tolerante a falha por natureza).
+
+**PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1**: o pool amplo acima é o correto
+para autorização/consulta, mas mistura visualmente plantonistas com técnicos
+de equipes que só CONSULTAM o Grupo (ex.: Plantão COSI consulta
+`GEDSI_COSI_SOC`). Isso não é um bug de escopo — é exatamente o alcance que
+a Matriz/ACL já autoriza — então a correção foi só de apresentação: um
+filtro de setor/equipe na tela Usuários (`lib/usuariosTelaFiltros.ts`, puro,
+gerado a partir do próprio Grupo — nunca hardcoded por sigla), classificando
+o MESMO pool já carregado em "Todos" / "Plantão \<nome\>" (equipeId da
+equipe responsável, `cadastroOperacional` PLANTAO deste grupo, ou login
+participante ativo publicado) / uma opção por equipe de `equipesConsulta` /
+"\<unidade\> inteiro". Nunca uma segunda consulta, nunca duplica quem
+aparece em mais de uma categoria (ex.: SOC e Plantão ao mesmo tempo), nunca
+altera `perfil`/`escopo`/`equipeId`/`cargo`. Também corrigido: trocar o
+contexto ativo não força mais a navegação para "Escalas" quando a tela atual
+(Usuários, Visão geral, Trocas, Administração) continua válida no novo
+contexto — ver `docs/spec/EDITOR_ESCALAS.md` § 17.
