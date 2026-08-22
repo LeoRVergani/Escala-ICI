@@ -76,7 +76,7 @@ erros de arquivo aparecem no próprio Wizard e sempre encerram o loading.
 Jornada nova usa o período padrão individual do cadastro, aceita código/
 descrição/alias e nunca converte valor ausente para Manhã. Login criado pela
 conciliação herda o período detectado na planilha.
-- `PLANTOES.md` e `EDITOR_ESCALAS.md` — contêm histórico e detalhes de domínio anteriores; para UI nova de Plantão/Jornada, preferir as specs novas acima.
+- `PLANTOES.md` e `EDITOR_ESCALAS.md` — contêm histórico e detalhes de domínio anteriores; para UI nova de Plantão/Jornada, preferir as specs novas acima. Exceção: `EDITOR_ESCALAS.md` § 14 (JORNADA-IMPORTACAO-VINCULOS-UX-1 — alertas/colaborador importado acionáveis, modal de vínculo, "Criar usuário"/"Associar usuário" a partir da conciliação) é normativa atual, não histórico.
 
 ## Decisões que não devem regredir
 

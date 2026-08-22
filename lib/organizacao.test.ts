@@ -17,6 +17,7 @@ import {
   descreverClassificacaoHierarquica,
   descreverNivelHierarquico,
   ehUsuarioTecnicoOuFake,
+  equipesDaUnidade,
   formariaCiclo,
   gestoresParaSimulacao,
   nosVisiveisNaArvoreOrganizacional,
@@ -204,6 +205,33 @@ describe('rotuloTecnicoUnidade / rotuloTecnicoEquipe', () => {
   it('mostra só o ID quando não há nome distinto (nunca duplica)', () => {
     expect(rotuloTecnicoUnidade(unidade({ unidadeId: 'GEDSI', nome: 'GEDSI' }))).toBe('GEDSI');
     expect(rotuloTecnicoEquipe(equipeBase({ id: 'GEDSI_CODB_NOC', nome: 'GEDSI_CODB_NOC' }))).toBe('GEDSI_CODB_NOC');
+  });
+});
+
+describe('PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 — equipesDaUnidade', () => {
+  const equipes = [
+    equipeBase({ id: 'GEDSI_COSI_SOC', nome: 'SOC', unidadeId: 'GEDSI_COSI' }),
+    equipeBase({ id: 'GEDSI_COSI_PLANTAO', nome: 'Plantão COSI', unidadeId: 'GEDSI_COSI' }),
+    equipeBase({ id: 'GEDSI_CODB_NOC', nome: 'NOC', unidadeId: 'GEDSI_CODB' }),
+  ];
+
+  it('unidade GEDSI_COSI lista GEDSI_COSI_SOC e GEDSI_COSI_PLANTAO, nunca GEDSI_CODB_NOC', () => {
+    const filtradas = equipesDaUnidade(equipes, 'GEDSI_COSI').map((equipe) => equipe.id);
+    expect(filtradas).toEqual(['GEDSI_COSI_SOC', 'GEDSI_COSI_PLANTAO']);
+    expect(filtradas).not.toContain('GEDSI_CODB_NOC');
+  });
+
+  it('unidade GEDSI_CODB lista só GEDSI_CODB_NOC', () => {
+    expect(equipesDaUnidade(equipes, 'GEDSI_CODB').map((equipe) => equipe.id)).toEqual(['GEDSI_CODB_NOC']);
+  });
+
+  it('sem unidade (null/undefined), lista todas as equipes recebidas', () => {
+    expect(equipesDaUnidade(equipes, null)).toHaveLength(3);
+    expect(equipesDaUnidade(equipes, undefined)).toHaveLength(3);
+  });
+
+  it('unidade sem nenhuma equipe devolve lista vazia, nunca todas por engano', () => {
+    expect(equipesDaUnidade(equipes, 'GEDSI_COAT')).toEqual([]);
   });
 });
 

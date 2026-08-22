@@ -4271,3 +4271,177 @@ describe('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em
     }));
   });
 });
+
+/**
+ * JORNADA-IMPORTACAO-VINCULOS-UX-1 — diferente do describe acima (cadastro
+ * LIVRE de qualquer unidade/equipe), aqui o coordenador só administra a
+ * PRÓPRIA equipe de Jornada (GEDSI_COSI_SOC) — o caso comum de "criar
+ * usuário"/"associar"/"alias"/"ignorar" a partir da conciliação da planilha
+ * importada. Confirma que os caminhos já existentes (matriz/ACL histórica +
+ * `souCoordenadorOperacionalStaging()` como fallback) já autorizam tudo que
+ * a nova UI faz — nenhuma regra nova foi necessária nesta fase.
+ */
+describe('JORNADA-IMPORTACAO-VINCULOS-UX-1 — vínculos da importação de Jornada em staging', () => {
+  const coordenadorJornadaStagingTeste = {
+    login: 'coordenador.jornada.staging.teste',
+    nome: 'Coordenador de Jornada (teste staging)',
+    email: 'coordenador.jornada.staging.teste@teste.local',
+    equipeId: 'GEDSI_COSI_SOC',
+    nivelHierarquico: 4,
+    perfil: 'GESTOR_EQUIPE',
+    escopo: 'EQUIPE',
+  };
+
+  async function habilitarStaging() {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'config', 'ambiente'), { staging: true });
+    });
+  }
+
+  beforeEach(async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'usuarios', coordenadorJornadaStagingTeste.login), coordenadorJornadaStagingTeste);
+    });
+  });
+
+  it('17. cria usuário operacional a partir de uma pendência de conciliação (perfil/escopo padrão, contexto JORNADA)', async () => {
+    await habilitarStaging();
+    const coordenador = autenticarComo(coordenadorJornadaStagingTeste);
+    await assertSucceeds(setDoc(doc(coordenador, 'usuarios', 'a.lima'), {
+      login: 'a.lima',
+      nome: 'a.lima (planilha)',
+      equipeId: 'GEDSI_COSI_SOC',
+      nivelHierarquico: 6,
+      aliasesPlanilha: ['a.lima (planilha)'],
+      cadastroOperacional: {
+        tipo: 'JORNADA',
+        alvoId: 'GEDSI_COSI_SOC',
+        criadoPorLogin: coordenadorJornadaStagingTeste.login,
+      },
+    }));
+  });
+
+  it('18. adiciona alias da planilha a um colaborador já existente da própria equipe', async () => {
+    await habilitarStaging();
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'usuarios', 'aleilima'), {
+        login: 'aleilima',
+        nome: 'Aleilima',
+        equipeId: 'GEDSI_COSI_SOC',
+        nivelHierarquico: 6,
+        aliasesPlanilha: [],
+        cadastroOperacional: {
+          tipo: 'JORNADA',
+          alvoId: 'GEDSI_COSI_SOC',
+          criadoPorLogin: coordenadorJornadaStagingTeste.login,
+        },
+      });
+    });
+    const coordenador = autenticarComo(coordenadorJornadaStagingTeste);
+    await assertSucceeds(updateDoc(doc(coordenador, 'usuarios', 'aleilima'), {
+      aliasesPlanilha: ['a. lima'],
+      atualizadoEm: '2026-08-22T00:00:00.000Z',
+    }));
+  });
+
+  it('19. registra auditoria (associar/alias/ignorar/criar) com o próprio login como ator real', async () => {
+    await habilitarStaging();
+    const coordenador = autenticarComo(coordenadorJornadaStagingTeste);
+    for (const acao of ['ASSOCIAR_USUARIO_IMPORTACAO', 'ADICIONAR_ALIAS_IMPORTACAO', 'IGNORAR_PENDENCIA_IMPORTACAO', 'SALVAR_USUARIO']) {
+      await assertSucceeds(setDoc(doc(coordenador, 'auditoriaAdmin', `${acao.toLowerCase()}-teste`), {
+        atorRealLogin: coordenadorJornadaStagingTeste.login,
+        atorRealNome: coordenadorJornadaStagingTeste.nome,
+        atorRealPerfil: 'GESTOR_EQUIPE',
+        atorSimuladoLogin: null,
+        atorSimuladoNome: null,
+        atorSimuladoPerfil: null,
+        equipeId: 'GEDSI_COSI_SOC',
+        unidadeId: null,
+        competencia: '2026-08',
+        nomeImportado: 'a.lima',
+        usuarioVinculadoLogin: 'aleilima',
+        origem: 'IMPORTACAO_JORNADA',
+        acao,
+        em: '2026-08-22T00:00:00.000Z',
+      }));
+    }
+  });
+
+  it('20. salva rascunho da grade (rascunhosTurnosMes) da própria equipe de Jornada', async () => {
+    await habilitarStaging();
+    const coordenador = autenticarComo(coordenadorJornadaStagingTeste);
+    await assertSucceeds(setDoc(doc(coordenador, 'rascunhosTurnosMes', 'GEDSI_COSI_SOC_a.lima_2026-08'), {
+      equipeId: 'GEDSI_COSI_SOC',
+      login: 'a.lima',
+      usuarioUid: 'a.lima',
+      competencia: '2026-08',
+      schemaVersion: 1,
+      status: 'RASCUNHO',
+    }));
+  });
+
+  it('21. não cria ADMIN_SISTEMA a partir da importação', async () => {
+    await habilitarStaging();
+    const coordenador = autenticarComo(coordenadorJornadaStagingTeste);
+    await assertFails(setDoc(doc(coordenador, 'usuarios', 'admin.forjado.importacao'), {
+      login: 'admin.forjado.importacao',
+      nome: 'Admin Forjado',
+      equipeId: 'GEDSI_COSI_SOC',
+      nivelHierarquico: 0,
+      perfil: 'ADMIN_SISTEMA',
+      escopo: 'GLOBAL',
+      cadastroOperacional: {
+        tipo: 'JORNADA',
+        alvoId: 'GEDSI_COSI_SOC',
+        criadoPorLogin: coordenadorJornadaStagingTeste.login,
+      },
+    }));
+  });
+
+  it('22. não cria escopo GLOBAL a partir da importação', async () => {
+    await habilitarStaging();
+    const coordenador = autenticarComo(coordenadorJornadaStagingTeste);
+    await assertFails(setDoc(doc(coordenador, 'usuarios', 'escopo.global.forjado.importacao'), {
+      login: 'escopo.global.forjado.importacao',
+      nome: 'Escopo Global Forjado',
+      equipeId: 'GEDSI_COSI_SOC',
+      nivelHierarquico: 4,
+      perfil: 'GESTOR_EQUIPE',
+      escopo: 'GLOBAL',
+      cadastroOperacional: {
+        tipo: 'JORNADA',
+        alvoId: 'GEDSI_COSI_SOC',
+        criadoPorLogin: coordenadorJornadaStagingTeste.login,
+      },
+    }));
+  });
+
+  it('23. sem config/ambiente.staging=true, a criação a partir da importação continua exigindo a Matriz/ACL histórica (fail-closed para o fallback de staging)', async () => {
+    const coordenador = autenticarComo(coordenadorJornadaStagingTeste);
+    // A própria equipe (`podeOperarNaEquipe` + ACL histórica sem Matriz) já
+    // autoriza mesmo fora de staging — isso não muda nesta fase.
+    await assertSucceeds(setDoc(doc(coordenador, 'usuarios', 'fora.de.staging.propria.equipe'), {
+      login: 'fora.de.staging.propria.equipe',
+      nome: 'Fora de Staging (própria equipe)',
+      equipeId: 'GEDSI_COSI_SOC',
+      nivelHierarquico: 6,
+      cadastroOperacional: {
+        tipo: 'JORNADA',
+        alvoId: 'GEDSI_COSI_SOC',
+        criadoPorLogin: coordenadorJornadaStagingTeste.login,
+      },
+    }));
+    // Mas fora da própria equipe, sem staging e sem Matriz, continua negado.
+    await assertFails(setDoc(doc(coordenador, 'usuarios', 'fora.de.staging.outra.equipe'), {
+      login: 'fora.de.staging.outra.equipe',
+      nome: 'Fora de Staging (outra equipe)',
+      equipeId: 'GEDSI_CODB_NOC',
+      nivelHierarquico: 6,
+      cadastroOperacional: {
+        tipo: 'JORNADA',
+        alvoId: 'GEDSI_CODB_NOC',
+        criadoPorLogin: coordenadorJornadaStagingTeste.login,
+      },
+    }));
+  });
+});

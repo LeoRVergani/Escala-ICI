@@ -44,7 +44,6 @@ import {
   ChevronRight,
   FileSpreadsheet,
   Filter,
-  HelpCircle,
   Link2,
   LoaderCircle,
   Pencil,
@@ -74,7 +73,6 @@ import { ScheduleImportReview } from '@/components/ScheduleImportReview';
 import { ScheduleLegend } from '@/components/ScheduleLegend';
 import {
   conciliarPlanilha,
-  contarPendenciasConciliacao,
   ignorarLinha,
   loginParaUidComConciliacao,
   marcarPendente,
@@ -268,6 +266,7 @@ import {
   descreverClassificacaoHierarquica,
   descreverNivelHierarquico,
   ehUsuarioTecnicoOuFake,
+  equipesDaUnidade,
   formariaCiclo,
   gestoresParaSimulacao,
   type NoArvoreOrganizacional,
@@ -778,16 +777,6 @@ const LABEL_PERFIL_DELEGAVEL: Record<string, string> = {
   GESTOR_UNIDADE: 'Gestor de unidade',
   GESTOR_EQUIPE: 'Coordenador da equipe',
   SUPERVISOR_EQUIPE: 'Supervisor da equipe',
-};
-
-const STATUS_CONCILIACAO_LABEL: Record<LinhaConciliacao['status'], string> = {
-  VINCULADO_LOGIN: 'Vinculado automaticamente por login/e-mail',
-  VINCULADO_ALIAS: 'Vinculado por alias',
-  PRECISA_MAPEAR: 'Precisa mapear',
-  USUARIO_INATIVO: 'Usuário inativo',
-  USUARIO_NAO_ENCONTRADO: 'Usuário não encontrado',
-  CONFLITO_ALIAS: 'Conflito de aliases',
-  IGNORADA: 'Ignorada',
 };
 
 const STATUS_VINCULO_PLANTAO_LABEL: Record<StatusVinculoPlantao, string> = {
@@ -3136,6 +3125,10 @@ export function DashboardApp() {
   const [rascunhoPlantaoSalvoEm, setRascunhoPlantaoSalvoEm] = useState<string | null>(null);
   const [formularioUsuario, setFormularioUsuario] = useState<FormularioUsuario | null>(null);
   const [participanteVinculoCadastro, setParticipanteVinculoCadastro] = useState<string | null>(null);
+  // JORNADA-IMPORTACAO-VINCULOS-UX-1 — mesmo papel de `participanteVinculoCadastro`,
+  // mas para "Criar usuário" a partir de uma pendência de conciliação da
+  // planilha de Jornada (não de um participante de Grupo de Plantão).
+  const [linhaConciliacaoVinculoCadastro, setLinhaConciliacaoVinculoCadastro] = useState<LinhaConciliacao | null>(null);
   const [errosFormularioUsuario, setErrosFormularioUsuario] = useState<string[]>([]);
   const [novoAliasDraft, setNovoAliasDraft] = useState('');
   const [descarteRascunhoPendente, setDescarteRascunhoPendente] = useState(false);
@@ -3197,7 +3190,6 @@ export function DashboardApp() {
   const inputArquivo = useRef<HTMLInputElement>(null);
   const escritaBloqueada = !modoDemo && !escritaAdministrativaHabilitada;
   const conciliacaoBloqueiaPublicacao = publicacaoBloqueadaPorConciliacao(linhasConciliacao);
-  const pendenciasConciliacao = contarPendenciasConciliacao(linhasConciliacao);
   /**
    * Fase ESCALAS-UX-1A — `atribuicoes` vem da WORKING COPY
    * (`atribuicoesEditaveisPlantao`), nunca de `resultadoPlantao.atribuicoes`
@@ -3350,16 +3342,30 @@ export function DashboardApp() {
    * `souCoordenadorOperacionalStaging()` em `firestore.rules`, que autoriza
    * essa escrita sem checar se o autor administra o alvo escolhido.
    */
+  /**
+   * PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 — "Criar usuário" a partir
+   * de uma pendência de conciliação de Jornada agora usa o MESMO modo livre
+   * do cadastro amplo (select técnico de unidade/equipe) quando
+   * `PERMITIR_AMPLO_STAGING` está ligado — só o vínculo de planilha do
+   * Plantão (`participanteVinculoCadastro`, alvo fixo pelo Grupo) continua
+   * de fora. `abrirCadastroUsuarioParaConciliacao()` pré-seleciona a
+   * unidade/equipe da escala em importação nesse select; fora do modo
+   * amplo, cai no ramo de baixo (equipe fixa, exibida com o código técnico).
+   */
   const usarCadastroLivreStaging = PERMITIR_AMPLO_STAGING
     && !souAdmin
     && participanteVinculoCadastro === null;
   const equipeIdCadastroUsuario = usarCadastroLivreStaging
     ? formularioUsuario?.equipeId?.trim() ?? ''
-    : participanteVinculoCadastro === null
-      ? usuarioEfetivo?.equipeId ?? ''
-      : grupoCadastroVinculo?.equipeResponsavelId ?? '';
-  const rotuloEquipeCadastroUsuario = equipesAdmin.find((equipe) => equipe.id === equipeIdCadastroUsuario)?.nome
-    ?? equipeIdCadastroUsuario;
+    : linhaConciliacaoVinculoCadastro !== null
+      ? (contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : usuarioEfetivo?.equipeId ?? '')
+      : participanteVinculoCadastro === null
+        ? usuarioEfetivo?.equipeId ?? ''
+        : grupoCadastroVinculo?.equipeResponsavelId ?? '';
+  const rotuloEquipeCadastroUsuario = (() => {
+    const equipe = equipesAdmin.find((item) => item.id === equipeIdCadastroUsuario);
+    return equipe ? rotuloTecnicoEquipe(equipe) : equipeIdCadastroUsuario;
+  })();
   const contextoCadastroOperacionalUsuario = usuarioReal === null || souAdmin || usarCadastroLivreStaging
     ? undefined
     : grupoCadastroVinculo !== undefined
@@ -3386,6 +3392,15 @@ export function DashboardApp() {
               criadoPorLogin: usuarioReal.login,
             };
         })();
+  // JORNADA-IMPORTACAO-VINCULOS-UX-1 — equipe/competência da Jornada em
+  // importação agora, para anotar auditoria de ações de conciliação
+  // (associar, adicionar alias, ignorar pendência).
+  const equipeIdImportacaoJornadaAtual = contextoEhJornada(contextoEscalaAtivo)
+    ? contextoEscalaAtivo.alvoId
+    : usuarioEfetivo?.equipeId ?? '';
+  const competenciaImportacaoJornadaAtual = contextoEhJornada(contextoEscalaAtivo)
+    ? contextoEscalaAtivo.competencia
+    : null;
   /**
    * Fase CORRECAO-WIZARD-PLANTAO-EQUIPE-1 — a equipe da Jornada ATIVA
    * agora (se houver) nunca deve ser oferecida/escolhida silenciosamente
@@ -3960,7 +3975,17 @@ export function DashboardApp() {
    * o alvo REAL da ação (não necessariamente a equipe do ator, que pode
    * administrar via Matriz uma equipe diferente da própria).
    */
-  async function registrarAuditoriaOperacional(acao: string, equipeId: string) {
+  async function registrarAuditoriaOperacional(
+    acao: string,
+    equipeId: string,
+    contexto?: {
+      unidadeId?: string | null;
+      competencia?: string | null;
+      nomeImportado?: string | null;
+      usuarioVinculadoLogin?: string | null;
+      origem?: string | null;
+    },
+  ) {
     if (usuarioReal === null) {
       return;
     }
@@ -3970,6 +3995,7 @@ export function DashboardApp() {
         atorSimulado: simulando,
         equipeId,
         acao,
+        ...contexto,
       });
     } catch (falhaAuditoria) {
       console.error('[auditoriaAdmin] falha ao registrar', falhaAuditoria);
@@ -4216,12 +4242,21 @@ export function DashboardApp() {
    * em edição de conciliação, nunca uma leitura remota já persistida):
    * `jornadaPossuiAlteracoesNaoSalvas` precisa ficar `true`, nunca `false`
    * — importar não é salvar.
+   *
+   * PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 — `usuariosParaMapa` é
+   * opcional e por padrão usa o `usuarios` do estado (comportamento
+   * inalterado em todo chamador existente). O único chamador que precisa do
+   * parâmetro é o de "criar usuário a partir da pendência": como
+   * `setUsuarios()` não atualiza o `usuarios` desta mesma invocação de
+   * função (React só aplica no próximo render), sem isso o vínculo recém-
+   * criado ficava fora do mapa de login/alias até um reload — exatamente o
+   * "preciso limpar o cache" relatado.
    */
-  function aplicarConciliacao(buffer: ArrayBuffer, linhas: LinhaConciliacao[], opcoes: OpcoesInicioImportacao = {}) {
+  function aplicarConciliacao(buffer: ArrayBuffer, linhas: LinhaConciliacao[], opcoes: OpcoesInicioImportacao = {}, usuariosParaMapa: Usuario[] = usuarios) {
     setLinhasConciliacao(linhas);
     const parseado = linhas.some((linha) => linha.login !== null)
-      ? reparsear(buffer, loginParaUidComConciliacao(mapaLogins(usuarios), linhas), opcoes)
-      : reparsear(buffer, mapaLogins(usuarios), opcoes);
+      ? reparsear(buffer, loginParaUidComConciliacao(mapaLogins(usuariosParaMapa), linhas), opcoes)
+      : reparsear(buffer, mapaLogins(usuariosParaMapa), opcoes);
     setResultado(parseado);
     setJornadaPossuiAlteracoesNaoSalvas(true);
     return parseado;
@@ -5118,6 +5153,14 @@ export function DashboardApp() {
       arquivo,
       linhasConciliacao.map((item) => (item === linha ? resolverManualmente(item, escolhido) : item)),
     );
+    if (!modoDemo) {
+      void registrarAuditoriaOperacional('ASSOCIAR_USUARIO_IMPORTACAO', escolhido.equipeId, {
+        competencia: competenciaImportacaoJornadaAtual,
+        nomeImportado: linha.nomePlanilha,
+        usuarioVinculadoLogin: escolhido.login,
+        origem: 'IMPORTACAO_JORNADA',
+      });
+    }
   }
 
   function marcarConciliacaoPendente(linha: LinhaConciliacao) {
@@ -5138,6 +5181,13 @@ export function DashboardApp() {
       arquivo,
       linhasConciliacao.map((item) => (item === linha ? ignorarLinha(item) : item)),
     );
+    if (!modoDemo) {
+      void registrarAuditoriaOperacional('IGNORAR_PENDENCIA_IMPORTACAO', equipeIdImportacaoJornadaAtual, {
+        competencia: competenciaImportacaoJornadaAtual,
+        nomeImportado: linha.nomePlanilha,
+        origem: 'IMPORTACAO_JORNADA',
+      });
+    }
   }
 
   async function salvarAliasConciliacao(linha: LinhaConciliacao) {
@@ -5155,6 +5205,12 @@ export function DashboardApp() {
       // inteiro, então um cadastro antigo sem `criadoEm` não é afetado.
       if (!modoDemo) {
         await atualizarAliasesPlanilha(escolhido.login, aliasesAtualizados);
+        await registrarAuditoriaOperacional('ADICIONAR_ALIAS_IMPORTACAO', escolhido.equipeId, {
+          competencia: competenciaImportacaoJornadaAtual,
+          nomeImportado: linha.nomePlanilha,
+          usuarioVinculadoLogin: escolhido.login,
+          origem: 'IMPORTACAO_JORNADA',
+        });
       }
       const atualizado: Usuario = { ...escolhido, aliasesPlanilha: aliasesAtualizados, atualizadoEm: agora };
       setUsuarios((atuais) => atuais.map((item) => (item.login === atualizado.login ? atualizado : item)));
@@ -5660,6 +5716,7 @@ export function DashboardApp() {
 
   function abrirNovoUsuario() {
     setParticipanteVinculoCadastro(null);
+    setLinhaConciliacaoVinculoCadastro(null);
     setFormularioUsuario({
       loginOriginal: null,
       nome: '',
@@ -5684,6 +5741,7 @@ export function DashboardApp() {
       return;
     }
     setParticipanteVinculoCadastro(participanteNomeOriginal);
+    setLinhaConciliacaoVinculoCadastro(null);
     setFormularioUsuario({
       loginOriginal: null,
       nome: participanteNomeOriginal,
@@ -5701,8 +5759,50 @@ export function DashboardApp() {
     setNovoAliasDraft('');
   }
 
+  /**
+   * JORNADA-IMPORTACAO-VINCULOS-UX-1 — equivalente de
+   * `abrirCadastroUsuarioParaVinculo()` para uma pendência de conciliação
+   * de Jornada: pré-preenche nome e alias com o nome como veio da planilha,
+   * a equipe é resolvida por `equipeIdCadastroUsuario` (equipe da escala
+   * importada, ver acima). Ao salvar, `salvarFormularioUsuario()` resolve
+   * a linha de conciliação automaticamente com o usuário criado.
+   *
+   * PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 — a unidade/equipe da
+   * escala em importação também é pré-selecionada no rascunho
+   * (`unidadeId`/`equipeId`), não só resolvida via `equipeIdCadastroUsuario`:
+   * quando `usarCadastroLivreStaging` está ativo, é esse valor do rascunho
+   * que o select técnico usa como ponto de partida — sem isso, o select
+   * abriria vazio em vez de já vir em GEDSI_COSI/GEDSI_COSI_SOC.
+   */
+  function abrirCadastroUsuarioParaConciliacao(linha: LinhaConciliacao) {
+    setParticipanteVinculoCadastro(null);
+    setLinhaConciliacaoVinculoCadastro(linha);
+    const equipeIdSugerida = contextoEhJornada(contextoEscalaAtivo)
+      ? contextoEscalaAtivo.alvoId
+      : usuarioEfetivo?.equipeId ?? '';
+    const equipeSugerida = equipesAdmin.find((equipe) => equipe.id === equipeIdSugerida);
+    setFormularioUsuario({
+      loginOriginal: null,
+      nome: linha.nomePlanilha,
+      email: '',
+      login: '',
+      cargo: '',
+      nivelHierarquico: 6,
+      turnoPadrao: '',
+      ativo: true,
+      aliasesPlanilha: [linha.nomePlanilha],
+      unidadeId: equipeSugerida?.unidadeId,
+      equipeId: equipeIdSugerida || undefined,
+      unidadesPermitidas: [],
+      equipesPermitidas: [],
+    });
+    setErrosFormularioUsuario([]);
+    setNovoAliasDraft('');
+  }
+
   function abrirEdicaoUsuario(item: Usuario) {
     setParticipanteVinculoCadastro(null);
+    setLinhaConciliacaoVinculoCadastro(null);
     setFormularioUsuario({
       loginOriginal: item.login,
       nome: item.nome,
@@ -5726,6 +5826,7 @@ export function DashboardApp() {
   function fecharFormularioUsuario() {
     setFormularioUsuario(null);
     setParticipanteVinculoCadastro(null);
+    setLinhaConciliacaoVinculoCadastro(null);
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
   }
@@ -5776,7 +5877,7 @@ export function DashboardApp() {
     }
     if (escritaBloqueada) {
       const aviso = 'A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.';
-      if (participanteVinculoCadastro !== null) {
+      if (participanteVinculoCadastro !== null || linhaConciliacaoVinculoCadastro !== null) {
         setErrosFormularioUsuario([aviso]);
       } else {
         setMensagem(aviso);
@@ -5839,7 +5940,9 @@ export function DashboardApp() {
 
     let candidato: Usuario;
     if (formularioUsuario.loginOriginal === null) {
-      const responsavelCadastro = participanteVinculoCadastro === null && !usarCadastroLivreStaging
+      const responsavelCadastro = participanteVinculoCadastro === null
+        && linhaConciliacaoVinculoCadastro === null
+        && !usarCadastroLivreStaging
         ? usuarioEfetivo
         : {
           ...usuarioEfetivo,
@@ -5881,6 +5984,26 @@ export function DashboardApp() {
       };
     }
 
+    /**
+     * PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 — `equipeId` continua um
+     * campo sempre preenchido no cadastro (histórico do produto), mesmo para
+     * GESTOR_UNIDADE, cuja autorização real vem de `unidadeId`/
+     * `unidadesPermitidas`, não deste campo. Sem equipe escolhida no select
+     * livre, usa a primeira equipe ativa da unidade só como identidade
+     * técnica — nunca como restrição de escopo — em vez de gravar `''`.
+     */
+    if (
+      usarCadastroLivreStaging
+      && cadastroNovo
+      && candidato.perfil === 'GESTOR_UNIDADE'
+      && candidato.equipeId.trim() === ''
+    ) {
+      const equipeFallback = equipesAdmin.find((equipe) => equipe.ativa && equipe.unidadeId === candidato.unidadeId);
+      if (equipeFallback !== undefined) {
+        candidato = { ...candidato, equipeId: equipeFallback.id };
+      }
+    }
+
     if (
       cadastroNovo
       && !souAdmin
@@ -5893,7 +6016,15 @@ export function DashboardApp() {
       return;
     }
 
-    if (usarCadastroLivreStaging && cadastroNovo && equipeIdCadastroUsuario.trim() === '') {
+    // PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 — Gestor de unidade
+    // administra a UNIDADE inteira; exigir equipe aqui repetiria a mesma
+    // trava que motivou o cadastro livre em primeiro lugar.
+    if (
+      usarCadastroLivreStaging
+      && cadastroNovo
+      && formularioUsuario.perfil !== 'GESTOR_UNIDADE'
+      && equipeIdCadastroUsuario.trim() === ''
+    ) {
       setErrosFormularioUsuario(['Escolha uma equipe para o cadastro.']);
       return;
     }
@@ -5960,7 +6091,14 @@ export function DashboardApp() {
           houveEscritaUsuario = true;
         }
         if (houveEscritaUsuario) {
-          await registrarAuditoriaOperacional('SALVAR_USUARIO', candidato.equipeId);
+          await registrarAuditoriaOperacional('SALVAR_USUARIO', candidato.equipeId, linhaConciliacaoVinculoCadastro !== null
+            ? {
+              competencia: competenciaImportacaoJornadaAtual,
+              nomeImportado: linhaConciliacaoVinculoCadastro.nomePlanilha,
+              usuarioVinculadoLogin: usuarioSalvo.login,
+              origem: 'IMPORTACAO_JORNADA',
+            }
+            : undefined);
         }
       }
       setUsuarios((atuais) => (atuais.some((item) => item.login === usuarioSalvo.login)
@@ -5971,6 +6109,26 @@ export function DashboardApp() {
         setMensagem(cadastroReaproveitado
           ? `${usuarioSalvo.nome} já estava cadastrado e foi vinculado à pessoa encontrada na planilha.`
           : `${usuarioSalvo.nome} foi cadastrado e vinculado à pessoa encontrada na planilha.`);
+      } else if (linhaConciliacaoVinculoCadastro !== null && arquivo !== null) {
+        // PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 — `usuarios` (estado)
+        // ainda não reflete o `setUsuarios(...)` de cima nesta mesma
+        // invocação; sem passar a lista já atualizada, `aplicarConciliacao`
+        // reprocessava a planilha com um mapa de login sem o usuário recém
+        // criado/vinculado, e o vínculo só aparecia depois de um reload.
+        const usuariosComVinculoAtual = usuarios.some((item) => item.login === usuarioSalvo.login)
+          ? usuarios.map((item) => (item.login === usuarioSalvo.login ? usuarioSalvo : item))
+          : [...usuarios, usuarioSalvo];
+        aplicarConciliacao(
+          arquivo,
+          linhasConciliacao.map((item) => (
+            item === linhaConciliacaoVinculoCadastro ? resolverManualmente(item, usuarioSalvo) : item
+          )),
+          {},
+          usuariosComVinculoAtual,
+        );
+        setMensagem(cadastroReaproveitado
+          ? `${usuarioSalvo.nome} já estava cadastrado e foi vinculado a "${linhaConciliacaoVinculoCadastro.nomePlanilha}".`
+          : `${usuarioSalvo.nome} foi cadastrado e vinculado a "${linhaConciliacaoVinculoCadastro.nomePlanilha}".`);
       } else {
         setMensagem(formularioUsuario.loginOriginal === null
           ? 'Usuário cadastrado com sucesso.'
@@ -8173,112 +8331,6 @@ export function DashboardApp() {
               </article>
             )}
 
-            {linhasConciliacao.length > 0 && (
-              <article className="panel conciliation-panel">
-                <div className="panel-title">
-                  <div>
-                    <h2>Conciliação de nomes da planilha</h2>
-                    <p>Confira quem cada nome da planilha representa antes de salvar ou publicar.</p>
-                  </div>
-                  <span className={`status-badge ${pendenciasConciliacao ? 'warning' : 'success'}`}>
-                    {pendenciasConciliacao ? `${pendenciasConciliacao} pendência(s)` : 'Tudo conciliado'}
-                  </span>
-                </div>
-                <div className="table-scroll">
-                  <table className="data-table conciliation-table">
-                    <thead>
-                      <tr>
-                        <th>Nome encontrado na planilha</th>
-                        <th>Usuário vinculado</th>
-                        <th>Status</th>
-                        <th>Ação</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {linhasConciliacao.map((linha) => {
-                        const vinculado = usuarios.find((item) => item.login === linha.login);
-                        return (
-                          <tr key={linha.nomePlanilha} data-status={linha.status}>
-                            <td>{linha.nomePlanilha}</td>
-                            <td>
-                              <select
-                                value={linha.login ?? ''}
-                                onChange={(evento) => {
-                                  if (evento.target.value) {
-                                    selecionarVinculoConciliacao(linha, evento.target.value);
-                                  }
-                                }}
-                                aria-label={`Usuário vinculado a ${linha.nomePlanilha}`}
-                              >
-                                <option value="">Selecionar usuário…</option>
-                                {usuarios.map((item) => (
-                                  <option key={item.login} value={item.login}>
-                                    {item.nome}{item.ativo ? '' : ' (inativo)'}
-                                  </option>
-                                ))}
-                              </select>
-                              {linha.status === 'CONFLITO_ALIAS' && (
-                                <small>
-                                  Candidatos: {linha.candidatos
-                                    .map((login) => usuarios.find((item) => item.login === login)?.nome ?? login)
-                                    .join(', ')}
-                                </small>
-                              )}
-                            </td>
-                            <td>
-                              <span className={`status-badge ${
-                                linha.status === 'VINCULADO_LOGIN' || linha.status === 'VINCULADO_ALIAS' || linha.status === 'IGNORADA'
-                                  ? 'success'
-                                  : 'warning'
-                              }`}
-                              >
-                                {STATUS_CONCILIACAO_LABEL[linha.status]}
-                              </span>
-                            </td>
-                            <td>
-                              <div className="conciliation-actions">
-                                {linha.login !== null && linha.status !== 'VINCULADO_LOGIN' && (
-                                  <button
-                                    className="icon-button"
-                                    type="button"
-                                    title={`Salvar "${linha.nomePlanilha}" como alias de ${vinculado?.nome ?? ''}`}
-                                    disabled={escritaBloqueada}
-                                    onClick={() => void salvarAliasConciliacao(linha)}
-                                  >
-                                    <Link2 size={15} />
-                                  </button>
-                                )}
-                                {linha.status !== 'PRECISA_MAPEAR' && linha.status !== 'IGNORADA' && (
-                                  <button
-                                    className="icon-button"
-                                    type="button"
-                                    title="Marcar como pendente"
-                                    onClick={() => marcarConciliacaoPendente(linha)}
-                                  >
-                                    <HelpCircle size={15} />
-                                  </button>
-                                )}
-                                {linha.status !== 'IGNORADA' && (
-                                  <button
-                                    className="icon-button"
-                                    type="button"
-                                    title="Ignorar esta linha"
-                                    onClick={() => ignorarConciliacao(linha)}
-                                  >
-                                    <Ban size={15} />
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </article>
-            )}
-
             {resultado && resultado.documentos.length > 0 && (
               <ScheduleImportReview
                 resultado={resultado}
@@ -8287,6 +8339,12 @@ export function DashboardApp() {
                 catalogo={catalogo}
                 indiceAlertas={indiceAlertasGrade}
                 linhasConciliacao={linhasConciliacao}
+                escritaBloqueada={escritaBloqueada}
+                onSelecionarVinculo={selecionarVinculoConciliacao}
+                onCriarUsuario={abrirCadastroUsuarioParaConciliacao}
+                onSalvarAlias={(linha) => void salvarAliasConciliacao(linha)}
+                onMarcarPendente={marcarConciliacaoPendente}
+                onIgnorar={ignorarConciliacao}
               />
             )}
             </>
@@ -8502,6 +8560,12 @@ export function DashboardApp() {
               catalogo={catalogo}
               indiceAlertas={indiceAlertasGrade}
               linhasConciliacao={linhasConciliacao}
+              escritaBloqueada={escritaBloqueada}
+              onSelecionarVinculo={selecionarVinculoConciliacao}
+              onCriarUsuario={abrirCadastroUsuarioParaConciliacao}
+              onSalvarAlias={(linha) => void salvarAliasConciliacao(linha)}
+              onMarcarPendente={marcarConciliacaoPendente}
+              onIgnorar={ignorarConciliacao}
               onVoltar={() => setTela('escalas')}
               onEditar={abrirCelulaParaEdicao}
               onRemover={(documento) => setRemoverMembroPendente(documento)}
@@ -9963,14 +10027,17 @@ export function DashboardApp() {
           >
             <div className="panel-title">
               <div>
-                <p className="eyebrow">{participanteVinculoCadastro !== null ? 'Vínculo da planilha' : formularioUsuario.loginOriginal === null ? 'Novo colaborador' : 'Editar colaborador'}</p>
+                <p className="eyebrow">{participanteVinculoCadastro !== null || linhaConciliacaoVinculoCadastro !== null ? 'Vínculo da planilha' : formularioUsuario.loginOriginal === null ? 'Novo colaborador' : 'Editar colaborador'}</p>
                 <h2 id="user-form-title">
-                  {participanteVinculoCadastro !== null
+                  {participanteVinculoCadastro !== null || linhaConciliacaoVinculoCadastro !== null
                     ? 'Criar e vincular colaborador'
                     : formularioUsuario.loginOriginal === null ? 'Cadastrar usuário' : formularioUsuario.nome || 'Editar usuário'}
                 </h2>
                 {participanteVinculoCadastro !== null && (
                   <p>Cadastre <strong>{participanteVinculoCadastro}</strong>. Ao salvar, o vínculo desta importação será confirmado automaticamente.</p>
+                )}
+                {linhaConciliacaoVinculoCadastro !== null && (
+                  <p>Cadastre <strong>{linhaConciliacaoVinculoCadastro.nomePlanilha}</strong>. Ao salvar, o vínculo desta importação de Jornada será confirmado automaticamente.</p>
                 )}
               </div>
               <button className="icon-button" type="button" onClick={fecharFormularioUsuario} aria-label="Fechar"><X size={18} /></button>
@@ -10015,10 +10082,21 @@ export function DashboardApp() {
                     Unidade
                     <select
                       value={formularioUsuario.unidadeId ?? ''}
-                      onChange={(evento) => setFormularioUsuario({
-                        ...formularioUsuario,
-                        unidadeId: evento.target.value || undefined,
-                      })}
+                      onChange={(evento) => {
+                        const novaUnidadeId = evento.target.value || undefined;
+                        const equipeAtual = equipesAdmin.find((equipe) => equipe.id === formularioUsuario.equipeId);
+                        // PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 — trocar
+                        // de unidade nunca deixa uma equipe de outra árvore
+                        // selecionada (ex.: GEDSI_CODB_NOC sobrevivendo à
+                        // troca para GEDSI_COSI).
+                        const equipeAindaValida = novaUnidadeId === undefined
+                          || equipeAtual?.unidadeId === novaUnidadeId;
+                        setFormularioUsuario({
+                          ...formularioUsuario,
+                          unidadeId: novaUnidadeId,
+                          equipeId: equipeAindaValida ? formularioUsuario.equipeId : undefined,
+                        });
+                      }}
                     >
                       <option value="">Selecione uma unidade</option>
                       {unidadesAdmin.map((unidade) => (
@@ -10030,7 +10108,7 @@ export function DashboardApp() {
                     )}
                   </label>
                   <label>
-                    Equipe
+                    Equipe{formularioUsuario.perfil === 'GESTOR_UNIDADE' ? ' (opcional para Gestor de unidade)' : ''}
                     <select
                       value={formularioUsuario.equipeId ?? ''}
                       onChange={(evento) => setFormularioUsuario({
@@ -10039,12 +10117,17 @@ export function DashboardApp() {
                       })}
                     >
                       <option value="">Selecione uma equipe</option>
-                      {equipesAdmin.map((equipe) => (
+                      {equipesDaUnidade(equipesAdmin, formularioUsuario.unidadeId).map((equipe) => (
                         <option key={equipe.id} value={equipe.id}>{rotuloTecnicoEquipe(equipe)}</option>
                       ))}
                     </select>
                     {equipesAdmin.length === 0 && (
                       <small className="empty-inline">Nenhuma equipe ativa encontrada.</small>
+                    )}
+                    {equipesAdmin.length > 0
+                      && !formularioUsuario.equipeId
+                      && formularioUsuario.perfil !== 'GESTOR_UNIDADE' && (
+                      <small className="empty-inline">Selecione uma equipe da unidade escolhida.</small>
                     )}
                   </label>
                 </>
@@ -10052,8 +10135,11 @@ export function DashboardApp() {
                 <label>
                   Equipe
                   <input value={rotuloEquipeCadastroUsuario} disabled />
-                  {!souAdmin && !PERMITIR_AMPLO_STAGING && participanteVinculoCadastro === null && (
+                  {!souAdmin && !PERMITIR_AMPLO_STAGING && participanteVinculoCadastro === null && linhaConciliacaoVinculoCadastro === null && (
                     <small className="empty-inline">Permissão ampla de staging não está ativa; cadastro restrito à equipe atual.</small>
+                  )}
+                  {linhaConciliacaoVinculoCadastro !== null && (
+                    <small>Equipe herdada da escala de Jornada em importação.</small>
                   )}
                 </label>
               )}
@@ -10153,7 +10239,7 @@ export function DashboardApp() {
                   </div>
                 </div>
               </label>
-              {souAdmin && participanteVinculoCadastro === null && (
+              {souAdmin && participanteVinculoCadastro === null && linhaConciliacaoVinculoCadastro === null && (
                 <fieldset className="user-form-full admin-only-fields">
                   <legend>Administração (perfil/escopo/organização)</legend>
                   <label>
@@ -10248,7 +10334,7 @@ export function DashboardApp() {
             <div className="rollback-actions">
               <button className="secondary-button" type="button" onClick={fecharFormularioUsuario}>Cancelar</button>
               <button className="primary-button" type="button" onClick={() => void salvarFormularioUsuario()}>
-                <Save size={16} /> {participanteVinculoCadastro !== null
+                <Save size={16} /> {participanteVinculoCadastro !== null || linhaConciliacaoVinculoCadastro !== null
                   ? 'Cadastrar e vincular'
                   : formularioUsuario.loginOriginal === null ? 'Cadastrar' : 'Salvar alterações'}
               </button>

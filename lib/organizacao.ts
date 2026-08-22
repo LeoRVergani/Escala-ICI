@@ -87,6 +87,21 @@ export function rotuloTecnicoEquipe(equipe: Pick<Equipe, 'id' | 'nome'>): string
     : equipe.id;
 }
 
+/**
+ * PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 — equipes de uma unidade, para
+ * o select livre de cadastro (Unidade → Equipe): sem unidade escolhida,
+ * devolve todas (nenhum filtro); não decide autorização nem filtra por
+ * `ativa` — quem chama já resolve isso como sempre resolveu.
+ */
+export function equipesDaUnidade<T extends Pick<Equipe, 'unidadeId'>>(
+  equipes: readonly T[],
+  unidadeId: string | null | undefined,
+): T[] {
+  return unidadeId
+    ? equipes.filter((equipe) => equipe.unidadeId === unidadeId)
+    : [...equipes];
+}
+
 const TIPOS_FORA_DO_CODIGO_ORGANIZACIONAL = new Set<UnidadeOrganizacional['tipo']>([
   'PRESIDENCIA',
   'DIRETORIA',

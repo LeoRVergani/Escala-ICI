@@ -280,6 +280,13 @@ COSI), ela deve ser adicionada aqui por um `ADMIN_SISTEMA` via
 **Administração → Responsáveis por escala** — ver
 `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 6/§ 7.
 
+**JORNADA-IMPORTACAO-VINCULOS-UX-1**: o vínculo de um colaborador importado
+(associar a um usuário existente, criar um novo, adicionar alias) nunca
+escreve nesta Matriz — é sempre um cadastro/atualização em `usuarios/{login}`
+autorizado por quem já administra o alvo (`podeAdministrarJornada`,
+incluindo o fallback `souCoordenadorOperacionalStaging()`). Ver
+`docs/spec/EDITOR_ESCALAS.md` § 14.
+
 ## 10. Rules
 
 `escoposOperacionais`:

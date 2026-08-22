@@ -74,7 +74,7 @@ test('7. jornadaPossuiAlteracoesNaoSalvas vira true em editarCelula (mutação l
   const editarCelula = /function editarCelula\(codigo: string\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(editarCelula, 'editarCelula precisa existir');
   assert.match(editarCelula[1], /setJornadaPossuiAlteracoesNaoSalvas\(true\)/u, 'a mutação local de célula precisa marcar dirty=true');
-  const aplicarConciliacao = /function aplicarConciliacao\(buffer: ArrayBuffer, linhas: LinhaConciliacao\[\](?:, opcoes: OpcoesInicioImportacao = \{\})?\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  const aplicarConciliacao = /function aplicarConciliacao\(buffer: ArrayBuffer, linhas: LinhaConciliacao\[\](?:, opcoes: OpcoesInicioImportacao = \{\})?(?:, usuariosParaMapa: Usuario\[\] = usuarios)?\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(aplicarConciliacao, 'aplicarConciliacao precisa existir');
   assert.match(aplicarConciliacao[1], /setJornadaPossuiAlteracoesNaoSalvas\(true\)/u, 'importar/reconciliar planilha nunca pode deixar dirty=false — importar não é salvar');
 });

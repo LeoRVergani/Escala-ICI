@@ -234,6 +234,14 @@ completo. Esta fase também corrigiu a modelagem de pessoas usada nos
 exemplos anteriores: nenhuma pessoa (real ou fictícia) é dado de seed
 estrutural — ver `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 6.
 
+**JORNADA-IMPORTACAO-VINCULOS-UX-1**: "Criar usuário"/"Associar usuário" a
+partir de uma pendência de conciliação da importação de Jornada usam
+exatamente este mesmo cadastro delegado por responsável operacional
+(`contextoCadastroOperacionalAutorizaUsuario`, perfil/escopo padrão), nunca o
+cadastro livre de staging — a equipe do novo colaborador é sempre a equipe
+da escala importada, nunca uma escolha livre. Ver
+`docs/spec/EDITOR_ESCALAS.md` § 14 para o fluxo completo.
+
 ### Código organizacional da equipe
 
 A tela de Equipes não tenta renomear `Equipe.id`: essa chave já referencia

@@ -5861,6 +5861,15 @@ fieldset.checkbox-card-list > legend {
 .soc-import-review-person-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
 .soc-import-review-person-copy strong { overflow: hidden; color: var(--text); font-size: 10px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .soc-import-review-person-copy small { overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+/*
+ * PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 — a badge de status
+ * (secundária) fica na MESMA linha do nome, nunca na do login: assim ela só
+ * disputa espaço com uma informação já secundária, nunca com o identificador
+ * principal do colaborador.
+ */
+.soc-import-review-person-meta { display: flex; min-width: 0; align-items: center; gap: 4px; }
+.soc-import-review-person-meta small { flex: 1 1 auto; min-width: 0; }
+.soc-import-review-person-meta .status-badge { flex: 0 0 auto; }
 .soc-import-review-person-code { padding: 2px 4px !important; font-size: 8px !important; }
 .soc-import-review-mini-legend { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--border); }
 .soc-import-review-mini-legend .shift-chip { min-width: 20px; padding: 2px 4px; font-size: 8px; }
@@ -5926,6 +5935,44 @@ fieldset.checkbox-card-list > legend {
 .soc-import-review-alert-reference { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .soc-import-review-alert-row .status-badge { justify-self: end; font-size: 9px; }
 .soc-import-review-alerts-empty { display: flex; align-items: center; gap: 7px; margin: 0; padding: 16px; color: var(--success, #17885a); font-size: 10px; }
+.soc-import-review-alerts-more { margin: 0; padding: 8px 13px; color: var(--muted); font-size: 9px; }
+
+/*
+ * JORNADA-IMPORTACAO-VINCULOS-UX-1 — alertas/"Revisar"/colaborador importado
+ * deixam de ser decoração estática e viram controles reais (button/role
+ * button), reaproveitando os mesmos tokens visuais já usados acima; só o
+ * reset de estilo nativo de <button> e os estados de foco/hover são novos.
+ */
+button.soc-import-review-metric-button {
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.soc-import-review-metric-button:disabled { cursor: default; }
+button.soc-import-review-metric-button:hover:not(:disabled),
+button.soc-import-review-metric-button:focus-visible { background: var(--surface-muted); }
+.status-badge-clickable { border: 0; cursor: pointer; font: inherit; }
+.status-badge-clickable:hover,
+.status-badge-clickable:focus-visible { filter: brightness(0.96); }
+.soc-import-review-source-health button.secondary-button { grid-column: 1 / -1; justify-self: start; margin-top: 2px; }
+.soc-import-review-person[role="button"] { cursor: pointer; }
+.soc-import-review-person[role="button"]:focus-visible { outline: 2px solid var(--primary-bright); outline-offset: 1px; }
+.status-badge.compact { padding: 1px 6px; font-size: 8px; }
+button.soc-import-review-alert-row {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.soc-import-review-alert-row:last-child { border-bottom: 0; }
+button.soc-import-review-alert-row:hover,
+button.soc-import-review-alert-row:focus-visible { background: var(--surface-muted); }
 
 @media (max-width: 1180px) {
   .soc-import-review-workspace { grid-template-columns: 170px minmax(0, 1fr); }

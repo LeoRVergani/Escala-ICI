@@ -361,3 +361,9 @@ organizacionais (unidades/equipes) são estrutura e podem ser seed; pessoas
 (quem ocupa cada cargo) nunca são — mesmo em staging, ficam fora do código
 versionado, cadastradas via Dashboard/Admin SDK. Ver
 `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 6.
+
+**JORNADA-IMPORTACAO-VINCULOS-UX-1** aplica o mesmo princípio à importação de
+Jornada/6x1: um colaborador que aparece na planilha sem usuário
+correspondente é uma pendência acionável (associar/criar/alias/ignorar),
+nunca um cadastro implícito ou um nome hardcoded — ver
+`docs/spec/EDITOR_ESCALAS.md` § 14.

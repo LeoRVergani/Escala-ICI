@@ -10,22 +10,27 @@ import {
 } from '@escala-ici/contrato';
 import {
   AlertTriangle,
+  Ban,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
   CircleCheck,
   FileWarning,
+  HelpCircle,
+  Link2,
   Search,
   UserMinus,
   UsersRound,
+  X,
 } from 'lucide-react';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 
 import {
   chaveIndicadorCelula,
   type IndicadorCelulaAlerta,
 } from '@/lib/alertasEscala';
+import { contarPendenciasConciliacao } from '@/lib/conciliacaoUsuarios';
 import type { LinhaConciliacao, Usuario } from '@/lib/modelos';
 
 interface ScheduleImportReviewProps {
@@ -35,6 +40,12 @@ interface ScheduleImportReviewProps {
   catalogo: Record<string, TipoTurno>;
   indiceAlertas?: Map<string, IndicadorCelulaAlerta>;
   linhasConciliacao?: LinhaConciliacao[];
+  escritaBloqueada?: boolean;
+  onSelecionarVinculo?: (linha: LinhaConciliacao, login: string) => void;
+  onCriarUsuario?: (linha: LinhaConciliacao) => void;
+  onSalvarAlias?: (linha: LinhaConciliacao) => void;
+  onMarcarPendente?: (linha: LinhaConciliacao) => void;
+  onIgnorar?: (linha: LinhaConciliacao) => void;
   onEditar?: (documento: TurnosMes, data: string, dia: Dia) => void;
   onRemover?: (documento: TurnosMes) => void;
   onVoltar?: () => void;
@@ -42,6 +53,30 @@ interface ScheduleImportReviewProps {
 }
 
 const ORDEM_TURNOS = ['MD', 'M', 'T', 'N'];
+
+const STATUS_CONCILIACAO_LABEL: Record<LinhaConciliacao['status'], string> = {
+  VINCULADO_LOGIN: 'Vinculado automaticamente por login/e-mail',
+  VINCULADO_ALIAS: 'Vinculado por alias',
+  PRECISA_MAPEAR: 'Precisa mapear',
+  USUARIO_INATIVO: 'Usuário inativo',
+  USUARIO_NAO_ENCONTRADO: 'Usuário não encontrado',
+  CONFLITO_ALIAS: 'Conflito de aliases',
+  IGNORADA: 'Ignorada',
+};
+
+const STATUS_CONCILIACAO_LABEL_CURTO: Record<LinhaConciliacao['status'], string> = {
+  VINCULADO_LOGIN: 'Vinculado',
+  VINCULADO_ALIAS: 'Vinculado',
+  PRECISA_MAPEAR: 'Pendente',
+  USUARIO_INATIVO: 'Inativo',
+  USUARIO_NAO_ENCONTRADO: 'Sem vínculo',
+  CONFLITO_ALIAS: 'Conflito',
+  IGNORADA: 'Ignorado',
+};
+
+function statusConciliacaoResolvido(status: LinhaConciliacao['status']): boolean {
+  return status === 'VINCULADO_LOGIN' || status === 'VINCULADO_ALIAS' || status === 'IGNORADA';
+}
 
 function periodoDeDatas(inicio: string, fim: string): string[] {
   const datas: string[] = [];
@@ -82,6 +117,12 @@ export function ScheduleImportReview({
   catalogo,
   indiceAlertas,
   linhasConciliacao = [],
+  escritaBloqueada = false,
+  onSelecionarVinculo,
+  onCriarUsuario,
+  onSalvarAlias,
+  onMarcarPendente,
+  onIgnorar,
   onEditar,
   onRemover,
   onVoltar,
@@ -101,6 +142,8 @@ export function ScheduleImportReview({
   const [dataSelecionadaEstado, setDataSelecionadaEstado] = useState(dataInicial);
   const dataSelecionada = datas.includes(dataSelecionadaEstado) ? dataSelecionadaEstado : dataInicial;
   const indiceDataSelecionada = Math.max(0, datas.indexOf(dataSelecionada));
+  const pendenciasSecaoRef = useRef<HTMLElement>(null);
+  const [chavePendenciaSelecionada, setChavePendenciaSelecionada] = useState<string | null>(null);
 
   const documentosPorTurno = useMemo(() => {
     const grupos = new Map<string, TurnosMes[]>();
@@ -121,14 +164,35 @@ export function ScheduleImportReview({
     [documentos, nomes],
   );
 
+  // JORNADA-IMPORTACAO-VINCULOS-UX-1 — casa cada colaborador importado com
+  // sua pendência de conciliação (por login já resolvido, ou pelo nome cru
+  // da planilha quando ainda não há vínculo) para exibir status na lista
+  // lateral e permitir abrir o vínculo com um clique.
+  const linhaPorDocumento = useMemo(() => {
+    const porLogin = new Map(
+      linhasConciliacao.filter((linha) => linha.login !== null).map((linha) => [linha.login as string, linha] as const),
+    );
+    const porNomePlanilha = new Map(linhasConciliacao.map((linha) => [linha.nomePlanilha, linha] as const));
+    return new Map(documentos.map((documento) => [
+      documento.usuarioUid,
+      porLogin.get(documento.login) ?? porNomePlanilha.get(documento.login) ?? null,
+    ]));
+  }, [documentos, linhasConciliacao]);
+
+  const pendenciasConciliacaoCount = contarPendenciasConciliacao(linhasConciliacao);
+  const pendenciaSelecionada = chavePendenciaSelecionada
+    ? linhasConciliacao.find((linha) => linha.nomePlanilha === chavePendenciaSelecionada) ?? null
+    : null;
+
   const alertasOperacionais = useMemo(() => {
-    const alertas: Array<{ tipo: 'warning' | 'error' | 'info'; titulo: string; detalhe: string; referencia: string }> = [];
+    const alertas: Array<{ tipo: 'warning' | 'error' | 'info'; titulo: string; detalhe: string; referencia: string; nomePlanilha: string | null }> = [];
     for (const erro of resultado.erros) {
       alertas.push({
         tipo: 'error',
         titulo: erro.motivo,
         detalhe: erro.sugestao ?? 'Revise o valor encontrado na fonte antes de continuar.',
         referencia: erro.login ?? (erro.data ? formatarDia(erro.data) : `${erro.coluna}${erro.linha}`),
+        nomePlanilha: null,
       });
     }
     for (const aviso of resultado.avisos) {
@@ -137,15 +201,17 @@ export function ScheduleImportReview({
         titulo: aviso,
         detalhe: 'Aviso importado da validação da planilha.',
         referencia: 'Fonte',
+        nomePlanilha: null,
       });
     }
-    const pendencias = linhasConciliacao.filter((linha) => linha.status !== 'VINCULADO_LOGIN' && linha.status !== 'VINCULADO_ALIAS' && linha.status !== 'IGNORADA');
-    if (pendencias.length > 0) {
+    for (const linha of linhasConciliacao) {
+      if (statusConciliacaoResolvido(linha.status)) continue;
       alertas.push({
         tipo: 'warning',
-        titulo: 'Nomes da planilha precisam de vínculo',
-        detalhe: `${pendencias.length} colaborador(es) ainda aguardam conciliação.`,
-        referencia: pendencias[0]?.nomePlanilha ?? 'Conciliação',
+        titulo: `"${linha.nomePlanilha}" não está vinculado a um usuário`,
+        detalhe: STATUS_CONCILIACAO_LABEL[linha.status],
+        referencia: linha.nomePlanilha,
+        nomePlanilha: linha.nomePlanilha,
       });
     }
     return alertas;
@@ -154,6 +220,15 @@ export function ScheduleImportReview({
   function atualizarDia(delta: number) {
     const novoIndice = Math.min(datas.length - 1, Math.max(0, indiceDataSelecionada + delta));
     setDataSelecionadaEstado(datas[novoIndice] ?? dataSelecionada);
+  }
+
+  function rolarParaPendencias() {
+    pendenciasSecaoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function turnosImportadosDaLinha(linha: LinhaConciliacao): string[] {
+    const relacionados = documentos.filter((documento) => documento.login === linha.login || documento.login === linha.nomePlanilha);
+    return [...new Set(relacionados.map((documento) => documento.turnoPadrao))];
   }
 
   return (
@@ -169,10 +244,13 @@ export function ScheduleImportReview({
           </div>
         </div>
         <div className="soc-import-review-header-actions">
-          <span className={`status-badge ${resultado.ok ? 'success' : 'warning'}`}>
-            {resultado.ok ? <CircleCheck size={14} /> : <CircleAlert size={14} />}
-            {resultado.ok ? 'Prévia validada' : 'Revisão necessária'}
-          </span>
+          {resultado.ok ? (
+            <span className="status-badge success"><CircleCheck size={14} /> Prévia validada</span>
+          ) : (
+            <button type="button" className="status-badge warning status-badge-clickable" onClick={rolarParaPendencias} title="Ver pendências da importação">
+              <CircleAlert size={14} /> Revisão necessária
+            </button>
+          )}
           {headerActions}
         </div>
       </header>
@@ -181,11 +259,24 @@ export function ScheduleImportReview({
         <div className="soc-import-review-metric"><CalendarDays size={19} /><strong>{resultado.totalDias}</strong><span>dias</span></div>
         <div className="soc-import-review-metric"><FileWarning size={19} /><strong>{documentosPorTurno.length}</strong><span>turnos</span></div>
         <div className="soc-import-review-metric"><UsersRound size={19} /><strong>{documentos.length}</strong><span>colaboradores</span></div>
-        <div className={`soc-import-review-metric ${alertasOperacionais.length > 0 ? 'has-alerts' : ''}`}><AlertTriangle size={19} /><strong>{alertasOperacionais.length}</strong><span>alertas</span></div>
+        <button
+          type="button"
+          className={`soc-import-review-metric soc-import-review-metric-button ${alertasOperacionais.length > 0 ? 'has-alerts' : ''}`}
+          onClick={rolarParaPendencias}
+          disabled={alertasOperacionais.length === 0}
+          title={alertasOperacionais.length > 0 ? 'Ver e resolver pendências da importação' : 'Nenhum alerta nesta importação'}
+        >
+          <AlertTriangle size={19} /><strong>{alertasOperacionais.length}</strong><span>alertas</span>
+        </button>
         <div className="soc-import-review-source-health">
           <span>Saúde da origem</span>
           <strong className={resultado.ok ? 'good' : 'attention'}>{resultado.ok ? 'Boa' : 'Revisar'}</strong>
           <p>{resultado.ok ? 'Todas as colunas obrigatórias presentes.' : 'Existem valores que precisam de conferência.'}</p>
+          {!resultado.ok && (
+            <button type="button" className="secondary-button compact-button" onClick={rolarParaPendencias}>
+              Revisar pendências
+            </button>
+          )}
         </div>
       </div>
 
@@ -194,14 +285,57 @@ export function ScheduleImportReview({
           <div className="soc-import-review-panel-heading"><strong>Colaboradores</strong><span>{colaboradoresComNome.length}</span></div>
           <label className="soc-import-review-search"><Search size={14} /><input placeholder="Buscar colaborador" aria-label="Buscar colaborador" /></label>
           <div className="soc-import-review-roster-list">
-            {colaboradoresComNome.map(({ documento, nome }) => (
-              <div className="soc-import-review-person" key={documento.usuarioUid}>
-                <span className="soc-import-review-avatar" data-code={documento.turnoPadrao}>{nomeCurto(nome)}</span>
-                <span className="soc-import-review-person-copy"><strong>{documento.login}</strong><small>{nome}</small></span>
-                <span className="shift-chip soc-import-review-person-code" data-code={documento.turnoPadrao}>{documento.turnoPadrao}</span>
-                {onRemover && <button type="button" className="soc-import-review-remove" title="Remover da grade desta competência" aria-label={`Remover ${nome}`} onClick={() => onRemover(documento)}><UserMinus size={12} /></button>}
-              </div>
-            ))}
+            {colaboradoresComNome.map(({ documento, nome }) => {
+              const linha = linhaPorDocumento.get(documento.usuarioUid) ?? null;
+              return (
+                <div
+                  className="soc-import-review-person"
+                  key={documento.usuarioUid}
+                  role={linha ? 'button' : undefined}
+                  tabIndex={linha ? 0 : undefined}
+                  onClick={linha ? () => setChavePendenciaSelecionada(linha.nomePlanilha) : undefined}
+                  onKeyDown={linha ? (evento) => {
+                    if (evento.key === 'Enter' || evento.key === ' ') {
+                      evento.preventDefault();
+                      setChavePendenciaSelecionada(linha.nomePlanilha);
+                    }
+                  } : undefined}
+                  title={linha ? `Vincular ${nome}` : undefined}
+                >
+                  <span className="soc-import-review-avatar" data-code={documento.turnoPadrao}>{nomeCurto(nome)}</span>
+                  {/*
+                    PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 — o login
+                    (identificador principal) fica sozinho na primeira linha,
+                    nunca dividindo espaço com a badge de status: numa coluna
+                    de 190px, badge+chip encostados na mesma linha do login
+                    reduziam o `<strong>` a poucos caracteres visíveis.
+                  */}
+                  <span className="soc-import-review-person-copy">
+                    <strong>{documento.login}</strong>
+                    <span className="soc-import-review-person-meta">
+                      <small>{nome}</small>
+                      {linha && (
+                        <span className={`status-badge compact ${statusConciliacaoResolvido(linha.status) ? 'success' : 'warning'}`}>
+                          {STATUS_CONCILIACAO_LABEL_CURTO[linha.status]}
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                  <span className="shift-chip soc-import-review-person-code" data-code={documento.turnoPadrao}>{documento.turnoPadrao}</span>
+                  {onRemover && (
+                    <button
+                      type="button"
+                      className="soc-import-review-remove"
+                      title="Remover da grade desta competência"
+                      aria-label={`Remover ${nome}`}
+                      onClick={(evento) => { evento.stopPropagation(); onRemover(documento); }}
+                    >
+                      <UserMinus size={12} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div className="soc-import-review-mini-legend">
             {ORDEM_TURNOS.concat(['X', 'DF', 'DU', 'BH']).map((codigo) => catalogo[codigo] ? <span key={codigo}><i className="shift-chip" data-code={codigo}>{codigo}</i></span> : null)}
@@ -255,12 +389,237 @@ export function ScheduleImportReview({
 
       </div>
 
+      <section className="panel conciliation-panel" ref={pendenciasSecaoRef} id="soc-import-review-pendencias">
+        <div className="panel-title">
+          <div>
+            <h2>Pendências e vínculos</h2>
+            <p>Associe, crie ou ignore cada nome pendente da planilha antes de salvar ou publicar.</p>
+          </div>
+          <span className={`status-badge ${pendenciasConciliacaoCount > 0 ? 'warning' : 'success'}`}>
+            {pendenciasConciliacaoCount > 0 ? `${pendenciasConciliacaoCount} pendência(s)` : 'Tudo conciliado'}
+          </span>
+        </div>
+        {linhasConciliacao.length === 0 ? (
+          <p className="soc-import-review-alerts-empty"><CircleCheck size={15} /> Nenhum nome da planilha precisa de conciliação.</p>
+        ) : (
+          <div className="table-scroll">
+            <table className="data-table conciliation-table">
+              <thead>
+                <tr>
+                  <th>Nome encontrado na planilha</th>
+                  <th>Usuário vinculado</th>
+                  <th>Status</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linhasConciliacao.map((linha) => {
+                  const vinculado = usuarios.find((item) => item.login === linha.login);
+                  return (
+                    <tr key={linha.nomePlanilha} data-status={linha.status}>
+                      <td>{linha.nomePlanilha}</td>
+                      <td>
+                        <select
+                          value={linha.login ?? ''}
+                          onChange={(evento) => {
+                            if (evento.target.value) {
+                              onSelecionarVinculo?.(linha, evento.target.value);
+                            }
+                          }}
+                          aria-label={`Usuário vinculado a ${linha.nomePlanilha}`}
+                        >
+                          <option value="">Selecionar usuário…</option>
+                          {usuarios.map((item) => (
+                            <option key={item.login} value={item.login}>
+                              {item.nome}{item.ativo ? '' : ' (inativo)'}
+                            </option>
+                          ))}
+                        </select>
+                        {linha.status === 'CONFLITO_ALIAS' && (
+                          <small>
+                            Candidatos: {linha.candidatos
+                              .map((login) => usuarios.find((item) => item.login === login)?.nome ?? login)
+                              .join(', ')}
+                          </small>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`status-badge ${statusConciliacaoResolvido(linha.status) ? 'success' : 'warning'}`}>
+                          {STATUS_CONCILIACAO_LABEL[linha.status]}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="conciliation-actions">
+                          <button
+                            className="icon-button"
+                            type="button"
+                            title={`Ver detalhes e vincular "${linha.nomePlanilha}"`}
+                            onClick={() => setChavePendenciaSelecionada(linha.nomePlanilha)}
+                          >
+                            <Search size={15} />
+                          </button>
+                          {linha.login !== null && linha.status !== 'VINCULADO_LOGIN' && (
+                            <button
+                              className="icon-button"
+                              type="button"
+                              title={`Salvar "${linha.nomePlanilha}" como alias de ${vinculado?.nome ?? ''}`}
+                              disabled={escritaBloqueada}
+                              onClick={() => onSalvarAlias?.(linha)}
+                            >
+                              <Link2 size={15} />
+                            </button>
+                          )}
+                          <button
+                            className="icon-button"
+                            type="button"
+                            title={`Criar usuário para "${linha.nomePlanilha}"`}
+                            disabled={escritaBloqueada}
+                            onClick={() => onCriarUsuario?.(linha)}
+                          >
+                            <UsersRound size={15} />
+                          </button>
+                          {linha.status !== 'PRECISA_MAPEAR' && linha.status !== 'IGNORADA' && (
+                            <button
+                              className="icon-button"
+                              type="button"
+                              title="Marcar como pendente"
+                              onClick={() => onMarcarPendente?.(linha)}
+                            >
+                              <HelpCircle size={15} />
+                            </button>
+                          )}
+                          {linha.status !== 'IGNORADA' && (
+                            <button
+                              className="icon-button"
+                              type="button"
+                              title="Ignorar esta linha"
+                              onClick={() => onIgnorar?.(linha)}
+                            >
+                              <Ban size={15} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       <section className="soc-import-review-alerts">
         <div className="soc-import-review-alerts-heading"><div><strong>Pendências da fonte</strong><span>{alertasOperacionais.length}</span></div><small>Validações preservadas da importação local</small></div>
         <div className="soc-import-review-alerts-table">
-          {alertasOperacionais.length === 0 ? <p className="soc-import-review-alerts-empty"><CircleCheck size={15} /> Nenhuma pendência encontrada na fonte.</p> : alertasOperacionais.slice(0, 4).map((alerta, indice) => <div className="soc-import-review-alert-row" key={`${alerta.referencia}-${indice}`}><span className={`soc-import-review-alert-icon ${alerta.tipo}`}><AlertTriangle size={14} /></span><div><strong>{alerta.titulo}</strong><small>{alerta.detalhe}</small></div><span className="soc-import-review-alert-reference">{alerta.referencia}</span><span className={`status-badge ${alerta.tipo === 'error' ? 'danger' : 'warning'}`}>{alerta.tipo === 'error' ? 'Ajustar' : 'Revisar'}</span></div>)}
+          {alertasOperacionais.length === 0 ? <p className="soc-import-review-alerts-empty"><CircleCheck size={15} /> Nenhuma pendência encontrada na fonte.</p> : alertasOperacionais.slice(0, 4).map((alerta, indice) => {
+            const linhaRelacionada = alerta.nomePlanilha
+              ? linhasConciliacao.find((linha) => linha.nomePlanilha === alerta.nomePlanilha) ?? null
+              : null;
+            const Wrapper = linhaRelacionada ? 'button' : 'div';
+            return (
+              <Wrapper
+                key={`${alerta.referencia}-${indice}`}
+                type={linhaRelacionada ? 'button' : undefined}
+                className={`soc-import-review-alert-row ${linhaRelacionada ? 'is-actionable' : ''}`}
+                onClick={linhaRelacionada ? () => setChavePendenciaSelecionada(linhaRelacionada.nomePlanilha) : undefined}
+              >
+                <span className={`soc-import-review-alert-icon ${alerta.tipo}`}><AlertTriangle size={14} /></span>
+                <div><strong>{alerta.titulo}</strong><small>{alerta.detalhe}</small></div>
+                <span className="soc-import-review-alert-reference">{alerta.referencia}</span>
+                <span className={`status-badge ${alerta.tipo === 'error' ? 'danger' : 'warning'}`}>{alerta.tipo === 'error' ? 'Ajustar' : 'Revisar'}</span>
+              </Wrapper>
+            );
+          })}
+          {alertasOperacionais.length > 4 && (
+            <p className="soc-import-review-alerts-more">
+              +{alertasOperacionais.length - 4} pendência(s) na tabela de conciliação acima.
+            </p>
+          )}
         </div>
       </section>
+
+      {pendenciaSelecionada && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setChavePendenciaSelecionada(null)}>
+          <section
+            className="edit-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="vinculo-importado-title"
+            onMouseDown={(evento) => evento.stopPropagation()}
+          >
+            <div className="panel-title">
+              <div>
+                <p className="eyebrow">Vincular colaborador importado</p>
+                <h2 id="vinculo-importado-title">{nomeCurto(pendenciaSelecionada.nomePlanilha)} · {pendenciaSelecionada.nomePlanilha}</h2>
+                <span className={`status-badge ${statusConciliacaoResolvido(pendenciaSelecionada.status) ? 'success' : 'warning'}`}>
+                  {STATUS_CONCILIACAO_LABEL[pendenciaSelecionada.status]}
+                </span>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setChavePendenciaSelecionada(null)} aria-label="Fechar"><X size={18} /></button>
+            </div>
+            <p>Turnos importados: {turnosImportadosDaLinha(pendenciaSelecionada).join(', ') || '—'}</p>
+            <label>
+              Usuário vinculado
+              <select
+                value={pendenciaSelecionada.login ?? ''}
+                onChange={(evento) => {
+                  if (evento.target.value) {
+                    onSelecionarVinculo?.(pendenciaSelecionada, evento.target.value);
+                  }
+                }}
+                aria-label={`Usuário vinculado a ${pendenciaSelecionada.nomePlanilha}`}
+              >
+                <option value="">Selecionar usuário…</option>
+                {usuarios.map((item) => (
+                  <option key={item.login} value={item.login}>
+                    {item.nome}{item.ativo ? '' : ' (inativo)'}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {pendenciaSelecionada.status === 'CONFLITO_ALIAS' && (
+              <small>
+                Candidatos: {pendenciaSelecionada.candidatos
+                  .map((login) => usuarios.find((item) => item.login === login)?.nome ?? login)
+                  .join(', ')}
+              </small>
+            )}
+            <div className="rollback-actions">
+              {pendenciaSelecionada.login !== null && pendenciaSelecionada.status !== 'VINCULADO_LOGIN' && (
+                <button
+                  className="secondary-button compact-button"
+                  type="button"
+                  disabled={escritaBloqueada}
+                  onClick={() => onSalvarAlias?.(pendenciaSelecionada)}
+                >
+                  <Link2 size={14} /> Salvar como alias
+                </button>
+              )}
+              <button
+                className="secondary-button compact-button"
+                type="button"
+                disabled={escritaBloqueada}
+                onClick={() => { onCriarUsuario?.(pendenciaSelecionada); setChavePendenciaSelecionada(null); }}
+              >
+                <UsersRound size={14} /> Criar usuário
+              </button>
+              {pendenciaSelecionada.status !== 'IGNORADA' && (
+                <button
+                  className="secondary-button compact-button"
+                  type="button"
+                  onClick={() => onIgnorar?.(pendenciaSelecionada)}
+                >
+                  <Ban size={14} /> Ignorar por enquanto
+                </button>
+              )}
+              <button className="primary-button" type="button" onClick={() => setChavePendenciaSelecionada(null)}>
+                Voltar para a importação
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }

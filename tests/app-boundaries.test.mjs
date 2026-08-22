@@ -664,8 +664,9 @@ test('STAGING-RESET-HIERARQUIA-ICI-3 — causa raiz do campo Equipe travado: env
   // #10 — sem fallback antigo sobrescrevendo a equipe escolhida pela do ator
   // no cadastro geral: o responsável do cadastro usa a equipe ESCOLHIDA
   // (equipeIdCadastroUsuario), não usuarioEfetivo.equipeId, quando staging
-  // livre está ativo.
-  assert.match(dashboard, /participanteVinculoCadastro === null && !usarCadastroLivreStaging\s*\n\s*\? usuarioEfetivo\s*\n\s*:/u);
+  // livre está ativo (ou quando é "Criar usuário" a partir de uma pendência
+  // de conciliação de Jornada — JORNADA-IMPORTACAO-VINCULOS-UX-1).
+  assert.match(dashboard, /participanteVinculoCadastro === null\s*\n\s*&& linhaConciliacaoVinculoCadastro === null\s*\n\s*&& !usarCadastroLivreStaging\s*\n\s*\? usuarioEfetivo\s*\n\s*:/u);
 
   // Modo restrito precisa avisar explicitamente que staging amplo está desligado.
   assert.match(dashboard, /Permissão ampla de staging não está ativa; cadastro restrito à equipe atual\./u);

@@ -73,6 +73,48 @@ describe('registrarAuditoriaAdmin', () => {
     expect(typeof operacao?.dados.em).toBe('string');
   });
 
+  it('JORNADA-IMPORTACAO-VINCULOS-UX-1 — campos de contexto de importação ficam null quando omitidos', async () => {
+    await registrarAuditoriaAdmin({
+      atorReal: usuario({ login: 'admin', perfil: 'ADMIN_SISTEMA' }),
+      atorSimulado: null,
+      equipeId: 'EQ_SOC',
+      acao: 'PUBLICAR_ESCALA',
+    });
+
+    const [operacao] = estado.operacoes;
+    expect(operacao?.dados).toMatchObject({
+      unidadeId: null,
+      competencia: null,
+      nomeImportado: null,
+      usuarioVinculadoLogin: null,
+      origem: null,
+    });
+  });
+
+  it('JORNADA-IMPORTACAO-VINCULOS-UX-1 — grava o contexto de importação quando informado', async () => {
+    await registrarAuditoriaAdmin({
+      atorReal: usuario({ login: 'clis', perfil: 'GESTOR_UNIDADE' }),
+      atorSimulado: null,
+      equipeId: 'GEDSI_COSI_SOC',
+      acao: 'ASSOCIAR_USUARIO_IMPORTACAO',
+      unidadeId: 'GEDSI_COSI',
+      competencia: '2026-08',
+      nomeImportado: 'a.lima',
+      usuarioVinculadoLogin: 'aleilima',
+      origem: 'IMPORTACAO_JORNADA',
+    });
+
+    const [operacao] = estado.operacoes;
+    expect(operacao?.dados).toMatchObject({
+      equipeId: 'GEDSI_COSI_SOC',
+      unidadeId: 'GEDSI_COSI',
+      competencia: '2026-08',
+      nomeImportado: 'a.lima',
+      usuarioVinculadoLogin: 'aleilima',
+      origem: 'IMPORTACAO_JORNADA',
+    });
+  });
+
   it('STAGING-RESET-HIERARQUIA-ICI-1 — atorSimulado null grava os campos de ator simulado como null (ação direta, sem simulação)', async () => {
     const atorReal = usuario({ login: 'sabrina.supervisora', nome: 'Sabrina Supervisora', perfil: 'SUPERVISOR_EQUIPE' });
 

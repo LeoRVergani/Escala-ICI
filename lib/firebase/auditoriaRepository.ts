@@ -16,12 +16,23 @@ import { exigirEscritaAdministrativaHabilitada, exigirFirebase } from './shared'
  * até esta fase), em staging um coordenador/supervisor agindo diretamente
  * (sem simular ninguém) também precisa gerar auditoria — ver
  * `registrarAuditoriaOperacional()` em `DashboardApp.tsx`.
+ *
+ * JORNADA-IMPORTACAO-VINCULOS-UX-1 — campos opcionais de contexto (todos
+ * `null` quando omitidos, nunca exigidos pelas Rules) para ações originadas
+ * da importação de Jornada: qual nome da planilha gerou a ação e qual login
+ * foi vinculado a ele, além de `competencia`/`unidadeId`/`origem` para
+ * facilitar auditoria e suporte. Não afeta chamadas existentes.
  */
 export async function registrarAuditoriaAdmin(parametros: {
   atorReal: Usuario;
   atorSimulado: Usuario | null;
   equipeId: string;
   acao: string;
+  unidadeId?: string | null;
+  competencia?: string | null;
+  nomeImportado?: string | null;
+  usuarioVinculadoLogin?: string | null;
+  origem?: string | null;
 }): Promise<void> {
   exigirEscritaAdministrativaHabilitada();
   const { db } = exigirFirebase();
@@ -33,6 +44,11 @@ export async function registrarAuditoriaAdmin(parametros: {
     atorSimuladoNome: parametros.atorSimulado?.nome ?? null,
     atorSimuladoPerfil: parametros.atorSimulado ? perfilEfetivo(parametros.atorSimulado) : null,
     equipeId: parametros.equipeId,
+    unidadeId: parametros.unidadeId ?? null,
+    competencia: parametros.competencia ?? null,
+    nomeImportado: parametros.nomeImportado ?? null,
+    usuarioVinculadoLogin: parametros.usuarioVinculadoLogin ?? null,
+    origem: parametros.origem ?? null,
     acao: parametros.acao,
     em: new Date().toISOString(),
   });

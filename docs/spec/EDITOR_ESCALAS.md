@@ -682,3 +682,106 @@ vincular**. O modal reutiliza o cadastro existente, vincula somente após
 `salvarUsuario()` concluir e fixa a equipe no `equipeResponsavelId` do Grupo.
 Não se usa a equipe nem o UID do coordenador como fallback, e falha de Rules
 permanece erro do modal, sem vínculo local enganoso.
+
+## 14. Vínculos da importação de Jornada/6x1 (Fase JORNADA-IMPORTACAO-VINCULOS-UX-1)
+
+### 14.1 Causa raiz do problema: uma UI existente, mas inatingível no fluxo real
+
+A Jornada/6x1 já tinha seu próprio mecanismo de conciliação nome→usuário
+(`lib/conciliacaoUsuarios.ts`, irmão — mas não o mesmo código — de
+`lib/conciliacaoPlantoes.ts`, usado pelo Plantão): uma tabela com seletor de
+usuário, "salvar como alias" e "ignorar". O defeito não era a ausência dessa
+lógica, e sim onde ela era renderizada: essa tabela só existia dentro da tela
+`'importar'` de `DashboardApp.tsx`. O wizard "Nova escala" para Jornada,
+porém, pula direto para a tela `'grade'` (`setTela(wizardTipo === 'JORNADA' ?
+'grade' : 'importar')`), que renderiza somente `ScheduleImportReview` — sem a
+tabela de conciliação. Resultado: no fluxo real de importação de Jornada, a
+pessoa nunca via nem alcançava a única UI de vínculo já existente. Os
+contadores de "alertas" e o texto "Revisar" da Saúde da origem também eram
+puramente decorativos — nenhum tinha `onClick`.
+
+### 14.2 Correção: o painel de conciliação virou parte do `ScheduleImportReview`
+
+A tabela de conciliação (associar/criar/alias/marcar pendente/ignorar) saiu
+de `DashboardApp.tsx` e passou a viver dentro de `components/
+ScheduleImportReview.tsx`, numa seção "Pendências e vínculos" com âncora
+própria (`id="soc-import-review-pendencias"`) — como o componente é usado nas
+duas telas (`'importar'` e `'grade'`), o painel agora aparece nas duas, sem
+duplicar a lógica. `DashboardApp.tsx` continua dono de todo o estado e das
+escritas (Firestore, auditoria) — só repassa os handlers via props
+(`onSelecionarVinculo`, `onCriarUsuario`, `onSalvarAlias`, `onMarcarPendente`,
+`onIgnorar`).
+
+Ficaram acionáveis:
+
+- O contador "N alertas" do resumo (agora `<button>`) rola até a seção de
+  pendências.
+- A badge "Revisão necessária" e o botão "Revisar pendências" do card
+  "Saúde da origem" fazem a mesma rolagem.
+- Cada linha do colaborador na lista lateral que ainda tem pendência de
+  conciliação (`role="button"`) abre um modal "Vincular colaborador
+  importado" com o nome como veio da planilha, iniciais, turnos importados
+  e status — e permite associar a um usuário existente, criar um novo,
+  salvar alias ou ignorar, sem sair da tela de importação.
+- Cada linha acionável de "Pendências da fonte" (as que correspondem a uma
+  linha de conciliação) abre o mesmo modal.
+
+Nenhuma correspondência por semelhança/fuzzy foi introduzida:
+`conciliarNome()` continua exata (login/alias/e-mail/nome normalizado);
+"possível correspondência" continua modelada pelo status `CONFLITO_ALIAS`
+(múltiplos candidatos), nunca por um score de similaridade.
+
+### 14.3 "Criar usuário" a partir de uma pendência sempre herda a equipe da importação
+
+`abrirCadastroUsuarioParaConciliacao(linha)` pré-preenche `nome` e
+`aliasesPlanilha` com o nome como veio da planilha (nivelHierarquico 6,
+perfil/escopo padrão, mesmo desenho do "Criar e vincular" do Plantão). A
+equipe do cadastro nunca é a equipe do próprio coordenador nem uma escolha
+livre — é sempre a equipe da Jornada em importação
+(`contextoEscalaAtivo.alvoId`), inclusive quando o "cadastro livre de
+staging" (`STAGING_RESET_HIERARQUIA_ICI.md`) está ativo: esse modo fica
+desligado especificamente para este fluxo, porque o alvo já é conhecido pela
+importação. Ao salvar, o usuário criado resolve a pendência automaticamente
+(`resolverManualmente`) — sem passo manual adicional.
+
+### 14.4 Reaproveitamento do padrão do Plantão — o que foi e o que não foi compartilhado
+
+Compartilhado: o modal de cadastro/edição de usuário (`formularioUsuario` e
+todo o seu ciclo de vida em `DashboardApp.tsx`), incluindo o mesmo padrão de
+"estado paralelo" que o Plantão já usava (`participanteVinculoCadastro`) —
+Jornada ganhou seu próprio estado irmão (`linhaConciliacaoVinculoCadastro`),
+mutuamente exclusivo com o do Plantão. Os textos e o rótulo do botão
+("Criar e vincular colaborador") do modal também passaram a cobrir os dois
+casos.
+
+Não compartilhado (propositalmente): a lógica de matching em si
+(`lib/conciliacaoUsuarios.ts` vs. `lib/conciliacaoPlantoes.ts`) — Jornada
+concilia por **linha de planilha** (`LinhaConciliacao`, N nomes → N
+usuários), Plantão concilia por **participante do Grupo** (identidade já é o
+`login`, quando existe). Forçar um modelo único nesta fase teria sido reescrever
+os dois fluxos sem necessidade — os dois continuam sendo "irmãos", não a
+mesma função.
+
+### 14.5 Auditoria
+
+`registrarAuditoriaAdmin()` ganhou campos opcionais (`unidadeId`,
+`competencia`, `nomeImportado`, `usuarioVinculadoLogin`, `origem`), todos
+`null` quando omitidos — nenhuma chamada existente muda de comportamento, e
+as Rules de `auditoriaAdmin` (`souAdminSistema() || souCoordenadorOperacionalStaging()`)
+não têm allowlist de campos, então nada precisou mudar lá. Passaram a
+auditar (antes não auditavam): associar usuário existente
+(`ASSOCIAR_USUARIO_IMPORTACAO`), adicionar alias
+(`ADICIONAR_ALIAS_IMPORTACAO`) e ignorar pendência
+(`IGNORAR_PENDENCIA_IMPORTACAO`); criar usuário continua sob
+`SALVAR_USUARIO`, agora com o contexto de importação anexado quando aplicável.
+
+### 14.6 Nenhuma regra nova em `firestore.rules`
+
+Todas as escritas do novo fluxo (criar usuário via
+`contextoCadastroOperacionalAutorizaUsuario`, atualizar `aliasesPlanilha` via
+o ramo de update já existente, gravar `auditoriaAdmin`) já eram autorizadas
+pelas regras das fases STAGING-RESET-HIERARQUIA-ICI-1/2, inclusive em
+staging via `souCoordenadorOperacionalStaging()`. Confirmado por teste
+(`tests/firebase/firestore.rules.test.ts`, describe
+`JORNADA-IMPORTACAO-VINCULOS-UX-1`) antes de descartar a hipótese de
+alteração nas Rules.

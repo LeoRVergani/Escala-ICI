@@ -482,6 +482,15 @@ Cobre: `ATRIBUIR_LEMBRETE`, `ATRIBUIR_SERIE_LEMBRETES`, `CANCELAR_LEMBRETE`,
 sempre o alvo REAL da ação, não necessariamente a equipe do ator (que pode
 administrar via Matriz uma equipe diferente da própria).
 
+**JORNADA-IMPORTACAO-VINCULOS-UX-1** acrescentou `ASSOCIAR_USUARIO_IMPORTACAO`,
+`ADICIONAR_ALIAS_IMPORTACAO` e `IGNORAR_PENDENCIA_IMPORTACAO` (ações que antes
+não geravam nenhuma auditoria), além de campos opcionais em
+`registrarAuditoriaAdmin()` — `unidadeId`, `competencia`, `nomeImportado`,
+`usuarioVinculadoLogin`, `origem` — todos `null` quando omitidos, sem afetar
+nenhuma chamada existente nem exigir mudança em `firestore.rules` (a regra de
+`create` de `auditoriaAdmin` não tem allowlist de campos). Ver
+`docs/spec/EDITOR_ESCALAS.md` § 14.5.
+
 ## 10. O que continua bloqueado, mesmo em staging
 
 - Coordenador/supervisor criar ou promover alguém para `ADMIN_SISTEMA`.
