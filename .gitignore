@@ -57,3 +57,6 @@ next-env.d.ts
 
 # Backups locais do Firebase staging
 /backups/
+
+# Backups locais do Firebase staging
+/backups/
