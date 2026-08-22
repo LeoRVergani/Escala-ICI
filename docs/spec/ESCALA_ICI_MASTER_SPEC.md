@@ -367,3 +367,20 @@ Jornada/6x1: um colaborador que aparece na planilha sem usuário
 correspondente é uma pendência acionável (associar/criar/alias/ignorar),
 nunca um cadastro implícito ou um nome hardcoded — ver
 `docs/spec/EDITOR_ESCALAS.md` § 14.
+
+**PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1** corrigiu a publicação (não o
+rascunho) do Plantão COSI (`grupoId PLANTAO_GEDSI_COSI`,
+`unidadeResponsavelId GEDSI_COSI`, `equipeResponsavelId
+GEDSI_COSI_PLANTAO`) por um `GESTOR_UNIDADE` de `GEDSI_COSI`: a causa raiz
+era um `getDoc()` em `competenciasPlantao/{id}` inexistente estourando o
+limite de expressões da regra — corrigido em `firestore.rules` com
+curto-circuito `!exists(...) || podeLerEscalaPlantao(...)`, nunca afrouxando
+autorização (ver `docs/spec/ESCOPO_OPERACIONAL_MATRIZ.md` § 9.6/§ 10 e
+`docs/spec/EDITOR_ESCALAS.md` § 15). Confirmado que ser plantonista vinculado
+não altera `perfil`/`escopo` — o mesmo `GESTOR_UNIDADE` pode administrar o
+Grupo e aparecer na própria escala. O mesmo patch trocou o modo de
+visualização automático do calendário de Plantão (compacta/prévia vs.
+edição/arrastar, ambos já existentes em `PlantaoCalendario`) por um seletor
+explícito, e mudou a tela inicial padrão do Dashboard de "Escalas" para
+"Visão geral" quando não há navegação/estado explicitamente salvo a
+restaurar.

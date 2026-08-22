@@ -785,3 +785,52 @@ staging via `souCoordenadorOperacionalStaging()`. Confirmado por teste
 (`tests/firebase/firestore.rules.test.ts`, describe
 `JORNADA-IMPORTACAO-VINCULOS-UX-1`) antes de descartar a hipótese de
 alteração nas Rules.
+
+## 15. PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — publicação, diagnóstico e visualização compacta/edição
+
+### 15.1 Publicação de Plantão desbloqueada (causa raiz em `firestore.rules`)
+
+A mensagem "As regras de escrita ainda não reconhecem a matriz operacional
+neste ambiente." bloqueava a **publicação** de um Plantão mesmo com o
+`GESTOR_UNIDADE` corretamente reconhecido pela Matriz (rascunho salvava
+normalmente). Causa raiz: `publicarCompetenciaPlantao()`
+(`lib/firebase/plantaoWriteRepository.ts`) sempre faz um `getDoc()` em
+`competenciasPlantao/{id}` antes de escrever, para saber se já existe uma
+revisão anterior a substituir. Na primeira publicação de uma competência esse
+documento ainda não existe — `resource` é `null` em `firestore.rules`, e
+`resource.data.grupoId` não podia ser resolvido, o que estourava o limite de
+1000 expressões da regra (erro de avaliação, reportado ao client como
+`permission-denied` comum). Corrigido com curto-circuito na leitura de
+`competenciasPlantao/{id}`: `!exists(...) || podeLerEscalaPlantao(...)`. Ver
+`docs/spec/ESCOPO_OPERACIONAL_MATRIZ.md` § 9.6/§ 10 para o texto completo e
+`tests/firebase/firestore.rules.test.ts` (describe
+`PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1`) para a prova empírica.
+
+Do lado client, `publicarPlantaoAcao()` também passou a recalcular
+`podeGerenciarEsteGrupoPlantao(grupo)` no momento da falha (antes usava um
+`true` fixo), igual a `salvarRascunhoPlantaoAcao()` — a mensagem de "matriz"
+só aparece quando o usuário atual de fato não é reconhecido. Um diagnóstico
+(`diagnosticarFalhaEscritaPlantao()`, só fora de produção, nunca loga
+login/e-mail/nome) mostra no console operação/caminho/`grupoId`/`unidadeId`/
+`equipeId`/perfil/escopo/código do erro real.
+
+### 15.2 Visualização compacta/edição do calendário de Plantão
+
+O calendário (`PlantaoCalendario`) já tinha dois modos visuais distintos —
+`modo="importacao"` (um mês por vez, legenda lateral, foco em conferência,
+sem roster/arrastar) e `modo="editor"` (grade da competência inteira, roster
+lateral, criar/editar/arrastar) — mas a escolha entre eles era automática
+(`resultado !== null`), então reabrir um rascunho salvo (`resultado` volta a
+`null`) trocava de visual sem o usuário pedir, dando a impressão de duas
+telas diferentes para a mesma escala.
+
+`PreviewPlantao` agora expõe essa escolha como um seletor visível
+("Compacta" / "Edição (arrastar)"), reaproveitando os dois modos já
+existentes — nenhum componente novo, nenhuma lógica de negócio duplicada. A
+preferência persiste em `localStorage` (`escalaIci.plantao.viewMode`,
+valores `compacta`/`edicao`) só para lembrar a escolha entre sessões; nunca é
+lida como fonte de participantes/atribuições/vínculos, e nunca influencia o
+que é salvo ou publicado. Quando o Plantão é `somenteConsulta` (permissão
+real de só-consulta), o seletor some e o calendário fica sempre em
+`modo="consulta"`, independente da preferência salva — permissão real nunca
+é sobreposta por preferência cosmética.

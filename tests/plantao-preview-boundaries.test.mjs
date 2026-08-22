@@ -119,3 +119,126 @@ test('plantaoWriteRepository.ts publica a competência e suas atribuições na c
   assert.match(writeRepo, /export async function publicarCompetenciaPlantao/u);
   assert.match(writeRepo, /['"]competenciasPlantao['"]/u);
 });
+
+/**
+ * PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — Parte C: seletor de visualização do
+ * calendário de Plantão (compacta/prévia vs. edição/arrastar). O mecanismo
+ * de dois modos JÁ EXISTIA (`PlantaoCalendario` `modo: 'editor' |
+ * 'importacao' | 'consulta'`) — este patch só EXPÕE a escolha ao usuário em
+ * vez de derivá-la automaticamente de `resultado !== null`. Os testes
+ * abaixo confirmam que o seletor é só apresentação: nunca toca
+ * participantes/atribuições/vínculos, nunca é usado por publicação, e
+ * nunca sobrepõe uma permissão real (`somenteConsulta`).
+ */
+
+test('21. o Plantão tem um seletor de visualização explícito (Compacta / Edição), reaproveitando .segmented-control', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /const \[modoVisualizacaoPlantao, setModoVisualizacaoPlantao\] = useState<'compacta' \| 'edicao'>/u);
+  assert.match(dashboard, /className="segmented-control plantao-seletor-visualizacao"/u);
+  assert.match(dashboard, /onClick=\{\(\) => selecionarModoVisualizacaoPlantao\('compacta'\)\}/u);
+  assert.match(dashboard, /onClick=\{\(\) => selecionarModoVisualizacaoPlantao\('edicao'\)\}/u);
+});
+
+test('22. trocar o modo de visualização nunca chama nenhum setter de participantes/atribuições/vínculos — só estado local + localStorage', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const corpo = /function selecionarModoVisualizacaoPlantao\(modo: 'compacta' \| 'edicao'\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(corpo, 'selecionarModoVisualizacaoPlantao precisa existir');
+  assert.match(corpo[1], /setModoVisualizacaoPlantao\(modo\)/u);
+  assert.match(corpo[1], /window\.localStorage\.setItem\(CHAVE_MODO_VISUALIZACAO_PLANTAO, modo\)/u);
+  for (const proibido of [
+    'setParticipantes', 'setVinculos', 'setAtribuicoesEditaveis', 'setResultado',
+    'firebase/firestore', 'salvarRascunho', 'publicarCompetenciaPlantao', 'writeBatch',
+  ]) {
+    assert.doesNotMatch(corpo[1], new RegExp(proibido, 'u'), `${proibido} não pode aparecer aqui — a troca de visualização é só apresentação`);
+  }
+});
+
+test('23. a chave de persistência (localStorage) é só cosmética — nunca lida como fonte de participantes/atribuições/vínculos em nenhum outro lugar do arquivo', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /const CHAVE_MODO_VISUALIZACAO_PLANTAO = 'escalaIci\.plantao\.viewMode';/u);
+  const ocorrencias = dashboard.match(/CHAVE_MODO_VISUALIZACAO_PLANTAO/gu) ?? [];
+  // declaração + leitura no useState inicial + escrita no setter = exatamente 3 usos, nenhum outro ponto do app depende dela.
+  assert.equal(ocorrencias.length, 3, `CHAVE_MODO_VISUALIZACAO_PLANTAO só pode ser usada na declaração, leitura inicial e escrita (encontrado ${ocorrencias.length})`);
+});
+
+test('24. modo "edicao" preserva o roster lateral e o calendário em modo "editor" (drag-and-drop) — mesmo componente/prop já existentes', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /\{modoVisualizacaoPlantao === 'edicao' && \(\s*<PlantaoRoster/u, 'roster (drag source) precisa aparecer em modo edição');
+  assert.match(dashboard, /modo=\{somenteConsulta \? 'consulta' : \(modoVisualizacaoPlantao === 'compacta' \? 'importacao' : 'editor'\)\}/u, 'modo "edicao" do seletor precisa mapear para modo="editor" do calendário (drag-and-drop já existente)');
+});
+
+test('25. modo "compacta" usa o calendário de prévia/conferência já existente (modo="importacao") — sem roster, sem duplicar componente', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /plantao-editor-layout\$\{modoVisualizacaoPlantao === 'compacta' \? ' plantao-editor-layout-importacao' : ''\}/u);
+  // Nenhum componente de calendário novo — continua sendo o único PlantaoCalendario já usado pelos outros modos.
+  const ocorrenciasCalendario = dashboard.match(/<PlantaoCalendario/gu) ?? [];
+  assert.equal(ocorrenciasCalendario.length, 1, 'só pode existir UM ponto de renderização do calendário de Plantão — o seletor reaproveita o mesmo componente');
+});
+
+test('26. a preferência visual nunca sobrepõe "somenteConsulta" (permissão real) — o seletor some e o calendário fica forçado em "consulta"', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /\{!somenteConsulta && \(\s*<div className="segmented-control plantao-seletor-visualizacao"/u, 'o seletor cosmético não pode aparecer quando o usuário só tem consulta real');
+  assert.match(dashboard, /modo=\{somenteConsulta \? 'consulta' :/u, '"somenteConsulta" precisa continuar vencendo antes de qualquer preferência de visualização');
+});
+
+test('27. publicarPlantaoAcao/publicarCompetenciaPlantao nunca referenciam a preferência visual — publicação é 100% independente do modo de visualização', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const publicar = /function publicarPlantaoAcao\([\s\S]*?\n {2}\}/u.exec(dashboard);
+  assert.ok(publicar, 'publicarPlantaoAcao precisa existir');
+  assert.doesNotMatch(publicar[0], /modoVisualizacaoPlantao|CHAVE_MODO_VISUALIZACAO_PLANTAO/u, 'publicação não pode depender da preferência visual do calendário');
+  const writeRepo = await ler('lib/firebase/plantaoWriteRepository.ts');
+  assert.doesNotMatch(writeRepo, /modoVisualizacaoPlantao|viewMode|localStorage/u, 'a escrita persistente de Plantão não pode conhecer preferência de visualização');
+});
+
+/**
+ * PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — Parte A/B: a causa raiz de "As
+ * regras de escrita ainda não reconhecem a matriz operacional" era um bug
+ * real de `firestore.rules` (getDoc() em documento inexistente estourando
+ * o limite de expressões — coberto por
+ * tests/firebase/firestore.rules.test.ts). Estes testes cobrem a correção
+ * client-side associada: a mensagem precisa refletir o estado ATUAL do
+ * coordenador (nunca um valor congelado) e a falha real precisa ficar
+ * diagnosticável em dev/staging sem expor dado sensível.
+ */
+
+test('28. publicarPlantaoAcao calcula matrizReconheceUsuario dinamicamente (podeGerenciarEsteGrupoPlantao), nunca um `true` congelado', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const publicar = /async function publicarPlantaoAcao\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(publicar, 'publicarPlantaoAcao precisa existir');
+  assert.match(
+    publicar[1],
+    /setErroRascunhoPlantao\(mensagemErroEscritaOperacional\(falha, 'Não foi possível publicar o Plantão\.', podeGerenciarEsteGrupoPlantao\(grupo\)\)\)/u,
+    'a mensagem de erro da publicação precisa recalcular podeGerenciarEsteGrupoPlantao(grupo) no momento da falha, igual ao salvarRascunhoPlantaoAcao()',
+  );
+  assert.doesNotMatch(
+    publicar[1],
+    /mensagemErroEscritaOperacional\(falha, 'Não foi possível publicar o Plantão\.', true\)/u,
+    'nunca pode voltar a passar um `true` fixo — isso fazia a mensagem de matriz aparecer mesmo quando o coordenador já era reconhecido',
+  );
+});
+
+test('29. salvarRascunhoPlantaoAcao e publicarPlantaoAcao usam o MESMO cálculo de matrizReconheceUsuario — nenhuma divergência entre rascunho e publicação', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const salvar = /async function salvarRascunhoPlantaoAcao\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  const publicar = /async function publicarPlantaoAcao\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(salvar, 'salvarRascunhoPlantaoAcao precisa existir');
+  assert.ok(publicar, 'publicarPlantaoAcao precisa existir');
+  assert.match(salvar[1], /podeGerenciarEsteGrupoPlantao\(grupo\)/u);
+  assert.match(publicar[1], /podeGerenciarEsteGrupoPlantao\(grupo\)/u);
+});
+
+test('30. diagnosticarFalhaEscritaPlantao existe, é chamada no catch da publicação, nunca loga login/e-mail/nome e é desligada em produção', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const diagnostico = /function diagnosticarFalhaEscritaPlantao\(parametros: \{[\s\S]*?\n\}\)\s*\{([\s\S]*?)\n\}\n/u.exec(dashboard);
+  assert.ok(diagnostico, 'diagnosticarFalhaEscritaPlantao precisa existir');
+  const corpo = diagnostico[1];
+  assert.match(corpo, /if \(ambienteFirebaseAtual === 'producao'\) \{\s*return;\s*\}/u, 'nunca pode logar nada em produção');
+  const proibido = /\blogin\b|\be-?mail\b|\bnome\b/giu;
+  let achado;
+  while ((achado = proibido.exec(corpo)) !== null) {
+    assert.fail(`diagnosticarFalhaEscritaPlantao não pode referenciar "${achado[0]}" — só identificadores organizacionais/perfil`);
+  }
+  const publicar = /async function publicarPlantaoAcao\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(publicar);
+  assert.match(publicar[1], /diagnosticarFalhaEscritaPlantao\(\{/u, 'o catch de publicarPlantaoAcao precisa chamar o diagnóstico');
+});

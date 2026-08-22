@@ -1570,9 +1570,29 @@ service cloud.firestore {
      * Competência PUBLICADA — ESCOPO-OPERACIONAL-MATRIZ-2 habilita
      * create/update somente para o administrador do alvo real (`grupoId`).
      * Delete físico continua bloqueado.
+     *
+     * PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — causa raiz de "As regras de
+     * escrita ainda não reconhecem a matriz operacional neste ambiente" ao
+     * publicar: `publicarCompetenciaPlantao()` sempre faz um `getDoc()`
+     * neste documento ANTES de escrever (para saber se já existe uma
+     * revisão anterior). Na primeira publicação de uma competência, o
+     * documento ainda não existe — `resource` é `null` e
+     * `resource.data.grupoId` não pode ser resolvido, o que fazia a cadeia
+     * de `podeLerEscalaPlantao()`/`podeAdministrarEscalaPlantao()` estourar
+     * o limite de expressões da regra (erro de avaliação, reportado ao
+     * client como `permission-denied` — indistinguível de uma autorização
+     * negada de verdade). `!exists(...)` de curto-circuito resolve: ler um
+     * documento que NÃO existe nunca expõe dado nenhum (é exatamente o que
+     * `getDoc()` já devolve como `{ exists: false }`), então liberar essa
+     * leitura para qualquer autenticado é seguro — a autorização de
+     * verdade continua intacta assim que o documento existe.
      */
     match /competenciasPlantao/{id} {
-      allow read: if podeLerEscalaPlantao(resource.data.grupoId);
+      allow read: if autenticado()
+        && (
+          !exists(/databases/$(database)/documents/competenciasPlantao/$(id))
+          || podeLerEscalaPlantao(resource.data.grupoId)
+        );
       allow create, update: if podeAdministrarEscalaPlantao(request.resource.data.grupoId)
         && request.resource.data.id == id
         && request.resource.data.status == 'PUBLICADA'

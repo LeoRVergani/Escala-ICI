@@ -446,6 +446,47 @@ function mensagemErroEscritaOperacional(
   return mensagemErroFirebase(falha, fallback, ambienteFirebaseAtual);
 }
 
+/**
+ * PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — diagnóstico de uma falha de escrita
+ * operacional, só para console e só fora de produção; nunca loga login,
+ * e-mail ou nome — só os identificadores organizacionais/perfil já usados
+ * para decidir autorização. Existe para que uma mensagem de erro genérica
+ * na tela ("As regras de escrita ainda não reconhecem...") não vire uma
+ * caixa-preta: o console mostra qual operação, em qual caminho, para qual
+ * grupoId/unidadeId/equipeId/perfil/escopo, e o código de erro real do
+ * Firestore por trás — sem isso, a causa raiz desta fase (um `getDoc()`
+ * em documento inexistente estourando o limite de expressões da regra,
+ * ver `firestore.rules` e `docs/spec/ESCOPO_OPERACIONAL_MATRIZ.md`) levou
+ * bem mais tempo para ser encontrada do que deveria.
+ */
+function diagnosticarFalhaEscritaPlantao(parametros: {
+  operacao: string;
+  caminho: string;
+  grupoId: string;
+  unidadeId: string | undefined;
+  equipeId: string | undefined;
+  perfil: string | undefined;
+  escopo: string | undefined;
+  falha: unknown;
+}) {
+  if (ambienteFirebaseAtual === 'producao') {
+    return;
+  }
+  const codigo = typeof parametros.falha === 'object' && parametros.falha !== null && 'code' in parametros.falha
+    ? String((parametros.falha as { code?: unknown }).code)
+    : 'desconhecido';
+  console.warn('[plantao-publicacao] falha de escrita', {
+    operacao: parametros.operacao,
+    caminho: parametros.caminho,
+    grupoId: parametros.grupoId,
+    unidadeId: parametros.unidadeId ?? null,
+    equipeId: parametros.equipeId ?? null,
+    perfil: parametros.perfil ?? null,
+    escopo: parametros.escopo ?? null,
+    motivo: codigo,
+  });
+}
+
 const MENSAGEM_RULES_LEITURA_OPERACIONAL =
   'Não foi possível carregar os dados desta operação. As Firestore Rules de staging ainda não reconhecem a Matriz de Responsáveis.';
 const MENSAGEM_RULES_LEITURA_PARCIAL =
@@ -2500,6 +2541,14 @@ interface PreviewPlantaoProps {
 }
 
 /**
+ * PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — chave de preferência PURAMENTE
+ * visual (qual layout do calendário de Plantão mostrar). Nunca é fonte da
+ * escala: se ausente/corrompida, cai no mesmo padrão automático que já
+ * existia antes deste patch (`resultado !== null` → compacta).
+ */
+const CHAVE_MODO_VISUALIZACAO_PLANTAO = 'escalaIci.plantao.viewMode';
+
+/**
  * Preview de Plantão (Fase PLANTÃO-2). Nunca persiste — "Validar prévia"
  * só confirma que a leitura e os vínculos estão completos em memória (ver
  * `docs/spec/PLANTOES.md`). Reaproveita o Design System já usado pelo
@@ -2550,6 +2599,37 @@ function PreviewPlantao({
     + conferenciaEscalaAtual.sobreposicoes.length
     + pendencias;
   const primeiraAtipica = atribuicoesEditaveis.find((atribuicao) => duracaoPlantaoAtipica(atribuicao.duracaoMinutos));
+
+  /**
+   * PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — antes o calendário escolhia
+   * `modo="importacao"` (compacta, com legenda, sem roster) ou
+   * `modo="editor"` (roster + arrastar-e-soltar) automaticamente a partir
+   * de `resultado !== null` — dava a impressão de duas telas diferentes
+   * para a mesma escala ao reabrir um rascunho (§ Parte C do pedido). Isso
+   * vira um seletor explícito do usuário; o padrão inicial (antes de
+   * qualquer escolha salva) preserva exatamente o comportamento antigo,
+   * então nada muda até o usuário tocar no seletor. Nunca é lido/escrito
+   * como fonte da escala — só decide apresentação (`modo` do calendário e
+   * se o roster aparece), nunca `atribuicoesEditaveis`/vínculos/dados.
+   */
+  const [modoVisualizacaoPlantao, setModoVisualizacaoPlantao] = useState<'compacta' | 'edicao'>(() => {
+    try {
+      const salvo = typeof window !== 'undefined' ? window.localStorage.getItem(CHAVE_MODO_VISUALIZACAO_PLANTAO) : null;
+      if (salvo === 'compacta' || salvo === 'edicao') return salvo;
+    } catch {
+      // localStorage indisponível (ex.: modo privado) — usa o padrão automático abaixo.
+    }
+    return resultado !== null ? 'compacta' : 'edicao';
+  });
+
+  function selecionarModoVisualizacaoPlantao(modo: 'compacta' | 'edicao') {
+    setModoVisualizacaoPlantao(modo);
+    try {
+      window.localStorage.setItem(CHAVE_MODO_VISUALIZACAO_PLANTAO, modo);
+    } catch {
+      // localStorage indisponível — a preferência dura só a sessão em memória.
+    }
+  }
 
   return (
     <div className="plantao-preview-fluxo">
@@ -2707,13 +2787,43 @@ function PreviewPlantao({
               </p>
             )}
             {/*
+             * PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — seletor de visualização:
+             * muda só apresentação/interação (via `modoVisualizacaoPlantao`),
+             * nunca a escala em si. Some quando `somenteConsulta`, porque aí
+             * o calendário já é forçado para `modo="consulta"` de qualquer
+             * forma (permissão real, nunca preferência cosmética) e o roster
+             * de arrastar-e-soltar não se aplica.
+             */}
+            {!somenteConsulta && (
+              <div className="segmented-control plantao-seletor-visualizacao" aria-label="Visualização do calendário de Plantão">
+                <button
+                  type="button"
+                  className={modoVisualizacaoPlantao === 'compacta' ? 'active' : ''}
+                  aria-pressed={modoVisualizacaoPlantao === 'compacta'}
+                  onClick={() => selecionarModoVisualizacaoPlantao('compacta')}
+                  title="Foco em leitura e conferência, com legenda lateral — sem arrastar-e-soltar"
+                >
+                  Compacta
+                </button>
+                <button
+                  type="button"
+                  className={modoVisualizacaoPlantao === 'edicao' ? 'active' : ''}
+                  aria-pressed={modoVisualizacaoPlantao === 'edicao'}
+                  onClick={() => selecionarModoVisualizacaoPlantao('edicao')}
+                  title="Foco em ajuste manual, com roster lateral e arrastar-e-soltar"
+                >
+                  Edição (arrastar)
+                </button>
+              </div>
+            )}
+            {/*
              * Fase ESCALAS-UX-2B — roster lateral substitui o antigo bloco
              * "Resumo por pessoa" abaixo do calendário (§7 do pedido): a
              * mesma informação (`resumoPorPessoa`, nenhum recálculo) agora
              * vive ao lado, sempre visível, sem duplicar a lista embaixo.
              */}
-            <div className={`plantao-editor-layout${resultado !== null ? ' plantao-editor-layout-importacao' : ''}`}>
-              {resultado === null && (
+            <div className={`plantao-editor-layout${modoVisualizacaoPlantao === 'compacta' ? ' plantao-editor-layout-importacao' : ''}`}>
+              {modoVisualizacaoPlantao === 'edicao' && (
                 <PlantaoRoster
                   pessoas={resumoPorPessoa}
                   plantonistaSelecionado={plantonistaSelecionado}
@@ -2732,7 +2842,7 @@ function PreviewPlantao({
                     atribuicoes={atribuicoesEditaveis}
                     onEditarAtribuicao={onEditarAtribuicao}
                     plantonistaSelecionado={plantonistaSelecionado}
-                    modo={somenteConsulta ? 'consulta' : (resultado !== null ? 'importacao' : 'editor')}
+                    modo={somenteConsulta ? 'consulta' : (modoVisualizacaoPlantao === 'compacta' ? 'importacao' : 'editor')}
                     onSolicitarNovaAtribuicao={onSolicitarNovaAtribuicao}
                   />
                 ) : (
@@ -2946,7 +3056,13 @@ export function DashboardApp() {
   const [simulando, setSimulando] = useState<Usuario | null>(null);
   const usuarioEfetivo = simulando ?? usuarioReal;
   const [modoDemo, setModoDemo] = useState(true);
-  const [tela, setTela] = useState<Tela>('escalas');
+  // PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — tela inicial padrão é "Visão
+  // geral" (nunca "Escalas"), quando não há estado salvo intencionalmente
+  // para restaurar. O único código que navega para 'escalas' automaticamente
+  // depois disso é a restauração explícita de `contextoEscalaAtivo`
+  // persistido (ver `restaurarContextoEscalaPersistido`) — nunca um valor
+  // "congelado" no primeiro carregamento.
+  const [tela, setTela] = useState<Tela>('visao');
   const [usuarios, setUsuarios] = useState<Usuario[]>(USUARIOS_DEMO);
   const [catalogo, setCatalogo] = useState(CATALOGO_SOC);
   const [resultado, setResultado] = useState<ResultadoParse | null>(null);
@@ -6702,7 +6818,24 @@ export function DashboardApp() {
       setMensagem(`Plantão "${grupo.nome}" publicado para ${competencia.competencia}.`);
       setTela('escalas');
     } catch (falha) {
-      setErroRascunhoPlantao(mensagemErroEscritaOperacional(falha, 'Não foi possível publicar o Plantão.', true));
+      // PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — antes vinha `true` fixo aqui
+      // (nunca recalculado), então a mensagem "as regras não reconhecem a
+      // matriz" aparecia mesmo quando o coordenador JÁ era reconhecido
+      // (`podeGerenciarEsteGrupoPlantao` verdadeiro) e a falha real era
+      // outra coisa. Agora usa o mesmo cálculo dinâmico que
+      // `salvarRascunhoPlantaoAcao()` já usa, para a mensagem refletir o
+      // estado ATUAL, nunca um valor congelado.
+      diagnosticarFalhaEscritaPlantao({
+        operacao: 'publicarCompetenciaPlantao',
+        caminho: `competenciasPlantao/${competencia.id}`,
+        grupoId: grupo.grupoId,
+        unidadeId: grupo.unidadeResponsavelId,
+        equipeId: grupo.equipeResponsavelId,
+        perfil: usuarioReal?.perfil,
+        escopo: usuarioReal?.escopo,
+        falha,
+      });
+      setErroRascunhoPlantao(mensagemErroEscritaOperacional(falha, 'Não foi possível publicar o Plantão.', podeGerenciarEsteGrupoPlantao(grupo)));
     } finally {
       setPublicandoPlantao(false);
     }

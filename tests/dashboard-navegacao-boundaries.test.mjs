@@ -152,3 +152,42 @@ test('14. os breadcrumbs transitórios de "Importar"/"Grade" voltam para "Escala
   const ocorrencias = dashboard.match(/className="screen-back-button" onClick=\{\(\) => setTela\('escalas'\)\}/gu) ?? [];
   assert.equal(ocorrencias.length, 2, 'tanto "Importar" quanto "Grade" precisam de um botão compacto de volta para Escalas');
 });
+
+/**
+ * PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — Parte D: a tela inicial do
+ * Dashboard, sem rota/estado explícito, precisa ser "Visão geral"
+ * ('visao'), nunca "Escalas". O bug era literal: `useState<Tela>('escalas')`
+ * fixava Escalas como padrão de todo primeiro carregamento — nunca foi um
+ * valor vindo de localStorage (não existe nenhuma leitura de storage para
+ * decidir a tela inicial neste arquivo).
+ */
+test('15. estado inicial padrão é "Visão geral" (useState<Tela>(\'visao\')), não mais Escalas', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /const \[tela, setTela\] = useState<Tela>\('visao'\);/u);
+  assert.doesNotMatch(dashboard, /const \[tela, setTela\] = useState<Tela>\('escalas'\);/u);
+});
+
+test('16. o item de navegação "Visão geral" (id \'visao\') continua existindo e mapeia para si mesmo em areaNavegacaoDaTela — fica ativo por padrão', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  const navegacaoNav = await ler('lib/navegacaoDashboard.ts');
+  assert.match(dashboard, /\{ id: 'visao', rotulo: 'Visão geral', icone: 'home' \}/u);
+  // areaNavegacaoDaTela('visao') cai no default (nenhum case especial
+  // remapeia 'visao' para outra área) — 'visao' já é uma AreaNavegacaoDashboard.
+  const funcao = /export function areaNavegacaoDaTela\(tela: TelaDashboard\): AreaNavegacaoDashboard \{([\s\S]*?)\n\}/u.exec(navegacaoNav);
+  assert.ok(funcao, 'areaNavegacaoDaTela precisa existir');
+  assert.doesNotMatch(funcao[1], /case 'visao':/u, "'visao' não precisa de remapeamento — já é a própria área ativa");
+});
+
+test('17. navegação manual para "Escalas" continua funcionando (onNavegar do AppFrame chama setTela livremente)', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(dashboard, /onNavegar=\{\(id\) => setTela\(id as Tela\)\}/u);
+});
+
+test('18. "Escalas" nunca é forçado por leitura de localStorage/sessionStorage ao decidir a tela inicial', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  // Nenhum useState<Tela> pode ler de storage — o único estado persistido
+  // é `contextoEscalaAtivo` (um alvo de escala, não a tela em si), e sua
+  // restauração só executa quando EXISTE algo salvo (nunca no primeiro
+  // acesso limpo).
+  assert.doesNotMatch(dashboard, /useState<Tela>\(\s*(?:window\.)?(?:local|session)Storage/u);
+});

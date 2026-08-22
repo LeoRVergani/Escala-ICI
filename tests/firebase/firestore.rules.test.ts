@@ -4559,3 +4559,177 @@ describe('PATCH-PLANTAO-VINCULO-GESTOR-COMO-PARTICIPANTE-1 — leitura ampla de 
     )));
   });
 });
+
+/**
+ * PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — causa raiz de "As regras de
+ * escrita ainda não reconhecem a matriz operacional neste ambiente" ao
+ * publicar Plantão. `publicarCompetenciaPlantao()`
+ * (`lib/firebase/plantaoWriteRepository.ts`) sempre faz `getDoc()` em
+ * `competenciasPlantao/{id}` ANTES de escrever, para saber se já existe
+ * uma revisão publicada anterior. Na PRIMEIRA publicação de uma
+ * competência esse documento ainda não existe — `resource` é `null`, e a
+ * regra antiga (`allow read: if podeLerEscalaPlantao(resource.data.grupoId)`)
+ * tentava resolver `resource.data.grupoId` num recurso inexistente,
+ * estourando o limite de expressões da regra (reportado ao client como
+ * `permission-denied`, indistinguível de autorização negada de verdade).
+ * Isso nunca aparecia ao salvar RASCUNHO porque `salvarAtribuicoesPlantaoRascunho()`
+ * não faz esse pré-`getDoc()`. Corrigido com o padrão recomendado pelo
+ * próprio Firestore: `!exists(...) || <regra original>` — ler um
+ * documento que não existe nunca expõe dado nenhum.
+ */
+describe('PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — publicação de Plantão por GESTOR_UNIDADE (Matriz existente só listando admin)', () => {
+  const clis = {
+    login: 'clis',
+    nome: 'Claudio Lis',
+    email: 'clis@ici.tec.br',
+    equipeId: 'GEDSI_COSI_SOC',
+    nivelHierarquico: 4,
+    perfil: 'GESTOR_UNIDADE',
+    escopo: 'UNIDADE',
+    unidadeId: 'GEDSI_COSI',
+    unidadesPermitidas: ['GEDSI_COSI'],
+    equipesPermitidas: ['GEDSI_COSI_SOC', 'GEDSI_COSI_PLANTAO'],
+  };
+  const grupoPlantaoCosi = {
+    grupoId: 'PLANTAO_GEDSI_COSI',
+    nome: 'Plantão COSI',
+    equipeResponsavelId: 'GEDSI_COSI_PLANTAO',
+    equipesConsulta: ['GEDSI_COSI_PLANTAO', 'GEDSI_COSI_SOC'],
+    unidadeResponsavelId: 'GEDSI_COSI',
+    caminhoUnidadeResponsavel: ['PRE', 'DIO', 'GEDSI', 'GEDSI_COSI'],
+    timezone: 'America/Sao_Paulo',
+    ativo: true,
+    schemaVersion: 1,
+  };
+  const matrizPlantaoSoAdmin = {
+    tipo: 'PLANTAO',
+    alvoId: 'PLANTAO_GEDSI_COSI',
+    alvoNome: 'Plantão COSI',
+    unidadeId: 'GEDSI_COSI',
+    caminhoUnidade: grupoPlantaoCosi.caminhoUnidadeResponsavel,
+    responsaveisLogin: ['admin'],
+    responsaveisEquipe: [],
+    equipesConsulta: grupoPlantaoCosi.equipesConsulta,
+    ativo: true,
+    criadoPorLogin: 'admin',
+    atualizadoPorLogin: 'admin',
+    schemaVersion: 1,
+  };
+  const competenciaPublicadaPayload = {
+    id: 'PLANTAO_GEDSI_COSI_2026-08',
+    grupoId: grupoPlantaoCosi.grupoId,
+    competencia: '2026-08',
+    periodoInicio: '2026-07-26',
+    periodoFim: '2026-08-25',
+    status: 'PUBLICADA',
+    revisao: 1,
+    origem: 'IMPORTADO',
+    totaisInformadosOrigem: null,
+    totalBruto: { quantidade: 1, minutos: 720 },
+    schemaVersion: 1,
+    criadoPorLogin: clis.login,
+    criadoEm: '2026-08-22T00:00:00.000Z',
+    atualizadoEm: '2026-08-22T00:00:00.000Z',
+  };
+
+  beforeEach(async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(doc(db, 'config', 'ambiente'), { staging: true });
+      await setDoc(doc(db, 'usuarios', clis.login), clis);
+      await setDoc(doc(db, 'gruposPlantao', grupoPlantaoCosi.grupoId), grupoPlantaoCosi);
+      await setDoc(doc(db, 'escoposOperacionais', 'PLANTAO_PLANTAO_GEDSI_COSI'), matrizPlantaoSoAdmin);
+    });
+  });
+
+  it('1. clis (GESTOR_UNIDADE de GEDSI_COSI) consegue getDoc() em competenciasPlantao/{id} ANTES de existir — a causa raiz corrigida', async () => {
+    const ator = autenticarComo(clis);
+    const snapshot = await assertSucceeds(getDoc(doc(ator, 'competenciasPlantao', 'PLANTAO_GEDSI_COSI_2026-08')));
+    expect(snapshot.exists()).toBe(false);
+  });
+
+  it('2/10. clis publica (cria) a competência de Plantão COSI com 1a revisão — grupoId PLANTAO_GEDSI_COSI', async () => {
+    const ator = autenticarComo(clis);
+    await assertSucceeds(setDoc(doc(ator, 'competenciasPlantao', competenciaPublicadaPayload.id), competenciaPublicadaPayload));
+  });
+
+  it('3. a atribuição publicada usa equipeResponsavelId GEDSI_COSI_PLANTAO (via grupoId do Grupo), nunca GEDSI_COSI_SOC', async () => {
+    const ator = autenticarComo(clis);
+    await assertSucceeds(setDoc(doc(ator, 'competenciasPlantao', competenciaPublicadaPayload.id), competenciaPublicadaPayload));
+    await assertSucceeds(setDoc(doc(ator, 'competenciasPlantao', competenciaPublicadaPayload.id, 'atribuicoes', 'atrib-1'), {
+      atribuicaoId: 'atrib-1',
+      grupoId: grupoPlantaoCosi.grupoId,
+      competenciaId: competenciaPublicadaPayload.id,
+      plantonistaLogin: clis.login,
+      inicio: '2026-07-26T00:00',
+      fim: '2026-07-26T19:00',
+      duracaoMinutos: 1140,
+      papel: 'PRIMARIO',
+      origem: 'IMPORTADO',
+      revisao: 1,
+      schemaVersion: 1,
+      criadoEm: '2026-08-22T00:00:00.000Z',
+      atualizadoEm: '2026-08-22T00:00:00.000Z',
+    }));
+    // Nunca aceita a equipe de Jornada como grupoId de Plantão.
+    await assertFails(setDoc(doc(ator, 'competenciasPlantao', competenciaPublicadaPayload.id, 'atribuicoes', 'atrib-errada'), {
+      atribuicaoId: 'atrib-errada',
+      grupoId: 'GEDSI_COSI_SOC',
+      competenciaId: competenciaPublicadaPayload.id,
+      plantonistaLogin: clis.login,
+      inicio: '2026-07-26T00:00',
+      fim: '2026-07-26T19:00',
+      duracaoMinutos: 1140,
+      papel: 'PRIMARIO',
+      origem: 'IMPORTADO',
+      revisao: 1,
+      schemaVersion: 1,
+      criadoEm: '2026-08-22T00:00:00.000Z',
+      atualizadoEm: '2026-08-22T00:00:00.000Z',
+    }));
+  });
+
+  it('6. salvar rascunho e publicar usam a mesma matriz/regra de autorização (podeAdministrarEscalaPlantao) — os dois funcionam para clis', async () => {
+    const ator = autenticarComo(clis);
+    await assertSucceeds(setDoc(doc(ator, 'rascunhosCompetenciasPlantao', 'PLANTAO_GEDSI_COSI_2026-09'), {
+      id: 'PLANTAO_GEDSI_COSI_2026-09',
+      grupoId: grupoPlantaoCosi.grupoId,
+      competencia: '2026-09',
+      periodoInicio: '2026-08-26',
+      periodoFim: '2026-09-25',
+      status: 'RASCUNHO',
+      revisao: 0,
+      origem: 'IMPORTADO',
+      totaisInformadosOrigem: null,
+      totalBruto: { quantidade: 1, minutos: 720 },
+      schemaVersion: 1,
+      criadoPorLogin: clis.login,
+      criadoEm: '2026-08-22T00:00:00.000Z',
+      atualizadoEm: '2026-08-22T00:00:00.000Z',
+    }));
+    await assertSucceeds(setDoc(doc(ator, 'competenciasPlantao', 'PLANTAO_GEDSI_COSI_2026-10'), {
+      ...competenciaPublicadaPayload,
+      id: 'PLANTAO_GEDSI_COSI_2026-10',
+      competencia: '2026-10',
+    }));
+  });
+
+  it('um ator sem nenhum vínculo com GEDSI_COSI não lê uma competência PUBLICADA já existente (a correção do getDoc não abriu leitura de dado real)', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'competenciasPlantao', 'PLANTAO_GEDSI_COSI_2026-11'), {
+        ...competenciaPublicadaPayload,
+        id: 'PLANTAO_GEDSI_COSI_2026-11',
+        competencia: '2026-11',
+      });
+      await setDoc(doc(contexto.firestore(), 'usuarios', 'estranho.sem.vinculo'), {
+        login: 'estranho.sem.vinculo',
+        nome: 'Estranho Sem Vinculo',
+        email: 'estranho.sem.vinculo@teste.local',
+        equipeId: 'GEOPE_COAC_QUALQUER',
+        nivelHierarquico: 6,
+      });
+    });
+    const atorEstranho = autenticarComo({ login: 'estranho.sem.vinculo', email: 'estranho.sem.vinculo@teste.local' });
+    await assertFails(getDoc(doc(atorEstranho, 'competenciasPlantao', 'PLANTAO_GEDSI_COSI_2026-11')));
+  });
+});

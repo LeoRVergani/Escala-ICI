@@ -287,6 +287,45 @@ autorizado por quem já administra o alvo (`podeAdministrarJornada`,
 incluindo o fallback `souCoordenadorOperacionalStaging()`). Ver
 `docs/spec/EDITOR_ESCALAS.md` § 14.
 
+**PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1**: a mensagem “As regras de escrita
+ainda não reconhecem a matriz operacional neste ambiente.” podia aparecer ao
+**publicar** um Plantão (`publicarCompetenciaPlantao()`) mesmo quando o
+`GESTOR_UNIDADE` já era corretamente reconhecido pela Matriz — nunca ao
+salvar rascunho. Causa raiz: publicar faz `getDoc()` em
+`competenciasPlantao/{id}` **antes** de escrever, para saber se já existe uma
+revisão anterior; na primeira publicação de uma competência esse documento
+ainda não existe, `resource` é `null` e `resource.data.grupoId` não podia ser
+resolvido — a cadeia `podeLerEscalaPlantao()`/`podeAdministrarEscalaPlantao()`
+estourava o limite de 1000 expressões da regra, um erro de avaliação que o
+client recebe como `permission-denied` comum, indistinguível de autorização
+negada de verdade. Corrigido em `firestore.rules` (`match
+/competenciasPlantao/{id}`, `allow read`) com curto-circuito:
+`!exists(/databases/$(database)/documents/competenciasPlantao/$(id)) ||
+podeLerEscalaPlantao(resource.data.grupoId)` — ler um documento que não
+existe nunca expõe dado nenhum, então liberar essa leitura para qualquer
+autenticado é seguro, e a autorização de verdade continua intacta assim que o
+documento existe. Nenhum outro `match` foi alterado.
+
+Também corrigido, do lado client: `publicarPlantaoAcao()` calculava
+`matrizReconheceUsuario` como `true` fixo no `catch`, então a mensagem de
+“matriz” podia aparecer mesmo quando `podeGerenciarEsteGrupoPlantao(grupo)`
+já era verdadeiro e a falha real era outra. Agora recalcula esse booleano no
+momento da falha — igual ao que `salvarRascunhoPlantaoAcao()` já fazia —,
+então a mensagem de matriz só aparece quando o usuário atual **de fato** não
+é reconhecido, nunca por um valor congelado. Um diagnóstico adicional
+(`diagnosticarFalhaEscritaPlantao()`, só em dev/staging, nunca produção,
+nunca loga login/e-mail/nome) mostra no console a operação, o caminho e os
+identificadores organizacionais/perfil envolvidos, para a causa de uma futura
+falha real não exigir instrumentação manual de novo.
+
+Confirmado que participar de uma escala de Plantão como plantonista (vínculo
+em `atribuicoesPlantao`) nunca altera `perfil`/`escopo`/`unidadeId`/
+`equipeId` de `usuarios/{login}` — são gravações em coleções e campos
+totalmente distintos. Por isso um `GESTOR_UNIDADE` (ex.: coordenador do
+GEDSI_COSI) pode simultaneamente administrar o Grupo de Plantão e aparecer
+como plantonista vinculado na própria escala, sem qualquer rebaixamento de
+acesso.
+
 ## 10. Rules
 
 `escoposOperacionais`:
@@ -332,3 +371,7 @@ Quando a conta não consta como responsável, a UI informa **“Você não está
 configurado como responsável por esta escala.”**. Quando o cliente reconhece a
 matriz, mas o ambiente ainda responde `permission-denied`, informa **“As regras
 de escrita ainda não reconhecem a matriz operacional neste ambiente.”**.
+Essa segunda mensagem só pode nascer de uma falha de escrita **real e atual**
+(o booleano que escolhe entre as duas é recalculado a cada falha, nunca lido
+de um valor congelado nem de cache) — ver PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1
+em § 9.6 para a causa raiz de Plantão já corrigida.

@@ -370,6 +370,18 @@ Administra conceitualmente `GEDSI_COSI_SOC`, `GEDSI_COSI_PLANTAO` e
 `PLANTAO_GEDSI_COSI` — via `unidadeId`/`unidadesPermitidas`, nunca via
 `equipeId`.
 
+**PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1** confirmou (com teste de Rules) que
+`clis`, além de administrar o Grupo `PLANTAO_GEDSI_COSI` como
+`GESTOR_UNIDADE`, pode simultaneamente ser vinculado como **plantonista
+participante** da própria escala publicada — o vínculo em
+`atribuicoesPlantao` é um registro separado de `usuarios/{login}` e nunca
+altera `perfil`/`escopo`/`unidadeId`. Publicar a competência do Plantão COSI
+(o Grupo acima) exigia antes um `getDoc()` em `competenciasPlantao/{id}`
+inexistente na primeira publicação, o que estourava o limite de expressões
+da regra e aparecia como "matriz não reconhecida" mesmo com `clis`
+corretamente configurado como acima — corrigido em `firestore.rules` (ver
+`docs/spec/ESCOPO_OPERACIONAL_MATRIZ.md` § 9.6).
+
 **Supervisora do NOC** (Wanessa — login real não fixado neste documento):
 
 | Campo | Valor |

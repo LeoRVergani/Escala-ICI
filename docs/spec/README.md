@@ -101,6 +101,8 @@ conciliação herda o período detectado na planilha.
 - Dados importados atípicos são preservados; a UI pode alertar, mas não normalizar silenciosamente.
 - Nenhuma versão estável (staging ou produção) pode depender de criação manual de `gruposPlantao/{grupoId}` pelo Console do Firestore — o produto (Wizard/Administração) e o seed (`scripts/seed-organizacao.mjs`) sempre oferecem um caminho oficial.
 - Uma Equipe existir (mesmo com "Plantão" no nome) nunca implica que existe um `GrupoPlantao` — o seletor superior só mostra Plantões a partir de Grupo administrável.
+- O seletor de visualização do calendário de Plantão (Compacta/Edição) muda só apresentação/interação; a preferência (`localStorage`) nunca é fonte de participantes, atribuições ou vínculos, e nunca influencia o que é salvo ou publicado.
+- A tela inicial padrão do Dashboard é Visão geral; só navega para outra tela por ação do usuário ou por restauração de um contexto de escala explicitamente salvo.
 
 Nota IMPORTACAO-PLANTAO-REVISAO-COMPACTA-1: a revisão de Plantão prioriza o
 Calendário no topo, usa upload compacto e move fonte/divergências para o final.
@@ -143,3 +145,21 @@ Sigla ausente não é inventada. A taxonomia pode chamar Equipe e Grupo
 Operacional de níveis operacionais, mas a persistência continua separada em
 `equipes` e `gruposPlantao`; o padrão não cria seed obrigatório, não migra IDs
 existentes e não concede autorização por nome ou sigla.
+
+Nota PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1: corrigiu a publicação (não o
+rascunho) do Plantão COSI (`grupoId PLANTAO_GEDSI_COSI`,
+`unidadeResponsavelId GEDSI_COSI`, `equipeResponsavelId
+GEDSI_COSI_PLANTAO`) por `GESTOR_UNIDADE` de `GEDSI_COSI` — causa raiz era um
+`getDoc()` em `competenciasPlantao/{id}` inexistente estourando o limite de
+expressões da regra, corrigido em `firestore.rules` com curto-circuito
+`!exists(...) || podeLerEscalaPlantao(...)`, sem afrouxar autorização (ver
+`ESCOPO_OPERACIONAL_MATRIZ.md` § 9.6/§ 10). Confirmado que participar da
+escala como plantonista nunca altera `perfil`/`escopo` — o mesmo
+`GESTOR_UNIDADE` pode administrar o Grupo e estar vinculado na própria
+escala. A mensagem "regras não reconhecem a matriz" agora só nasce de uma
+falha real e atual (booleano recalculado a cada falha, nunca congelado). O
+mesmo patch trocou a escolha automática do modo visual do calendário de
+Plantão (compacta/prévia vs. edição/arrastar, ambos já existentes em
+`PlantaoCalendario`) por um seletor explícito e cosmético, e mudou a tela
+inicial padrão do Dashboard de "Escalas" para "Visão geral". Ver
+`docs/spec/EDITOR_ESCALAS.md` § 15.

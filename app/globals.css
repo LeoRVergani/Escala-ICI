@@ -4980,6 +4980,7 @@ fieldset.checkbox-card-list > legend {
   margin-bottom: var(--space-3);
 }
 .plantao-preview-validacao { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
+.plantao-seletor-visualizacao { margin-bottom: var(--space-3); }
 .plantao-preview-principal .plantao-resumo-grid > div { padding: 9px 12px; }
 .plantao-preview-principal .plantao-resumo-grid strong { margin-top: 3px; font-size: 15px; }
 .plantao-preview-principal .plantao-resumo-grid span { font-size: 9.5px; }
