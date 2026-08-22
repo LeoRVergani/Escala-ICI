@@ -174,6 +174,64 @@ describe('iniciarVinculosPlantao / conciliação exata', () => {
     expect(carlos?.sugestao).toBeNull();
     expect(carlos?.login).toBeNull();
   });
+
+  /**
+   * PATCH-PLANTAO-VINCULO-GESTOR-COMO-PARTICIPANTE-1 — perfil de acesso
+   * (GESTOR_UNIDADE, GESTOR_EQUIPE, etc.) nunca é considerado por
+   * `candidatosPorIdentidadeExata()`: nenhum campo `perfil`/`escopo` é lido
+   * em nenhum ramo da conciliação. Estes testes travam essa ausência de
+   * filtro para os dois profils citados na regra de negócio.
+   */
+  it('um GESTOR_UNIDADE ativo vincula automaticamente por login exato, igual a um colaborador comum', () => {
+    const participantes = [{
+      nomeOriginal: 'clis',
+      quantidadeAtribuicoes: 1,
+      apareceNaContabilidade: false,
+      quantidadeInformada: null,
+      minutosInformados: null,
+    }];
+    const usuarios = [criarUsuario({
+      login: 'clis',
+      nome: 'Claudio Lis',
+      perfil: 'GESTOR_UNIDADE',
+      escopo: 'UNIDADE',
+      unidadeId: 'GEDSI_COSI',
+      unidadesPermitidas: ['GEDSI_COSI'],
+      equipeId: 'GEDSI_COSI_SOC',
+      equipesPermitidas: ['GEDSI_COSI_SOC', 'GEDSI_COSI_PLANTAO'],
+    })];
+
+    const [vinculo] = iniciarVinculosPlantao(participantes, usuarios);
+    expect(vinculo).toMatchObject({ login: 'clis', status: 'VINCULADO' });
+    // Vincular como participante não é (nem pode ser) uma escrita no
+    // cadastro do usuário — o objeto `usuarios[0]` continua intocado.
+    expect(usuarios[0]).toMatchObject({ perfil: 'GESTOR_UNIDADE', escopo: 'UNIDADE', unidadeId: 'GEDSI_COSI' });
+  });
+
+  it('"Claudio Rogerio Lis" (planilha) vs. "Claudio Lis" (cadastro) não é forte o bastante para auto-vincular — mas continua encontrável pela busca manual', () => {
+    const participantes = [{
+      nomeOriginal: 'Claudio Rogerio Lis',
+      quantidadeAtribuicoes: 1,
+      apareceNaContabilidade: false,
+      quantidadeInformada: null,
+      minutosInformados: null,
+    }];
+    const usuarios = [criarUsuario({
+      login: 'clis',
+      nome: 'Claudio Lis',
+      perfil: 'GESTOR_UNIDADE',
+      escopo: 'UNIDADE',
+      unidadeId: 'GEDSI_COSI',
+    })];
+
+    const [vinculo] = iniciarVinculosPlantao(participantes, usuarios);
+    expect(vinculo?.login).toBeNull();
+    expect(vinculo?.sugestao).toBeNull();
+    // Não auto-vincula — mas a busca manual (que não exige nome exato)
+    // continua encontrando "clis" para o coordenador escolher.
+    expect(buscarUsuariosPlantao(usuarios, 'clis').map((item) => item.login)).toEqual(['clis']);
+    expect(buscarUsuariosPlantao(usuarios, 'Claudio').map((item) => item.login)).toEqual(['clis']);
+  });
 });
 
 describe('confirmarVinculoPlantao / login como identidade', () => {
@@ -324,6 +382,47 @@ describe('buscarUsuariosPlantao', () => {
 
   it('termo vazio retorna todos os usuários', () => {
     expect(buscarUsuariosPlantao(USUARIOS_TESTE, '')).toHaveLength(USUARIOS_TESTE.length);
+  });
+
+  /**
+   * PATCH-PLANTAO-VINCULO-GESTOR-COMO-PARTICIPANTE-1 — antes só comparava
+   * nome/login; a busca manual precisa achar por e-mail e por alias de
+   * planilha também (ex.: um coordenador com e-mail corporativo distinto
+   * do nome, ou já vinculado numa importação anterior sob outra grafia).
+   */
+  const clisGestorUnidade = criarUsuario({
+    login: 'clis',
+    nome: 'Claudio Lis',
+    email: 'clis@ici.tec.br',
+    perfil: 'GESTOR_UNIDADE',
+    escopo: 'UNIDADE',
+    unidadeId: 'GEDSI_COSI',
+    unidadesPermitidas: ['GEDSI_COSI'],
+    equipeId: 'GEDSI_COSI_SOC',
+    equipesPermitidas: ['GEDSI_COSI_SOC', 'GEDSI_COSI_PLANTAO'],
+    aliasesPlanilha: ['C. Lis'],
+  });
+  const usuariosComClis = [...USUARIOS_TESTE, clisGestorUnidade];
+
+  it('busca por login exato "clis" encontra o GESTOR_UNIDADE, sem exclusão por perfil', () => {
+    expect(buscarUsuariosPlantao(usuariosComClis, 'clis').map((u) => u.login)).toEqual(['clis']);
+  });
+
+  it('busca por e-mail encontra o usuário', () => {
+    expect(buscarUsuariosPlantao(usuariosComClis, 'clis@ici.tec.br').map((u) => u.login)).toEqual(['clis']);
+  });
+
+  it('busca por nome parcial "Claudio" encontra o usuário', () => {
+    expect(buscarUsuariosPlantao(usuariosComClis, 'Claudio').map((u) => u.login)).toEqual(['clis']);
+  });
+
+  it('busca por alias de planilha encontra o usuário', () => {
+    expect(buscarUsuariosPlantao(usuariosComClis, 'C. Lis').map((u) => u.login)).toEqual(['clis']);
+  });
+
+  it('não exclui usuário com escopo UNIDADE nem perfil GESTOR_UNIDADE do resultado geral', () => {
+    const resultado = buscarUsuariosPlantao(usuariosComClis, '');
+    expect(resultado.map((u) => u.login)).toContain('clis');
   });
 });
 

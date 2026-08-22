@@ -364,9 +364,17 @@ export function aplicarVinculosNasAtribuicoes(
 }
 
 /**
- * Busca simples por login ou nome (acento/caixa insensível), para o campo
- * de busca da tela de vínculos. Não é um endpoint novo — filtra a mesma
- * lista de usuários já carregada pelo Dashboard.
+ * Busca simples por login, nome, e-mail ou alias (acento/caixa
+ * insensível), para o campo de busca da tela de vínculos. Não é um
+ * endpoint novo — filtra a mesma lista de usuários já carregada pelo
+ * Dashboard (ver `listarUsuariosElegiveisPlantao()`,
+ * `lib/firebase/readRepository.ts`, para como essa lista passou a incluir
+ * também quem administra a unidade/equipe, não só quem já é membro direto).
+ *
+ * PATCH-PLANTAO-VINCULO-GESTOR-COMO-PARTICIPANTE-1 — antes só comparava
+ * `nome`/`login`; um coordenador que também é participante de escala
+ * (ex.: GESTOR_UNIDADE cobrindo plantão) precisa ser encontrável também
+ * por e-mail e por alias de planilha de uma importação anterior.
  */
 export function buscarUsuariosPlantao(
   usuarios: readonly Usuario[],
@@ -376,7 +384,11 @@ export function buscarUsuariosPlantao(
   if (chave === '') {
     return [...usuarios];
   }
+  const termoEmail = termo.trim().toLowerCase();
   return usuarios.filter((usuario) =>
     normalizarNome(usuario.nome).includes(chave)
-    || normalizarNome(usuario.login).includes(chave));
+    || normalizarNome(usuario.login).includes(chave)
+    || (termoEmail !== '' && usuario.email.toLowerCase().includes(termoEmail))
+    || (usuario.loginAliases ?? []).some((alias) => normalizarNome(alias).includes(chave))
+    || (usuario.aliasesPlanilha ?? []).some((alias) => normalizarNome(alias).includes(chave)));
 }

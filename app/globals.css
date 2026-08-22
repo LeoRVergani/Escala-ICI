@@ -5055,6 +5055,13 @@ fieldset.checkbox-card-list > legend {
   max-width: 280px;
 }
 .plantao-busca-resultados button { width: 100%; justify-content: flex-start; text-align: left; }
+/*
+ * PATCH-PLANTAO-VINCULO-GESTOR-COMO-PARTICIPANTE-1 — legenda de perfil
+ * administrativo (ex.: "Perfil: Gestor de unidade · Unidade: GEDSI_COSI")
+ * sob o botão de cada resultado de busca, nunca no lugar do nome/login.
+ */
+.plantao-busca-resultados li { display: flex; flex-direction: column; gap: 2px; }
+.plantao-busca-perfil { padding-left: 2px; color: var(--muted); font-size: 10px; }
 .plantao-conflito-aviso { color: var(--danger); max-width: 260px; }
 
 @media (max-width: 480px) {

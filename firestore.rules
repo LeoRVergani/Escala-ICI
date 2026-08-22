@@ -531,6 +531,18 @@ service cloud.firestore {
           // Grupo. Responsáveis atuais do mesmo alvo conseguem relê-las sem
           // ganhar acesso aos usuários de outras equipes.
           || contextoCadastroOperacionalAutorizaUsuario(resource.data, false)
+          // PATCH-PLANTAO-VINCULO-GESTOR-COMO-PARTICIPANTE-1 — espelha
+          // `podeOperarNaEquipe()` acima, mas pela UNIDADE do próprio
+          // documento lido: um GESTOR_UNIDADE precisa encontrar, como
+          // candidato a participante de Plantão, alguém cujo cadastro
+          // aponte a mesma unidade que ele administra (`unidadeId`), mesmo
+          // que a equipe dessa pessoa seja outra (ex.: um coordenador cuja
+          // equipe é a de Jornada, mas que também é GESTOR_UNIDADE da
+          // mesma unidade responsável pelo Plantão). Só o campo `unidadeId`
+          // do próprio documento é usado — nunca amplia para outra equipe
+          // nem outra unidade fora do que `minhasUnidadesPermitidas()` já
+          // autoriza em todo o restante do arquivo.
+          || (souGestorUnidade() && resource.data.get('unidadeId', null) != null && resource.data.unidadeId in minhasUnidadesPermitidas())
         );
 
       allow update: if autenticado()

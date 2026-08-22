@@ -119,6 +119,7 @@ import {
   listarCatalogo,
   listarUsuarios,
   listarUsuariosDoPlantao,
+  listarUsuariosElegiveisPlantao,
 } from '@/lib/firebase/readRepository';
 import {
   adicionarMembroRascunho,
@@ -2850,6 +2851,19 @@ function PreviewPlantao({
                                     >
                                       {candidato.nome} ({candidato.login}){candidato.ativo ? '' : ' — inativo'}
                                     </button>
+                                    {/*
+                                      PATCH-PLANTAO-VINCULO-GESTOR-COMO-PARTICIPANTE-1 —
+                                      perfil administrativo não é escondido nem impede o
+                                      vínculo; só fica visível para o coordenador confirmar
+                                      que está escolhendo a pessoa certa (ex.: um Gestor de
+                                      unidade cobrindo o próprio plantão).
+                                    */}
+                                    {candidato.perfil && (
+                                      <small className="plantao-busca-perfil">
+                                        Perfil: {LABEL_PERFIL_DELEGAVEL[candidato.perfil] ?? candidato.perfil}
+                                        {candidato.unidadeId ? ` · Unidade: ${candidato.unidadeId}` : ''}
+                                      </small>
+                                    )}
                                   </li>
                                 ))}
                               </ul>
@@ -4983,7 +4997,7 @@ export function DashboardApp() {
       }
       const usuariosDoGrupo = modoDemo
         ? usuarios
-        : await listarUsuariosDoPlantao(grupo.equipeResponsavelId, grupo.grupoId);
+        : await listarUsuariosElegiveisPlantao(grupo.equipeResponsavelId, grupo.grupoId, grupo.unidadeResponsavelId, grupo.equipesConsulta);
       if (!modoDemo) {
         setUsuarios(usuariosDoGrupo);
       }
@@ -5089,7 +5103,7 @@ export function DashboardApp() {
       const [atribuicoesAnteriores, participantesAtivos, usuariosDoGrupo] = await Promise.all([
         modoDemo ? Promise.resolve([]) : listarAtribuicoesPlantaoRascunho(grupo.grupoId, labelAnterior),
         garantirParticipantesDoGrupoCarregados(grupo.grupoId).then((lista) => lista.filter((item) => item.ativo)),
-        modoDemo ? Promise.resolve(usuarios) : listarUsuariosDoPlantao(grupo.equipeResponsavelId, grupo.grupoId),
+        modoDemo ? Promise.resolve(usuarios) : listarUsuariosElegiveisPlantao(grupo.equipeResponsavelId, grupo.grupoId, grupo.unidadeResponsavelId, grupo.equipesConsulta),
       ]);
       if (!modoDemo) {
         setUsuarios(usuariosDoGrupo);
@@ -5294,7 +5308,7 @@ export function DashboardApp() {
       let usuariosDoGrupo = usuarios;
       if (!modoDemo) {
         try {
-          usuariosDoGrupo = await listarUsuariosDoPlantao(grupo.equipeResponsavelId, grupo.grupoId);
+          usuariosDoGrupo = await listarUsuariosElegiveisPlantao(grupo.equipeResponsavelId, grupo.grupoId, grupo.unidadeResponsavelId, grupo.equipesConsulta);
           setUsuarios(usuariosDoGrupo);
         } catch (falha) {
           return falhar(mensagemErroFirebase(
@@ -6392,7 +6406,7 @@ export function DashboardApp() {
         modoDemo ? Promise.resolve([]) : listarAtribuicoesPlantaoRascunho(grupo.grupoId, competenciaAlvo.competencia),
         modoDemo ? Promise.resolve(participantesPorGrupoPlantao[grupo.grupoId] ?? []) : listarParticipantesPlantao(grupo.grupoId),
         modoDemo ? Promise.resolve(competenciaAlvo) : obterCompetenciaPlantaoRascunho(grupo.grupoId, competenciaAlvo.competencia),
-        modoDemo ? Promise.resolve(usuarios) : listarUsuariosDoPlantao(grupo.equipeResponsavelId, grupo.grupoId),
+        modoDemo ? Promise.resolve(usuarios) : listarUsuariosElegiveisPlantao(grupo.equipeResponsavelId, grupo.grupoId, grupo.unidadeResponsavelId, grupo.equipesConsulta),
       ]);
       if (competenciaFresca === null) {
         setAbrirRascunhoPlantaoStatus({ fase: 'nao-encontrado' });

@@ -4445,3 +4445,117 @@ describe('JORNADA-IMPORTACAO-VINCULOS-UX-1 — vínculos da importação de Jorn
     }));
   });
 });
+
+/**
+ * PATCH-PLANTAO-VINCULO-GESTOR-COMO-PARTICIPANTE-1 — confirma empiricamente
+ * (não só por leitura do código) que as consultas usadas por
+ * `listarUsuariosElegiveisPlantao()` (`lib/firebase/readRepository.ts`)
+ * realmente funcionam para o ator real do cenário relatado: o próprio
+ * `clis` (GESTOR_UNIDADE de GEDSI_COSI) buscando a SI MESMO como candidato
+ * a participante do próprio Plantão.
+ *
+ * Achado importante deste teste (por isso ele existe — não é só
+ * confirmação, é o que decidiu a forma final da correção): uma consulta
+ * `list` em `usuarios` só é "prová­vel" pelas Rules quando o campo do
+ * `where(...)` é EXATAMENTE o campo que a regra de leitura usa para
+ * autorizar. `where('equipeId', '==', ...)` já funcionava (via
+ * `podeOperarNaEquipe()`); `where('unidadeId', '==', ...)` só passou a
+ * funcionar depois da nova branch abaixo, espelhando a mesma forma.
+ * `where(<qualquer campo>, 'array-contains', ...)` — incluindo
+ * `unidadesPermitidas`/`equipesPermitidas`, cogitados inicialmente —
+ * falha com "Null value error" para QUALQUER ator não-admin, mesmo
+ * quando o único documento retornado seria o do próprio autor; por isso
+ * `listarUsuariosElegiveisPlantao()` nunca usa esses dois campos.
+ */
+describe('PATCH-PLANTAO-VINCULO-GESTOR-COMO-PARTICIPANTE-1 — leitura ampla de candidatos a participante de Plantão', () => {
+  const clis = {
+    login: 'clis',
+    nome: 'Claudio Lis',
+    email: 'clis@ici.tec.br',
+    equipeId: 'GEDSI_COSI_SOC',
+    nivelHierarquico: 4,
+    perfil: 'GESTOR_UNIDADE',
+    escopo: 'UNIDADE',
+    unidadeId: 'GEDSI_COSI',
+    unidadesPermitidas: ['GEDSI_COSI'],
+    equipesPermitidas: ['GEDSI_COSI_SOC', 'GEDSI_COSI_PLANTAO'],
+  };
+  const gestorDeOutraUnidade = {
+    login: 'gestor.codb.teste',
+    nome: 'Gestor CODB Teste',
+    email: 'gestor.codb.teste@teste.local',
+    equipeId: 'GEDSI_CODB_NOC',
+    nivelHierarquico: 4,
+    perfil: 'GESTOR_UNIDADE',
+    escopo: 'UNIDADE',
+    unidadeId: 'GEDSI_CODB',
+    unidadesPermitidas: ['GEDSI_CODB'],
+  };
+
+  beforeEach(async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'usuarios', clis.login), clis);
+      await setDoc(doc(contexto.firestore(), 'usuarios', gestorDeOutraUnidade.login), gestorDeOutraUnidade);
+    });
+  });
+
+  it('1. clis encontra a si mesmo via where(equipeId==GEDSI_COSI_SOC) — uma das equipesConsulta do Plantão COSI', async () => {
+    const ator = autenticarComo(clis);
+    const resultado = await assertSucceeds(getDocs(query(
+      collection(ator, 'usuarios'),
+      where('equipeId', '==', 'GEDSI_COSI_SOC'),
+    )));
+    expect(resultado.docs.map((documento) => documento.id)).toContain('clis');
+  });
+
+  it('2. clis encontra a si mesmo via where(unidadeId==GEDSI_COSI) — a unidade responsável pelo Plantão COSI', async () => {
+    const ator = autenticarComo(clis);
+    const resultado = await assertSucceeds(getDocs(query(
+      collection(ator, 'usuarios'),
+      where('unidadeId', '==', 'GEDSI_COSI'),
+    )));
+    expect(resultado.docs.map((documento) => documento.id)).toContain('clis');
+  });
+
+  it('3. a nova branch por unidadeId nunca amplia para outra unidade — gestor do CODB não lê clis (unidade diferente) por esse caminho', async () => {
+    const ator = autenticarComo(gestorDeOutraUnidade);
+    const resultado = await getDocs(query(
+      collection(ator, 'usuarios'),
+      where('unidadeId', '==', 'GEDSI_COSI'),
+    )).catch(() => null);
+    // Sem nenhum documento de GEDSI_COSI no alcance do gestor do CODB, a
+    // consulta simplesmente não retorna nada (ou falha) — nunca vaza clis.
+    expect(resultado === null || resultado.docs.length === 0).toBe(true);
+  });
+
+  it('4. admin sempre encontra clis, por qualquer um dos dois campos', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'usuarios', 'admin'), {
+        login: 'admin',
+        nome: 'Admin',
+        email: 'admin@ici.tec.br',
+        equipeId: 'ADMIN_ICI',
+        nivelHierarquico: 0,
+        perfil: 'ADMIN_SISTEMA',
+        escopo: 'GLOBAL',
+      });
+    });
+    const atorAdmin = autenticarComo({ login: 'admin', email: 'admin@ici.tec.br' });
+    const porEquipe = await assertSucceeds(getDocs(query(collection(atorAdmin, 'usuarios'), where('equipeId', '==', 'GEDSI_COSI_SOC'))));
+    const porUnidade = await assertSucceeds(getDocs(query(collection(atorAdmin, 'usuarios'), where('unidadeId', '==', 'GEDSI_COSI'))));
+    expect(porEquipe.docs.map((documento) => documento.id)).toContain('clis');
+    expect(porUnidade.docs.map((documento) => documento.id)).toContain('clis');
+  });
+
+  it('5. documenta o limite real: list por array-contains em unidadesPermitidas/equipesPermitidas continua falhando para ator não-admin (por isso listarUsuariosElegiveisPlantao nunca usa esses campos)', async () => {
+    const ator = autenticarComo(clis);
+    await assertFails(getDocs(query(
+      collection(ator, 'usuarios'),
+      where('unidadesPermitidas', 'array-contains', 'GEDSI_COSI'),
+    )));
+    await assertFails(getDocs(query(
+      collection(ator, 'usuarios'),
+      where('equipesPermitidas', 'array-contains', 'GEDSI_COSI_PLANTAO'),
+    )));
+  });
+});

@@ -80,8 +80,8 @@ test('a importação e a reabertura de Plantão carregam usuários da equipe res
   const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
   assert.match(
     dashboard,
-    /listarUsuariosDoPlantao\(grupo\.equipeResponsavelId, grupo\.grupoId\)/u,
-    'o catálogo de vínculos deve vir da equipe responsável pelo Grupo de Plantão',
+    /listarUsuariosElegiveisPlantao\(grupo\.equipeResponsavelId, grupo\.grupoId, grupo\.unidadeResponsavelId, grupo\.equipesConsulta\)/u,
+    'o catálogo de vínculos deve vir da equipe/unidade responsável pelo Grupo de Plantão (PATCH-PLANTAO-VINCULO-GESTOR-COMO-PARTICIPANTE-1 — pool ampliado, mesmo alvo)',
   );
   assert.match(
     dashboard,
