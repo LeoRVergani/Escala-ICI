@@ -6,7 +6,7 @@ import {
   plantoesMonitoradosPelaEquipe,
   resolverEscoposOperacionais as resolverEscoposOperacionaisBase,
 } from './escoposOperacionais';
-import { resolverGrupoParaPlantao } from './inicioEscala';
+import { areasParaExibicaoNoWizard, equipesAdministraveisNaUnidade, resolverAreaAtiva, resolverGrupoParaPlantao } from './inicioEscala';
 
 const unidade = (unidadeId: string, ajustes: Partial<UnidadeOrganizacional> = {}): UnidadeOrganizacional => ({
   unidadeId,
@@ -298,6 +298,122 @@ describe('resolverEscoposOperacionais — permitirAmploStaging (STAGING-RESET-HI
       analista, UNIDADES, EQUIPES, GRUPOS, [], { permitirAmploStaging: true },
     );
     expect(escopos.jornadasAdministraveis).toEqual([]);
+  });
+});
+
+/**
+ * ADENDO — ÁREA DE GESTÃO NÃO RESOLVIDA NO PLANTÃO. Reproduz a cadeia real
+ * de IDs canônicos do staging (`scripts/staging/hierarquia-ici.mjs`) —
+ * unidade `GEDSI_COSI` (caminho de 4 níveis, não um mock de 1 nível), Grupo
+ * `PLANTAO_GEDSI_COSI`, equipe responsável `GEDSI_COSI_PLANTAO` — com uma
+ * Matriz existente mas que só lista `admin` (exatamente `MATRIZ_INICIAL`) e
+ * um `GESTOR_UNIDADE` de `GEDSI_COSI` que NÃO é `admin` e cujo `equipeId`
+ * próprio é `GEDSI_COSI_SOC` (o coordenador cuida das duas coisas, mas mora
+ * na equipe de Jornada). Isto prova que `resolverEscoposOperacionais()` +
+ * o resolver do Wizard (`lib/inicioEscala.ts`) já resolvem a cadeia
+ * GEDSI_COSI -> PLANTAO_GEDSI_COSI -> GEDSI_COSI_PLANTAO corretamente para
+ * esse perfil, quando `permitirAmploStaging` está ativo — se a tela real
+ * ainda mostra "Área não cadastrada", a causa está fora deste módulo (env
+ * var `VITE_ESCALA_STAGING_PERMISSAO_AMPLA` não propagada para o build em
+ * execução, ou o documento `usuarios/{login}` real divergindo do esperado
+ * — ver relatório da fase PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1).
+ */
+describe('ADENDO — Área de gestão do Plantão resolve GEDSI_COSI -> PLANTAO_GEDSI_COSI -> GEDSI_COSI_PLANTAO', () => {
+  const caminhoCosi = ['PRE', 'DIO', 'GEDSI', 'GEDSI_COSI'];
+  const caminhoCodb = ['PRE', 'DIO', 'GEDSI', 'GEDSI_CODB'];
+
+  const GEDSI_COSI_UNIDADE = unidade('GEDSI_COSI', {
+    nome: 'Coordenação de Segurança da Informação',
+    sigla: 'COSI',
+    tipo: 'COORDENACAO',
+    parentId: 'GEDSI',
+    caminho: caminhoCosi,
+  });
+  const GEDSI_CODB_UNIDADE = unidade('GEDSI_CODB', {
+    nome: 'Coordenação de Data Center e Banco de Dados',
+    sigla: 'CODB',
+    tipo: 'COORDENACAO',
+    parentId: 'GEDSI',
+    caminho: caminhoCodb,
+  });
+  const EQUIPE_SOC_REAL = equipe('GEDSI_COSI_SOC', { nome: 'SOC', sigla: 'SOC', unidadeId: 'GEDSI_COSI', caminhoUnidade: caminhoCosi });
+  const EQUIPE_PLANTAO_REAL = equipe('GEDSI_COSI_PLANTAO', { nome: 'Plantão COSI', sigla: 'PLANTAO', unidadeId: 'GEDSI_COSI', caminhoUnidade: caminhoCosi });
+  const EQUIPE_NOC_REAL = equipe('GEDSI_CODB_NOC', { nome: 'NOC', sigla: 'NOC', unidadeId: 'GEDSI_CODB', caminhoUnidade: caminhoCodb });
+  const GRUPO_PLANTAO_REAL = grupo('PLANTAO_GEDSI_COSI', EQUIPE_PLANTAO_REAL.id, {
+    equipesConsulta: [EQUIPE_PLANTAO_REAL.id, EQUIPE_SOC_REAL.id],
+    unidadeResponsavelId: 'GEDSI_COSI',
+    caminhoUnidadeResponsavel: caminhoCosi,
+  });
+  const MATRIZ_REAL = [
+    { tipo: 'PLANTAO' as const, alvoId: 'PLANTAO_GEDSI_COSI', alvoNome: 'Plantão COSI', unidadeId: 'GEDSI_COSI', caminhoUnidade: caminhoCosi, responsaveisLogin: ['admin'], responsaveisEquipe: [], equipesConsulta: GRUPO_PLANTAO_REAL.equipesConsulta, ativo: true, criadoPorLogin: 'admin', atualizadoPorLogin: 'admin', schemaVersion: 1 as const },
+  ];
+  const coordenadorCosi = usuario({
+    login: 'clis',
+    equipeId: 'GEDSI_COSI_SOC',
+    perfil: 'GESTOR_UNIDADE',
+    escopo: 'UNIDADE',
+    unidadeId: 'GEDSI_COSI',
+    unidadesPermitidas: ['GEDSI_COSI'],
+  });
+
+  it('resolverEscoposOperacionais inclui PLANTAO_GEDSI_COSI mesmo com a Matriz só listando "admin"', () => {
+    const escopos = resolverEscoposOperacionaisBase(
+      coordenadorCosi,
+      [GEDSI_COSI_UNIDADE, GEDSI_CODB_UNIDADE],
+      [EQUIPE_SOC_REAL, EQUIPE_PLANTAO_REAL, EQUIPE_NOC_REAL],
+      [GRUPO_PLANTAO_REAL],
+      MATRIZ_REAL,
+      { permitirFallbackLegado: true, permitirAmploStaging: true },
+    );
+    expect(escopos.unidadesAdministraveis.map((item) => item.unidadeId)).toEqual(['GEDSI_COSI']);
+    expect(escopos.equipesAdministraveis.map((item) => item.id).sort()).toEqual(['GEDSI_COSI_PLANTAO', 'GEDSI_COSI_SOC']);
+    expect(escopos.plantoesAdministraveis.map((item) => item.grupoId)).toEqual(['PLANTAO_GEDSI_COSI']);
+  });
+
+  it('resolverAreaAtiva resolve GEDSI_COSI sozinha (nunca "SELECIONAR"/"CRIAR")', () => {
+    const escopos = resolverEscoposOperacionaisBase(
+      coordenadorCosi, [GEDSI_COSI_UNIDADE, GEDSI_CODB_UNIDADE], [EQUIPE_SOC_REAL, EQUIPE_PLANTAO_REAL, EQUIPE_NOC_REAL], [GRUPO_PLANTAO_REAL], MATRIZ_REAL,
+      { permitirFallbackLegado: true, permitirAmploStaging: true },
+    );
+    const area = resolverAreaAtiva(
+      [GEDSI_COSI_UNIDADE, GEDSI_CODB_UNIDADE],
+      escopos.unidadesAdministraveis.map((item) => item.unidadeId),
+      false,
+    );
+    expect(area).toEqual({ estado: 'RESOLVIDO', valor: GEDSI_COSI_UNIDADE });
+  });
+
+  it('o Grupo PLANTAO_GEDSI_COSI resolve sozinho dentro da área GEDSI_COSI, com a equipe GEDSI_COSI_PLANTAO como responsável (nunca GEDSI_COSI_SOC)', () => {
+    const escopos = resolverEscoposOperacionaisBase(
+      coordenadorCosi, [GEDSI_COSI_UNIDADE, GEDSI_CODB_UNIDADE], [EQUIPE_SOC_REAL, EQUIPE_PLANTAO_REAL, EQUIPE_NOC_REAL], [GRUPO_PLANTAO_REAL], MATRIZ_REAL,
+      { permitirFallbackLegado: true, permitirAmploStaging: true },
+    );
+    const equipesNaArea = equipesAdministraveisNaUnidade(
+      [EQUIPE_SOC_REAL, EQUIPE_PLANTAO_REAL, EQUIPE_NOC_REAL],
+      'GEDSI_COSI',
+      escopos.equipesAdministraveis.map((item) => item.id),
+      false,
+    );
+    const gruposNaArea = escopos.plantoesAdministraveis.filter((item) => equipesNaArea.some((equipe) => equipe.id === item.equipeResponsavelId));
+    const resolucao = resolverGrupoParaPlantao(
+      gruposNaArea,
+      (item) => escopos.plantoesAdministraveis.some((admin) => admin.grupoId === item.grupoId),
+    );
+    expect(resolucao).toEqual({ estado: 'RESOLVIDO', valor: GRUPO_PLANTAO_REAL });
+    expect(resolucao.estado === 'RESOLVIDO' && resolucao.valor.equipeResponsavelId).toBe('GEDSI_COSI_PLANTAO');
+  });
+
+  it('areasParaExibicaoNoWizard nunca cai em "não cadastrada" quando GEDSI_COSI é administrável', () => {
+    const escopos = resolverEscoposOperacionaisBase(
+      coordenadorCosi, [GEDSI_COSI_UNIDADE, GEDSI_CODB_UNIDADE], [EQUIPE_SOC_REAL, EQUIPE_PLANTAO_REAL, EQUIPE_NOC_REAL], [GRUPO_PLANTAO_REAL], MATRIZ_REAL,
+      { permitirFallbackLegado: true, permitirAmploStaging: true },
+    );
+    const areasParaExibir = areasParaExibicaoNoWizard(
+      escopos.unidadesAdministraveis,
+      [GEDSI_COSI_UNIDADE, GEDSI_CODB_UNIDADE],
+      EQUIPE_SOC_REAL,
+    );
+    expect(areasParaExibir).toEqual([GEDSI_COSI_UNIDADE]);
   });
 });
 
