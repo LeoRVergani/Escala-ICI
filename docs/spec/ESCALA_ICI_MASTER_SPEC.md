@@ -341,6 +341,15 @@ staging reiniciado nasce diretamente com `GEDSI_COSI_SOC`/
 (spec central desta fase) e `scripts/staging/hierarquia-ici.mjs` (fonte
 única de dados do organograma canônico).
 
+O mesmo padrão vale um nível acima, para as UNIDADES/coordenações
+(`unidadesOrganizacionais`, distintas de `equipes`): `COSI`/`CODB`/`COCR`
+(e as coordenações de GESUP/GEOPE) nunca são `unidadeId` persistido — são só
+a sigla de exibição. O `unidadeId` técnico sempre leva o prefixo da
+gerência-mãe, mesma lógica de `GEDSI_COSI_SOC`: `GEDSI_COSI`, `GEDSI_CODB`,
+`GEDSI_COCR`, `GESUP_CSTE`, `GESUP_COAT`, `GESUP_COSD`, `GEOPE_COAC`,
+`GEOPE_COPC`. Correção feita em **STAGING-RESET-HIERARQUIA-ICI-2** — a
+primeira versão do seed havia persistido a sigla solta como `unidadeId`.
+
 Essa transformação não é edição comum nem fallback de runtime: deve migrar o
 grafo completo de referências, validar Rules e índices genéricos, passar por
 dry-run/backup/smoke test e exigir aprovação humana antes de liberar escrita.

@@ -64,6 +64,23 @@ test('validate-staging.mjs é somente leitura e detecta qualquer ID legado reman
   assert.match(codigo, /config\/ambiente\.staging=true/u);
 });
 
+test('STAGING-RESET-HIERARQUIA-ICI-2 — validate-staging.mjs falha para unidadeId simples e detecta inversão unidade/equipe', async () => {
+  const codigo = await ler('scripts/staging/validate-staging.mjs');
+  assert.match(codigo, /IDS_UNIDADE_SIMPLES_PROIBIDOS.*=.*\['COSI', 'CODB', 'COCR'\]/su);
+  assert.match(codigo, /export async function validarSemUnidadeIdSimples/u);
+  assert.match(codigo, /export async function validarNaoInverteUnidadeEquipe/u);
+  assert.match(codigo, /validarSemUnidadeIdSimples\(db\)/u);
+  assert.match(codigo, /validarNaoInverteUnidadeEquipe\(db\)/u);
+});
+
+test('STAGING-RESET-HIERARQUIA-ICI-2 — hierarquia-ici.mjs usa GEDSI_COSI/GEDSI_CODB/GEDSI_COCR, nunca COSI/CODB/COCR soltos como unidadeId', async () => {
+  const codigo = await ler('scripts/staging/hierarquia-ici.mjs');
+  for (const idCanonico of ['GEDSI_COSI', 'GEDSI_CODB', 'GEDSI_COCR']) {
+    assert.match(codigo, new RegExp(`unidadeId: '${idCanonico}'`, 'u'), `precisa existir uma unidade ${idCanonico}`);
+  }
+  assert.doesNotMatch(codigo, /unidadeId: 'COSI'|unidadeId: 'CODB'|unidadeId: 'COCR'/u, 'nunca um unidadeId simples de coordenação');
+});
+
 test('hierarquia-ici.mjs é um módulo puro (sem I/O, sem firebase-admin, sem process.env)', async () => {
   const codigo = await ler('scripts/staging/hierarquia-ici.mjs');
   const semComentarios = codigo.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/\/\/.*$/gmu, '');

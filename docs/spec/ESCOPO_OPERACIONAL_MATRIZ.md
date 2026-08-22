@@ -262,6 +262,16 @@ já garantem em qualquer outra regra deste arquivo, e nunca afrouxa `delete`
 (continua sempre negado, produção e staging). Ver
 `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md`.
 
+**Não confundir com o cadastro de USUÁRIO** (`match /usuarios/{login}`,
+`docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 5.5,
+STAGING-RESET-HIERARQUIA-ICI-2): cadastrar um novo `GESTOR_UNIDADE`/
+`GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE`/colaborador em staging é uma regra
+separada (`perfilCadastroLivreStagingValido()`) que nem sequer olha esta
+Matriz — o coordenador pode cadastrar em qualquer unidade/equipe ativa,
+mesmo uma sem nenhuma entrada aqui. As duas liberações usam a mesma condição
+de ambiente (`souCoordenadorOperacionalStaging()`), mas são coleções e regras
+distintas.
+
 ## 10. Rules
 
 `escoposOperacionais`:

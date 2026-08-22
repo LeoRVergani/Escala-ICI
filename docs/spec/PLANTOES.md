@@ -39,6 +39,18 @@ observações e exemplos válidos até essa fase; nenhum documento novo do
 staging reiniciado usa esses IDs (só `docs/spec/MIGRACAO_IDS_ORGANIZACIONAIS_PRODUCAO.md`
 os referencia, exclusivamente como mapeamento histórico).
 
+**STAGING-RESET-HIERARQUIA-ICI-2** corrige a unidade responsável pelo Grupo:
+`unidadeResponsavelId` do Plantão COSI é `GEDSI_COSI` (nunca `COSI` solto —
+ver `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 2), e o cadastro de
+colaborador/coordenador via aba Vínculos passa a poder escolher livremente
+qualquer unidade/equipe ativa em staging (não só a do Grupo sendo
+importado) — ver `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 5.5. O fluxo
+de conciliação/vínculo por planilha em si (`lib/conciliacaoPlantoes.ts`) não
+muda: essa liberação vale para o cadastro GERAL de usuário
+(Administração → Usuários), não para o cadastro-e-vincular dentro da revisão
+de importação, que continua fixado à equipe responsável do Grupo sendo
+importado (target já bem definido, sem necessidade de escolha livre).
+
 ## Por que este documento existe
 
 O Escala ICI hoje resolve um problema: **jornada normal 6x1** (SOC/NOC),

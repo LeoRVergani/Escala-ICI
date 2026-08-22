@@ -188,15 +188,40 @@ Responsáveis e não concede acesso a outras equipes ou operações.
 
 `nivelHierarquico` continua sendo descrição organizacional, não autorização
 isolada. Cadastro comum sem perfil exige nível maior que 5; coordenação e
-supervisão exigem perfil explícito e contexto operacional auditável. Apenas
-`ADMIN_SISTEMA` pode conceder `ADMIN_SISTEMA`, `GESTOR_UNIDADE`, escopo
-`GLOBAL`, unidades ou equipes permitidas adicionais.
+supervisão exigem perfil explícito e contexto operacional auditável. Fora de
+staging, apenas `ADMIN_SISTEMA` pode conceder `ADMIN_SISTEMA`,
+`GESTOR_UNIDADE`, escopo `GLOBAL`, unidades ou equipes permitidas adicionais
+(em staging, `GESTOR_UNIDADE` também é delegável — ver caixa abaixo;
+`ADMIN_SISTEMA`/`GLOBAL` continuam exclusivos do admin sempre).
+
+O campo `nivelHierarquico` nunca aparece cru na UI (só o número): o modal de
+cadastro/edição sempre mostra `descreverNivelHierarquico(nivel)`
+(`lib/organizacao.ts`) ao lado, com título e explicação ("Nível 4 —
+Coordenação: administra uma coordenação, como GEDSI_COSI ou GEDSI_CODB.").
+Ver `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 13 para o mapeamento
+completo e a diferença em relação a `UnidadeOrganizacional.nivelHierarquico`
+(classificação de echelon, `descreverClassificacaoHierarquica()`).
 
 Quando staging recusar o cadastro, a UI deve distinguir esse bloqueio do erro
 genérico: criação exige responsabilidade ativa na Jornada ou no Plantão da
 equipe; se a matriz já estiver correta, o diagnóstico orienta a
 publicação das Firestore Rules atuais. Nenhuma falha confirma cadastro ou
 vínculo apenas no estado local.
+
+**STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em
+staging**: o parágrafo acima ("na equipe do próprio alvo") descreve o
+comportamento de PRODUÇÃO e o fallback de staging sem a flag ampla. Quando
+`config/ambiente.staging == true` e `VITE_ESCALA_STAGING_PERMISSAO_AMPLA=true`,
+`souCoordenadorOperacionalStaging()` libera um terceiro caminho de cadastro
+que NÃO exige responsabilidade sobre o alvo escolhido — o coordenador
+escolhe livremente `unidadeId`/`equipeId` entre todas as unidades/equipes
+ativas, e pode delegar também `GESTOR_UNIDADE` (além de
+`GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE`). Existe porque, em staging, ainda não se
+conhece toda a árvore real do ICI — travar na equipe/unidade do responsável
+reproduzia o mesmo problema que motivou STAGING-RESET-HIERARQUIA-ICI-1.
+`ADMIN_SISTEMA` e escopo `GLOBAL` continuam impossíveis nos dois caminhos.
+Ver `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 5.5 para o detalhe completo
+(Rules, `lib/adminGuards.ts`, UI, persistência).
 
 ### Código organizacional da equipe
 

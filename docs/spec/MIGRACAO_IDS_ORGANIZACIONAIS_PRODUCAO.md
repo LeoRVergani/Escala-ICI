@@ -36,6 +36,21 @@ O padrão de novos IDs de equipe é:
 <GERENCIA>_<COORDENACAO>_<FUNCAO_OU_LOCALIDADE>
 ```
 
+**STAGING-RESET-HIERARQUIA-ICI-2** — o mesmo raciocínio vale para
+`unidadeId` de uma COORDENAÇÃO: nunca a sigla solta, sempre prefixada pela
+gerência-mãe (`<GERENCIA>_<COORDENACAO>`):
+
+| Sigla de referência | `unidadeId` canônico |
+|---|---|
+| `COSI` | `GEDSI_COSI` |
+| `CODB` | `GEDSI_CODB` |
+| `COCR` | `GEDSI_COCR` |
+| `CSTE` | `GESUP_CSTE` |
+| `COAT` | `GESUP_COAT` |
+| `COSD` | `GESUP_COSD` |
+| `COAC` | `GEOPE_COAC` |
+| `COPC` | `GEOPE_COPC` |
+
 Uma vez criado e referenciado em produção, o ID volta a ser imutável. Mudança
 posterior de organograma altera a apresentação/caminho, não renomeia a chave.
 Portanto, esta fase é um **bootstrap/migração antes do go-live**, não uma função

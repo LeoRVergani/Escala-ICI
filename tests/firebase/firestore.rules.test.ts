@@ -4092,3 +4092,182 @@ describe('STAGING-RESET-HIERARQUIA-ICI-1 — liberação operacional de staging'
     await assertFails(deleteDoc(doc(admin, 'escoposOperacionais', 'JORNADA_EQ_COSI_SOC')));
   });
 });
+
+/**
+ * STAGING-RESET-HIERARQUIA-ICI-2 — cadastro LIVRE de unidade/equipe em
+ * staging: `perfilCadastroLivreStagingValido()` nunca checa se quem cadastra
+ * administra a unidade/equipe escolhida (deliberadamente, para nunca travar
+ * o coordenador numa lista incompleta) — só valida a combinação
+ * perfil/escopo/unidade/equipe em si. IDs usados abaixo (`GEDSI_COSI`,
+ * `GEDSI_CODB`, `GEDSI_COSI_SOC`, `GEDSI_COSI_PLANTAO`, `GEDSI_CODB_NOC`)
+ * são só valores de payload — esta regra nunca verifica se o documento de
+ * equipe/unidade referenciado existe de fato.
+ */
+describe('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em staging', () => {
+  const wanessaGestoraUnidade = {
+    login: 'wanessa.moriyama',
+    nome: 'Wanessa Moriyama',
+    email: 'wanessa.moriyama@teste.local',
+    equipeId: 'GEDSI_CODB_NOC',
+    nivelHierarquico: 4,
+    perfil: 'GESTOR_UNIDADE',
+    escopo: 'UNIDADE',
+    unidadeId: 'GEDSI_CODB',
+    unidadesPermitidas: ['GEDSI_CODB'],
+  };
+
+  async function habilitarStaging() {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'config', 'ambiente'), { staging: true });
+    });
+  }
+
+  beforeEach(async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'usuarios', wanessaGestoraUnidade.login), wanessaGestoraUnidade);
+    });
+  });
+
+  it('1-2. cadastra colaborador em qualquer equipe ativa, mesmo fora da própria unidade (GEDSI_COSI_SOC e GEDSI_CODB_NOC)', async () => {
+    await habilitarStaging();
+    const wanessa = autenticarComo(wanessaGestoraUnidade);
+    for (const equipeId of ['GEDSI_COSI_SOC', 'GEDSI_CODB_NOC']) {
+      await assertSucceeds(setDoc(doc(wanessa, 'usuarios', `novo.colaborador.${equipeId.toLowerCase()}`), {
+        login: `novo.colaborador.${equipeId.toLowerCase()}`,
+        nome: 'Novo Colaborador',
+        equipeId,
+        nivelHierarquico: 6,
+      }));
+    }
+  });
+
+  it('3-4. cadastra GESTOR_UNIDADE em qualquer unidade ativa, mesmo fora do próprio escopo (GEDSI_COSI e GEDSI_CODB)', async () => {
+    await habilitarStaging();
+    const wanessa = autenticarComo(wanessaGestoraUnidade);
+    for (const unidadeId of ['GEDSI_COSI', 'GEDSI_CODB']) {
+      await assertSucceeds(setDoc(doc(wanessa, 'usuarios', `novo.gestor.${unidadeId.toLowerCase()}`), {
+        login: `novo.gestor.${unidadeId.toLowerCase()}`,
+        nome: 'Novo Gestor de Unidade',
+        equipeId: 'GEDSI_CODB_NOC',
+        nivelHierarquico: 4,
+        perfil: 'GESTOR_UNIDADE',
+        escopo: 'UNIDADE',
+        unidadeId,
+        unidadesPermitidas: [unidadeId],
+      }));
+    }
+  });
+
+  it('5. cadastra GESTOR_EQUIPE em GEDSI_COSI_PLANTAO, fora da própria unidade', async () => {
+    await habilitarStaging();
+    const wanessa = autenticarComo(wanessaGestoraUnidade);
+    await assertSucceeds(setDoc(doc(wanessa, 'usuarios', 'novo.gestor.plantao'), {
+      login: 'novo.gestor.plantao',
+      nome: 'Novo Gestor de Equipe',
+      equipeId: 'GEDSI_COSI_PLANTAO',
+      nivelHierarquico: 4,
+      perfil: 'GESTOR_EQUIPE',
+      escopo: 'EQUIPE',
+      equipesPermitidas: ['GEDSI_COSI_PLANTAO'],
+    }));
+  });
+
+  it('6. cadastra SUPERVISOR_EQUIPE em GEDSI_CODB_NOC', async () => {
+    await habilitarStaging();
+    const wanessa = autenticarComo(wanessaGestoraUnidade);
+    await assertSucceeds(setDoc(doc(wanessa, 'usuarios', 'novo.supervisor.noc'), {
+      login: 'novo.supervisor.noc',
+      nome: 'Novo Supervisor',
+      equipeId: 'GEDSI_CODB_NOC',
+      nivelHierarquico: 5,
+      perfil: 'SUPERVISOR_EQUIPE',
+      escopo: 'EQUIPE',
+      equipesPermitidas: ['GEDSI_CODB_NOC'],
+    }));
+  });
+
+  it('7-8. a mesma coordenadora escolhe uma unidade E uma equipe diferentes da sua própria unidade/equipe, na mesma sessão', async () => {
+    await habilitarStaging();
+    const wanessa = autenticarComo(wanessaGestoraUnidade);
+    await assertSucceeds(setDoc(doc(wanessa, 'usuarios', 'escolha.unidade.diferente'), {
+      login: 'escolha.unidade.diferente',
+      nome: 'Escolha Unidade Diferente',
+      equipeId: 'GEDSI_CODB_NOC',
+      nivelHierarquico: 4,
+      perfil: 'GESTOR_UNIDADE',
+      escopo: 'UNIDADE',
+      unidadeId: 'GEDSI_COSI',
+      unidadesPermitidas: ['GEDSI_COSI'],
+    }));
+    await assertSucceeds(setDoc(doc(wanessa, 'usuarios', 'escolha.equipe.diferente'), {
+      login: 'escolha.equipe.diferente',
+      nome: 'Escolha Equipe Diferente',
+      equipeId: 'GEDSI_COSI_SOC',
+      nivelHierarquico: 6,
+    }));
+  });
+
+  it('9. nunca cria ADMIN_SISTEMA, mesmo em staging', async () => {
+    await habilitarStaging();
+    const wanessa = autenticarComo(wanessaGestoraUnidade);
+    await assertFails(setDoc(doc(wanessa, 'usuarios', 'admin.forjado.livre'), {
+      login: 'admin.forjado.livre',
+      nome: 'Admin Forjado',
+      equipeId: 'GEDSI_CODB_NOC',
+      nivelHierarquico: 0,
+      perfil: 'ADMIN_SISTEMA',
+      escopo: 'GLOBAL',
+    }));
+  });
+
+  it('10. nunca cria escopo GLOBAL, mesmo com perfil de equipe/unidade válido', async () => {
+    await habilitarStaging();
+    const wanessa = autenticarComo(wanessaGestoraUnidade);
+    await assertFails(setDoc(doc(wanessa, 'usuarios', 'escopo.global.forjado.livre'), {
+      login: 'escopo.global.forjado.livre',
+      nome: 'Escopo Global Forjado',
+      equipeId: 'GEDSI_CODB_NOC',
+      nivelHierarquico: 4,
+      perfil: 'GESTOR_EQUIPE',
+      escopo: 'GLOBAL',
+      equipesPermitidas: ['GEDSI_CODB_NOC'],
+    }));
+    await assertFails(setDoc(doc(wanessa, 'usuarios', 'escopo.global.forjado.unidade'), {
+      login: 'escopo.global.forjado.unidade',
+      nome: 'Escopo Global Forjado 2',
+      equipeId: 'GEDSI_CODB_NOC',
+      nivelHierarquico: 4,
+      perfil: 'GESTOR_UNIDADE',
+      escopo: 'GLOBAL',
+      unidadeId: 'GEDSI_COSI',
+      unidadesPermitidas: ['GEDSI_COSI'],
+    }));
+  });
+
+  it('11. não promove ninguém para ADMIN_SISTEMA via update, mesmo em staging', async () => {
+    await habilitarStaging();
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'usuarios', 'colega.para.promover'), {
+        login: 'colega.para.promover',
+        nome: 'Colega',
+        equipeId: 'GEDSI_CODB_NOC',
+        nivelHierarquico: 6,
+      });
+    });
+    const wanessa = autenticarComo(wanessaGestoraUnidade);
+    await assertFails(updateDoc(doc(wanessa, 'usuarios', 'colega.para.promover'), {
+      perfil: 'ADMIN_SISTEMA',
+      escopo: 'GLOBAL',
+    }));
+  });
+
+  it('12. sem config/ambiente.staging=true, o cadastro livre continua indisponível (fail-closed)', async () => {
+    const wanessa = autenticarComo(wanessaGestoraUnidade);
+    await assertFails(setDoc(doc(wanessa, 'usuarios', 'sem.staging.livre'), {
+      login: 'sem.staging.livre',
+      nome: 'Sem Staging',
+      equipeId: 'GEDSI_COSI_SOC',
+      nivelHierarquico: 6,
+    }));
+  });
+});

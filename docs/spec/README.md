@@ -19,7 +19,7 @@ Esta pasta concentra a fonte normativa atual do projeto. Checkpoints e arquivos 
 
 ## Specs herdadas ainda válidas por domínio
 
-- `STAGING_RESET_HIERARQUIA_ICI.md` — fase STAGING-RESET-HIERARQUIA-ICI-1: reset controlado de staging, IDs canônicos, `souCoordenadorOperacionalStaging()`.
+- `STAGING_RESET_HIERARQUIA_ICI.md` — fases STAGING-RESET-HIERARQUIA-ICI-1/2: reset controlado de staging, IDs canônicos de unidade/equipe, `souCoordenadorOperacionalStaging()`, cadastro livre de unidade/equipe e descrição textual de nível hierárquico.
 - `HIERARQUIA_ORGANIZACIONAL.md` — domínio organizacional, permissões e regra de não hardcode.
 - `ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` — estrutura organizacional de referência do produto, com níveis, unidades, siglas e regras sanitizadas para cadastro/contexto.
 - `ESCOPO_OPERACIONAL_MATRIZ.md` — fonte normativa atual para quem administra ou apenas consulta cada Jornada/Plantão.
@@ -95,7 +95,8 @@ conciliação herda o período detectado na planilha.
 - `GrupoPlantao ativo:false` não aparece em seletor operacional ou Wizard; aparece somente na Administração com badge Inativo.
 - Visão geral e seletor superior usam `equipeId` para Jornada e `grupoId` para Plantão; nomes visuais não são chave de busca.
 - Não tratar ausência de publicação como ausência total quando existe rascunho.
-- Não hardcodar `COSI`, `SOC`, `NOC`, `CODB`, `GEDSI`, `EQ_SOC`, `EQ_PLANTAO_COSI` ou `EQ_SEG` como regra de negócio — vale também para os IDs canônicos novos (`GEDSI_COSI_SOC`, `GEDSI_COSI_PLANTAO`, `GEDSI_CODB_NOC`, `PLANTAO_GEDSI_COSI`): eles existem como DADO de staging (`scripts/staging/hierarquia-ici.mjs`), nunca como literal em `firestore.rules`/`lib/`.
+- Não hardcodar `COSI`, `SOC`, `NOC`, `CODB`, `GEDSI`, `EQ_SOC`, `EQ_PLANTAO_COSI` ou `EQ_SEG` como regra de negócio — vale também para os IDs canônicos novos (`GEDSI_COSI`, `GEDSI_CODB`, `GEDSI_COCR`, `GEDSI_COSI_SOC`, `GEDSI_COSI_PLANTAO`, `GEDSI_CODB_NOC`, `PLANTAO_GEDSI_COSI`): eles existem como DADO de staging (`scripts/staging/hierarquia-ici.mjs`), nunca como literal em `firestore.rules`/`lib/`.
+- Não persistir `unidadeId` de uma coordenação como a sigla solta (`COSI`, `CODB`, `COCR`...) — sempre prefixado pela gerência-mãe (`GEDSI_COSI`, `GEDSI_CODB`, ...). `scripts/staging/validate-staging.mjs` falha explicitamente se encontrar isso.
 - Quick-add/Modal de Plantão deve oferecer Noturno `19:00 → 07:00`, `5 horas` `19:00 → 00:00`, `24 horas` `19:00 → 19:00` e exceção manual.
 - Dados importados atípicos são preservados; a UI pode alertar, mas não normalizar silenciosamente.
 - Nenhuma versão estável (staging ou produção) pode depender de criação manual de `gruposPlantao/{grupoId}` pelo Console do Firestore — o produto (Wizard/Administração) e o seed (`scripts/seed-organizacao.mjs`) sempre oferecem um caminho oficial.

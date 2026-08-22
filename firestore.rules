@@ -473,6 +473,38 @@ service cloud.firestore {
         );
     }
 
+    /**
+     * STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe por
+     * coordenador em staging: diferente de `perfilCadastroPorResponsavelValido()`
+     * (que exige `cadastroOperacional` apontando para um alvo que o
+     * responsável já administra via Matriz/ACL), esta função NUNCA checa se
+     * quem cadastra administra a unidade/equipe escolhida — só valida a
+     * COMBINAÇÃO perfil/escopo/unidade/equipe em si, para nunca travar o
+     * coordenador numa lista incompleta de unidades/equipes conhecidas.
+     *
+     * Ainda assim, `ADMIN_SISTEMA` e escopo `GLOBAL` continuam
+     * estruturalmente impossíveis por aqui (enumeração fechada, igual a
+     * `perfilCadastroPorResponsavelValido()`).
+     */
+    function perfilCadastroLivreStagingValido(dados) {
+      return (
+          dados.get('perfil', null) == null
+          && dados.get('escopo', null) == null
+        )
+        || (
+          dados.get('perfil', null) == 'GESTOR_UNIDADE'
+          && dados.get('escopo', null) == 'UNIDADE'
+          && dados.get('unidadeId', null) is string && dados.unidadeId.size() > 0
+          && dados.get('unidadesPermitidas', []) is list && dados.unidadesPermitidas.size() > 0
+        )
+        || (
+          dados.get('perfil', null) in ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE']
+          && dados.get('escopo', null) == 'EQUIPE'
+          && dados.equipeId is string && dados.equipeId.size() > 0
+          && dados.get('equipesPermitidas', []) is list && dados.equipesPermitidas.size() > 0
+        );
+    }
+
     function podeLerEscalaPlantao(grupoId) {
       return podeAdministrarEscalaPlantao(grupoId)
         || matrizConcedeConsultaPlantao(grupoId)
@@ -578,6 +610,19 @@ service cloud.firestore {
             && request.resource.data.get('unidadeId', null) == null
             && request.resource.data.get('unidadesPermitidas', null) == null
             && request.resource.data.get('equipesPermitidas', null) == null
+          )
+
+          // STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe:
+          // deliberadamente NÃO exige `contextoCadastroOperacionalAutorizaUsuario()`
+          // nem `podeAdministrarJornada()` sobre o alvo escolhido (isso é
+          // exatamente o que travava o coordenador numa lista incompleta de
+          // unidades/equipes). `cadastroOperacional` fica de fora (metadado da
+          // delegação via Matriz, sem sentido aqui) — a auditoria desta ação
+          // vem de `registrarAuditoriaOperacional()`, não deste campo.
+          || (
+            souCoordenadorOperacionalStaging()
+            && request.resource.data.get('cadastroOperacional', null) == null
+            && perfilCadastroLivreStagingValido(request.resource.data)
           )
         );
 

@@ -54,18 +54,18 @@ const UNIDADES_SEM_CAMINHO = [
   { unidadeId: 'ASRIM', sigla: 'ASRIM', nome: 'Assessoria de Relações Institucionais e Mercado', tipo: 'ASSESSORIA', parentId: 'PRE', ordem: 5, observacao: null },
 
   { unidadeId: 'GEDSI', sigla: 'GEDSI', nome: 'Gerência de Data Center e Segurança da Informação', tipo: 'GERENCIA', parentId: 'DIO', ordem: 1, observacao: null },
-  { unidadeId: 'COSI', sigla: 'COSI', nome: 'Coordenação de Segurança da Informação', tipo: 'COORDENACAO', parentId: 'GEDSI', ordem: 1, observacao: null },
-  { unidadeId: 'CODB', sigla: 'CODB', nome: 'Coordenação de Data Center e Banco de Dados', tipo: 'COORDENACAO', parentId: 'GEDSI', ordem: 2, observacao: null },
-  { unidadeId: 'COCR', sigla: 'COCR', nome: 'Coordenação de Conectividade e Redes', tipo: 'COORDENACAO', parentId: 'GEDSI', ordem: 3, observacao: null },
+  { unidadeId: 'GEDSI_COSI', sigla: 'COSI', nome: 'Coordenação de Segurança da Informação', tipo: 'COORDENACAO', parentId: 'GEDSI', ordem: 1, observacao: null },
+  { unidadeId: 'GEDSI_CODB', sigla: 'CODB', nome: 'Coordenação de Data Center e Banco de Dados', tipo: 'COORDENACAO', parentId: 'GEDSI', ordem: 2, observacao: null },
+  { unidadeId: 'GEDSI_COCR', sigla: 'COCR', nome: 'Coordenação de Conectividade e Redes', tipo: 'COORDENACAO', parentId: 'GEDSI', ordem: 3, observacao: null },
 
   { unidadeId: 'GESUP', sigla: 'GESUP', nome: 'Gerência de Infraestrutura e Suporte Técnico', tipo: 'GERENCIA', parentId: 'DIO', ordem: 2, observacao: null },
-  { unidadeId: 'CSTE', sigla: 'CSTE', nome: 'Coordenação de Suporte em TI Externo', tipo: 'COORDENACAO', parentId: 'GESUP', ordem: 1, observacao: null },
-  { unidadeId: 'COAT', sigla: 'COAT', nome: 'Coordenação de Assistência Técnica', tipo: 'COORDENACAO', parentId: 'GESUP', ordem: 2, observacao: null },
-  { unidadeId: 'COSD', sigla: 'COSD', nome: 'Coordenação de Service Desk', tipo: 'COORDENACAO', parentId: 'GESUP', ordem: 3, observacao: null },
+  { unidadeId: 'GESUP_CSTE', sigla: 'CSTE', nome: 'Coordenação de Suporte em TI Externo', tipo: 'COORDENACAO', parentId: 'GESUP', ordem: 1, observacao: null },
+  { unidadeId: 'GESUP_COAT', sigla: 'COAT', nome: 'Coordenação de Assistência Técnica', tipo: 'COORDENACAO', parentId: 'GESUP', ordem: 2, observacao: null },
+  { unidadeId: 'GESUP_COSD', sigla: 'COSD', nome: 'Coordenação de Service Desk', tipo: 'COORDENACAO', parentId: 'GESUP', ordem: 3, observacao: null },
 
   { unidadeId: 'GEOPE', sigla: 'GEOPE', nome: 'Gerência de Operações', tipo: 'GERENCIA', parentId: 'DIO', ordem: 3, observacao: null },
-  { unidadeId: 'COAC', sigla: 'COAC', nome: 'Coordenação de Atendimento ao Cidadão', tipo: 'COORDENACAO', parentId: 'GEOPE', ordem: 1, observacao: null },
-  { unidadeId: 'COPC', sigla: 'COPC', nome: 'Coordenação de Operações Continuadas', tipo: 'COORDENACAO', parentId: 'GEOPE', ordem: 2, observacao: null },
+  { unidadeId: 'GEOPE_COAC', sigla: 'COAC', nome: 'Coordenação de Atendimento ao Cidadão', tipo: 'COORDENACAO', parentId: 'GEOPE', ordem: 1, observacao: null },
+  { unidadeId: 'GEOPE_COPC', sigla: 'COPC', nome: 'Coordenação de Operações Continuadas', tipo: 'COORDENACAO', parentId: 'GEOPE', ordem: 2, observacao: null },
 ];
 
 /**
@@ -140,8 +140,8 @@ export const EQUIPES = Object.freeze([
     id: 'GEDSI_COSI_SOC',
     sigla: 'SOC',
     nome: 'SOC',
-    unidadeId: 'COSI',
-    caminhoUnidade: caminhoDaUnidade('COSI'),
+    unidadeId: 'GEDSI_COSI',
+    caminhoUnidade: caminhoDaUnidade('GEDSI_COSI'),
     ativa: true,
     ordem: 1,
     // Para IDs canônicos, o código organizacional derivado (formato
@@ -156,8 +156,8 @@ export const EQUIPES = Object.freeze([
     // (entidade diferente, ver MAPEAMENTO_LEGADO/GRUPO_PLANTAO abaixo).
     sigla: 'PLANTAO',
     nome: 'Plantão COSI',
-    unidadeId: 'COSI',
-    caminhoUnidade: caminhoDaUnidade('COSI'),
+    unidadeId: 'GEDSI_COSI',
+    caminhoUnidade: caminhoDaUnidade('GEDSI_COSI'),
     ativa: true,
     ordem: 2,
     codigoOrganizacional: 'GEDSI_COSI_PLANTAO',
@@ -167,8 +167,8 @@ export const EQUIPES = Object.freeze([
     id: 'GEDSI_CODB_NOC',
     sigla: 'NOC',
     nome: 'NOC',
-    unidadeId: 'CODB',
-    caminhoUnidade: caminhoDaUnidade('CODB'),
+    unidadeId: 'GEDSI_CODB',
+    caminhoUnidade: caminhoDaUnidade('GEDSI_CODB'),
     ativa: true,
     ordem: 1,
     codigoOrganizacional: 'GEDSI_CODB_NOC',
@@ -214,12 +214,18 @@ export const USUARIOS_SEED = Object.freeze([
     ativo: true,
   },
   {
+    // STAGING-RESET-HIERARQUIA-ICI-2 — Marina coordena a UNIDADE GEDSI_COSI
+    // inteira (SOC + Plantão COSI), não só a equipe SOC. `equipeId` fica só
+    // como compatibilidade visual (nunca a fonte de autorização — essa é
+    // `unidadeId`/`unidadesPermitidas`, ver docs/spec/STAGING_RESET_HIERARQUIA_ICI.md § 2).
     login: 'marina.azevedo',
     nome: 'Marina Azevedo',
     equipeId: 'GEDSI_COSI_SOC',
+    unidadeId: 'GEDSI_COSI',
+    unidadesPermitidas: ['GEDSI_COSI'],
     nivelHierarquico: 4,
-    perfil: 'GESTOR_EQUIPE',
-    escopo: 'EQUIPE',
+    perfil: 'GESTOR_UNIDADE',
+    escopo: 'UNIDADE',
     ativo: true,
   },
   {
@@ -232,12 +238,16 @@ export const USUARIOS_SEED = Object.freeze([
     ativo: true,
   },
   {
+    // STAGING-RESET-HIERARQUIA-ICI-2 — mesma lógica de Marina: Wanessa
+    // coordena a UNIDADE GEDSI_CODB inteira, não só a equipe NOC.
     login: 'wanessa.moriyama',
     nome: 'Wanessa Moriyama',
     equipeId: 'GEDSI_CODB_NOC',
+    unidadeId: 'GEDSI_CODB',
+    unidadesPermitidas: ['GEDSI_CODB'],
     nivelHierarquico: 4,
-    perfil: 'SUPERVISOR_EQUIPE',
-    escopo: 'EQUIPE',
+    perfil: 'GESTOR_UNIDADE',
+    escopo: 'UNIDADE',
     ativo: true,
   },
 ]);
@@ -268,7 +278,7 @@ export const MATRIZ_INICIAL = Object.freeze([
     alvoNome: GRUPO_PLANTAO.nome,
     unidadeId: GRUPO_PLANTAO.unidadeResponsavelId,
     caminhoUnidade: GRUPO_PLANTAO.caminhoUnidadeResponsavel,
-    responsaveisLogin: ['coordenador.plantao.cosi'],
+    responsaveisLogin: ['coordenador.plantao.cosi', 'marina.azevedo'],
     responsaveisEquipe: [],
     equipesConsulta: GRUPO_PLANTAO.equipesConsulta,
     ativo: true,

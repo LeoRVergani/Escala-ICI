@@ -1,8 +1,22 @@
-# Especificação — STAGING-RESET-HIERARQUIA-ICI-1
+# Especificação — STAGING-RESET-HIERARQUIA-ICI (fases 1 e 2)
 
 **Status:** implementado (código, scripts dry-run, specs, testes) — reset real,
 seed real, deploy de Rules/Índices e build/deploy de produção **não
 executados**, aguardando aprovação humana explícita.
+
+Este documento cobre duas fases:
+
+- **STAGING-RESET-HIERARQUIA-ICI-1** — reset controlado do staging com o
+  organograma canônico do ICI e liberação operacional ampla (Jornada/
+  Plantão/trocas/Matriz) para coordenador/supervisor, exclusiva de staging.
+- **STAGING-RESET-HIERARQUIA-ICI-2** — corrige dois problemas encontrados
+  após o reset: (a) `COSI`/`CODB`/`COCR` eram usados como `unidadeId`
+  persistido, quando deveriam ser só a `sigla` (o `unidadeId` técnico é
+  `GEDSI_COSI`/`GEDSI_CODB`/`GEDSI_COCR`); (b) o cadastro de usuário travava
+  o coordenador na própria equipe, quando em staging ele precisa poder
+  cadastrar em qualquer unidade/equipe ativa (ainda não se conhece toda a
+  árvore real do ICI). Também adiciona descrição textual obrigatória para
+  `nivelHierarquico` na UI (nunca só o número/enum cru).
 
 ## 1. Por que esta fase existe
 
@@ -19,6 +33,13 @@ permissão operacional para coordenadores/supervisores **exclusivamente em
 staging**, sem tocar produção — ver `docs/spec/MIGRACAO_IDS_ORGANIZACIONAIS_PRODUCAO.md`
 para o corte de produção correspondente (formalmente separado deste).
 
+Depois do primeiro reset, apareceu um segundo problema (STAGING-RESET-HIERARQUIA-ICI-2):
+o modal de cadastro de usuário continuava prendendo o coordenador na própria
+equipe/unidade, e os IDs de coordenação (`COSI`/`CODB`/`COCR`) tinham sido
+persistidos como `unidadeId` — quando o padrão canônico exige o prefixo da
+gerência (`GEDSI_COSI`/`GEDSI_CODB`/`GEDSI_COCR`). As seções 3, 5.5, 6 e 13
+abaixo documentam a correção.
+
 ## 2. Organograma canônico
 
 ```text
@@ -26,22 +47,33 @@ PRE (Presidência)
 ├── DSI (Diretoria de Sistemas e Inovação)
 ├── DIO (Diretoria de Infraestrutura e Operações)
 │   ├── GEDSI (Gerência de Data Center e Segurança da Informação)
-│   │   ├── COSI (Coordenação de Segurança da Informação)
+│   │   ├── GEDSI_COSI (sigla COSI — Coordenação de Segurança da Informação)
 │   │   │   ├── GEDSI_COSI_SOC        [EQUIPE]
 │   │   │   └── GEDSI_COSI_PLANTAO    [EQUIPE]
-│   │   ├── CODB (Coordenação de Data Center e Banco de Dados)
+│   │   ├── GEDSI_CODB (sigla CODB — Coordenação de Data Center e Banco de Dados)
 │   │   │   └── GEDSI_CODB_NOC        [EQUIPE]
-│   │   └── COCR (Coordenação de Conectividade e Redes)
+│   │   └── GEDSI_COCR (sigla COCR — Coordenação de Conectividade e Redes)
 │   ├── GESUP (Gerência de Infraestrutura e Suporte Técnico)
-│   │   ├── CSTE, COAT, COSD (Coordenações)
+│   │   ├── GESUP_CSTE, GESUP_COAT, GESUP_COSD (Coordenações)
 │   └── GEOPE (Gerência de Operações)
-│       └── COAC, COPC (Coordenações)
+│       └── GEOPE_COAC, GEOPE_COPC (Coordenações)
 ├── DAF (Diretoria Administrativa e Financeira)
 └── DJC (Diretoria Jurídica e Compliance)
 
 PRE
 └── ASRIM (Assessoria de Relações Institucionais e Mercado)
 ```
+
+**STAGING-RESET-HIERARQUIA-ICI-2 — `unidadeId` sempre prefixado pela
+gerência, nunca a sigla solta**: `COSI`/`CODB`/`COCR` (e as coordenações de
+GESUP/GEOPE) são a `sigla` de exibição, nunca o `unidadeId` persistido —
+esse é sempre `GEDSI_COSI`/`GEDSI_CODB`/`GEDSI_COCR`/`GESUP_CSTE`/
+`GESUP_COAT`/`GESUP_COSD`/`GEOPE_COAC`/`GEOPE_COPC` (padrão
+`<GERENCIA>_<COORDENACAO>`, mesma lógica de `GEDSI_COSI_SOC` para equipes —
+ver `docs/spec/MIGRACAO_IDS_ORGANIZACIONAIS_PRODUCAO.md`). Isso corrige um
+erro da primeira versão desta fase, em que `COSI`/`CODB`/`COCR` foram
+persistidos como `unidadeId` — indistinguíveis da sigla, e sem o prefixo que
+o restante do organograma (equipes, Matriz) já usa.
 
 Nomes completos, siglas e o restante da árvore (DSI/DAF/DJC/GESUP/GEOPE por
 inteiro) vêm de `docs/spec/ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` §§ 3-4 —
@@ -179,14 +211,96 @@ para `PLANTAO`) — nunca abre escrita cross-equipe/unidade. Isso existe para o
 teste do organograma novo não travar caso a Matriz semeada fique incompleta
 ou desatualizada durante os testes.
 
+## 5.5 Cadastro livre de unidade/equipe (STAGING-RESET-HIERARQUIA-ICI-2)
+
+Depois do reset, o modal de cadastro de usuário (Administração → Usuários)
+continuava travando o coordenador na própria equipe (`equipeIdCadastroUsuario`
+sempre igual a `usuarioEfetivo.equipeId`) — inclusive para `GESTOR_UNIDADE`,
+que administra uma coordenação inteira, não uma equipe. Em staging, ainda não
+se conhece toda a árvore real do ICI, então travar numa lista incompleta é
+pior do que liberar a escolha.
+
+**Regra final**: quando `config/ambiente.staging == true` **e**
+`VITE_ESCALA_STAGING_PERMISSAO_AMPLA=true`, qualquer
+`ADMIN_SISTEMA`/`GESTOR_UNIDADE`/`GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` pode
+cadastrar um usuário escolhendo livremente `unidadeId`, `unidadesPermitidas`,
+`equipeId`, `equipesPermitidas`, perfil (`COLABORADOR` implícito,
+`GESTOR_UNIDADE`, `GESTOR_EQUIPE` ou `SUPERVISOR_EQUIPE`) e o escopo
+correspondente — **sem** checar se quem cadastra administra a unidade/equipe
+escolhida (isso é precisamente o que travava o coordenador).
+
+Rules (`firestore.rules`) — novo terceiro ramo em `match /usuarios/{login} { allow create }`,
+paralelo aos dois já existentes (`souAdminSistema()` e a delegação clássica
+via `contextoCadastroOperacionalAutorizaUsuario()`):
+
+```
+|| (
+  souCoordenadorOperacionalStaging()
+  && request.resource.data.get('cadastroOperacional', null) == null
+  && perfilCadastroLivreStagingValido(request.resource.data)
+)
+```
+
+`perfilCadastroLivreStagingValido(dados)` valida só a COMBINAÇÃO
+perfil/escopo/unidade/equipe (nunca se o alvo é administrado por quem
+cadastra):
+
+- `perfil` ausente → `escopo` também ausente (colaborador comum).
+- `perfil == 'GESTOR_UNIDADE'` → `escopo == 'UNIDADE'`, `unidadeId` (string
+  não vazia) e `unidadesPermitidas` (lista não vazia).
+- `perfil in ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE']` → `escopo == 'EQUIPE'`,
+  `equipeId` (string não vazia) e `equipesPermitidas` (lista não vazia).
+- Qualquer outra combinação (inclusive `perfil == 'ADMIN_SISTEMA'` ou
+  `escopo == 'GLOBAL'`) é recusada — enumeração fechada, igual a
+  `perfilCadastroPorResponsavelValido()`.
+
+`cadastroOperacional` fica de fora de propósito: esse metadado é da
+delegação via Matriz (fase 1), sem sentido para o cadastro livre — a
+auditoria vem de `registrarAuditoriaOperacional()`, não desse campo.
+
+Client-side espelho: `perfilDelegavelPorResponsavelOperacional(perfil, permitirAmploStaging)`
+(`lib/adminGuards.ts`) passa a aceitar `GESTOR_UNIDADE` como terceiro perfil
+delegável quando `permitirAmploStaging` (= `usarCadastroLivreStaging` no
+Dashboard) é `true`. O modal de cadastro (`DashboardApp.tsx`) troca o campo
+"Equipe" (antes um `<input disabled>`) por dois `<select>` livres — Unidade e
+Equipe, populados por `unidadesAdmin`/`equipesAdmin` (já sem filtro de
+escopo, lidos com `allow read: if autenticado()`) — e o `<select>` "Acesso no
+sistema" passa a oferecer também "Gestor de unidade". Vazio mostra
+**"Nenhuma unidade ativa encontrada."**/**"Nenhuma equipe ativa
+encontrada."**, nunca um selectbox mudo.
+
+Persistência (`salvarFormularioUsuario()`): o perfil escolhido decide os
+campos gravados —
+
+- `GESTOR_UNIDADE` → `escopo: 'UNIDADE'`, `unidadeId` = unidade escolhida,
+  `unidadesPermitidas: [unidadeId]`.
+- `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` → `escopo: 'EQUIPE'`, `equipesPermitidas: [equipeId]`.
+- Sem perfil (colaborador) → só `equipeId` = equipe escolhida.
+
+Nunca inverte: `unidadeId` sempre recebe uma unidade real, `equipeId` sempre
+uma equipe real — ver § 13 e `validarNaoInverteUnidadeEquipe()`
+(`scripts/staging/validate-staging.mjs`) para a checagem correspondente do
+lado dos scripts.
+
 ## 6. Usuários de teste
 
-| Login | Perfil | Escopo | equipeId |
-|---|---|---|---|
-| `admin` | `ADMIN_SISTEMA` | `GLOBAL` | `ADMIN_ICI` (placeholder técnico, não operacional) |
-| `marina.azevedo` | `GESTOR_EQUIPE` | `EQUIPE` | `GEDSI_COSI_SOC` |
-| `coordenador.plantao.cosi` | `GESTOR_EQUIPE` | `EQUIPE` | `GEDSI_COSI_PLANTAO` |
-| `wanessa.moriyama` | `SUPERVISOR_EQUIPE` | `EQUIPE` | `GEDSI_CODB_NOC` |
+| Login | Perfil | Escopo | unidadeId / unidadesPermitidas | equipeId |
+|---|---|---|---|---|
+| `admin` | `ADMIN_SISTEMA` | `GLOBAL` | — | `ADMIN_ICI` (placeholder técnico, não operacional) |
+| `marina.azevedo` | `GESTOR_UNIDADE` | `UNIDADE` | `GEDSI_COSI` / `['GEDSI_COSI']` | `GEDSI_COSI_SOC` (compat visual) |
+| `coordenador.plantao.cosi` | `GESTOR_EQUIPE` | `EQUIPE` | — | `GEDSI_COSI_PLANTAO` |
+| `wanessa.moriyama` | `GESTOR_UNIDADE` | `UNIDADE` | `GEDSI_CODB` / `['GEDSI_CODB']` | `GEDSI_CODB_NOC` (compat visual) |
+
+**STAGING-RESET-HIERARQUIA-ICI-2** — Marina e Wanessa passam a ser
+`GESTOR_UNIDADE` da coordenação inteira (`GEDSI_COSI`/`GEDSI_CODB`), não mais
+`GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` de uma única equipe: Marina "cuida do
+COSI inteiro" (SOC + Plantão COSI), Wanessa cuida do CODB inteiro (NOC, hoje
+a única equipe ali). `equipeId` continua presente só como compatibilidade
+visual — nunca a fonte de autorização, que é `unidadeId`/`unidadesPermitidas`
+(ver `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 2 do pedido original e
+`lib/sessao.ts:unidadesPermitidasEfetivas()`). `coordenador.plantao.cosi`
+continua como `GESTOR_EQUIPE` de `GEDSI_COSI_PLANTAO` — um segundo fixture,
+equipe-scoped, útil para testar delegação por equipe além de por unidade.
 
 Fonte única: `USUARIOS_SEED` em `scripts/staging/hierarquia-ici.mjs`. Nenhum
 nome de pessoa é hardcoded em Rules ou em `lib/` — só existem como dado de
@@ -235,7 +349,12 @@ credencial, antes de inicializar — nunca lê nem expõe a chave privada).
    criado corretamente e que **nenhum documento novo** usa `EQ_SOC`,
    `EQ_PLANTAO_COSI`, `EQ_NOC` ou o `grupoId` legado `PLANTAO_COSI` (varre o
    grafo mínimo de referências de `docs/spec/MIGRACAO_IDS_ORGANIZACIONAIS_PRODUCAO.md`
-   § 3). Sai com código 1 se qualquer checagem falhar.
+   § 3). **STAGING-RESET-HIERARQUIA-ICI-2** acrescenta duas checagens:
+   `validarSemUnidadeIdSimples()` (falha se `unidadesOrganizacionais` tiver
+   um documento com ID `COSI`/`CODB`/`COCR`) e
+   `validarNaoInverteUnidadeEquipe()` (falha se um `unidadeId` real aparecer
+   salvo como `equipeId`, ou vice-versa, em `equipes`/`unidadesOrganizacionais`/`usuarios`).
+   Sai com código 1 se qualquer checagem falhar.
 
 Scripts npm: `staging:backup`, `staging:reset`, `staging:seed`,
 `staging:validate`.
@@ -265,29 +384,71 @@ administrar via Matriz uma equipe diferente da própria).
 - Delete físico de `auditoriaAdmin`, `historicoPublicacoes`,
   `publicacoesEscala`, `competenciasPlantao`, `gruposPlantao`,
   `escoposOperacionais` — sempre `if false`.
-- Cadastro delegado de coordenador/supervisor continua restrito a
-  `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` com escopo `EQUIPE`
+- Cadastro delegado de coordenador/supervisor **fora de staging** continua
+  restrito a `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` com escopo `EQUIPE`
   (`perfilCadastroPorResponsavelValido()`, já era assim antes desta fase —
-  enumeração fechada, não precisou mudar).
+  enumeração fechada, não precisou mudar). **Em staging**, o cadastro livre
+  (§ 5.5) também aceita `GESTOR_UNIDADE`/escopo `UNIDADE` — mas `ADMIN_SISTEMA`
+  e escopo `GLOBAL` continuam impossíveis nos dois casos.
+- Unidade e equipe nunca podem ser invertidas na persistência: um
+  `unidadeId` real nunca vira `equipeId`, e vice-versa (§ 13,
+  `validarNaoInverteUnidadeEquipe()`).
 
 ## 11. Testes
 
-- **Rules** (`tests/firebase/firestore.rules.test.ts`, describe
-  `STAGING-RESET-HIERARQUIA-ICI-1`): com e sem `config/ambiente`, provando
-  fail-closed sem o doc; GESTOR_EQUIPE/SUPERVISOR_EQUIPE administram
-  Jornada/Plantão mesmo com Matriz que não os lista; aprovação/recusa de
-  troca; cadastro de colaborador e de coordenador/supervisor restrito;
-  bloqueio de ADMIN_SISTEMA/escopo GLOBAL mesmo em staging; escrita da
-  própria Matriz restrita ao escopo; auditoria gerada só com staging
+- **Rules** (`tests/firebase/firestore.rules.test.ts`, describes
+  `STAGING-RESET-HIERARQUIA-ICI-1` e `STAGING-RESET-HIERARQUIA-ICI-2`): com e
+  sem `config/ambiente`, provando fail-closed sem o doc;
+  GESTOR_EQUIPE/SUPERVISOR_EQUIPE administram Jornada/Plantão mesmo com
+  Matriz que não os lista; aprovação/recusa de troca; cadastro de
+  colaborador e de coordenador/supervisor restrito; cadastro livre de
+  unidade/equipe (colaborador, GESTOR_UNIDADE, GESTOR_EQUIPE,
+  SUPERVISOR_EQUIPE, em qualquer unidade/equipe); bloqueio de
+  ADMIN_SISTEMA/escopo GLOBAL mesmo em staging (cadastro e update); escrita
+  da própria Matriz restrita ao escopo; auditoria gerada só com staging
   habilitado; delete físico sempre negado.
 - **Unit** (`lib/sessao.test.ts`, `lib/escoposOperacionais.test.ts`,
-  `lib/firebase/auditoriaRepository.test.ts`): os helpers client-side e
-  `atorSimulado: null`.
-- **Dados** (`tests/staging-hierarquia-ici.test.mjs`): organograma, IDs
-  canônicos e ausência de IDs legados em `hierarquia-ici.mjs`.
+  `lib/firebase/auditoriaRepository.test.ts`, `lib/adminGuards.test.ts`,
+  `lib/organizacao.test.ts`): os helpers client-side, `atorSimulado: null`,
+  `perfilDelegavelPorResponsavelOperacional(perfil, permitirAmploStaging)`,
+  `rotuloTecnicoUnidade`/`rotuloTecnicoEquipe`,
+  `descreverNivelHierarquico`/`descreverClassificacaoHierarquica`.
+- **Dados** (`tests/staging-hierarquia-ici.test.mjs`): organograma com IDs
+  canônicos de unidade (`GEDSI_COSI`/`GEDSI_CODB`/`GEDSI_COCR`, nunca
+  `COSI`/`CODB`/`COCR` soltos), ausência de IDs legados, Marina/Wanessa como
+  `GESTOR_UNIDADE`, nenhuma inversão unidade/equipe.
 - **Boundaries** (`tests/staging-reset-boundaries.test.mjs`,
-  `tests/dashboard-contexto-escala-boundaries.test.mjs`): dry-run por
-  padrão, confirmação exata, guarda de projeto, env var separada.
+  `tests/dashboard-contexto-escala-boundaries.test.mjs`,
+  `tests/app-boundaries.test.mjs`): dry-run por padrão, confirmação exata,
+  guarda de projeto, env var separada, seletores livres de Unidade/Equipe
+  com rótulo técnico como principal, descrição de nível hierárquico sempre
+  presente.
+
+## 13. Nível hierárquico — descrição textual obrigatória
+
+`nivelHierarquico` nunca aparece cru na UI (só o número, ou só o enum) — ver
+`docs/spec/ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` § 2/§ 5 para o modelo
+completo. Dois conceitos relacionados, mas **não idênticos**, cada um com seu
+próprio helper em `lib/organizacao.ts`:
+
+| Campo | Tipo | Onde vive | Helper | Exemplo de saída |
+|---|---|---|---|---|
+| `Usuario.nivelHierarquico` | número, 0–6 | documento do usuário | `descreverNivelHierarquico(nivel)` | "Nível 4 — Coordenação: administra uma coordenação, como GEDSI_COSI ou GEDSI_CODB." |
+| `UnidadeOrganizacional.nivelHierarquico` | enum `DELIBERATIVO`\|`ESTRATEGICO`\|`TATICO`\|`OPERACIONAL` | documento da unidade | `descreverClassificacaoHierarquica(valor)` | "Tático — gerências, coordenações e supervisões, gestão tática." |
+
+Mapeamento de `descreverNivelHierarquico()`: `0` Administração do sistema
+(ADMIN_SISTEMA) · `1` Presidência/topo institucional · `2` Diretoria/decisão
+estratégica · `3` Gerência/gestão tática · `4` Coordenação/gestão de
+coordenação · `5` Supervisão/gestão operacional de equipe · `6`
+Operacional/execução diária. Um `GESTOR_UNIDADE` de nível 4 administra uma
+unidade cuja classificação é `TATICO` — os dois campos costumam alinhar
+conceitualmente, mas vivem em documentos diferentes e não precisam coincidir
+numericamente (um valor não deriva do outro).
+
+Usado em: modal de cadastro/edição de usuário (`DashboardApp.tsx`, campo
+"Nível hierárquico", sempre com a descrição em `<small>`) e no painel de
+detalhe de unidade em Administração → Hierarquia (linha "Nível hierárquico",
+só quando o campo está presente — retrocompatível com unidades sem o campo).
 
 ## 12. Sequência de aprovação humana (não executada nesta entrega)
 

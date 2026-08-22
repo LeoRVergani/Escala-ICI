@@ -265,6 +265,8 @@ import {
   codigoOrganizacionalEquipe,
   construirArvoreOrganizacional,
   construirArvoreUnidades,
+  descreverClassificacaoHierarquica,
+  descreverNivelHierarquico,
   ehUsuarioTecnicoOuFake,
   formariaCiclo,
   gestoresParaSimulacao,
@@ -272,6 +274,8 @@ import {
   raizesComEquipesSemUnidade,
   rotuloGestorParaSimulacao,
   rotuloOpcaoUnidade,
+  rotuloTecnicoEquipe,
+  rotuloTecnicoUnidade,
   trechoFinalCaminho,
 } from '@/lib/organizacao';
 import { OrganizationBreadcrumb } from '@/components/organizacao/OrganizationBreadcrumb';
@@ -725,6 +729,15 @@ interface FormularioUsuario {
   unidadeId?: string;
   unidadesPermitidas: string[];
   equipesPermitidas: string[];
+
+  /**
+   * STAGING-RESET-HIERARQUIA-ICI-2 — equipe escolhida livremente pelo
+   * coordenador durante o cadastro, quando `PERMITIR_AMPLO_STAGING` está
+   * ligado. Fora desse caso (produção, ou fluxo de vínculo de planilha),
+   * a equipe do cadastro continua vindo de `equipeIdCadastroUsuario`
+   * (contexto fixo), nunca deste campo.
+   */
+  equipeId?: string;
 }
 
 const TIPOS_UNIDADE_ORGANIZACIONAL: TipoUnidadeOrganizacional[] = [
@@ -753,6 +766,19 @@ const PERFIS_DELEGAVEIS_POR_RESPONSAVEL: NonNullable<Usuario['perfil']>[] = [
   'GESTOR_EQUIPE',
   'SUPERVISOR_EQUIPE',
 ];
+
+/** STAGING-RESET-HIERARQUIA-ICI-2 — em staging, GESTOR_UNIDADE também é delegável (ver `perfilDelegavelPorResponsavelOperacional`). */
+const PERFIS_DELEGAVEIS_STAGING: NonNullable<Usuario['perfil']>[] = [
+  'GESTOR_UNIDADE',
+  'GESTOR_EQUIPE',
+  'SUPERVISOR_EQUIPE',
+];
+
+const LABEL_PERFIL_DELEGAVEL: Record<string, string> = {
+  GESTOR_UNIDADE: 'Gestor de unidade',
+  GESTOR_EQUIPE: 'Coordenador da equipe',
+  SUPERVISOR_EQUIPE: 'Supervisor da equipe',
+};
 
 const STATUS_CONCILIACAO_LABEL: Record<LinhaConciliacao['status'], string> = {
   VINCULADO_LOGIN: 'Vinculado automaticamente por login/e-mail',
@@ -3315,12 +3341,26 @@ export function DashboardApp() {
   const grupoCadastroVinculo = participanteVinculoCadastro === null
     ? undefined
     : gruposPlantaoAdmin.find((grupo) => grupo.grupoId === grupoRascunhoEscolhido);
-  const equipeIdCadastroUsuario = participanteVinculoCadastro === null
-    ? usuarioEfetivo?.equipeId ?? ''
-    : grupoCadastroVinculo?.equipeResponsavelId ?? '';
+  /**
+   * STAGING-RESET-HIERARQUIA-ICI-2 — em staging (`PERMITIR_AMPLO_STAGING`),
+   * o cadastro GERAL (não o de vínculo de planilha, que já tem um alvo bem
+   * definido pelo Grupo) deixa de travar automaticamente na equipe do
+   * responsável: o coordenador escolhe livremente qualquer unidade/equipe
+   * ativa (`formularioUsuario.unidadeId`/`formularioUsuario.equipeId`) — ver
+   * `souCoordenadorOperacionalStaging()` em `firestore.rules`, que autoriza
+   * essa escrita sem checar se o autor administra o alvo escolhido.
+   */
+  const usarCadastroLivreStaging = PERMITIR_AMPLO_STAGING
+    && !souAdmin
+    && participanteVinculoCadastro === null;
+  const equipeIdCadastroUsuario = usarCadastroLivreStaging
+    ? formularioUsuario?.equipeId?.trim() ?? ''
+    : participanteVinculoCadastro === null
+      ? usuarioEfetivo?.equipeId ?? ''
+      : grupoCadastroVinculo?.equipeResponsavelId ?? '';
   const rotuloEquipeCadastroUsuario = equipesAdmin.find((equipe) => equipe.id === equipeIdCadastroUsuario)?.nome
     ?? equipeIdCadastroUsuario;
-  const contextoCadastroOperacionalUsuario = usuarioReal === null || souAdmin
+  const contextoCadastroOperacionalUsuario = usuarioReal === null || souAdmin || usarCadastroLivreStaging
     ? undefined
     : grupoCadastroVinculo !== undefined
       && escoposOperacionais.plantoesAdministraveis.some((grupo) => grupo.grupoId === grupoCadastroVinculo.grupoId)
@@ -5752,9 +5792,30 @@ export function DashboardApp() {
     const cadastroNovo = formularioUsuario.loginOriginal === null;
     const perfilDelegado = !souAdmin
       && cadastroNovo
-      && perfilDelegavelPorResponsavelOperacional(formularioUsuario.perfil)
+      && perfilDelegavelPorResponsavelOperacional(formularioUsuario.perfil, usarCadastroLivreStaging)
       ? formularioUsuario.perfil
       : undefined;
+    /**
+     * STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre: diferente do ramo
+     * delegado "clássico" (sempre escopo EQUIPE, na equipe do responsável),
+     * aqui o perfil escolhido decide o escopo e a unidade/equipe é a que o
+     * coordenador escolheu livremente (`formularioUsuario.unidadeId`/
+     * `equipeIdCadastroUsuario`) — nunca a do próprio responsável.
+     */
+    const camposCadastroLivreStaging: Partial<Usuario> = perfilDelegado === 'GESTOR_UNIDADE'
+      ? {
+        perfil: 'GESTOR_UNIDADE',
+        escopo: 'UNIDADE',
+        unidadeId: formularioUsuario.unidadeId,
+        unidadesPermitidas: formularioUsuario.unidadeId ? [formularioUsuario.unidadeId] : [],
+      }
+      : perfilDelegado === 'GESTOR_EQUIPE' || perfilDelegado === 'SUPERVISOR_EQUIPE'
+        ? {
+          perfil: perfilDelegado,
+          escopo: 'EQUIPE',
+          equipesPermitidas: equipeIdCadastroUsuario ? [equipeIdCadastroUsuario] : [],
+        }
+        : {};
     const camposAdministrativos: Partial<Usuario> = souAdmin && participanteVinculoCadastro === null
       ? {
         perfil: formularioUsuario.perfil,
@@ -5763,17 +5824,22 @@ export function DashboardApp() {
         unidadesPermitidas: formularioUsuario.unidadesPermitidas,
         equipesPermitidas: formularioUsuario.equipesPermitidas,
       }
-      : !souAdmin && cadastroNovo ? {
-        perfil: perfilDelegado,
-        escopo: perfilDelegado === undefined ? undefined : 'EQUIPE',
-      } : {};
-    const metadadosCadastro: Partial<Usuario> = !souAdmin && cadastroNovo
+      : usarCadastroLivreStaging && cadastroNovo
+        ? camposCadastroLivreStaging
+        : !souAdmin && cadastroNovo ? {
+          perfil: perfilDelegado,
+          escopo: perfilDelegado === undefined ? undefined : 'EQUIPE',
+        } : {};
+    // O cadastro livre de staging nunca carrega `cadastroOperacional`: a
+    // autorização vem de `souCoordenadorOperacionalStaging()`, não da
+    // delegação via Matriz — as Rules exigem esse campo ausente nesse ramo.
+    const metadadosCadastro: Partial<Usuario> = !souAdmin && cadastroNovo && !usarCadastroLivreStaging
       ? { cadastroOperacional: contextoCadastroOperacionalUsuario }
       : {};
 
     let candidato: Usuario;
     if (formularioUsuario.loginOriginal === null) {
-      const responsavelCadastro = participanteVinculoCadastro === null
+      const responsavelCadastro = participanteVinculoCadastro === null && !usarCadastroLivreStaging
         ? usuarioEfetivo
         : {
           ...usuarioEfetivo,
@@ -5819,15 +5885,25 @@ export function DashboardApp() {
       cadastroNovo
       && !souAdmin
       && cadastroUsuarioConcedeGestao(candidato)
-      && !perfilDelegavelPorResponsavelOperacional(candidato.perfil)
+      && !perfilDelegavelPorResponsavelOperacional(candidato.perfil, usarCadastroLivreStaging)
     ) {
-      setErrosFormularioUsuario([
-        'Para cadastrar outro coordenador, selecione Coordenador da equipe ou Supervisor da equipe. Administração global e gestão de unidade continuam restritas ao ADMIN_SISTEMA.',
-      ]);
+      setErrosFormularioUsuario(usarCadastroLivreStaging
+        ? ['Para cadastrar outro coordenador, selecione Gestor de unidade, Coordenador da equipe ou Supervisor da equipe. Administração global continua restrita ao ADMIN_SISTEMA.']
+        : ['Para cadastrar outro coordenador, selecione Coordenador da equipe ou Supervisor da equipe. Administração global e gestão de unidade continuam restritas ao ADMIN_SISTEMA.']);
       return;
     }
 
-    if (cadastroNovo && !souAdmin && contextoCadastroOperacionalUsuario === undefined) {
+    if (usarCadastroLivreStaging && cadastroNovo && equipeIdCadastroUsuario.trim() === '') {
+      setErrosFormularioUsuario(['Escolha uma equipe para o cadastro.']);
+      return;
+    }
+
+    if (
+      cadastroNovo
+      && !souAdmin
+      && !usarCadastroLivreStaging
+      && contextoCadastroOperacionalUsuario === undefined
+    ) {
       setErrosFormularioUsuario([
         'Você pode cadastrar pessoas somente na equipe de uma Jornada ou Plantão sob sua responsabilidade. Recarregue as operações e confirme o alvo selecionado.',
       ]);
@@ -9011,6 +9087,9 @@ export function DashboardApp() {
                         <div><dt>Unidades filhas</dt><dd>{unidadesFilhas}</dd></div>
                         <div><dt>Equipes associadas</dt><dd>{equipesFilhas}</dd></div>
                         <div><dt>Identificador</dt><dd><code className="login-code">{item.unidadeId}</code></dd></div>
+                        {item.nivelHierarquico !== undefined && (
+                          <div><dt>Nível hierárquico</dt><dd>{descreverClassificacaoHierarquica(item.nivelHierarquico)}</dd></div>
+                        )}
                       </dl>
                       {podeEditar && (
                         <button className="secondary-button" type="button" onClick={() => abrirEdicaoUnidade(item)}>
@@ -9930,10 +10009,51 @@ export function DashboardApp() {
                   onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, cargo: evento.target.value })}
                 />
               </label>
-              <label>
-                Equipe
-                <input value={rotuloEquipeCadastroUsuario} disabled />
-              </label>
+              {usarCadastroLivreStaging ? (
+                <>
+                  <label>
+                    Unidade
+                    <select
+                      value={formularioUsuario.unidadeId ?? ''}
+                      onChange={(evento) => setFormularioUsuario({
+                        ...formularioUsuario,
+                        unidadeId: evento.target.value || undefined,
+                      })}
+                    >
+                      <option value="">Selecione uma unidade</option>
+                      {unidadesAdmin.map((unidade) => (
+                        <option key={unidade.unidadeId} value={unidade.unidadeId}>{rotuloTecnicoUnidade(unidade)}</option>
+                      ))}
+                    </select>
+                    {unidadesAdmin.length === 0 && (
+                      <small className="empty-inline">Nenhuma unidade ativa encontrada.</small>
+                    )}
+                  </label>
+                  <label>
+                    Equipe
+                    <select
+                      value={formularioUsuario.equipeId ?? ''}
+                      onChange={(evento) => setFormularioUsuario({
+                        ...formularioUsuario,
+                        equipeId: evento.target.value || undefined,
+                      })}
+                    >
+                      <option value="">Selecione uma equipe</option>
+                      {equipesAdmin.map((equipe) => (
+                        <option key={equipe.id} value={equipe.id}>{rotuloTecnicoEquipe(equipe)}</option>
+                      ))}
+                    </select>
+                    {equipesAdmin.length === 0 && (
+                      <small className="empty-inline">Nenhuma equipe ativa encontrada.</small>
+                    )}
+                  </label>
+                </>
+              ) : (
+                <label>
+                  Equipe
+                  <input value={rotuloEquipeCadastroUsuario} disabled />
+                </label>
+              )}
               {!souAdmin && formularioUsuario.loginOriginal === null && (
                 <label>
                   Acesso no sistema
@@ -9941,7 +10061,7 @@ export function DashboardApp() {
                     value={formularioUsuario.perfil ?? ''}
                     onChange={(evento) => {
                       const perfil = (evento.target.value || undefined) as FormularioUsuario['perfil'];
-                      const delegaGestao = perfilDelegavelPorResponsavelOperacional(perfil);
+                      const delegaGestao = perfilDelegavelPorResponsavelOperacional(perfil, usarCadastroLivreStaging);
                       setFormularioUsuario({
                         ...formularioUsuario,
                         perfil,
@@ -9952,13 +10072,13 @@ export function DashboardApp() {
                     }}
                   >
                     <option value="">Colaborador da equipe</option>
-                    {PERFIS_DELEGAVEIS_POR_RESPONSAVEL.map((perfil) => (
-                      <option key={perfil} value={perfil}>
-                        {perfil === 'GESTOR_EQUIPE' ? 'Coordenador da equipe' : 'Supervisor da equipe'}
-                      </option>
+                    {(usarCadastroLivreStaging ? PERFIS_DELEGAVEIS_STAGING : PERFIS_DELEGAVEIS_POR_RESPONSAVEL).map((perfil) => (
+                      <option key={perfil} value={perfil}>{LABEL_PERFIL_DELEGAVEL[perfil]}</option>
                     ))}
                   </select>
-                  <small>Você pode cadastrar colaboradores, coordenadores e supervisores somente nesta equipe.</small>
+                  <small>{usarCadastroLivreStaging
+                    ? 'Em staging, você pode cadastrar colaboradores, gestores de unidade, coordenadores e supervisores em qualquer unidade/equipe ativa.'
+                    : 'Você pode cadastrar colaboradores, coordenadores e supervisores somente nesta equipe.'}</small>
                 </label>
               )}
               <label>
@@ -9967,16 +10087,14 @@ export function DashboardApp() {
                   type="number"
                   min={!souAdmin
                     && formularioUsuario.loginOriginal === null
-                    && !perfilDelegavelPorResponsavelOperacional(formularioUsuario.perfil) ? 6 : 1}
+                    && !perfilDelegavelPorResponsavelOperacional(formularioUsuario.perfil, usarCadastroLivreStaging) ? 6 : 1}
                   value={formularioUsuario.nivelHierarquico}
                   onChange={(evento) => setFormularioUsuario({
                     ...formularioUsuario,
                     nivelHierarquico: Number(evento.target.value),
                   })}
                 />
-                {!souAdmin && formularioUsuario.loginOriginal === null && (
-                  <small>O nível descreve a hierarquia; o campo Acesso no sistema define explicitamente coordenação ou supervisão.</small>
-                )}
+                <small>{descreverNivelHierarquico(formularioUsuario.nivelHierarquico)}</small>
               </label>
               <label>
                 Turno padrão

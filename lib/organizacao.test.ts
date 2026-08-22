@@ -14,6 +14,8 @@ import {
   codigoOrganizacionalEquipe,
   construirArvoreOrganizacional,
   construirArvoreUnidades,
+  descreverClassificacaoHierarquica,
+  descreverNivelHierarquico,
   ehUsuarioTecnicoOuFake,
   formariaCiclo,
   gestoresParaSimulacao,
@@ -22,6 +24,8 @@ import {
   rotuloCompacto,
   rotuloGestorParaSimulacao,
   rotuloOpcaoUnidade,
+  rotuloTecnicoEquipe,
+  rotuloTecnicoUnidade,
   rotuloUnidadePorId,
   trechoFinalCaminho,
   type NoArvoreOrganizacional,
@@ -174,6 +178,64 @@ describe('rotuloOpcaoUnidade', () => {
     expect(rotuloOpcaoUnidade(cosi, todasUnidades)).toBe('COSI — GEDSI > COSI');
     expect(rotuloOpcaoUnidade(codb, todasUnidades)).toBe('CODB — GEDSI > CODB');
     expect(rotuloOpcaoUnidade(supervisorTi, todasUnidades)).toBe('SUPERVISOR_TI — CODB > Supervisor de TI');
+  });
+});
+
+/**
+ * STAGING-RESET-HIERARQUIA-ICI-2 — rótulos do cadastro LIVRE de
+ * unidade/equipe: o valor técnico (unidadeId/id) é sempre a parte
+ * principal/à esquerda, nunca um nome amigável sozinho. Ver
+ * `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 4.
+ */
+describe('rotuloTecnicoUnidade / rotuloTecnicoEquipe', () => {
+  it('leva o ID técnico como texto principal, nome só como complemento entre parênteses', () => {
+    expect(rotuloTecnicoUnidade(unidade({ unidadeId: 'GEDSI_COSI', nome: 'Coordenação de Segurança da Informação' })))
+      .toBe('GEDSI_COSI (Coordenação de Segurança da Informação)');
+    expect(rotuloTecnicoEquipe(equipeBase({ id: 'GEDSI_COSI_SOC', nome: 'SOC' })))
+      .toBe('GEDSI_COSI_SOC (SOC)');
+  });
+
+  it('nunca produz o padrão "nome — sigla" (nome amigável como principal)', () => {
+    const rotulo = rotuloTecnicoEquipe(equipeBase({ id: 'GEDSI_COSI_PLANTAO', nome: 'Plantão COSI' }));
+    expect(rotulo.startsWith('GEDSI_COSI_PLANTAO')).toBe(true);
+    expect(rotulo).not.toBe('Plantão COSI — COSI');
+  });
+
+  it('mostra só o ID quando não há nome distinto (nunca duplica)', () => {
+    expect(rotuloTecnicoUnidade(unidade({ unidadeId: 'GEDSI', nome: 'GEDSI' }))).toBe('GEDSI');
+    expect(rotuloTecnicoEquipe(equipeBase({ id: 'GEDSI_CODB_NOC', nome: 'GEDSI_CODB_NOC' }))).toBe('GEDSI_CODB_NOC');
+  });
+});
+
+describe('descreverNivelHierarquico', () => {
+  it('descreve os níveis 0 a 6 com título e explicação, nunca só o número', () => {
+    expect(descreverNivelHierarquico(0)).toContain('Administração do sistema');
+    expect(descreverNivelHierarquico(1)).toContain('Presidência');
+    expect(descreverNivelHierarquico(2)).toContain('Diretoria');
+    expect(descreverNivelHierarquico(3)).toContain('Gerência');
+    expect(descreverNivelHierarquico(4)).toContain('GEDSI_COSI');
+    expect(descreverNivelHierarquico(5)).toContain('Supervisão');
+    expect(descreverNivelHierarquico(6)).toContain('Operacional');
+  });
+
+  it('sempre começa com "Nível {n} —"', () => {
+    for (let nivel = 0; nivel <= 6; nivel += 1) {
+      expect(descreverNivelHierarquico(nivel)).toMatch(new RegExp(`^Nível ${nivel} — `, 'u'));
+    }
+  });
+
+  it('nunca retorna só o número para um nível desconhecido', () => {
+    expect(descreverNivelHierarquico(99)).not.toBe('99');
+    expect(descreverNivelHierarquico(99)).toContain('Nível 99');
+  });
+});
+
+describe('descreverClassificacaoHierarquica', () => {
+  it('descreve as 4 classificações de echelon com explicação humana', () => {
+    expect(descreverClassificacaoHierarquica('DELIBERATIVO')).toMatch(/^Deliberativo — /u);
+    expect(descreverClassificacaoHierarquica('ESTRATEGICO')).toMatch(/^Estratégico — /u);
+    expect(descreverClassificacaoHierarquica('TATICO')).toMatch(/^Tático — /u);
+    expect(descreverClassificacaoHierarquica('OPERACIONAL')).toMatch(/^Operacional — /u);
   });
 });
 

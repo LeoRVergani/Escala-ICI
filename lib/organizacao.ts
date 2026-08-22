@@ -1,4 +1,4 @@
-import type { Equipe, PerfilUsuario, UnidadeOrganizacional, Usuario } from './modelos';
+import type { Equipe, NivelHierarquicoOrganizacional, PerfilUsuario, UnidadeOrganizacional, Usuario } from './modelos';
 import { normalizarNome } from './nomes';
 import { equipesPermitidasEfetivas, perfilEfetivo, unidadesPermitidasEfetivas } from './sessao';
 
@@ -64,6 +64,27 @@ export function caminhoCurto(
  */
 export function rotuloOpcaoUnidade(unidade: UnidadeOrganizacional, todasUnidades: UnidadeOrganizacional[]): string {
   return `${unidade.unidadeId} — ${trechoFinalCaminho(unidade.caminho, todasUnidades, 2)}`;
+}
+
+/**
+ * STAGING-RESET-HIERARQUIA-ICI-2 — rótulo de opção para o cadastro LIVRE de
+ * unidade/equipe (`souCoordenadorOperacionalStaging()`), onde a lista não é
+ * uma árvore com indentação, e sim uma seleção direta. O valor técnico
+ * (`unidadeId`) sempre vem primeiro — nunca `nome`/`sigla` como principal
+ * (`docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` § 4). `nome` só aparece como
+ * complemento, entre parênteses, e só quando é distinto do próprio ID.
+ */
+export function rotuloTecnicoUnidade(unidade: Pick<UnidadeOrganizacional, 'unidadeId' | 'nome'>): string {
+  return unidade.nome && unidade.nome !== unidade.unidadeId
+    ? `${unidade.unidadeId} (${unidade.nome})`
+    : unidade.unidadeId;
+}
+
+/** Mesma regra de `rotuloTecnicoUnidade()`, para `Equipe`: `id` técnico sempre primeiro. */
+export function rotuloTecnicoEquipe(equipe: Pick<Equipe, 'id' | 'nome'>): string {
+  return equipe.nome && equipe.nome !== equipe.id
+    ? `${equipe.id} (${equipe.nome})`
+    : equipe.id;
 }
 
 const TIPOS_FORA_DO_CODIGO_ORGANIZACIONAL = new Set<UnidadeOrganizacional['tipo']>([
@@ -555,4 +576,53 @@ export function gestoresParaSimulacao(usuarios: Usuario[]): Usuario[] {
     }
   }
   return [...porNome.values()];
+}
+
+/**
+ * STAGING-RESET-HIERARQUIA-ICI-2 — descrição textual de `Usuario.nivelHierarquico`
+ * (número 0-6). Nunca mostrar o número cru na UI (cadastro/edição de
+ * unidade, equipe, usuário, telas de administração/hierarquia, tabelas,
+ * validações visuais) sem esta descrição ao lado — "nível 6" sozinho não diz
+ * nada a quem está cadastrando. Diferente de `NivelHierarquicoOrganizacional`
+ * (classificação de ECHELON da unidade — `DELIBERATIVO`/`ESTRATEGICO`/
+ * `TATICO`/`OPERACIONAL`, ver `descreverClassificacaoHierarquica()`): este é
+ * o nível NUMÉRICO do usuário (0 = administração do sistema, 6 = execução
+ * diária), um conceito relacionado mas não idêntico — um `GESTOR_UNIDADE`
+ * de nível 4 administra uma unidade cuja classificação é `TATICO`, mas os
+ * dois campos vivem em documentos diferentes (`Usuario` vs.
+ * `UnidadeOrganizacional`) e não precisam coincidir numericamente.
+ */
+const DESCRICOES_NIVEL_HIERARQUICO: Readonly<Record<number, { titulo: string; descricao: string }>> = {
+  0: { titulo: 'Administração do sistema', descricao: 'acesso administrativo global (ADMIN_SISTEMA).' },
+  1: { titulo: 'Presidência', descricao: 'topo institucional.' },
+  2: { titulo: 'Diretoria', descricao: 'decisão estratégica.' },
+  3: { titulo: 'Gerência', descricao: 'gestão tática.' },
+  4: { titulo: 'Coordenação', descricao: 'administra uma coordenação, como GEDSI_COSI ou GEDSI_CODB.' },
+  5: { titulo: 'Supervisão', descricao: 'acompanha uma equipe operacional específica.' },
+  6: { titulo: 'Operacional', descricao: 'usuário ou equipe de execução diária.' },
+};
+
+export function descreverNivelHierarquico(nivel: number): string {
+  const descricao = DESCRICOES_NIVEL_HIERARQUICO[nivel];
+  if (descricao === undefined) {
+    return `Nível ${nivel} — sem descrição cadastrada.`;
+  }
+  return `Nível ${nivel} — ${descricao.titulo}: ${descricao.descricao}`;
+}
+
+/**
+ * Descrição textual da classificação de echelon de `UnidadeOrganizacional.nivelHierarquico`
+ * (`DELIBERATIVO`/`ESTRATEGICO`/`TATICO`/`OPERACIONAL`). Ver o comentário de
+ * `descreverNivelHierarquico()` para a diferença em relação ao nível
+ * numérico do usuário.
+ */
+const DESCRICOES_CLASSIFICACAO_HIERARQUICA: Readonly<Record<NivelHierarquicoOrganizacional, string>> = {
+  DELIBERATIVO: 'Deliberativo — conselho/presidência, decisão máxima.',
+  ESTRATEGICO: 'Estratégico — diretorias e assessorias, decisão estratégica.',
+  TATICO: 'Tático — gerências, coordenações e supervisões, gestão tática.',
+  OPERACIONAL: 'Operacional — equipes e colaboradores, execução diária.',
+};
+
+export function descreverClassificacaoHierarquica(valor: NivelHierarquicoOrganizacional): string {
+  return DESCRICOES_CLASSIFICACAO_HIERARQUICA[valor];
 }

@@ -608,3 +608,37 @@ test('responsável operacional cadastra colaborador e delega coordenação somen
   assert.match(rules, /dados\.get\('escopo', null\) == 'EQUIPE'/u);
   assert.doesNotMatch(dashboard, /Perfis de coordenação e supervisão são concedidos somente por ADMIN_SISTEMA/u);
 });
+
+test('STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe em staging, com código técnico como valor principal', async () => {
+  const [dashboard, guards, organizacao, rules] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('lib/adminGuards.ts'),
+    ler('lib/organizacao.ts'),
+    ler('firestore.rules'),
+  ]);
+
+  // Rules: nova função de validação livre, nunca checando se o autor administra o alvo.
+  assert.match(rules, /function perfilCadastroLivreStagingValido\(dados\)/u);
+  assert.match(rules, /souCoordenadorOperacionalStaging\(\)\s*\n\s*&& request\.resource\.data\.get\('cadastroOperacional', null\) == null\s*\n\s*&& perfilCadastroLivreStagingValido/u);
+
+  // adminGuards: GESTOR_UNIDADE também delegável, só com permitirAmploStaging.
+  assert.match(guards, /permitirAmploStaging = false/u);
+  assert.match(guards, /PERFIS_DELEGAVEIS_STAGING/u);
+
+  // Dashboard: seletor livre de Unidade/Equipe, nunca travado em SOC/GEDSI_COSI.
+  assert.match(dashboard, /usarCadastroLivreStaging/u);
+  assert.match(dashboard, /PERFIS_DELEGAVEIS_STAGING/u);
+  assert.match(dashboard, /Nenhuma unidade ativa encontrada\./u);
+  assert.match(dashboard, /Nenhuma equipe ativa encontrada\./u);
+
+  // Rótulo técnico: ID sempre como valor principal, nunca "nome — sigla".
+  assert.match(organizacao, /export function rotuloTecnicoUnidade/u);
+  assert.match(organizacao, /export function rotuloTecnicoEquipe/u);
+  assert.match(dashboard, /rotuloTecnicoUnidade\(unidade\)/u);
+  assert.match(dashboard, /rotuloTecnicoEquipe\(equipe\)/u);
+
+  // Nível hierárquico sempre com descrição textual ao lado, nunca só o número.
+  assert.match(organizacao, /export function descreverNivelHierarquico/u);
+  assert.match(organizacao, /export function descreverClassificacaoHierarquica/u);
+  assert.match(dashboard, /descreverNivelHierarquico\(formularioUsuario\.nivelHierarquico\)/u);
+});

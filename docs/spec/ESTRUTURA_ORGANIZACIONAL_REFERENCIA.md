@@ -189,6 +189,16 @@ Convencoes de cadastro:
   Transformacao Digital, permanecem sem codigo ate confirmacao administrativa;
 - nao reutilizar a mesma sigla para unidades diferentes.
 
+**STAGING-RESET-HIERARQUIA-ICI-2** — a `sigla` desta tabela (ex.: `COSI`,
+`CODB`, `CSTE`) e so o rotulo de exibicao. O `unidadeId` PERSISTIDO de uma
+coordenacao nunca e a sigla solta — sempre prefixado pela gerencia-mae, no
+mesmo padrao ja usado para equipes (`GEDSI_COSI_SOC`):
+`GEDSI_COSI`/`GEDSI_CODB`/`GEDSI_COCR` (sob GEDSI),
+`GESUP_CSTE`/`GESUP_COAT`/`GESUP_COSD` (sob GESUP),
+`GEOPE_COAC`/`GEOPE_COPC` (sob GEOPE). Um `unidadeId` igual a sigla solta
+(`COSI`, `CODB`, `COCR`...) e um erro de cadastro — `scripts/staging/validate-staging.mjs`
+(`validarSemUnidadeIdSimples()`) falha explicitamente se encontrar isso.
+
 ## 5. Modelo recomendado e compatibilidade
 
 Cada unidade organizacional deve poder ter:

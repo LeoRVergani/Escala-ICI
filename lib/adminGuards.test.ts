@@ -66,6 +66,23 @@ describe('perfilDelegavelPorResponsavelOperacional', () => {
     expect(perfilDelegavelPorResponsavelOperacional('ANALISTA_SOC')).toBe(false);
     expect(perfilDelegavelPorResponsavelOperacional(undefined)).toBe(false);
   });
+
+  describe('STAGING-RESET-HIERARQUIA-ICI-2 — permitirAmploStaging', () => {
+    it('permite GESTOR_UNIDADE também, além de coordenação e supervisão', () => {
+      expect(perfilDelegavelPorResponsavelOperacional('GESTOR_UNIDADE', true)).toBe(true);
+      expect(perfilDelegavelPorResponsavelOperacional('GESTOR_EQUIPE', true)).toBe(true);
+      expect(perfilDelegavelPorResponsavelOperacional('SUPERVISOR_EQUIPE', true)).toBe(true);
+    });
+
+    it('nunca permite ADMIN_SISTEMA, mesmo com permitirAmploStaging', () => {
+      expect(perfilDelegavelPorResponsavelOperacional('ADMIN_SISTEMA', true)).toBe(false);
+    });
+
+    it('sem permitirAmploStaging (padrão), GESTOR_UNIDADE continua bloqueado — comportamento de produção intacto', () => {
+      expect(perfilDelegavelPorResponsavelOperacional('GESTOR_UNIDADE', false)).toBe(false);
+      expect(perfilDelegavelPorResponsavelOperacional('GESTOR_UNIDADE')).toBe(false);
+    });
+  });
 });
 
 describe('exclusaoZeraGestores', () => {
