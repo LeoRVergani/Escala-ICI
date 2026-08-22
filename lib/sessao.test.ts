@@ -5,7 +5,9 @@ import {
   chavePreferenciaSessao,
   deveExibirRestauracao,
   ehAdminSistema,
+  ehPerfilElegivelParaAmploStaging,
   equipesPermitidasEfetivas,
+  escopoDoGrupoPlantaoNoMeuAlcance,
   escopoEfetivo,
   estadoInicialSessao,
   nivelPermiteDashboard,
@@ -291,6 +293,44 @@ describe('podeGerenciarGrupoPlantao', () => {
       unidadeResponsavelId: 'CODB',
     })).toBe(false);
     expect(podeGerenciarGrupoPlantao(gestorUnidade, { equipeResponsavelId: 'EQ_SOC' })).toBe(false);
+  });
+});
+
+describe('STAGING-RESET-HIERARQUIA-ICI-1 — helpers da liberação operacional de staging (só UX, a autorização real fica nas Rules)', () => {
+  describe('ehPerfilElegivelParaAmploStaging', () => {
+    it('true para ADMIN_SISTEMA, GESTOR_UNIDADE, GESTOR_EQUIPE e SUPERVISOR_EQUIPE', () => {
+      for (const perfil of ['ADMIN_SISTEMA', 'GESTOR_UNIDADE', 'GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'] as const) {
+        expect(ehPerfilElegivelParaAmploStaging(usuarioBase({ perfil }))).toBe(true);
+      }
+    });
+
+    it('false para ANALISTA_SOC, ANALISTA_SUPORTE e LEITURA', () => {
+      for (const perfil of ['ANALISTA_SOC', 'ANALISTA_SUPORTE', 'LEITURA'] as const) {
+        expect(ehPerfilElegivelParaAmploStaging(usuarioBase({ perfil }))).toBe(false);
+      }
+    });
+  });
+
+  describe('escopoDoGrupoPlantaoNoMeuAlcance', () => {
+    it('true quando equipeResponsavelId está em equipesPermitidasEfetivas, mesmo para SUPERVISOR_EQUIPE (que podeGerenciarGrupoPlantao não cobre)', () => {
+      const supervisora = usuarioBase({ perfil: 'SUPERVISOR_EQUIPE', equipeId: 'EQ_PLANTAO_COSI', equipesPermitidas: ['EQ_PLANTAO_COSI'] });
+      expect(podeGerenciarGrupoPlantao(supervisora, { equipeResponsavelId: 'EQ_PLANTAO_COSI' })).toBe(false);
+      expect(escopoDoGrupoPlantaoNoMeuAlcance(supervisora, { equipeResponsavelId: 'EQ_PLANTAO_COSI' })).toBe(true);
+    });
+
+    it('true via unidadeResponsavelId (ou caminho ancestral) em unidadesPermitidasEfetivas', () => {
+      const gestorUnidade = usuarioBase({ perfil: 'GESTOR_UNIDADE', equipeId: 'EQ_SOC', unidadesPermitidas: ['COSI'] });
+      expect(escopoDoGrupoPlantaoNoMeuAlcance(gestorUnidade, {
+        equipeResponsavelId: 'EQ_PLANTAO_COSI_SUL',
+        unidadeResponsavelId: 'COSI_SUL',
+        caminhoUnidadeResponsavel: ['COSI', 'COSI_SUL'],
+      })).toBe(true);
+    });
+
+    it('false fora do escopo (nem equipe nem unidade permitida cobrem o Grupo)', () => {
+      const gestorEquipe = usuarioBase({ perfil: 'GESTOR_EQUIPE', equipeId: 'EQ_SOC', equipesPermitidas: ['EQ_SOC'] });
+      expect(escopoDoGrupoPlantaoNoMeuAlcance(gestorEquipe, { equipeResponsavelId: 'EQ_NOC' })).toBe(false);
+    });
   });
 });
 

@@ -290,9 +290,16 @@ Regras: `read`/`create` só `souAdminSistema()`; `create` exige
 `atorRealLogin == loginDoAuth()` (nunca o ator simulado); `update`/`delete`
 sempre `false`.
 
-**Limitação relevante**: só registra ação quando há simulação ativa. Ações
-administrativas feitas diretamente por um `ADMIN_SISTEMA` ou `GESTOR_UNIDADE`
-sem simular ninguém **não geram registro de auditoria** hoje.
+Até a fase STAGING-RESET-HIERARQUIA-ICI-1, só registrava ação quando havia
+simulação ativa — ações administrativas feitas diretamente por um
+`ADMIN_SISTEMA`/`GESTOR_UNIDADE`/`GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` sem
+simular ninguém não geravam registro. Agora `registrarAuditoriaOperacional()`
+(`DashboardApp.tsx`) grava sempre que há um ator autenticado, com
+`atorSimuladoLogin/Nome/Perfil: null` quando ninguém está sendo simulado — a
+regra de `create` em `auditoriaAdmin` passou a aceitar também
+`souCoordenadorOperacionalStaging()` (só em staging, ver
+`docs/spec/STAGING_RESET_HIERARQUIA_ICI.md`), preservando `read`/`update`/
+`delete` exclusivos de `ADMIN_SISTEMA`/sempre negados.
 
 ## Bootstrap do primeiro admin em staging
 
@@ -346,8 +353,21 @@ bloqueando o acesso ao Dashboard.
   dentro de `podeOperarNaUnidade`); `update` — `unidadeId` imutável e
   `podeOperarNaUnidade(unidadeId)`; `delete` sempre `false` (nunca apaga
   unidade referenciada por equipes/usuários).
-- `auditoriaAdmin/{id}`: só admin lê/cria, `atorRealLogin` obrigatoriamente o
-  autenticado real.
+- `auditoriaAdmin/{id}`: leitura só admin; `create` — admin OU (só em
+  staging) `souCoordenadorOperacionalStaging()` — `atorRealLogin`
+  obrigatoriamente o autenticado real, em ambos os casos; `update`/`delete`
+  sempre `false`, inclusive em staging.
+
+**STAGING-RESET-HIERARQUIA-ICI-1** — em staging, quando `config/ambiente`
+tem `staging: true`, `souCoordenadorOperacionalStaging()`
+(`ADMIN_SISTEMA`/`GESTOR_UNIDADE`/`GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE`) também
+autoriza `podeAdministrarJornada`/`podeAdministrarEscalaPlantao`/
+`podeGerenciarGrupoPlantao`/escrita de `escoposOperacionais`, restrito ao
+escopo do próprio coordenador — mesmo quando a Matriz já cobre o alvo e não o
+lista. Nunca afrouxa criação/promoção de `ADMIN_SISTEMA`, escopo `GLOBAL`, ou
+qualquer delete físico. Produção nunca herda isso: sem o documento
+`config/ambiente`, o comportamento é idêntico ao anterior a esta fase. Ver
+`docs/spec/STAGING_RESET_HIERARQUIA_ICI.md`.
 
 ## Limitações e riscos conhecidos
 

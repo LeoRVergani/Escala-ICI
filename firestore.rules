@@ -63,6 +63,36 @@ service cloud.firestore {
     }
 
     /**
+     * STAGING-RESET-HIERARQUIA-ICI-1 — liberação operacional exclusiva de
+     * homologação. `config/ambiente` só existe (com `staging: true`) em
+     * bases de staging, escrito unicamente pelo Admin SDK do script de seed
+     * (`scripts/staging/seed-hierarquia-ici.mjs`) — a rule de
+     * `config/{doc}` abaixo já nega toda escrita client (`allow write: if
+     * false`), então nenhum usuário autenticado consegue criar esse
+     * documento sozinho, em nenhum ambiente. Ausência do documento (toda
+     * base de produção, e staging antes do seed rodar) faz
+     * `ambienteEhStaging()` avaliar `false` — fail-closed, comportamento
+     * idêntico ao de antes desta fase. Produção nunca depende desta flag:
+     * na ausência do doc (ou com `staging: false`), o comportamento é
+     * exatamente o pré-existente.
+     *
+     * `souCoordenadorOperacionalStaging()` NUNCA deve ser usada para
+     * afrouxar: criação/promoção de ADMIN_SISTEMA, escopo GLOBAL, ou
+     * qualquer delete físico já negado com `if false` (auditoria, histórico,
+     * publicações) — essas regras continuam intocadas por esta fase.
+     */
+    function ambienteEhStaging() {
+      return exists(/databases/$(database)/documents/config/ambiente)
+        && get(/databases/$(database)/documents/config/ambiente).data.get('staging', false) == true;
+    }
+
+    function souCoordenadorOperacionalStaging() {
+      return autenticado()
+        && ambienteEhStaging()
+        && meuPerfil() in ['ADMIN_SISTEMA', 'GESTOR_UNIDADE', 'GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'];
+    }
+
+    /**
      * Espelha `equipesPermitidasEfetivas()` de lib/sessao.ts: lista explícita
      * (não-vazia) manda; na ausência, `equipeId` (sempre presente) vira lista
      * implícita de 1 elemento — é o que mantém todo GESTOR_EQUIPE/
@@ -195,11 +225,18 @@ service cloud.firestore {
      * `GESTOR_EQUIPE`/`ADMIN_SISTEMA` de sempre, o mesmo comportamento de
      * antes desta fase (retrocompatibilidade real, não só de schema).
      */
-    function podeGerenciarGrupoPlantao(grupoDoc) {
-      return (souGestor() && podeOperarNaEquipe(grupoDoc.equipeResponsavelId))
+    /**
+     * Extraído de `podeGerenciarGrupoPlantao()` para ser reutilizado pela
+     * liberação de staging (STAGING-RESET-HIERARQUIA-ICI-1) sem duplicar a
+     * checagem de unidade/caminho ancestral: aqui só o ESCOPO (equipe ou
+     * unidade responsável) é avaliado, sem checar perfil — quem chama decide
+     * qual perfil autoriza (`souGestor()`/`souGestorUnidade()` abaixo, ou
+     * `souCoordenadorOperacionalStaging()` nas regras de staging).
+     */
+    function escopoDoGrupoPlantaoNoMeuAlcance(grupoDoc) {
+      return podeOperarNaEquipe(grupoDoc.equipeResponsavelId)
         || (
-          souGestorUnidade()
-          && grupoDoc.get('unidadeResponsavelId', null) != null
+          grupoDoc.get('unidadeResponsavelId', null) != null
           && (
             grupoDoc.unidadeResponsavelId in minhasUnidadesPermitidas()
             || (
@@ -208,6 +245,15 @@ service cloud.firestore {
             )
           )
         );
+    }
+
+    function podeGerenciarGrupoPlantao(grupoDoc) {
+      return (souGestor() && escopoDoGrupoPlantaoNoMeuAlcance(grupoDoc))
+        || (souGestorUnidade() && grupoDoc.get('unidadeResponsavelId', null) != null && escopoDoGrupoPlantaoNoMeuAlcance(grupoDoc))
+        // STAGING-RESET-HIERARQUIA-ICI-1 — em staging, SUPERVISOR_EQUIPE
+        // também administra Grupo de Plantão dentro do próprio escopo,
+        // mesmo sem ser "gestor" no sentido legado (souGestor()).
+        || (souCoordenadorOperacionalStaging() && escopoDoGrupoPlantaoNoMeuAlcance(grupoDoc));
     }
 
     /**
@@ -362,14 +408,25 @@ service cloud.firestore {
         || matrizConcedeAdministracao('JORNADA', equipeId)
         // Transição: alvos ainda sem documento de matriz conservam a ACL
         // histórica. Assim que a matriz existe (mesmo inativa), ela manda.
-        || (!existeMatrizOperacional('JORNADA', equipeId) && souGestor() && podeOperarNaEquipe(equipeId));
+        || (!existeMatrizOperacional('JORNADA', equipeId) && souGestor() && podeOperarNaEquipe(equipeId))
+        // STAGING-RESET-HIERARQUIA-ICI-1 — em staging, a Matriz ajuda a
+        // navegação mas NUNCA trava um coordenador/supervisor dentro do
+        // próprio escopo, mesmo que exista (e não o liste) ou esteja
+        // inativa. Deliberadamente FORA do `!existeMatrizOperacional(...)`
+        // acima — é exatamente o caso que essa branch não cobre.
+        || (souCoordenadorOperacionalStaging() && podeOperarNaEquipe(equipeId));
     }
 
     function podeAdministrarEscalaPlantao(grupoId) {
       return souAdminSistema()
         || matrizConcedeAdministracao('PLANTAO', grupoId)
         // Mesmo fallback transitório, restrito a alvos sem matriz.
-        || (!existeMatrizOperacional('PLANTAO', grupoId) && podeGerenciarGrupoPlantao(grupoPlantaoPorId(grupoId)));
+        || (!existeMatrizOperacional('PLANTAO', grupoId) && podeGerenciarGrupoPlantao(grupoPlantaoPorId(grupoId)))
+        // STAGING-RESET-HIERARQUIA-ICI-1 — mesmo raciocínio de
+        // podeAdministrarJornada(): liberação de staging fica FORA do
+        // `!existeMatrizOperacional(...)`, para não ser bloqueada por uma
+        // Matriz existente que não lista o coordenador de teste.
+        || (souCoordenadorOperacionalStaging() && escopoDoGrupoPlantaoNoMeuAlcance(grupoPlantaoPorId(grupoId)));
     }
 
     /**
@@ -748,10 +805,18 @@ service cloud.firestore {
      * Auditoria do modo simulação de gestor — um doc imutável por ação,
      * mesmo padrão de `historicoPublicacoes`. `atorRealLogin` sempre tem
      * que ser quem está de fato autenticado (nunca o ator simulado).
+     *
+     * STAGING-RESET-HIERARQUIA-ICI-1 — `create` também aceita
+     * `souCoordenadorOperacionalStaging()`: em staging, ações sensíveis
+     * feitas diretamente por um coordenador/supervisor (sem um
+     * ADMIN_SISTEMA "simulando") também precisam gerar auditoria. `read`
+     * continua exclusivo de ADMIN_SISTEMA (o console de auditoria não muda
+     * nesta fase); `update`/`delete` continuam sempre negados, mesmo em
+     * staging — apagar auditoria nunca é permitido.
      */
     match /auditoriaAdmin/{id} {
       allow read: if souAdminSistema();
-      allow create: if souAdminSistema()
+      allow create: if (souAdminSistema() || souCoordenadorOperacionalStaging())
         && request.resource.data.atorRealLogin == loginDoAuth();
       allow update, delete: if false;
     }
@@ -759,20 +824,54 @@ service cloud.firestore {
     /**
      * Matriz de responsáveis por escala (ESCOPO-OPERACIONAL-MATRIZ-1).
      * Leitura autenticada alimenta o resolver operacional; escrita fica
-     * restrita a ADMIN_SISTEMA nesta fase. Consulta (`equipesConsulta`) é
+     * restrita a ADMIN_SISTEMA em produção. Consulta (`equipesConsulta`) é
      * somente leitura/monitoramento e nunca concede escrita administrativa.
      * Delete físico negado: desativação é `ativo: false`.
+     *
+     * STAGING-RESET-HIERARQUIA-ICI-1 — em staging, `souCoordenadorOperacionalStaging()`
+     * também pode criar/editar uma entrada, mas SEMPRE restrita ao alvo
+     * dentro do PRÓPRIO escopo (equipe/unidade do alvo de JORNADA via
+     * `podeOperarNaEquipe()`, ou escopo do Grupo de Plantão via
+     * `escopoDoGrupoPlantaoNoMeuAlcance()` para PLANTAO) — nunca abre
+     * escrita cross-equipe/unidade fora do que essas funções já garantem
+     * em qualquer outra parte do arquivo.
      */
     match /escoposOperacionais/{id} {
       allow read: if autenticado();
-      allow create: if souAdminSistema()
-        && id == idEscopoOperacional(request.resource.data.tipo, request.resource.data.alvoId)
-        && escopoOperacionalValido(request.resource.data);
-      allow update: if souAdminSistema()
+      allow create: if id == idEscopoOperacional(request.resource.data.tipo, request.resource.data.alvoId)
         && escopoOperacionalValido(request.resource.data)
+        && (
+          souAdminSistema()
+          || (
+            souCoordenadorOperacionalStaging()
+            && (
+              (request.resource.data.tipo == 'JORNADA' && podeOperarNaEquipe(request.resource.data.alvoId))
+              || (
+                request.resource.data.tipo == 'PLANTAO'
+                && exists(/databases/$(database)/documents/gruposPlantao/$(request.resource.data.alvoId))
+                && escopoDoGrupoPlantaoNoMeuAlcance(grupoPlantaoPorId(request.resource.data.alvoId))
+              )
+            )
+          )
+        );
+      allow update: if escopoOperacionalValido(request.resource.data)
         && request.resource.data.tipo == resource.data.tipo
         && request.resource.data.alvoId == resource.data.alvoId
-        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin;
+        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
+        && (
+          souAdminSistema()
+          || (
+            souCoordenadorOperacionalStaging()
+            && (
+              (resource.data.tipo == 'JORNADA' && podeOperarNaEquipe(resource.data.alvoId))
+              || (
+                resource.data.tipo == 'PLANTAO'
+                && exists(/databases/$(database)/documents/gruposPlantao/$(resource.data.alvoId))
+                && escopoDoGrupoPlantaoNoMeuAlcance(grupoPlantaoPorId(resource.data.alvoId))
+              )
+            )
+          )
+        );
       allow delete: if false;
     }
 

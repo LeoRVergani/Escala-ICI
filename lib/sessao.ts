@@ -253,6 +253,50 @@ export function podeGerenciarGrupoPlantao(
 }
 
 /**
+ * STAGING-RESET-HIERARQUIA-ICI-1 — mirror client-side do CONJUNTO de
+ * perfis de `souCoordenadorOperacionalStaging()` em `firestore.rules`. Não
+ * decide sozinho se o ambiente é staging — isso vem de fora
+ * (`opcoes.permitirAmploStaging` em `resolverEscoposOperacionais()`, ligado
+ * por `VITE_ESCALA_STAGING_PERMISSAO_AMPLA`, só `true` em
+ * `.env.staging.dashboard`). Só UX — a autorização real de escrita continua
+ * inteiramente nas Rules; isto apenas evita esconder do coordenador uma
+ * opção que ele já teria permissão de usar em staging.
+ */
+const PERFIS_COORDENADOR_OPERACIONAL_STAGING: ReadonlySet<PerfilUsuario> = new Set([
+  'ADMIN_SISTEMA', 'GESTOR_UNIDADE', 'GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE',
+]);
+
+export function ehPerfilElegivelParaAmploStaging(usuario: Usuario): boolean {
+  return PERFIS_COORDENADOR_OPERACIONAL_STAGING.has(perfilEfetivo(usuario));
+}
+
+/**
+ * Escopo (equipe OU unidade responsável) de um Grupo de Plantão dentro do
+ * alcance do usuário — SEM checar perfil. Espelha
+ * `escopoDoGrupoPlantaoNoMeuAlcance()` de `firestore.rules`. Usado só pela
+ * liberação de staging (junto com `ehPerfilElegivelParaAmploStaging()` —
+ * nunca sozinho, para não abrir a listagem para um analista comum que só
+ * por acaso está na mesma equipe/unidade); a autorização real continua nas
+ * Rules.
+ */
+export function escopoDoGrupoPlantaoNoMeuAlcance(
+  usuario: Usuario,
+  grupo: { equipeResponsavelId: string; unidadeResponsavelId?: string; caminhoUnidadeResponsavel?: string[] },
+): boolean {
+  if (equipesPermitidasEfetivas(usuario).includes(grupo.equipeResponsavelId)) {
+    return true;
+  }
+  if (grupo.unidadeResponsavelId === undefined) {
+    return false;
+  }
+  const permitidas = unidadesPermitidasEfetivas(usuario);
+  return (
+    permitidas.includes(grupo.unidadeResponsavelId)
+    || (grupo.caminhoUnidadeResponsavel?.some((unidadeId) => permitidas.includes(unidadeId)) ?? false)
+  );
+}
+
+/**
  * Fase ESCOPO-CONSULTA-PLANTAO-1
  * (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`, seção "Plantões
  * monitorados por equipe") — mirror client-side de

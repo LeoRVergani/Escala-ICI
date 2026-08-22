@@ -236,12 +236,27 @@ de `unidadesOrganizacionais`. Assim:
 - `AREA`, `SETOR` e `DEPARTAMENTO` permanecem valores legados aceitos pelo
   modelo atual e nao substituem siglas oficiais conhecidas.
 
-O modelo implementado ainda nao possui todos os campos-alvo acima: o enum
-atual de unidade nao inclui `ASSESSORIA`, e `nivelHierarquico`, `ordem`,
-`observacao` e `schemaVersion` ainda nao fazem parte do registro persistido.
-Essa diferenca deve ser tratada por uma evolucao de schema propria, com Rules,
-migracao compativel e testes. Ate la, esta secao e referencia normativa para a
-evolucao e nao autoriza gravar campos que as Rules atuais nao aceitam.
+**Atualizado na fase STAGING-RESET-HIERARQUIA-ICI-1**: o enum de unidade
+agora inclui `ASSESSORIA`, e `UnidadeOrganizacional` (`lib/modelos.ts`) ganhou
+`nivelHierarquico?` (`NivelHierarquicoOrganizacional`: `DELIBERATIVO` |
+`ESTRATEGICO` | `TATICO` | `OPERACIONAL` — não os nomes de nível numéricos de
+`Usuario.nivelHierarquico`, que é um conceito diferente), `ordem?`,
+`observacao?` e `schemaVersion?`, todos opcionais (retrocompatíveis com
+documentos existentes sem eles). `firestore.rules` já não restringia campos
+extras em `unidadesOrganizacionais` — a mudança foi só no modelo TypeScript e
+no seed (`scripts/staging/hierarquia-ici.mjs`), sem alterar Rules. Consumo
+segue o mesmo princípio desta spec: apresentação e contexto, nunca
+autorização.
+
+`Equipe` (`lib/modelos.ts`) ganhou, pela mesma fase, `ordem?`,
+`codigoOrganizacional?` e `schemaVersion?` — também opcionais.
+`codigoOrganizacional` é um SNAPSHOT do código derivado descrito em
+`docs/spec/ESCALA_ICI_MASTER_SPEC.md` § 19, nunca uma nova fonte de verdade:
+para os IDs canônicos desta fase (`GEDSI_COSI_SOC`, `GEDSI_COSI_PLANTAO`,
+`GEDSI_CODB_NOC`) ele coincide com o próprio `id`, porque o ID técnico já
+nasce no formato `Gerência_Área_Equipe`. Ver
+`scripts/staging/hierarquia-ici.mjs` e
+`docs/spec/STAGING_RESET_HIERARQUIA_ICI.md`.
 
 Exemplos conceituais:
 

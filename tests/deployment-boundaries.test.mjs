@@ -33,6 +33,8 @@ test('o Dashboard Docker inicia bloqueado para escrita oficial e com defesa em p
   assert.match(dockerfile, /VITE_ALLOW_OFFICIAL_FIRESTORE_WRITE="false"/);
   assert.match(dockerfile, /VITE_ESCALA_FALLBACK_OPERACIONAL_LEGADO="false"/);
   assert.match(compose, /VITE_ESCALA_FALLBACK_OPERACIONAL_LEGADO/);
+  assert.match(dockerfile, /VITE_ESCALA_STAGING_PERMISSAO_AMPLA="false"/);
+  assert.match(compose, /VITE_ESCALA_STAGING_PERMISSAO_AMPLA/);
   assert.match(dockerfile, /nginxinc\/nginx-unprivileged/);
   assert.match(dockerfile, /USER 101/);
   assert.match(dockerfile, /HEALTHCHECK/);

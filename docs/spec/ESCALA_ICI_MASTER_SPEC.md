@@ -170,6 +170,16 @@ no build `staging.dashboard`, permitindo que alvos ainda não migrados convivam
 com alvos já presentes na matriz. Uma matriz existente, inclusive inativa,
 sempre prevalece; o fallback não amplia autorização de escrita.
 
+**STAGING-RESET-HIERARQUIA-ICI-1** adiciona uma segunda flag, separada e mais
+ampla, também exclusiva do build `staging.dashboard`:
+`VITE_ESCALA_STAGING_PERMISSAO_AMPLA=true`. Diferente do fallback acima (que só
+preenche alvos SEM matriz), esta libera `ADMIN_SISTEMA`/`GESTOR_UNIDADE`/
+`GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` mesmo quando a matriz JÁ existe para o alvo
+mas não lista o usuário — a autorização real de escrita espelha
+`souCoordenadorOperacionalStaging()` em `firestore.rules`, condicionada ao
+documento `config/ambiente` (`{ staging: true }`), que só existe em staging
+(nunca em produção). Ver `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md`.
+
 O read model operacional preserva resultados parciais: publicação carregada
 com sucesso continua visível mesmo que rascunho, histórico ou estado de
 publicação sejam recusados. `permission-denied` nas fontes determinantes da
@@ -252,6 +262,7 @@ A entrega deve conter ZIP completo sem `node_modules`, `dist`, `.git` ou caches,
 
 ## 16. Referências internas
 
+- `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md`
 - `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`
 - `docs/spec/VISAO_GERAL_OPERACIONAL_SOC_PLANTAO.md`
 - `docs/spec/JORNADA_6X1_ASSISTENTE_CICLO.md`
@@ -314,11 +325,21 @@ romper usuários, publicações, trocas e histórico.
 ### 19.1 IDs canônicos no primeiro go-live de produção
 
 A imutabilidade acima protege ambientes já referenciados; ela não obriga uma
-base nova de produção a herdar IDs provisórios de staging. O staging atual
-permanece com suas chaves legadas para preservar o trabalho em andamento. No
+base nova de produção a herdar IDs provisórios de staging. No
 primeiro corte para a base vazia de produção, os dados devem ser transformados
 para os IDs organizacionais confirmados, inclusive
-`EQ_PLANTAO_COSI` → `GEDSI_COSI_PLANTAO`.
+`EQ_PLANTAO_COSI` → `GEDSI_COSI_PLANTAO` — ver
+`docs/spec/MIGRACAO_IDS_ORGANIZACIONAIS_PRODUCAO.md`.
+
+**STAGING-RESET-HIERARQUIA-ICI-1** antecipa esse corte para o STAGING,
+sob controle (backup recuperável, dry-run, aprovação humana e validação
+pós-seed — mesma disciplina do corte de produção, aplicada mais cedo):
+`EQ_SOC`/`EQ_PLANTAO_COSI`/`EQ_NOC` deixam de ser criados/atualizados, e o
+staging reiniciado nasce diretamente com `GEDSI_COSI_SOC`/
+`GEDSI_COSI_PLANTAO`/`GEDSI_CODB_NOC` (grupo de Plantão canônico:
+`PLANTAO_GEDSI_COSI`). Ver `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md`
+(spec central desta fase) e `scripts/staging/hierarquia-ici.mjs` (fonte
+única de dados do organograma canônico).
 
 Essa transformação não é edição comum nem fallback de runtime: deve migrar o
 grafo completo de referências, validar Rules e índices genéricos, passar por

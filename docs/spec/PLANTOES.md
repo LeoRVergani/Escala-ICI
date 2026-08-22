@@ -28,6 +28,17 @@ conhecido nesta data**, nunca a árvore inteira do ICI nem uma regra de
 autorização compilada — ver a mesma ressalva, em detalhe, no documento de
 hierarquia.
 
+**STAGING-RESET-HIERARQUIA-ICI-1** (`docs/spec/STAGING_RESET_HIERARQUIA_ICI.md`)
+reinicia o staging com IDs canônicos: `EQ_PLANTAO_COSI` (equipe responsável)
+e `PLANTAO_COSI` (grupo), citados como exemplo em várias seções abaixo,
+tornam-se `GEDSI_COSI_PLANTAO` e `PLANTAO_GEDSI_COSI` respectivamente na base
+reiniciada — mesma relação (equipe responsável ≠ grupo, entidades separadas),
+só com o prefixo canônico. As ocorrências históricas de `EQ_SOC`/
+`EQ_PLANTAO_COSI`/`EQ_NOC`/`PLANTAO_COSI` neste documento descrevem
+observações e exemplos válidos até essa fase; nenhum documento novo do
+staging reiniciado usa esses IDs (só `docs/spec/MIGRACAO_IDS_ORGANIZACIONAIS_PRODUCAO.md`
+os referencia, exclusivamente como mapeamento histórico).
+
 ## Por que este documento existe
 
 O Escala ICI hoje resolve um problema: **jornada normal 6x1** (SOC/NOC),

@@ -541,3 +541,15 @@ test('47. os efeitos de resumo (Jornada e Plantão) nunca lançam por uma falha 
     'a falha total de UM grupo de Plantão não pode derrubar o Promise.all de todos',
   );
 });
+
+test('48. STAGING-RESET-HIERARQUIA-ICI-1 — VITE_ESCALA_STAGING_PERMISSAO_AMPLA é opt-in separado, só ligado em staging', async () => {
+  const [staging, geral, dashboard] = await Promise.all([
+    ler('.env.staging.dashboard.example'),
+    ler('.env.example'),
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+  ]);
+  assert.match(staging, /^VITE_ESCALA_STAGING_PERMISSAO_AMPLA=true$/mu);
+  assert.match(geral, /^VITE_ESCALA_STAGING_PERMISSAO_AMPLA=false$/mu);
+  assert.match(dashboard, /import\.meta\.env\.VITE_ESCALA_STAGING_PERMISSAO_AMPLA === 'true'/u);
+  assert.match(dashboard, /permitirAmploStaging: PERMITIR_AMPLO_STAGING/u);
+});

@@ -139,7 +139,7 @@ A tela deve permitir pesquisar, filtrar por tipo/status, adicionar/remover respo
 
 Texto obrigatório de UX: **“Esta configuração define quem administra a escala. Consulta não concede edição.”**
 
-A ação **Novo vínculo** deve estar clara e visível mesmo quando a tabela não tem registros. Nesta fase, se o usuário não for `ADMIN_SISTEMA`, a ação pode ficar desabilitada, mas a tela deve explicar que a escrita da matriz ainda é restrita a `ADMIN_SISTEMA`.
+A ação **Novo vínculo** deve estar clara e visível mesmo quando a tabela não tem registros. Em produção, se o usuário não for `ADMIN_SISTEMA`, a ação pode ficar desabilitada, mas a tela deve explicar que a escrita da matriz ainda é restrita a `ADMIN_SISTEMA`. **Exceção de staging**: ver § 9.6 — `souCoordenadorOperacionalStaging()` também escreve, restrito ao próprio escopo.
 
 O modal deve separar claramente **Responsáveis**, **Equipes administradoras** e **Equipes que consultam**. O dropdown **Responsáveis** deve listar apenas usuários ativos com perfil elegível de gestão/supervisão. Quando não existir nenhum usuário elegível, deve mostrar: **“Nenhum gestor ou supervisor ativo encontrado. Cadastre ou promova um usuário antes de criar o vínculo.”**
 
@@ -236,6 +236,31 @@ recuperável; quando todas as fontes capazes de determinar a escala retornam
 ambiente ainda não reconhecem a Matriz de Responsáveis. Falhas de rede mantêm
 diagnóstico próprio. Em ambos os casos, **Recarregar operações** inicia uma
 nova tentativa e o seletor nunca volta a loading infinito.
+
+## 9.6. Exceção de staging (STAGING-RESET-HIERARQUIA-ICI-1)
+
+Em produção, a escrita da matriz continua exclusiva de `ADMIN_SISTEMA` — nada
+nesta seção muda isso. Em **staging**, quando o documento `config/ambiente`
+existir com `staging: true` (escrito só pelo Admin SDK do seed, nunca por um
+client autenticado — `config/{doc}` continua com `allow write: if false` para
+todo mundo), `souCoordenadorOperacionalStaging()` (`firestore.rules`) também
+autoriza `create`/`update` de um vínculo, restrito ao alvo dentro do PRÓPRIO
+escopo do coordenador/supervisor:
+
+- `JORNADA`: só se `podeOperarNaEquipe(alvoId)` for verdadeiro para quem edita.
+- `PLANTAO`: só se o Grupo (`alvoId` é o `grupoId`) estiver dentro do escopo de
+  equipe/unidade de quem edita (`escopoDoGrupoPlantaoNoMeuAlcance()`).
+
+Isso existe para o motivo descrito em § 1 (organograma não é autorização
+automática) não travar o próprio teste do organograma novo: o seed
+(`scripts/staging/seed-hierarquia-ici.mjs`) já popula uma Matriz inicial
+sanitizada, mas se ela ficar incompleta ou desatualizada durante os testes, o
+coordenador consegue corrigir a própria entrada sem depender de um
+`ADMIN_SISTEMA` disponível a cada ajuste. Nunca abre escrita cross-equipe/
+unidade fora do que `podeOperarNaEquipe()`/`escopoDoGrupoPlantaoNoMeuAlcance()`
+já garantem em qualquer outra regra deste arquivo, e nunca afrouxa `delete`
+(continua sempre negado, produção e staging). Ver
+`docs/spec/STAGING_RESET_HIERARQUIA_ICI.md`.
 
 ## 10. Rules
 

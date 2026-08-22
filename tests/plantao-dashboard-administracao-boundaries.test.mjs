@@ -23,7 +23,14 @@ test('2. podeGerenciarGrupoPlantao() continua exigindo souGestor() && podeOperar
   const match = /function podeGerenciarGrupoPlantao\(grupoDoc\) \{([\s\S]*?)\n\s*\}/u.exec(rules);
   assert.ok(match, 'podeGerenciarGrupoPlantao() precisa continuar existindo em firestore.rules');
   assert.match(match[1], /souGestor\(\)/u, 'precisa checar souGestor()');
-  assert.match(match[1], /podeOperarNaEquipe\(/u, 'precisa checar podeOperarNaEquipe()');
+  // STAGING-RESET-HIERARQUIA-ICI-1 — a checagem de escopo (equipe/unidade)
+  // foi extraída para escopoDoGrupoPlantaoNoMeuAlcance() (reaproveitada
+  // pela liberação de staging), mas continua sendo chamada por
+  // podeGerenciarGrupoPlantao() — nunca vira "só pertencimento".
+  assert.match(match[1], /escopoDoGrupoPlantaoNoMeuAlcance\(/u, 'precisa checar o escopo via escopoDoGrupoPlantaoNoMeuAlcance()');
+  const escopo = /function escopoDoGrupoPlantaoNoMeuAlcance\(grupoDoc\) \{([\s\S]*?)\n\s*\}\n/u.exec(rules);
+  assert.ok(escopo, 'escopoDoGrupoPlantaoNoMeuAlcance() precisa existir em firestore.rules');
+  assert.match(escopo[1], /podeOperarNaEquipe\(/u, 'precisa checar podeOperarNaEquipe()');
 });
 
 /**

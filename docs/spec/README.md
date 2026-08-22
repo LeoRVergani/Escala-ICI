@@ -5,19 +5,21 @@ Esta pasta concentra a fonte normativa atual do projeto. Checkpoints e arquivos 
 ## Ordem de leitura para alterações no Dashboard
 
 1. `ESCALA_ICI_MASTER_SPEC.md` — índice funcional e decisões consolidadas do Dashboard.
-2. `ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` — árvore organizacional sanitizada de referência para cadastro, navegação, filtros e contexto; não autoriza escala.
-3. `MIGRACAO_IDS_ORGANIZACIONAIS_PRODUCAO.md` — contrato diferido para a base final: staging preserva IDs legados e produção nasce com IDs organizacionais canônicos.
-4. `ESCOPO_OPERACIONAL_MATRIZ.md` — matriz explícita de responsáveis por Jornada/Plantão; organograma/cargo/unidade são contexto, não autorização operacional automática.
-5. `WIZARD_PREPARAR_ESCALA.md` — fluxo unificado de `Nova escala` e `Importar escala`.
-6. `VISAO_GERAL_OPERACIONAL_SOC_PLANTAO.md` — Visão geral operacional SOC + Plantão.
-7. `JORNADA_6X1_ASSISTENTE_CICLO.md` — grade Jornada 6x1 e assistente de ciclo inicial.
-8. `REVISAO_JORNADA_6X1_LAYOUT_CALENDARIO.md` — revisão/importação SOC com calendário central ampliado.
-9. `PLANTAO_MODAL_D.md` — modal visual de atribuição de Plantão, presets e exceção manual.
-10. `NAVEGACAO_RETORNO_ESCALAS.md` — padrão de retorno visual para Escalas.
-11. `UI_CASCADE_E_HERANCA.md` — regra permanente para alterações de CSS/layout.
+2. `STAGING_RESET_HIERARQUIA_ICI.md` — reset controlado do staging com o organograma canônico do ICI e liberação operacional ampla de coordenador/supervisor, exclusiva de staging.
+3. `ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` — árvore organizacional sanitizada de referência para cadastro, navegação, filtros e contexto; não autoriza escala.
+5. `MIGRACAO_IDS_ORGANIZACIONAIS_PRODUCAO.md` — contrato diferido para a base final: staging preserva IDs legados e produção nasce com IDs organizacionais canônicos.
+6. `ESCOPO_OPERACIONAL_MATRIZ.md` — matriz explícita de responsáveis por Jornada/Plantão; organograma/cargo/unidade são contexto, não autorização operacional automática.
+7. `WIZARD_PREPARAR_ESCALA.md` — fluxo unificado de `Nova escala` e `Importar escala`.
+8. `VISAO_GERAL_OPERACIONAL_SOC_PLANTAO.md` — Visão geral operacional SOC + Plantão.
+9. `JORNADA_6X1_ASSISTENTE_CICLO.md` — grade Jornada 6x1 e assistente de ciclo inicial.
+10. `REVISAO_JORNADA_6X1_LAYOUT_CALENDARIO.md` — revisão/importação SOC com calendário central ampliado.
+11. `PLANTAO_MODAL_D.md` — modal visual de atribuição de Plantão, presets e exceção manual.
+12. `NAVEGACAO_RETORNO_ESCALAS.md` — padrão de retorno visual para Escalas.
+13. `UI_CASCADE_E_HERANCA.md` — regra permanente para alterações de CSS/layout.
 
 ## Specs herdadas ainda válidas por domínio
 
+- `STAGING_RESET_HIERARQUIA_ICI.md` — fase STAGING-RESET-HIERARQUIA-ICI-1: reset controlado de staging, IDs canônicos, `souCoordenadorOperacionalStaging()`.
 - `HIERARQUIA_ORGANIZACIONAL.md` — domínio organizacional, permissões e regra de não hardcode.
 - `ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` — estrutura organizacional de referência do produto, com níveis, unidades, siglas e regras sanitizadas para cadastro/contexto.
 - `ESCOPO_OPERACIONAL_MATRIZ.md` — fonte normativa atual para quem administra ou apenas consulta cada Jornada/Plantão.
@@ -93,7 +95,7 @@ conciliação herda o período detectado na planilha.
 - `GrupoPlantao ativo:false` não aparece em seletor operacional ou Wizard; aparece somente na Administração com badge Inativo.
 - Visão geral e seletor superior usam `equipeId` para Jornada e `grupoId` para Plantão; nomes visuais não são chave de busca.
 - Não tratar ausência de publicação como ausência total quando existe rascunho.
-- Não hardcodar `COSI`, `SOC`, `NOC`, `CODB`, `GEDSI`, `EQ_SOC`, `EQ_PLANTAO_COSI` ou `EQ_SEG` como regra de negócio.
+- Não hardcodar `COSI`, `SOC`, `NOC`, `CODB`, `GEDSI`, `EQ_SOC`, `EQ_PLANTAO_COSI` ou `EQ_SEG` como regra de negócio — vale também para os IDs canônicos novos (`GEDSI_COSI_SOC`, `GEDSI_COSI_PLANTAO`, `GEDSI_CODB_NOC`, `PLANTAO_GEDSI_COSI`): eles existem como DADO de staging (`scripts/staging/hierarquia-ici.mjs`), nunca como literal em `firestore.rules`/`lib/`.
 - Quick-add/Modal de Plantão deve oferecer Noturno `19:00 → 07:00`, `5 horas` `19:00 → 00:00`, `24 horas` `19:00 → 19:00` e exceção manual.
 - Dados importados atípicos são preservados; a UI pode alertar, mas não normalizar silenciosamente.
 - Nenhuma versão estável (staging ou produção) pode depender de criação manual de `gruposPlantao/{grupoId}` pelo Console do Firestore — o produto (Wizard/Administração) e o seed (`scripts/seed-organizacao.mjs`) sempre oferecem um caminho oficial.

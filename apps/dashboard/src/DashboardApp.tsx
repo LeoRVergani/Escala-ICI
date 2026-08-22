@@ -730,6 +730,7 @@ interface FormularioUsuario {
 const TIPOS_UNIDADE_ORGANIZACIONAL: TipoUnidadeOrganizacional[] = [
   'PRESIDENCIA',
   'DIRETORIA',
+  'ASSESSORIA',
   'GERENCIA',
   'COORDENACAO',
   'SUPERVISAO',
@@ -848,6 +849,18 @@ const ESCOPOS_OPERACIONAIS_VAZIOS: EscoposOperacionais = {
 /** Compatibilidade opt-in: sem esta variável a matriz é a única fonte operacional. */
 const PERMITIR_FALLBACK_OPERACIONAL_LEGADO =
   import.meta.env.VITE_ESCALA_FALLBACK_OPERACIONAL_LEGADO === 'true';
+
+/**
+ * STAGING-RESET-HIERARQUIA-ICI-1 — opt-in separado de
+ * `PERMITIR_FALLBACK_OPERACIONAL_LEGADO`: liga a liberação ampla de
+ * coordenador/supervisor mesmo quando a Matriz já cobre o alvo (e não lista
+ * o usuário) — só `true` em `.env.staging.dashboard`, sempre `false` no
+ * build padrão/produção. Ver `lib/escoposOperacionais.ts` (opção
+ * `permitirAmploStaging`) e `souCoordenadorOperacionalStaging()` em
+ * `firestore.rules` (a autorização real de escrita).
+ */
+const PERMITIR_AMPLO_STAGING =
+  import.meta.env.VITE_ESCALA_STAGING_PERMISSAO_AMPLA === 'true';
 
 interface CelulaEditando {
   documento: TurnosMes;
@@ -3266,7 +3279,10 @@ export function DashboardApp() {
       equipesAdmin,
       gruposPlantaoAdmin,
       escoposOperacionaisAdmin,
-      { permitirFallbackLegado: PERMITIR_FALLBACK_OPERACIONAL_LEGADO },
+      {
+        permitirFallbackLegado: PERMITIR_FALLBACK_OPERACIONAL_LEGADO,
+        permitirAmploStaging: PERMITIR_AMPLO_STAGING,
+      },
     )
     : ESCOPOS_OPERACIONAIS_VAZIOS,
   [equipesAdmin, escoposOperacionaisAdmin, gruposPlantaoAdmin, unidadesAdmin, usuarioReal]);
@@ -3891,20 +3907,28 @@ export function DashboardApp() {
   }
 
   /**
-   * Registra ator real + ator simulado quando (e só quando) a ação foi
-   * executada em modo simulação — chamada depois do sucesso da escrita
-   * real, nunca antes: falha de auditoria não pode desfazer nem mascarar
-   * uma ação já commitada.
+   * Registra ator real (+ ator simulado, quando houver) para uma ação
+   * sensível — chamada depois do sucesso da escrita real, nunca antes:
+   * falha de auditoria não pode desfazer nem mascarar uma ação já
+   * commitada.
+   *
+   * STAGING-RESET-HIERARQUIA-ICI-1 — até esta fase só disparava com
+   * `simulando !== null` (ADMIN_SISTEMA simulando outro gestor). Agora
+   * dispara SEMPRE que há um `usuarioReal`, com `atorSimulado: null` quando
+   * ninguém está sendo simulado — em staging, um coordenador/supervisor
+   * agindo diretamente também precisa gerar auditoria. `equipeId` é sempre
+   * o alvo REAL da ação (não necessariamente a equipe do ator, que pode
+   * administrar via Matriz uma equipe diferente da própria).
    */
-  async function registrarAuditoriaSeSimulando(acao: string) {
-    if (simulando === null || usuarioReal === null) {
+  async function registrarAuditoriaOperacional(acao: string, equipeId: string) {
+    if (usuarioReal === null) {
       return;
     }
     try {
       await registrarAuditoriaAdmin({
         atorReal: usuarioReal,
         atorSimulado: simulando,
-        equipeId: simulando.equipeId,
+        equipeId,
         acao,
       });
     } catch (falhaAuditoria) {
@@ -4041,7 +4065,7 @@ export function DashboardApp() {
         entrada,
       );
     }
-    await registrarAuditoriaSeSimulando('ATRIBUIR_LEMBRETE');
+    await registrarAuditoriaOperacional('ATRIBUIR_LEMBRETE', colaboradorLembretes.equipeId);
   }
 
   async function salvarLembreteAtribuidoSerie(entrada: EntradaSerieLembrete): Promise<void> {
@@ -4082,7 +4106,7 @@ export function DashboardApp() {
       { login: usuarioReal.login, nome: usuarioReal.nome },
       entrada,
     );
-    await registrarAuditoriaSeSimulando('ATRIBUIR_SERIE_LEMBRETES');
+    await registrarAuditoriaOperacional('ATRIBUIR_SERIE_LEMBRETES', colaboradorLembretes.equipeId);
   }
 
   async function confirmarCancelamentoLembreteAtribuido() {
@@ -4102,7 +4126,7 @@ export function DashboardApp() {
         } : item));
       } else {
         await cancelarLembreteAtribuido(lembreteParaCancelar.lembreteId, { login: usuarioReal.login });
-        await registrarAuditoriaSeSimulando('CANCELAR_LEMBRETE');
+        await registrarAuditoriaOperacional('CANCELAR_LEMBRETE', lembreteParaCancelar.destinatarioEquipeId);
       }
       setLembreteParaCancelar(null);
     } catch (falha) {
@@ -5255,7 +5279,7 @@ export function DashboardApp() {
       ));
       if (!modoDemo) {
         await salvarUsuarios(novos);
-        await registrarAuditoriaSeSimulando('CADASTRAR_USUARIOS');
+        await registrarAuditoriaOperacional('CADASTRAR_USUARIOS', equipeAlvoId);
       }
       const atualizados = [...usuarios, ...novos];
       setUsuarios(atualizados);
@@ -5308,7 +5332,7 @@ export function DashboardApp() {
     try {
       if (!modoDemo) {
         await salvarRascunho(resultado, usuarioEfetivo, nomeArquivo);
-        await registrarAuditoriaSeSimulando('SALVAR_RASCUNHO');
+        await registrarAuditoriaOperacional('SALVAR_RASCUNHO', equipeAlvoId ?? usuarioEfetivo.equipeId);
       }
       setResultado({
         ...resultado,
@@ -5366,7 +5390,7 @@ export function DashboardApp() {
         );
         setHistorico((atual) => [publicacao, ...atual]);
         setRevisaoAtual(publicacao.revisao);
-        await registrarAuditoriaSeSimulando('PUBLICAR_ESCALA');
+        await registrarAuditoriaOperacional('PUBLICAR_ESCALA', equipeAlvoId ?? usuarioEfetivo.equipeId);
       } else {
         setRevisaoAtual((atual) => atual + 1);
       }
@@ -5423,7 +5447,7 @@ export function DashboardApp() {
     setErroTroca('');
     try {
       await gestorRecusarTroca(id, { login: usuarioEfetivo.login, nome: usuarioEfetivo.nome }, motivo);
-      await registrarAuditoriaSeSimulando('RECUSAR_TROCA');
+      await registrarAuditoriaOperacional('RECUSAR_TROCA', trocas.find((item) => item.trocaId === id)?.equipeId ?? usuarioEfetivo.equipeId);
       setTrocaSelecionadaId(null);
       setMotivoRecusaTroca('');
     } catch (falha) {
@@ -5441,7 +5465,7 @@ export function DashboardApp() {
     setErroTroca('');
     try {
       await gestorAprovarEPublicarTroca(id, { login: usuarioEfetivo.login, nome: usuarioEfetivo.nome }, catalogo);
-      await registrarAuditoriaSeSimulando('APROVAR_TROCA');
+      await registrarAuditoriaOperacional('APROVAR_TROCA', trocas.find((item) => item.trocaId === id)?.equipeId ?? usuarioEfetivo.equipeId);
       setTrocaSelecionadaId(null);
     } catch (falha) {
       setErroTroca(mensagemErroTrocaGestor(falha, 'Não foi possível aprovar e publicar a troca.'));
@@ -5503,7 +5527,7 @@ export function DashboardApp() {
       );
       setHistorico((atual) => [restaurada.publicacao, ...atual]);
       setRevisaoAtual(restaurada.publicacao.revisao);
-      await registrarAuditoriaSeSimulando('ROLLBACK_PUBLICACAO');
+      await registrarAuditoriaOperacional('ROLLBACK_PUBLICACAO', revisaoParaRestaurar.equipeId);
       const datas = restaurada.documentos.flatMap((documento) => Object.keys(documento.dias));
       setResultado({
         ok: true,
@@ -5860,7 +5884,7 @@ export function DashboardApp() {
           houveEscritaUsuario = true;
         }
         if (houveEscritaUsuario) {
-          await registrarAuditoriaSeSimulando('SALVAR_USUARIO');
+          await registrarAuditoriaOperacional('SALVAR_USUARIO', candidato.equipeId);
         }
       }
       setUsuarios((atuais) => (atuais.some((item) => item.login === usuarioSalvo.login)
@@ -5894,7 +5918,7 @@ export function DashboardApp() {
     try {
       if (!modoDemo) {
         await salvarUsuario(atualizado);
-        await registrarAuditoriaSeSimulando('ATIVAR_DESATIVAR_USUARIO');
+        await registrarAuditoriaOperacional('ATIVAR_DESATIVAR_USUARIO', atualizado.equipeId);
       }
       setUsuarios((atuais) => atuais.map((existente) => (existente.login === item.login ? atualizado : existente)));
     } catch (falha) {
@@ -5941,7 +5965,7 @@ export function DashboardApp() {
     try {
       if (!modoDemo) {
         await adicionarMembroRascunho(membro);
-        await registrarAuditoriaSeSimulando('ADICIONAR_MEMBRO_GRADE');
+        await registrarAuditoriaOperacional('ADICIONAR_MEMBRO_GRADE', equipeIdDaGradeAtiva);
       }
       setResultado((atual) => (atual === null ? atual : {
         ...atual,
@@ -6846,7 +6870,14 @@ export function DashboardApp() {
 
           let gruposLegados: GrupoPlantao[] = [];
           let falhaLegado: unknown = null;
-          if (PERMITIR_FALLBACK_OPERACIONAL_LEGADO) {
+          // STAGING-RESET-HIERARQUIA-ICI-1 — `PERMITIR_AMPLO_STAGING` reusa a
+          // MESMA busca ampla do fallback legado (por equipe/unidade
+          // permitida, ou todos os grupos para GESTOR_EQUIPE/SUPERVISOR_EQUIPE):
+          // é o candidato bruto que `resolverEscoposOperacionais()` depois
+          // filtra por `escopoDoGrupoPlantaoNoMeuAlcance()`, mesmo quando a
+          // Matriz já cobre o alvo (e não lista este usuário) — diferente do
+          // fallback legado, que só preenche alvos SEM Matriz.
+          if (PERMITIR_FALLBACK_OPERACIONAL_LEGADO || PERMITIR_AMPLO_STAGING) {
             try {
               const perfil = perfilEfetivo(usuarioReal);
               if (ehAdminSistema(usuarioReal)) {
@@ -6881,7 +6912,10 @@ export function DashboardApp() {
           equipes,
           grupos,
           escopos,
-          { permitirFallbackLegado: PERMITIR_FALLBACK_OPERACIONAL_LEGADO },
+          {
+            permitirFallbackLegado: PERMITIR_FALLBACK_OPERACIONAL_LEGADO,
+            permitirAmploStaging: PERMITIR_AMPLO_STAGING,
+          },
         );
         return { equipes, unidades, escopos, grupos, resolucao, erroPlantao };
       },

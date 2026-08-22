@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import test from 'node:test';
+
+const ler = (caminho) => readFile(new URL(`../${caminho}`, import.meta.url), 'utf8');
+
+// STAGING-RESET-HIERARQUIA-ICI-1 — os 4 scripts novos de scripts/staging/
+// são destrutivos ou tocam dado real de staging via Admin SDK (bypassa
+// firestore.rules). Este arquivo prova, por leitura estática do código
+// (nunca executando de verdade), que as 3 guardas obrigatórias existem:
+// dry-run por padrão, confirmação explícita com frase exata para executar,
+// e projeto travado em "escala-ici-staging" (nunca produção, nunca outro
+// ambiente de homologação por engano).
+
+test('firebaseAdminStaging.mjs lê o project_id da credencial de forma independente e trava em escala-ici-staging', async () => {
+  const codigo = await ler('scripts/staging/firebaseAdminStaging.mjs');
+  assert.match(codigo, /PROJETO_STAGING_ESPERADO = 'escala-ici-staging'/u);
+  assert.match(codigo, /GOOGLE_APPLICATION_CREDENTIALS/u);
+  assert.match(codigo, /project_id/u);
+  assert.doesNotMatch(codigo, /json\.private_key|credencial\.private_key|console\.\w+\([^)]*private_key/u, 'nunca ler/expor a chave privada da credencial');
+  assert.match(codigo, /projectIdDaCredencial !== PROJETO_STAGING_ESPERADO/u, 'precisa abortar se o projeto não bater');
+});
+
+test('reset-staging.mjs é dry-run por padrão e só apaga com --execute --confirm=RESET_STAGING_ESCALA_ICI', async () => {
+  const codigo = await ler('scripts/staging/reset-staging.mjs');
+  assert.match(codigo, /CONFIRMACAO = 'RESET_STAGING_ESCALA_ICI'/u);
+  assert.match(codigo, /execute && !confirmado/u);
+  assert.match(codigo, /DRY-RUN \(só conta, nada é apagado\)/u);
+  assert.match(codigo, /inicializarAdminStaging/u, 'precisa usar a guarda de projeto de staging');
+  assert.doesNotMatch(codigo, /'EQ_SOC'|'EQ_PLANTAO_COSI'|'EQ_NOC'/u, 'nunca referencia IDs legados diretamente');
+});
+
+test('seed-hierarquia-ici.mjs é dry-run por padrão e só grava com --execute --confirm=SEED_HIERARQUIA_ICI_STAGING', async () => {
+  const codigo = await ler('scripts/staging/seed-hierarquia-ici.mjs');
+  assert.match(codigo, /CONFIRMACAO = 'SEED_HIERARQUIA_ICI_STAGING'/u);
+  assert.match(codigo, /execute && !confirmado/u);
+  assert.match(codigo, /DRY-RUN \(só lista o plano\)/u);
+  assert.match(codigo, /inicializarAdminStaging/u);
+  assert.match(codigo, /staging: true/u, 'precisa gravar config\\/ambiente com staging: true');
+  assert.doesNotMatch(codigo, /'EQ_SOC'|'EQ_PLANTAO_COSI'|'EQ_NOC'/u, 'nunca referencia IDs legados diretamente — só via hierarquia-ici.mjs');
+});
+
+test('export-backup.mjs é somente leitura e cobre as 15 coleções pedidas', async () => {
+  const codigo = await ler('scripts/staging/export-backup.mjs');
+  assert.match(codigo, /inicializarAdminStaging/u);
+  for (const colecao of [
+    'usuarios', 'equipes', 'unidadesOrganizacionais', 'gruposPlantao', 'escoposOperacionais',
+    'turnosMes', 'rascunhosTurnosMes', 'publicacoesEscala', 'historicoPublicacoes',
+    'competenciasPlantao', 'rascunhosCompetenciasPlantao', 'atribuicoesPlantao',
+    'trocasEscala', 'notificacoesTroca', 'auditoriaAdmin',
+  ]) {
+    assert.match(codigo, new RegExp(`'${colecao}'`, 'u'), `precisa exportar a coleção ${colecao}`);
+  }
+  assert.doesNotMatch(codigo, /\.delete\(\)|recursiveDelete/u, 'export-backup nunca apaga nada');
+  assert.match(codigo, /backups.*staging/su, "grava em backups/staging/<timestamp>");
+});
+
+test('validate-staging.mjs é somente leitura e detecta qualquer ID legado remanescente', async () => {
+  const codigo = await ler('scripts/staging/validate-staging.mjs');
+  assert.match(codigo, /inicializarAdminStaging/u);
+  assert.doesNotMatch(codigo, /\.delete\(\)|recursiveDelete|\.set\(|\.update\(/u, 'validate-staging nunca escreve nada');
+  assert.match(codigo, /GRUPO_PLANTAO_LEGADO = 'PLANTAO_COSI'/u);
+  assert.match(codigo, /IDS_LEGADOS_EQUIPE/u);
+  assert.match(codigo, /config\/ambiente\.staging=true/u);
+});
+
+test('hierarquia-ici.mjs é um módulo puro (sem I/O, sem firebase-admin, sem process.env)', async () => {
+  const codigo = await ler('scripts/staging/hierarquia-ici.mjs');
+  const semComentarios = codigo.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/\/\/.*$/gmu, '');
+  assert.doesNotMatch(semComentarios, /from 'firebase-admin/u);
+  assert.doesNotMatch(semComentarios, /process\.env/u);
+  assert.doesNotMatch(semComentarios, /from 'node:fs/u);
+  assert.match(codigo, /export const MAPEAMENTO_LEGADO/u);
+});
+
+test('package.json expõe staging:backup/reset/seed/validate, todos passando pelos scripts novos', async () => {
+  const pacote = JSON.parse(await ler('package.json'));
+  assert.equal(pacote.scripts['staging:backup'], 'node scripts/staging/export-backup.mjs');
+  assert.equal(pacote.scripts['staging:reset'], 'node scripts/staging/reset-staging.mjs');
+  assert.equal(pacote.scripts['staging:seed'], 'node scripts/staging/seed-hierarquia-ici.mjs');
+  assert.equal(pacote.scripts['staging:validate'], 'node scripts/staging/validate-staging.mjs');
+});

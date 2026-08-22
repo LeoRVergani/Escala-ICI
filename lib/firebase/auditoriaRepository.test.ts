@@ -73,6 +73,29 @@ describe('registrarAuditoriaAdmin', () => {
     expect(typeof operacao?.dados.em).toBe('string');
   });
 
+  it('STAGING-RESET-HIERARQUIA-ICI-1 — atorSimulado null grava os campos de ator simulado como null (ação direta, sem simulação)', async () => {
+    const atorReal = usuario({ login: 'sabrina.supervisora', nome: 'Sabrina Supervisora', perfil: 'SUPERVISOR_EQUIPE' });
+
+    await registrarAuditoriaAdmin({
+      atorReal,
+      atorSimulado: null,
+      equipeId: 'EQ_SOC',
+      acao: 'CADASTRAR_USUARIOS',
+    });
+
+    expect(estado.operacoes).toHaveLength(1);
+    const [operacao] = estado.operacoes;
+    expect(operacao?.dados).toMatchObject({
+      atorRealLogin: 'sabrina.supervisora',
+      atorRealPerfil: 'SUPERVISOR_EQUIPE',
+      atorSimuladoLogin: null,
+      atorSimuladoNome: null,
+      atorSimuladoPerfil: null,
+      equipeId: 'EQ_SOC',
+      acao: 'CADASTRAR_USUARIOS',
+    });
+  });
+
   it('recusa escrever quando a escrita administrativa está bloqueada', async () => {
     estado.escritaHabilitada = false;
     await expect(registrarAuditoriaAdmin({

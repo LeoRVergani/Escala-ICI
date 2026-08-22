@@ -215,6 +215,93 @@ describe('resolverEscoposOperacionais', () => {
 });
 
 /**
+ * STAGING-RESET-HIERARQUIA-ICI-1 — `permitirAmploStaging` é um opt-in
+ * SEPARADO de `permitirFallbackLegado`: espelha `souCoordenadorOperacionalStaging()`
+ * de `firestore.rules`, valendo MESMO quando a Matriz já cobre o alvo (e não
+ * lista o usuário) — nunca reaproveita nem altera `permitirFallbackLegado`.
+ */
+describe('resolverEscoposOperacionais — permitirAmploStaging (STAGING-RESET-HIERARQUIA-ICI-1)', () => {
+  it('sem a opção, uma Matriz existente que não lista o usuário continua bloqueando (comportamento de produção)', () => {
+    const gestorEquipe = usuario({ perfil: 'GESTOR_EQUIPE', equipeId: 'EQ_SOC', equipesPermitidas: ['EQ_SOC'] });
+    const matrizSemEsteUsuario = [{
+      tipo: 'JORNADA' as const,
+      alvoId: 'EQ_SOC',
+      alvoNome: 'SOC',
+      responsaveisLogin: ['outra.pessoa'],
+      responsaveisEquipe: [],
+      equipesConsulta: [],
+      ativo: true,
+      criadoPorLogin: 'admin',
+      atualizadoPorLogin: 'admin',
+      schemaVersion: 1 as const,
+    }];
+    const escopos = resolverEscoposOperacionaisBase(gestorEquipe, UNIDADES, EQUIPES, GRUPOS, matrizSemEsteUsuario);
+    expect(escopos.jornadasAdministraveis).toEqual([]);
+  });
+
+  it('GESTOR_EQUIPE e SUPERVISOR_EQUIPE administram Jornada mesmo com Matriz existente que não os lista', () => {
+    const matrizSemEsteUsuario = [{
+      tipo: 'JORNADA' as const,
+      alvoId: 'EQ_SOC',
+      alvoNome: 'SOC',
+      responsaveisLogin: ['outra.pessoa'],
+      responsaveisEquipe: [],
+      equipesConsulta: [],
+      ativo: true,
+      criadoPorLogin: 'admin',
+      atualizadoPorLogin: 'admin',
+      schemaVersion: 1 as const,
+    }];
+    for (const perfil of ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'] as const) {
+      const ator = usuario({ perfil, equipeId: 'EQ_SOC', equipesPermitidas: ['EQ_SOC'] });
+      const escopos = resolverEscoposOperacionaisBase(
+        ator, UNIDADES, EQUIPES, GRUPOS, matrizSemEsteUsuario, { permitirAmploStaging: true },
+      );
+      expect(escopos.jornadasAdministraveis.map((item) => item.id)).toEqual(['EQ_SOC']);
+    }
+  });
+
+  it('GESTOR_EQUIPE e SUPERVISOR_EQUIPE administram Plantão mesmo com Matriz existente que não os lista (cobre SUPERVISOR_EQUIPE, que podeGerenciarGrupoPlantao sozinho não cobre)', () => {
+    const matrizSemEsteUsuario = [{
+      tipo: 'PLANTAO' as const,
+      alvoId: 'PLANTAO_COSI',
+      alvoNome: 'Plantão COSI',
+      responsaveisLogin: ['outra.pessoa'],
+      responsaveisEquipe: [],
+      equipesConsulta: ['EQ_PLANTAO_COSI'],
+      ativo: true,
+      criadoPorLogin: 'admin',
+      atualizadoPorLogin: 'admin',
+      schemaVersion: 1 as const,
+    }];
+    for (const perfil of ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'] as const) {
+      const ator = usuario({ perfil, equipeId: 'EQ_PLANTAO_COSI', equipesPermitidas: ['EQ_PLANTAO_COSI'] });
+      const escopos = resolverEscoposOperacionaisBase(
+        ator, UNIDADES, EQUIPES, GRUPOS, matrizSemEsteUsuario, { permitirAmploStaging: true },
+      );
+      expect(escopos.gruposPlantaoAdministraveis.map((item) => item.grupoId)).toEqual(['PLANTAO_COSI']);
+    }
+  });
+
+  it('nunca amplia para fora do escopo do usuário (equipe/unidade de terceiros continua fora, mesmo com a opção ligada)', () => {
+    const gestorEquipeSoc = usuario({ perfil: 'GESTOR_EQUIPE', equipeId: 'EQ_SOC', equipesPermitidas: ['EQ_SOC'] });
+    const escopos = resolverEscoposOperacionaisBase(
+      gestorEquipeSoc, UNIDADES, EQUIPES, GRUPOS, [], { permitirAmploStaging: true },
+    );
+    expect(escopos.jornadasAdministraveis.map((item) => item.id)).not.toContain('EQ_NOC');
+    expect(escopos.gruposPlantaoAdministraveis).toEqual([]);
+  });
+
+  it('ANALISTA_SOC nunca ganha administração via permitirAmploStaging, mesmo pertencendo à equipe', () => {
+    const analista = usuario({ perfil: 'ANALISTA_SOC', equipeId: 'EQ_SOC' });
+    const escopos = resolverEscoposOperacionaisBase(
+      analista, UNIDADES, EQUIPES, GRUPOS, [], { permitirAmploStaging: true },
+    );
+    expect(escopos.jornadasAdministraveis).toEqual([]);
+  });
+});
+
+/**
  * Fase ESCOPO-CONSULTA-PLANTAO-1 — Wanessa (SUPERVISOR_EQUIPE do NOC)
  * administra a Jornada do NOC, mas não administra Plantão COSI nem
  * Plantão CODB — só pode vincular a própria equipe (EQ_NOC) à consulta

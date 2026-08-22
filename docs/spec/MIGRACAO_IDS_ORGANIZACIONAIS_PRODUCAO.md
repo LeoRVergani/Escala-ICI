@@ -1,15 +1,25 @@
 # Migração de IDs organizacionais para produção
 
 **Status:** planejada e obrigatória antes do primeiro go-live de produção  
-**Execução atual:** proibida em staging; nenhum dado ou ID deve ser alterado nesta fase  
+**Execução atual:** proibida em staging **por edição/renomeação silenciosa em runtime** — a única forma permitida de staging adotar os IDs canônicos é o corte controlado descrito em `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` (fase STAGING-RESET-HIERARQUIA-ICI-1: backup recuperável, reset completo, reseed do zero já com IDs canônicos, validação pós-seed, aprovação humana em cada passo — nunca um `UPDATE`/renomeação de documento existente)\
 **Fonte organizacional:** `ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md`
 
 ## 1. Decisão normativa
 
-O staging atual preserva seus IDs legados para não quebrar usuários, escalas,
-Matriz de Responsáveis, Plantões, trocas e históricos já usados nos testes.
-Assim, `EQ_SOC`, `EQ_NOC` e `EQ_PLANTAO_COSI` continuam válidos **somente como
-chaves legadas desse ambiente** até o corte controlado.
+Antes da fase STAGING-RESET-HIERARQUIA-ICI-1, o staging preservava seus IDs
+legados para não quebrar usuários, escalas, Matriz de Responsáveis, Plantões,
+trocas e históricos já usados nos testes — `EQ_SOC`, `EQ_NOC` e
+`EQ_PLANTAO_COSI` eram válidos **somente como chaves legadas desse
+ambiente**, até o corte controlado.
+
+A partir da fase STAGING-RESET-HIERARQUIA-ICI-1, o staging é reiniciado do
+zero (backup + reset + seed, nunca renomeação em runtime — ver
+`docs/spec/STAGING_RESET_HIERARQUIA_ICI.md`) e passa a nascer diretamente com
+os IDs canônicos da tabela abaixo. Isso ANTECIPA para staging, sob a mesma
+disciplina, o que esta spec já exigia para o corte de produção — não a
+contradiz: produção continua exigindo seu próprio corte formal (backup, dry-
+run, auditoria referencial, aprovação humana), a partir de uma base vazia,
+nunca copiada diretamente do staging (mesmo o staging canônico novo).
 
 A base definitiva de produção deve nascer com IDs técnicos canônicos derivados
 da estrutura organizacional confirmada do ICI. Para o recorte atual:
@@ -33,7 +43,10 @@ normal da tela Administração e não uma renomeação automática em runtime.
 
 ## 2. O que não pode acontecer agora
 
-- Não renomear documentos no staging.
+- Não renomear documentos no staging (`UPDATE` de `equipeId`/`grupoId`/IDs em
+  runtime). O único caminho aprovado para staging adotar os IDs canônicos é
+  o reset+reseed controlado de `docs/spec/STAGING_RESET_HIERARQUIA_ICI.md` —
+  apagar e recriar do zero, nunca editar um ID existente no lugar.
 - Não trocar `equipeId`, `equipeResponsavelId`, `equipesConsulta` ou `alvoId`
   isoladamente.
 - Não manter dois IDs ativos para a mesma equipe como fallback silencioso.

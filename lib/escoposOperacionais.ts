@@ -3,7 +3,9 @@ import type { Equipe, EscopoOperacional, PerfilUsuario, UnidadeOrganizacional, U
 import { resolverMatrizOperacional } from './escoposOperacionaisMatriz';
 import {
   ehAdminSistema,
+  ehPerfilElegivelParaAmploStaging,
   equipesPermitidasEfetivas,
+  escopoDoGrupoPlantaoNoMeuAlcance,
   perfilEfetivo,
   podeGerenciarGrupoPlantao,
   unidadesPermitidasEfetivas,
@@ -85,7 +87,7 @@ export function resolverEscoposOperacionais(
   equipes: readonly Equipe[],
   gruposPlantao: readonly GrupoPlantao[],
   escoposOperacionais: readonly EscopoOperacional[] = [],
-  opcoes: { permitirFallbackLegado?: boolean } = {},
+  opcoes: { permitirFallbackLegado?: boolean; permitirAmploStaging?: boolean } = {},
 ): EscoposOperacionais {
   const admin = ehAdminSistema(usuarioEfetivo);
   const perfil = perfilEfetivo(usuarioEfetivo);
@@ -115,20 +117,35 @@ export function resolverEscoposOperacionais(
 
   const idsEquipeResponsavelPlantao = new Set(gruposPlantao.filter((grupo) => grupo.ativo).map((grupo) => grupo.equipeResponsavelId));
   const permitirFallbackLegado = opcoes.permitirFallbackLegado === true;
-  const jornadasFallback = permitirFallbackLegado
-    ? equipesAdministraveis.filter((equipe) => !idsEquipeResponsavelPlantao.has(equipe.id))
-    : [];
+  /**
+   * STAGING-RESET-HIERARQUIA-ICI-1 — diferente de `permitirFallbackLegado`
+   * (que só preenche alvos SEM entrada na Matriz), esta liberação vale
+   * MESMO quando a Matriz já cobre o alvo mas não lista este usuário —
+   * espelha `souCoordenadorOperacionalStaging()` de `firestore.rules`, que
+   * também não é bloqueado por uma Matriz existente. Nunca reaproveita nem
+   * altera a semântica de `permitirFallbackLegado` (fixada por
+   * `tests/dashboard-contexto-escala-boundaries.test.mjs`).
+   */
+  const permitirAmploStaging = opcoes.permitirAmploStaging === true && ehPerfilElegivelParaAmploStaging(usuarioEfetivo);
+  const candidatosJornadaAmplos = equipesAdministraveis.filter((equipe) => !idsEquipeResponsavelPlantao.has(equipe.id));
+  const jornadasFallback = permitirFallbackLegado ? candidatosJornadaAmplos : [];
+  const jornadasAmploStaging = permitirAmploStaging ? candidatosJornadaAmplos : [];
   const jornadasAdministraveis = [
     ...matriz.jornadasAdministraveis,
     ...jornadasFallback.filter((equipe) => !matriz.alvoTemMatriz('JORNADA', equipe.id)),
+    ...jornadasAmploStaging,
   ].filter((equipe, indice, lista) => lista.findIndex((item) => item.id === equipe.id) === indice);
 
   const gruposPlantaoFallback = permitirFallbackLegado
     ? gruposPlantao.filter((grupo) => grupo.ativo && podeGerenciarGrupoPlantao(usuarioEfetivo, grupo))
     : [];
+  const gruposPlantaoAmploStaging = permitirAmploStaging
+    ? gruposPlantao.filter((grupo) => grupo.ativo && escopoDoGrupoPlantaoNoMeuAlcance(usuarioEfetivo, grupo))
+    : [];
   const gruposPlantaoAdministraveis = [
     ...matriz.plantoesAdministraveis,
     ...gruposPlantaoFallback.filter((grupo) => !matriz.alvoTemMatriz('PLANTAO', grupo.grupoId)),
+    ...gruposPlantaoAmploStaging,
   ].filter((grupo, indice, lista) => lista.findIndex((item) => item.grupoId === grupo.grupoId) === indice);
 
   /**

@@ -3833,3 +3833,262 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
     });
   });
 });
+
+/**
+ * STAGING-RESET-HIERARQUIA-ICI-1 — liberação operacional exclusiva de
+ * staging, via `config/ambiente` (`{ staging: true }`). Este bloco prova,
+ * nesta ordem:
+ *
+ * 1. Sem o documento (produção, e staging antes do seed), a Matriz
+ *    existente que não lista o coordenador continua bloqueando — o
+ *    comportamento de ANTES desta fase não muda por omissão (fail-closed).
+ * 2. Com o documento, GESTOR_EQUIPE e SUPERVISOR_EQUIPE administram
+ *    Jornada/Plantão dentro do PRÓPRIO escopo mesmo quando a Matriz existe
+ *    e não os lista — sem depender de um ADMIN_SISTEMA reconfigurar a
+ *    Matriz antes.
+ * 3. A própria Matriz (`escoposOperacionais`) também fica editável por
+ *    coordenador/supervisor em staging, mas só dentro do próprio escopo.
+ * 4. O que continua bloqueado mesmo em staging: ADMIN_SISTEMA, escopo
+ *    GLOBAL, e todo delete físico já negado (`auditoriaAdmin`,
+ *    `historicoPublicacoes`, `publicacoesEscala`, `escoposOperacionais`).
+ */
+describe('STAGING-RESET-HIERARQUIA-ICI-1 — liberação operacional de staging', () => {
+  const supervisoraSoc = {
+    login: 'sabrina.supervisora.soc',
+    nome: 'Sabrina Supervisora',
+    email: 'sabrina.supervisora.soc@teste.local',
+    equipeId: 'EQ_COSI_SOC',
+    nivelHierarquico: 4,
+    perfil: 'SUPERVISOR_EQUIPE',
+    escopo: 'EQUIPE',
+    equipesPermitidas: ['EQ_COSI_SOC', 'EQ_COSI_SOC_TURNO2'],
+  };
+
+  const coordenadorPlantao = {
+    login: 'paulo.coordenador.plantao',
+    nome: 'Paulo Coordenador Plantão',
+    email: 'paulo.coordenador.plantao@teste.local',
+    equipeId: 'EQ_PLANTAO_COSI',
+    nivelHierarquico: 5,
+  };
+
+  const supervisoraPlantao = {
+    login: 'sonia.supervisora.plantao',
+    nome: 'Sônia Supervisora Plantão',
+    email: 'sonia.supervisora.plantao@teste.local',
+    equipeId: 'EQ_PLANTAO_COSI',
+    nivelHierarquico: 4,
+    perfil: 'SUPERVISOR_EQUIPE',
+    escopo: 'EQUIPE',
+  };
+
+  function matrizJornadaSocSemResponsavelDoTime(ajustes: Record<string, unknown> = {}) {
+    return escopoOperacional({
+      tipo: 'JORNADA',
+      alvoId: 'EQ_COSI_SOC',
+      alvoNome: 'SOC',
+      equipesConsulta: [],
+      responsaveisLogin: [usuarios.externo.login],
+      ...ajustes,
+    });
+  }
+
+  function matrizPlantaoSemResponsavelDoTime(ajustes: Record<string, unknown> = {}) {
+    return escopoOperacional({
+      tipo: 'PLANTAO',
+      alvoId: 'PLANTAO_COSI',
+      alvoNome: 'Plantão COSI',
+      responsaveisLogin: [usuarios.externo.login],
+      equipesConsulta: ['EQ_PLANTAO_COSI'],
+      ...ajustes,
+    });
+  }
+
+  async function habilitarStaging() {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'config', 'ambiente'), { staging: true });
+    });
+  }
+
+  beforeEach(async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await Promise.all([
+        setDoc(doc(db, 'usuarios', supervisoraSoc.login), supervisoraSoc),
+        setDoc(doc(db, 'usuarios', coordenadorPlantao.login), coordenadorPlantao),
+        setDoc(doc(db, 'usuarios', supervisoraPlantao.login), supervisoraPlantao),
+        setDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoMatriz()),
+        setDoc(doc(db, 'escoposOperacionais', 'JORNADA_EQ_COSI_SOC'), matrizJornadaSocSemResponsavelDoTime()),
+        setDoc(doc(db, 'escoposOperacionais', 'PLANTAO_PLANTAO_COSI'), matrizPlantaoSemResponsavelDoTime()),
+      ]);
+    });
+  });
+
+  it('sem config/ambiente.staging=true, a Matriz existente que não lista o coordenador continua bloqueando (fail-closed, comportamento de produção)', async () => {
+    const supervisora = autenticarComo(supervisoraSoc);
+    await assertFails(setDoc(
+      doc(supervisora, 'rascunhosTurnosMes', 'EQ_COSI_SOC_novo.membro_2026-09'),
+      escala('novo.membro', 'EQ_COSI_SOC', 'RASCUNHO'),
+    ));
+
+    const coordenador = autenticarComo(coordenadorPlantao);
+    await assertFails(setDoc(
+      doc(coordenador, 'rascunhosCompetenciasPlantao', 'PLANTAO_COSI_2026-09'),
+      competenciaPlantaoMatriz(),
+    ));
+  });
+
+  it('com staging habilitado, GESTOR_EQUIPE e SUPERVISOR_EQUIPE administram Jornada mesmo com Matriz existente que não os lista', async () => {
+    await habilitarStaging();
+    for (const ator of [usuarios.gestor, supervisoraSoc]) {
+      const db = autenticarComo(ator);
+      await assertSucceeds(setDoc(
+        doc(db, 'rascunhosTurnosMes', `EQ_COSI_SOC_novo.${ator.login}_2026-09`),
+        escala(`novo.${ator.login}`, 'EQ_COSI_SOC', 'RASCUNHO'),
+      ));
+    }
+  });
+
+  it('com staging habilitado, GESTOR_EQUIPE e SUPERVISOR_EQUIPE administram Plantão mesmo com Matriz existente que não os lista', async () => {
+    await habilitarStaging();
+    for (const ator of [coordenadorPlantao, supervisoraPlantao]) {
+      const db = autenticarComo(ator);
+      await assertSucceeds(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', `PLANTAO_COSI_2026-09-${ator.login}`),
+        { ...competenciaPlantaoMatriz(), id: `PLANTAO_COSI_2026-09-${ator.login}`, competencia: '2026-09', criadoPorLogin: ator.login },
+      ));
+    }
+  });
+
+  it('com staging habilitado, coordenador aprova e recusa troca mesmo sem estar na Matriz de Jornada', async () => {
+    await habilitarStaging();
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'trocasEscala', 'troca-staging'), troca({
+        trocaId: 'troca-staging',
+        equipeId: 'EQ_COSI_SOC',
+        status: 'PENDENTE_GESTOR',
+      }));
+    });
+    const supervisora = autenticarComo(supervisoraSoc);
+    await assertSucceeds(updateDoc(doc(supervisora, 'trocasEscala', 'troca-staging'), {
+      status: 'RECUSADA_GESTOR',
+      motivoRecusa: 'Sem cobertura suficiente.',
+      gestorLogin: supervisoraSoc.login,
+      gestorNome: supervisoraSoc.nome,
+      historico: [
+        ...troca().historico,
+        { tipo: 'RECUSA_GESTOR', porLogin: supervisoraSoc.login, porNome: supervisoraSoc.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'Recusada' },
+      ],
+    }));
+  });
+
+  it('com staging habilitado, coordenador cadastra colaborador e delega GESTOR_EQUIPE/SUPERVISOR_EQUIPE restrito à própria equipe', async () => {
+    await habilitarStaging();
+    const supervisora = autenticarComo(supervisoraSoc);
+    await assertSucceeds(setDoc(doc(supervisora, 'usuarios', 'novo.colaborador.soc'), {
+      login: 'novo.colaborador.soc',
+      nome: 'Novo Colaborador SOC',
+      equipeId: 'EQ_COSI_SOC',
+      nivelHierarquico: 6,
+      cadastroOperacional: { tipo: 'JORNADA', alvoId: 'EQ_COSI_SOC', criadoPorLogin: supervisoraSoc.login },
+    }));
+    await assertSucceeds(setDoc(doc(supervisora, 'usuarios', 'novo.supervisor.soc'), {
+      login: 'novo.supervisor.soc',
+      nome: 'Novo Supervisor SOC',
+      equipeId: 'EQ_COSI_SOC',
+      nivelHierarquico: 4,
+      perfil: 'SUPERVISOR_EQUIPE',
+      escopo: 'EQUIPE',
+      cadastroOperacional: { tipo: 'JORNADA', alvoId: 'EQ_COSI_SOC', criadoPorLogin: supervisoraSoc.login },
+    }));
+  });
+
+  it('mesmo com staging habilitado, coordenador NÃO cria ADMIN_SISTEMA nem escopo GLOBAL', async () => {
+    await habilitarStaging();
+    const supervisora = autenticarComo(supervisoraSoc);
+    await assertFails(setDoc(doc(supervisora, 'usuarios', 'admin.forjado.staging'), {
+      login: 'admin.forjado.staging',
+      nome: 'Admin Forjado',
+      equipeId: 'EQ_COSI_SOC',
+      nivelHierarquico: 0,
+      perfil: 'ADMIN_SISTEMA',
+      cadastroOperacional: { tipo: 'JORNADA', alvoId: 'EQ_COSI_SOC', criadoPorLogin: supervisoraSoc.login },
+    }));
+    await assertFails(setDoc(doc(supervisora, 'usuarios', 'escopo.global.forjado'), {
+      login: 'escopo.global.forjado',
+      nome: 'Escopo Global Forjado',
+      equipeId: 'EQ_COSI_SOC',
+      nivelHierarquico: 3,
+      perfil: 'GESTOR_EQUIPE',
+      escopo: 'GLOBAL',
+      cadastroOperacional: { tipo: 'JORNADA', alvoId: 'EQ_COSI_SOC', criadoPorLogin: supervisoraSoc.login },
+    }));
+  });
+
+  it('com staging habilitado, coordenador/supervisor editam a própria Matriz dentro do escopo, mas não fora dele', async () => {
+    await habilitarStaging();
+    const supervisora = autenticarComo(supervisoraSoc);
+    await assertSucceeds(updateDoc(doc(supervisora, 'escoposOperacionais', 'JORNADA_EQ_COSI_SOC'), {
+      responsaveisLogin: [usuarios.externo.login, supervisoraSoc.login],
+      atualizadoPorLogin: supervisoraSoc.login,
+      atualizadoEm: '2026-08-20T00:00:00.000Z',
+    }));
+    await assertSucceeds(setDoc(
+      doc(supervisora, 'escoposOperacionais', 'JORNADA_EQ_COSI_SOC_TURNO2'),
+      escopoOperacional({
+        tipo: 'JORNADA',
+        alvoId: 'EQ_COSI_SOC_TURNO2',
+        alvoNome: 'SOC Turno 2',
+        equipesConsulta: [],
+        responsaveisLogin: [supervisoraSoc.login],
+        criadoPorLogin: supervisoraSoc.login,
+        atualizadoPorLogin: supervisoraSoc.login,
+      }),
+    ));
+
+    // Fora do escopo dela (NOC): nem em staging.
+    await assertFails(setDoc(
+      doc(supervisora, 'escoposOperacionais', 'JORNADA_EQ_CODB_NOC'),
+      escopoOperacional({
+        tipo: 'JORNADA',
+        alvoId: 'EQ_CODB_NOC',
+        alvoNome: 'NOC',
+        equipesConsulta: [],
+        responsaveisLogin: [supervisoraSoc.login],
+        criadoPorLogin: supervisoraSoc.login,
+        atualizadoPorLogin: supervisoraSoc.login,
+      }),
+    ));
+  });
+
+  it('com staging habilitado, ações sensíveis do coordenador geram auditoria — mas ele nunca lê, atualiza ou apaga o log', async () => {
+    await habilitarStaging();
+    const supervisora = autenticarComo(supervisoraSoc);
+    const registro = {
+      atorRealLogin: supervisoraSoc.login,
+      atorSimuladoLogin: null,
+      acao: 'CADASTRAR_USUARIOS',
+      equipeId: 'EQ_COSI_SOC',
+      em: '2026-08-20T00:00:00.000Z',
+    };
+    await assertSucceeds(setDoc(doc(supervisora, 'auditoriaAdmin', 'auditoria-staging-1'), registro));
+    await assertFails(getDoc(doc(supervisora, 'auditoriaAdmin', 'auditoria-staging-1')));
+    await assertFails(updateDoc(doc(supervisora, 'auditoriaAdmin', 'auditoria-staging-1'), { acao: 'FORJADO' }));
+    await assertFails(deleteDoc(doc(supervisora, 'auditoriaAdmin', 'auditoria-staging-1')));
+  });
+
+  it('mesmo em staging e mesmo para ADMIN_SISTEMA, delete físico de histórico/publicação/Matriz continua negado', async () => {
+    await habilitarStaging();
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await Promise.all([
+        setDoc(doc(db, 'historicoPublicacoes', 'hist-staging-1'), { equipeId: 'EQ_COSI_SOC' }),
+        setDoc(doc(db, 'publicacoesEscala', 'pub-staging-1'), { id: 'pub-staging-1', equipeId: 'EQ_COSI_SOC', competencia: '2026-09' }),
+      ]);
+    });
+    const admin = autenticarComo(usuarios.admin);
+    await assertFails(deleteDoc(doc(admin, 'historicoPublicacoes', 'hist-staging-1')));
+    await assertFails(deleteDoc(doc(admin, 'publicacoesEscala', 'pub-staging-1')));
+    await assertFails(deleteDoc(doc(admin, 'escoposOperacionais', 'JORNADA_EQ_COSI_SOC')));
+  });
+});

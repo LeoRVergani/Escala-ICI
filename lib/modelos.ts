@@ -131,6 +131,21 @@ export interface Equipe {
    */
   unidadeId?: string;
   caminhoUnidade?: string[];
+
+  /**
+   * STAGING-RESET-HIERARQUIA-ICI-1 — opcionais, retrocompatíveis. `ordem` é
+   * só posição de exibição dentro da unidade. `codigoOrganizacional` é um
+   * SNAPSHOT do código derivado descrito em
+   * `docs/spec/ESCALA_ICI_MASTER_SPEC.md` § 19 (formato
+   * `Gerência_Área_Equipe`) — nunca a fonte de verdade da apresentação, que
+   * continua sendo recalculada de `unidadeId`/`caminhoUnidade` quando a
+   * equipe muda de unidade; para os IDs canônicos desta fase
+   * (`GEDSI_COSI_SOC` etc.) ele coincide com o próprio `id`, porque o ID já
+   * nasce no formato derivado.
+   */
+  ordem?: number;
+  codigoOrganizacional?: string;
+  schemaVersion?: 1;
 }
 
 /** Cadastro administrativo simples, mesma forma de `Equipe`. Mantido intacto
@@ -152,15 +167,35 @@ export interface Setor {
  * `UnidadeOrganizacional`; só o nó que efetivamente recebe escala é uma
  * `Equipe`. Coleção aditiva: não substitui `setores`/`equipes`.
  */
+/**
+ * `ASSESSORIA` — STAGING-RESET-HIERARQUIA-ICI-1: o organograma canônico do
+ * ICI tem assessorias diretamente sob a Presidência (ex.: ASRIM), que não
+ * cabiam em nenhum tipo existente. Ver
+ * `docs/spec/ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md` § 5.
+ */
 export type TipoUnidadeOrganizacional =
   | 'PRESIDENCIA'
   | 'DIRETORIA'
+  | 'ASSESSORIA'
   | 'GERENCIA'
   | 'COORDENACAO'
   | 'SUPERVISAO'
   | 'AREA'
   | 'SETOR'
   | 'DEPARTAMENTO';
+
+/**
+ * Classificação de echelon — `docs/spec/ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md`
+ * § 2/§ 5: `DELIBERATIVO` (Presidência), `ESTRATEGICO` (diretorias e
+ * assessorias), `TATICO` (gerências, coordenações e supervisões),
+ * `OPERACIONAL` (equipes e colaboradores). Puramente de leitura/contexto —
+ * nunca autorização (`docs/spec/HIERARQUIA_ORGANIZACIONAL.md`).
+ */
+export type NivelHierarquicoOrganizacional =
+  | 'DELIBERATIVO'
+  | 'ESTRATEGICO'
+  | 'TATICO'
+  | 'OPERACIONAL';
 
 export interface UnidadeOrganizacional {
   unidadeId: string;
@@ -181,6 +216,16 @@ export interface UnidadeOrganizacional {
   criadoPorLogin: string;
   criadoEm?: string;
   atualizadoEm?: string;
+  /**
+   * STAGING-RESET-HIERARQUIA-ICI-1 — campos opcionais previstos pelo
+   * "Modelo recomendado" de `docs/spec/ESTRUTURA_ORGANIZACIONAL_REFERENCIA.md`
+   * § 5, agora persistidos pelo seed canônico (`scripts/staging/hierarquia-ici.mjs`).
+   * Opcionais para não quebrar nenhum documento existente sem eles.
+   */
+  nivelHierarquico?: NivelHierarquicoOrganizacional;
+  ordem?: number;
+  observacao?: string | null;
+  schemaVersion?: 1;
 }
 
 export type TipoEscopoOperacional = 'JORNADA' | 'PLANTAO';
