@@ -700,37 +700,34 @@ test('o cabeçalho do AppFrame mostra o cargo real (rotuloCargoExibicao), nunca 
 /**
  * PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 — Parte C: ausência de Jornada 6x1
  * publicada sempre virava a mesma mensagem genérica, mesmo para um login
- * com participação real em Plantão (o App nunca consultava Plantão).
- * `mensagemAusenciaEscalaAcao()` verifica participação (tolerante a
- * falha de Rules/Matriz) antes de escolher a mensagem — nunca implementa a
- * visão detalhada de Plantão no App nesta fase.
+ * com participação real em Plantão. Introduziu `mensagemAusenciaEscalaAcao()`,
+ * mas ainda jogava as duas mensagens no alerta vermelho GLOBAL do topo do
+ * App (`setErro`) — o que continuava ruim para UX (uma ausência PARCIAL,
+ * só de Jornada, virava erro visual mesmo com Plantão disponível).
+ *
+ * FASE-APP-OPERACOES-UNIVERSAIS-1 removeu `mensagemAusenciaEscalaAcao()`
+ * (e o `setErro` associado a ela): a ausência de Jornada deixou de ser um
+ * "erro" e passou a ser um dado (`minhaEscala === null`) combinado com o
+ * estado de Plantão — já carregado eagerly a cada login, não mais só ao
+ * abrir a aba Plantão/Perfil — através de `operacoesApp.ts`. Nenhuma tela
+ * mostra mais o alerta vermelho global só por faltar Jornada.
  */
-test('o App diferencia "sem Jornada" de "tem participação em Plantão" ao não encontrar escala publicada', async () => {
+test('o App não trata mais ausência de Jornada 6x1 como erro global — operacoesApp.ts decide por operação', async () => {
   const app = await ler('apps/app/src/EmployeeApp.tsx');
 
-  /**
-   * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — o import de
-   * `plantaoReadRepository` cresceu de 2 para 4 símbolos porque a "fase
-   * futura" que este teste (PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1) previa
-   * na mensagem abaixo ("A visualização detalhada será exibida na aba
-   * Plantão") chegou: `obterCompetenciaPlantaoPublicada`/
-   * `listarAtribuicoesPlantaoPublicada` agora alimentam a aba "Plantão" de
-   * verdade (ver `tests/plantao-dashboard-administracao-boundaries.test.mjs`,
-   * teste 7). `mensagemAusenciaEscalaAcao` continua igual — só a proibição
-   * de antecipar a visão deixou de valer.
-   */
   assert.match(app, /import \{\s*listarAtribuicoesPlantaoPublicada,\s*listarGruposPlantaoPermitidos,\s*listarParticipantesPlantao,\s*obterCompetenciaPlantaoPublicada,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
-  assert.match(app, /async function mensagemAusenciaEscalaAcao\(usuario: Usuario\): Promise<string> \{/u);
-  assert.match(app, /'Nenhuma jornada 6x1 encontrada para este período\.'/u);
-  assert.match(app, /'Você possui participação em Plantão\. A visualização detalhada será exibida na aba Plantão\.'/u);
+  assert.doesNotMatch(app, /async function mensagemAusenciaEscalaAcao/u, 'a função antiga (que jogava a ausência de Jornada no alerta global) precisa ter sido removida');
+  assert.doesNotMatch(app, /setErro\(await mensagemAusenciaEscalaAcao/u);
   assert.doesNotMatch(app, /'Nenhuma escala publicada foi encontrada para o seu login neste período\.'/u, 'a mensagem genérica antiga não pode mais aparecer sozinha para este caso');
 
-  // O call site precisa usar a nova função, não mais o literal fixo.
-  assert.match(app, /if \(minha === null\) \{\s*setErro\(await mensagemAusenciaEscalaAcao\(autenticado\)\);\s*\}/u);
+  // O novo módulo puro é quem decide o que cada tela mostra por operação.
+  assert.match(app, /from '\.\/operacoesApp';/u);
+  assert.match(app, /resolverOperacoesApp\(/u);
+  assert.match(app, /temJornadaPublicada\(operacoesApp\)/u);
+  assert.match(app, /temPlantaoPublicado\(operacoesApp\)/u);
 
-  // Tolerante a falha — uma Rules/Matriz que ainda não reconhece a consulta
-  // nunca pode quebrar o login (nunca deixa o catch escapar sem fallback).
-  const corpo = /async function mensagemAusenciaEscalaAcao\(usuario: Usuario\): Promise<string> \{([\s\S]*?)\n\}/u.exec(app);
-  assert.ok(corpo, 'mensagemAusenciaEscalaAcao precisa existir');
-  assert.match(corpo[1], /\} catch \{/u, 'precisa capturar falha da consulta de Plantão, nunca propagar');
+  // Plantão passou a carregar assim que o login termina (não mais só ao
+  // abrir a aba Plantão/Perfil) — é o que permite Hoje/Agenda/Trocas/Equipe
+  // saberem se existe Plantão publicado antes de o usuário visitar a aba.
+  assert.match(app, /useEffect\(\(\) => \{\s*if \(usuario !== null\) \{\s*void Promise\.resolve\(\)\.then\(\(\) => carregarPlantaoApp\(\)\);/u);
 });

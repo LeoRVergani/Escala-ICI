@@ -158,3 +158,71 @@ test('13. a visão "Plantão" não mostra mais o texto genérico de permissão d
   assert.match(corpo, /permission-denied/u, 'precisa distinguir especificamente o erro de permissão');
   assert.doesNotMatch(corpo, /permissão de gestor/u, 'nunca sugerir "permissão de gestor" (fora de comentários) para uma ação de CONSULTA do App');
 });
+
+/**
+ * FASE-APP-OPERACOES-UNIVERSAIS-1 — o App nasceu focado em Jornada 6x1 e
+ * tratava a ausência dela como erro global mesmo quando o usuário tinha
+ * Plantão publicado (o caso do Jean). Estes testes cobrem a virada para um
+ * App universal por operação — ver `apps/app/src/operacoesApp.ts` e
+ * `docs/spec/APP_PLANTAO_VISUALIZACAO.md`.
+ */
+
+test('14. operacoesApp.ts existe, é puro (sem DOM/React/Firebase) e exporta as 5 funções da fase', async () => {
+  const fonte = await ler('apps/app/src/operacoesApp.ts');
+  for (const proibido of ["from 'firebase/firestore'", "from 'react'", 'useState', 'useEffect', 'getFirestore']) {
+    assert.doesNotMatch(fonte, new RegExp(proibido.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'), proibido);
+  }
+  assert.match(fonte, /export function resolverOperacoesApp\(/u);
+  assert.match(fonte, /export function derivarEstadoGlobalApp\(/u);
+  assert.match(fonte, /export function temJornadaPublicada\(/u);
+  assert.match(fonte, /export function temPlantaoPublicado\(/u);
+  assert.match(fonte, /export function operacaoPrincipalHoje\(/u);
+});
+
+test('15. a ausência de Jornada 6x1 nunca mais vira o alerta vermelho global do App (`erro`) — só um alerta contextual (`alert warning`) quando há Plantão para compensar', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  assert.doesNotMatch(app, /setErro\('Nenhuma jornada 6x1 encontrada para este período\.'\)/u);
+  assert.match(app, /Nenhuma jornada 6x1 publicada para este período\./u, 'a mensagem contextual (regra 1) precisa existir em algum lugar do App');
+  assert.match(app, /Nenhuma escala publicada para este período/u, 'estado vazio da aba Hoje quando não há Jornada nem Plantão (regra 4)');
+});
+
+test('16. Plantão carrega assim que o login termina (eager), não mais só ao abrir a aba Plantão/Perfil — condição essencial para Hoje/Agenda/Equipe/Trocas saberem do Plantão a tempo', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  assert.doesNotMatch(app, /if \(tela === 'plantao' \|\| tela === 'perfil'\)/u);
+  assert.match(app, /if \(usuario !== null\) \{\s*void Promise\.resolve\(\)\.then\(\(\) => carregarPlantaoApp\(\)\);/u);
+});
+
+test('17. aba Agenda: seletor "Jornada 6x1" / "Plantão" só aparece quando o usuário tem as duas operações publicadas', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  assert.match(app, /jornadaPublicadaApp && plantaoPublicadoApp && \(\s*<div className="segmented-control agenda-operacao-seletor"/u);
+});
+
+test('18. aba Equipe: nunca mais "0 colaboradores" para quem só tem Plantão — mostra os participantes do Plantão, com seletor quando as duas operações existem', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  const inicio = app.indexOf("{tela === 'equipe' && (");
+  const fim = app.indexOf("{tela === 'perfil' && (");
+  assert.ok(inicio > 0 && fim > inicio, 'a tela "equipe" precisa existir antes da tela "perfil"');
+  const telaEquipe = app.slice(inicio, fim);
+  assert.match(telaEquipe, /Participantes do Plantão/u);
+  assert.match(telaEquipe, /equipeOperacaoEfetiva === 'PLANTAO' && plantaoPublicadoApp/u);
+  assert.match(telaEquipe, /jornadaPublicadaApp && plantaoPublicadoApp && \(\s*<div className="segmented-control equipe-operacao-seletor"/u);
+});
+
+test('19. aba Trocas: sem Jornada 6x1, mostra a limitação contextual (não o alerta vermelho global) e menciona que Trocas de Plantão ficam para uma próxima fase', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  const inicio = app.indexOf("{tela === 'trocas' && usuario && (");
+  const fim = app.indexOf("{tela === 'plantao' && usuario && (");
+  assert.ok(inicio > 0 && fim > inicio, 'a tela "trocas" precisa existir antes da tela "plantao"');
+  const telaTrocas = app.slice(inicio, fim);
+  assert.match(telaTrocas, /Trocas de Jornada 6x1 não estão disponíveis porque não há Jornada publicada para este período\./u);
+  assert.match(telaTrocas, /Trocas de Plantão serão tratadas em uma próxima fase\./u);
+});
+
+test('20. Messaging (Push em primeiro plano) nunca derruba o EmployeeApp — getMessaging()/onMessage() ficam dentro de um try/catch com console.warn', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  const inicio = app.indexOf('cancelar = assinarMensagensEmPrimeiroPlano');
+  assert.ok(inicio > 0, 'a assinatura de mensagens em primeiro plano precisa existir');
+  const janela = app.slice(Math.max(0, inicio - 400), inicio + 100);
+  assert.match(janela, /try \{/u);
+  assert.match(app.slice(inicio, inicio + 600), /\} catch \(falha\) \{\s*console\.warn\(/u);
+});

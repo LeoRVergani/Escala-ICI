@@ -134,3 +134,61 @@ escrita. A troca de Jornada SOC (aba "Trocas") não foi alterada.
   e a escrita pessoal de contatos.
 - Não usa `localStorage` como fonte de escala.
 - Não altera a Jornada SOC, a tela "Hoje" nem o fluxo de Trocas existente.
+
+## 7. FASE-APP-OPERACOES-UNIVERSAIS-1 — App universal por operação
+
+As seções acima descrevem a PRIMEIRA versão da aba "Plantão" — nesse ponto,
+um usuário sem Jornada 6x1 publicada, mas com Plantão de verdade
+(participante ou com consulta liberada), ainda via o alerta vermelho
+GLOBAL "Nenhuma jornada 6x1 encontrada para este período." no topo do App:
+tecnicamente verdadeiro, mas ruim para UX, e a aba "Equipe" continuava
+mostrando só a equipe da Jornada (aparecendo vazia para quem só tinha
+Plantão).
+
+Esta fase introduziu `apps/app/src/operacoesApp.ts` — módulo puro (sem
+DOM/React/Firebase, mesmo princípio de `plantaoApp.ts`/`hojeConsulta.ts`)
+que resolve, para um usuário e uma competência, quais **operações**
+(`JORNADA`, `PLANTAO`) existem e estão `publicada`/`sem-escala`:
+`resolverOperacoesApp`, `derivarEstadoGlobalApp`, `temJornadaPublicada`,
+`temPlantaoPublicado`, `operacaoPrincipalHoje`. Nenhuma tela decide mais
+sozinha, a partir de uma string de erro solta, se deve tratar a ausência
+de Jornada como problema.
+
+Mudanças de comportamento no `EmployeeApp`:
+
+- **Carga eager do Plantão** — `carregarPlantaoApp()` deixou de rodar só
+  na primeira vez que a aba "Plantão"/"Perfil" abre e passou a rodar assim
+  que o login termina (`useEffect` disparado por `usuario`, não mais por
+  `tela`). É o que permite Hoje/Agenda/Equipe/Trocas saberem se existe
+  Plantão publicado ANTES de o usuário abrir a aba Plantão.
+- **`mensagemAusenciaEscalaAcao()` foi removida** — a ausência de Jornada
+  deixou de setar o alerta vermelho global (`erro`). Cada tela decide,
+  via `operacoesApp.ts`, o que mostrar quando falta uma das duas operações
+  — nunca um erro global só por isso. O alerta vermelho global continua
+  existindo, mas só para erro real de Firestore/Auth (`mensagemErroFirebase`).
+- **Hoje** — mostra o card de Jornada e/ou o card de Plantão (`PlantaoHojeCard`,
+  reaproveitando `resolverPlantaoAgora` de `plantaoApp.ts`) conforme o que
+  está publicado; um aviso contextual (`alert warning`, não vermelho)
+  quando só falta a Jornada; e um estado vazio amigável quando não há
+  nenhuma das duas.
+- **Agenda ("minha")** — com as duas operações publicadas, um seletor
+  "Jornada 6x1" / "Plantão" decide o que mostrar (reaproveitando
+  `CalendarioPlantaoApp` para o lado Plantão); com só uma, ela aparece
+  direto, sem seletor; o subtítulo do cabeçalho reflete o que existe.
+- **Equipe** — mostra "Participantes do Plantão" (nome + contatos ativos)
+  quando o contexto é Plantão, com o mesmo seletor quando as duas
+  operações existem — nunca mais "0 colaboradores" para quem só tem
+  Plantão.
+- **Trocas** — sem Jornada publicada, mostra a limitação dentro da própria
+  tela ("Trocas de Jornada 6x1 não estão disponíveis..."), nunca o alerta
+  global; e, quando há Plantão, lembra que "Trocas de Plantão serão
+  tratadas em uma próxima fase" (nenhum fluxo de escrita novo).
+- **Messaging** — `assinarMensagensEmPrimeiroPlano()` (que pode lançar
+  síncrono em ambientes sem suporte a `getMessaging()`) passou a rodar
+  dentro de um `try/catch` com `console.warn` — o App nunca fica em branco
+  por causa de Push indisponível.
+
+Nada muda em Firestore Rules, seed/staging, Dashboard ou no modelo de
+Plantão — ver `apps/app/src/operacoesApp.test.ts` e
+`tests/app-plantao-visualizacao-boundaries.test.mjs` (testes 14–20) para a
+cobertura desta fase.

@@ -140,6 +140,13 @@ import {
   ehDiaConsultadoHoje,
   tituloEquipeConsultada,
 } from './hojeConsulta';
+import {
+  derivarEstadoGlobalApp,
+  operacaoPrincipalHoje,
+  resolverOperacoesApp,
+  temJornadaPublicada,
+  temPlantaoPublicado,
+} from './operacoesApp';
 import { LembretesView } from './lembretes/LembretesView';
 import {
   ROTULO_STATUS_TROCA,
@@ -331,6 +338,62 @@ function ProximoTurno({ turno }: { turno: IntervaloTurno | null }) {
         </>
       )}
       {!turno && <p>Não encontrado neste período.</p>}
+    </article>
+  );
+}
+
+interface PlantaoHojeCardProps {
+  grupo: GrupoPlantao;
+  atribuicoes: AtribuicaoPlantaoPersistida[];
+  participantes: ParticipantePlantao[];
+  usuarios: Usuario[];
+  agoraIso: string;
+}
+
+/**
+ * FASE-APP-OPERACOES-UNIVERSAIS-1 — versão compacta de "De plantão agora"
+ * (a mesma lógica pura da aba Plantão, `plantaoApp.ts`) para a aba Hoje,
+ * usada quando o usuário tem Plantão publicado — junto do card de Jornada
+ * quando as duas operações existem, ou sozinha quando só há Plantão.
+ */
+function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso }: PlantaoHojeCardProps) {
+  const resumo = resolverPlantaoAgora(atribuicoes, agoraIso);
+  const nomeAtual = resumo.atual ? nomeExibicaoPlantonista(resumo.atual.plantonistaLogin, usuarios) : null;
+  const horarioAtual = resumo.atual ? horarioPlantaoParaExibicao(resumo.atual, grupo.timezone) : null;
+  const contatosAtual = resumo.atual ? contatosAtivosDoPlantonista(resumo.atual.plantonistaLogin, participantes) : [];
+
+  return (
+    <article className="today-hero" data-state={resumo.atual !== null ? 'PLANTAO' : 'DESCANSO'}>
+      <header className="today-card-heading">
+        <span>Plantão de hoje</span>
+      </header>
+      {resumo.atual === null || horarioAtual === null ? (
+        <p className="today-rest-copy">Ninguém está de plantão neste momento.</p>
+      ) : (
+        <>
+          <div className="today-hero-heading">
+            <span className="today-hero-icon">{inicialPlantonista(nomeAtual ?? '')}</span>
+            <div>
+              <strong className="today-shift-name">{nomeAtual}</strong>
+              <div className="today-hours"><strong>{rotuloHorarioPlantaoExibicao(horarioAtual)}</strong></div>
+            </div>
+          </div>
+          <div className="today-meta">
+            <span className="live-badge">
+              <i /> Até {horarioAtual.horaFim}{horarioAtual.cruzaDiaSeguinte ? ' (amanhã)' : ''}
+            </span>
+          </div>
+          {contatosAtual.length > 0 && (
+            <div className="plantao-contatos-lista">
+              {contatosAtual.map((contato) => (
+                <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
+                  <Phone size={13} /> {contato.rotulo}: {contato.numero}
+                </span>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </article>
   );
 }
@@ -1311,36 +1374,19 @@ function AssistenteNovaTroca({
 }
 
 /**
- * PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 — antes desta função, ausência de
- * Jornada 6x1 publicada sempre virava "Nenhuma escala publicada foi
- * encontrada para o seu login neste período.", mesmo para um login com
- * participação real em Plantão (o App nunca consultava Plantão — só
- * Jornada). Verifica, de forma tolerante (nunca lança — uma Rules/Matriz
- * ainda não reconhecer a consulta neste ambiente não pode quebrar o
- * login), se o login aparece como participante ativo de algum Grupo de
- * Plantão que a própria equipe já pode consultar (`equipesConsulta`, a
- * mesma ACL que já autoriza `listarParticipantesPlantao` para quem não é
- * administrador do grupo). Só troca a MENSAGEM — não implementa a visão
- * detalhada de Plantão no App (fase futura, ver docs/spec/EDITOR_ESCALAS.md).
+ * PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 introduziu `mensagemAusenciaEscalaAcao()`
+ * para diferenciar "sem Jornada" de "tem participação em Plantão" — mas
+ * ainda mostrava as duas mensagens no alerta vermelho GLOBAL do topo do
+ * App (`erro`/`mensagemErro`), o que continuava ruim para UX: uma
+ * ausência PARCIAL (só Jornada) virava erro visual mesmo quando o usuário
+ * tinha Plantão de verdade para ver. FASE-APP-OPERACOES-UNIVERSAIS-1
+ * removeu essa função: a ausência de Jornada deixou de setar `erro`
+ * (global) e passou a ser um dado (`minhaEscala === null`) combinado com
+ * o estado de Plantão (já carregado eagerly por `carregarPlantaoApp`, ver
+ * abaixo) através de `operacoesApp.ts` — cada tela decide sozinha, de
+ * forma contextual, o que mostrar quando falta uma das duas operações.
+ * Nenhum alerta vermelho global aparece mais só por ausência de Jornada.
  */
-async function mensagemAusenciaEscalaAcao(usuario: Usuario): Promise<string> {
-  try {
-    const grupos = await listarGruposPlantaoPermitidos(usuario.equipeId);
-    const participantesPorGrupo = await Promise.all(
-      grupos.map((grupo) => listarParticipantesPlantao(grupo.grupoId)),
-    );
-    const possuiParticipacaoPlantao = participantesPorGrupo.some((participantes) => participantes.some(
-      (participante) => participante.login === usuario.login && participante.ativo,
-    ));
-    if (possuiParticipacaoPlantao) {
-      return 'Você possui participação em Plantão. A visualização detalhada será exibida na aba Plantão.';
-    }
-  } catch {
-    // Consulta de Plantão indisponível (Rules/Matriz do ambiente) — trata
-    // como "sem informação de Plantão", nunca quebra o login.
-  }
-  return 'Nenhuma jornada 6x1 encontrada para este período.';
-}
 
 export function EmployeeApp() {
   const [agora, setAgora] = useState(() => new Date());
@@ -1399,6 +1445,15 @@ export function EmployeeApp() {
   const [notificacoesTroca, setNotificacoesTroca] = useState<NotificacaoTroca[]>([]);
   const [centralTrocasAberta, setCentralTrocasAberta] = useState(false);
   const [abaTrocas, setAbaTrocas] = useState<AbaTrocas>('minhas');
+  /**
+   * FASE-APP-OPERACOES-UNIVERSAIS-1 — só relevante quando o usuário tem
+   * Jornada 6x1 E Plantão publicados ao mesmo tempo: qual operação as
+   * abas Agenda/Equipe mostram. Default 'JORNADA' (mantém o comportamento
+   * de sempre para quem só tem Jornada, e é a primeira opção do seletor
+   * quando as duas existem).
+   */
+  const [operacaoAgendaApp, setOperacaoAgendaApp] = useState<'JORNADA' | 'PLANTAO'>('JORNADA');
+  const [operacaoEquipeApp, setOperacaoEquipeApp] = useState<'JORNADA' | 'PLANTAO'>('JORNADA');
   const [trocaAbertaId, setTrocaAbertaId] = useState<string | null>(null);
   const [assistenteTroca, setAssistenteTroca] = useState<EstadoAssistenteTroca | null>(null);
   const [processandoTroca, setProcessandoTroca] = useState(false);
@@ -1546,13 +1601,23 @@ export function EmployeeApp() {
     if (usuario === null || modoDemonstracao) {
       return undefined;
     }
-    const cancelar = assinarMensagensEmPrimeiroPlano((payload) => {
-      const eventId = payload.data?.eventId;
-      if (typeof eventId !== 'string' || eventIdsPushConhecidos.current.has(eventId)) {
-        return;
-      }
-      eventIdsPushConhecidos.current.add(eventId);
-    });
+    // FASE-APP-OPERACOES-UNIVERSAIS-1 — `getMessaging()` (dentro da função)
+    // pode lançar de forma síncrona em navegadores/ambientes sem suporte
+    // (`unsupported-browser`, `messaging/missing-app-config-values`). O App
+    // precisa funcionar mesmo sem Push — nunca pode derrubar o EmployeeApp
+    // inteiro por causa de uma falha de Messaging.
+    let cancelar: (() => void) | null = null;
+    try {
+      cancelar = assinarMensagensEmPrimeiroPlano((payload) => {
+        const eventId = payload.data?.eventId;
+        if (typeof eventId !== 'string' || eventIdsPushConhecidos.current.has(eventId)) {
+          return;
+        }
+        eventIdsPushConhecidos.current.add(eventId);
+      });
+    } catch (falha) {
+      console.warn('Notificações em primeiro plano indisponíveis neste ambiente.', falha);
+    }
     return () => cancelar?.();
   }, [usuario, modoDemonstracao]);
 
@@ -1773,9 +1838,11 @@ export function EmployeeApp() {
         setCatalogo(catalogoRemoto);
         setUsuarios(usuariosRemotos);
         setCompetenciaAtiva(competencia);
-        if (minha === null) {
-          setErro(await mensagemAusenciaEscalaAcao(autenticado));
-        }
+        // FASE-APP-OPERACOES-UNIVERSAIS-1 — a ausência de Jornada NUNCA vira
+        // `erro` (alerta global) aqui: `carregarPlantaoApp` já foi disparado
+        // em paralelo (ver `useEffect` mais abaixo) e cada tela decide, via
+        // `operacoesApp.ts`, se mostra a Jornada, o Plantão, os dois, ou um
+        // estado vazio contextual — nunca um erro vermelho por isso.
       }
     } catch (falha) {
       setErro(mensagemErroFirebase(falha, 'Não foi possível carregar a escala.', ambienteFirebaseAtual));
@@ -1789,11 +1856,17 @@ export function EmployeeApp() {
   /**
    * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — carrega a visão
    * "Plantão" (quem está de plantão agora, próximo plantonista, meus
-   * próprios plantões, contatos) uma única vez por sessão, na primeira
-   * vez que a aba "Plantão" ou "Perfil" é aberta — nunca no login
-   * (mantém o login rápido para quem nunca abre essas abas). Fonte é
+   * próprios plantões, contatos) uma única vez por sessão. Fonte é
    * sempre a competência PUBLICADA (`obterCompetenciaPlantaoPublicada` +
    * `listarAtribuicoesPlantaoPublicada`), nunca localStorage. Tolerante:
+   *
+   * FASE-APP-OPERACOES-UNIVERSAIS-1 — deixou de carregar só na primeira
+   * vez que a aba "Plantão"/"Perfil" abre e passou a carregar assim que o
+   * login termina (`useEffect` logo abaixo, disparado por `usuario`, não
+   * mais por `tela`): as abas Hoje/Agenda/Trocas/Equipe agora também
+   * precisam saber se existe Plantão publicado ANTES de o usuário abrir a
+   * aba Plantão — é o que evita tratar a ausência de Jornada 6x1 como erro
+   * global quando o usuário só tem Plantão (`operacoesApp.ts`).
    * se a equipe do usuário não tem nenhum Grupo de Plantão no escopo
    * (`listarGruposPlantaoPermitidos` vazio), marca `null` e mostra um
    * estado vazio — nunca um erro.
@@ -1927,11 +2000,11 @@ export function EmployeeApp() {
   }
 
   useEffect(() => {
-    if (tela === 'plantao' || tela === 'perfil') {
+    if (usuario !== null) {
       void Promise.resolve().then(() => carregarPlantaoApp());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tela, usuario, modoDemonstracao]);
+  }, [usuario, modoDemonstracao]);
 
   async function encerrarSessao() {
     // Orquestração: limpa o push (best-effort, nunca bloqueia) antes de
@@ -2365,6 +2438,44 @@ export function EmployeeApp() {
   }
 
   const mensagemErro = erro || sessao.erro;
+  /**
+   * FASE-APP-OPERACOES-UNIVERSAIS-1 — operações conhecidas do App para
+   * este usuário nesta competência (ver `operacoesApp.ts`). `grupoPlantaoApp
+   * === undefined` significa "consulta de Plantão ainda em andamento" —
+   * `resolverOperacoesApp` trata isso como "nenhuma operação de Plantão
+   * ainda", nunca como "sem Plantão", então nenhuma tela pisca um estado
+   * vazio errado enquanto a consulta eager (ver `useEffect` acima) termina.
+   */
+  const operacoesApp = resolverOperacoesApp(
+    usuario,
+    { escalaPublicada: minhaEscala !== null },
+    {
+      grupo: grupoPlantaoApp,
+      competenciaPublicada: competenciaPlantaoApp,
+      participante: participantesPlantaoApp.some(
+        (participante) => participante.login === usuario.login && participante.ativo,
+      ),
+      consulta: erroPlantaoApp === '',
+    },
+    competenciaAtiva,
+  );
+  const jornadaPublicadaApp = temJornadaPublicada(operacoesApp);
+  const plantaoPublicadoApp = temPlantaoPublicado(operacoesApp);
+  const estadoGlobalApp = derivarEstadoGlobalApp(operacoesApp);
+  const operacaoPrincipalHojeApp = operacaoPrincipalHoje(operacoesApp);
+  // "Ainda não sabemos" (consulta de Plantão em andamento) nunca deve
+  // aparentar "não tem nada" — só depois que `grupoPlantaoApp` sai de
+  // `undefined` é que um estado vazio pode ser mostrado com confiança.
+  const statusPlantaoConhecido = grupoPlantaoApp !== undefined || modoDemonstracao;
+  // Quando as duas operações existem, o seletor (`operacaoAgendaApp`/
+  // `operacaoEquipeApp`) decide; quando só uma existe, ela é a única opção
+  // possível — nunca deixa o seletor "escolher" uma operação inexistente.
+  const agendaOperacaoEfetiva: 'JORNADA' | 'PLANTAO' = jornadaPublicadaApp && plantaoPublicadoApp
+    ? operacaoAgendaApp
+    : (plantaoPublicadoApp && !jornadaPublicadaApp ? 'PLANTAO' : 'JORNADA');
+  const equipeOperacaoEfetiva: 'JORNADA' | 'PLANTAO' = jornadaPublicadaApp && plantaoPublicadoApp
+    ? operacaoEquipeApp
+    : (plantaoPublicadoApp && !jornadaPublicadaApp ? 'PLANTAO' : 'JORNADA');
   const nomes = Object.fromEntries(usuarios.map((item) => [item.login, item.nome]));
   const datas = Object.keys(minhaEscala?.dias ?? {}).sort();
   const dataHojeFormatada = formatarData(dataHoje, {
@@ -2441,18 +2552,51 @@ export function EmployeeApp() {
             </div>
           </header>
 
-          <div className="today-summary-grid today-dashboard-grid">
-            <TurnoHoje contexto={contextoHoje} />
-            <ProximoTurno turno={contextoHoje.proximoTurno} />
-            <ResumoSemana
-              datas={datas}
-              dataHoje={dataHoje}
-              dataSelecionada={dataConsultaEquipe}
-              escala={minhaEscala}
-              catalogo={catalogo}
-              onSelecionar={consultarEquipeNoDia}
-            />
-          </div>
+          {/*
+            FASE-APP-OPERACOES-UNIVERSAIS-1 — regra 4: Jornada e Plantão
+            aparecem lado a lado quando as duas existem (Jornada primeiro),
+            cada uma sozinha quando só uma existe, e um estado vazio
+            amigável quando nenhuma existe. Nunca um erro vermelho global
+            só porque falta uma das duas.
+          */}
+          {!jornadaPublicadaApp && plantaoPublicadoApp && (
+            <div className="alert warning" role="status">
+              Nenhuma jornada 6x1 publicada para este período.
+            </div>
+          )}
+          {statusPlantaoConhecido && estadoGlobalApp === 'sem-operacoes' ? (
+            <article className="panel organization-empty-state">
+              <CalendarDays size={28} aria-hidden="true" />
+              <h2>Nenhuma escala publicada para este período</h2>
+              <p>Quando a Jornada 6x1 ou o Plantão forem publicados, eles aparecem aqui automaticamente.</p>
+            </article>
+          ) : (
+            <div className="today-summary-grid today-dashboard-grid" data-operacao-principal={operacaoPrincipalHojeApp?.tipo ?? ''}>
+              {jornadaPublicadaApp && (
+                <>
+                  <TurnoHoje contexto={contextoHoje} />
+                  <ProximoTurno turno={contextoHoje.proximoTurno} />
+                  <ResumoSemana
+                    datas={datas}
+                    dataHoje={dataHoje}
+                    dataSelecionada={dataConsultaEquipe}
+                    escala={minhaEscala}
+                    catalogo={catalogo}
+                    onSelecionar={consultarEquipeNoDia}
+                  />
+                </>
+              )}
+              {plantaoPublicadoApp && grupoPlantaoApp != null && (
+                <PlantaoHojeCard
+                  grupo={grupoPlantaoApp}
+                  atribuicoes={atribuicoesPlantaoApp}
+                  participantes={participantesPlantaoApp}
+                  usuarios={usuarios}
+                  agoraIso={agora.toISOString()}
+                />
+              )}
+            </div>
+          )}
 
           <article className="panel today-team-panel">
             <div className="panel-title today-team-title">
@@ -2553,9 +2697,13 @@ export function EmployeeApp() {
               <p className="eyebrow">Consulta individual</p>
               <h1>Minha agenda</h1>
               <p>
-                {minhaEscala
-                  ? `Período de ${formatarPeriodo(minhaEscala.periodoInicio, minhaEscala.periodoFim)}.`
-                  : 'Nenhuma escala publicada para exibir.'}
+                {jornadaPublicadaApp && plantaoPublicadoApp
+                  ? 'Jornada 6x1 e Plantão publicados para este período.'
+                  : plantaoPublicadoApp
+                    ? 'Plantão publicado para este período.'
+                    : minhaEscala
+                      ? `Jornada 6x1 publicada para este período — de ${formatarPeriodo(minhaEscala.periodoInicio, minhaEscala.periodoFim)}.`
+                      : 'Nenhuma escala publicada para exibir.'}
               </p>
             </div>
             <span className="read-only-badge">
@@ -2563,139 +2711,188 @@ export function EmployeeApp() {
             </span>
           </header>
 
-          <div className="agenda-mobile-week">
-            <ResumoSemana
-              datas={datas}
-              dataHoje={dataHoje}
-              escala={minhaEscala}
-              catalogo={catalogo}
-              onSelecionar={setDataSelecionada}
-            />
-          </div>
-
-          <div className="metric-grid employee-metrics">
-            <article data-tone="neutral">
-              <span>Total de dias</span>
-              <strong>{datas.length}</strong>
-              <small>dias no período</small>
-            </article>
-            <article data-tone="primary">
-              <span>Trabalhados</span>
-              <strong>{totais?.diasTrabalhados ?? 0}</strong>
-              <small>{formatarMinutos(totais?.min ?? 0)} de jornada</small>
-            </article>
-            <article data-tone="success">
-              <span>Descansos</span>
-              <strong>{(totais?.df ?? 0) + (totais?.du ?? 0)}</strong>
-              <small>{totais?.df ?? 0} DF · {totais?.du ?? 0} DU</small>
-            </article>
-            <article className="metric-next-shift" data-tone="shift" data-code={contextoHoje.proximoTurno?.codigo ?? ''}>
-              <span>Próximo turno</span>
-              <div>
-                <i><IconeTurno codigo={contextoHoje.proximoTurno?.codigo ?? ''} /></i>
-                <p>
-                  <strong>{contextoHoje.proximoTurno?.descricao ?? 'Não encontrado'}</strong>
-                  <small>
-                    {contextoHoje.proximoTurno
-                      ? `${contextoHoje.proximoTurno.inicio}–${contextoHoje.proximoTurno.fim}`
-                      : 'Neste período'}
-                  </small>
-                </p>
-              </div>
-            </article>
-          </div>
-
-          <article
-            className="panel calendar-panel employee-calendar-panel"
-            data-mode={modoEscala}
-          >
-            <div className="panel-title schedule-panel-title">
-              <div>
-                {modoEscala === 'lembretes' ? (
-                  <>
-                    <h2>Lembretes</h2>
-                    <p>Compromissos pessoais e atribuídos pelo gestor</p>
-                  </>
-                ) : (
-                  <>
-                    <h2>{tituloCalendario(datas)}</h2>
-                    <p>{minhaEscala?.turnoPadrao} · {minhaEscala?.login}</p>
-                  </>
-                )}
-              </div>
-              <div className="segmented-control" aria-label="Modo de visualização">
-                <button
-                  type="button"
-                  className={modoEscala === 'calendario' ? 'active' : ''}
-                  onClick={() => setModoEscala('calendario')}
-                  aria-pressed={modoEscala === 'calendario'}
-                >
-                  <CalendarDays size={16} /> Calendário
-                </button>
-                <button
-                  type="button"
-                  className={modoEscala === 'agenda' ? 'active' : ''}
-                  onClick={() => setModoEscala('agenda')}
-                  aria-pressed={modoEscala === 'agenda'}
-                >
-                  <List size={16} /> Agenda
-                </button>
-                <button
-                  type="button"
-                  className={modoEscala === 'lembretes' ? 'active' : ''}
-                  onClick={() => setModoEscala('lembretes')}
-                  aria-pressed={modoEscala === 'lembretes'}
-                >
-                  <Bell size={16} /> Lembretes
-                </button>
-              </div>
+          {/*
+            FASE-APP-OPERACOES-UNIVERSAIS-1 — regra 5: quando as duas
+            operações existem, um seletor decide o que a Agenda mostra;
+            quando só uma existe, ela é mostrada direto (sem seletor).
+          */}
+          {jornadaPublicadaApp && plantaoPublicadoApp && (
+            <div className="segmented-control agenda-operacao-seletor" aria-label="Operação">
+              <button
+                type="button"
+                className={agendaOperacaoEfetiva === 'JORNADA' ? 'active' : ''}
+                aria-pressed={agendaOperacaoEfetiva === 'JORNADA'}
+                onClick={() => setOperacaoAgendaApp('JORNADA')}
+              >
+                Jornada 6x1
+              </button>
+              <button
+                type="button"
+                className={agendaOperacaoEfetiva === 'PLANTAO' ? 'active' : ''}
+                aria-pressed={agendaOperacaoEfetiva === 'PLANTAO'}
+                onClick={() => setOperacaoAgendaApp('PLANTAO')}
+              >
+                Plantão
+              </button>
             </div>
-            <div className="schedule-explorer">
-              {modoEscala === 'lembretes' ? (
-                <LembretesView
-                  login={usuario.login}
-                  nomeGestorDemo={GESTOR_DEMO.nome}
-                  modoDemonstracao={modoDemonstracao}
-                  listenersLiberados={listenersLiberados}
+          )}
+
+          {agendaOperacaoEfetiva === 'PLANTAO' && plantaoPublicadoApp && grupoPlantaoApp != null && periodoPlantaoApp != null ? (
+            <article className="panel">
+              <div className="panel-title">
+                <div>
+                  <h2>Calendário do mês</h2>
+                  <p>Competência {formatarCompetencia(competenciaPlantaoApp ?? competenciaAtiva)}</p>
+                </div>
+              </div>
+              <CalendarioPlantaoApp
+                periodoInicio={periodoPlantaoApp.inicio}
+                periodoFim={periodoPlantaoApp.fim}
+                dataHoje={dataHoje}
+                atribuicoes={atribuicoesPlantaoApp}
+                participantes={participantesPlantaoApp}
+                usuarios={usuarios}
+                timezone={grupoPlantaoApp.timezone}
+                loginUsuarioAtual={usuario.login}
+              />
+            </article>
+          ) : (
+            <>
+              <div className="agenda-mobile-week">
+                <ResumoSemana
+                  datas={datas}
                   dataHoje={dataHoje}
                   escala={minhaEscala}
                   catalogo={catalogo}
+                  onSelecionar={setDataSelecionada}
                 />
-              ) : (
-                <>
-                  <div className="schedule-view-panel">
-                    {modoEscala === 'calendario' ? (
-                      <CalendarioEscala
-                        datas={datas}
-                        dataHoje={dataHoje}
-                        dataSelecionada={dataSelecionadaEfetiva}
-                        escala={minhaEscala}
-                        catalogo={catalogo}
-                        onSelecionar={setDataSelecionada}
-                      />
+              </div>
+
+              <div className="metric-grid employee-metrics">
+                <article data-tone="neutral">
+                  <span>Total de dias</span>
+                  <strong>{datas.length}</strong>
+                  <small>dias no período</small>
+                </article>
+                <article data-tone="primary">
+                  <span>Trabalhados</span>
+                  <strong>{totais?.diasTrabalhados ?? 0}</strong>
+                  <small>{formatarMinutos(totais?.min ?? 0)} de jornada</small>
+                </article>
+                <article data-tone="success">
+                  <span>Descansos</span>
+                  <strong>{(totais?.df ?? 0) + (totais?.du ?? 0)}</strong>
+                  <small>{totais?.df ?? 0} DF · {totais?.du ?? 0} DU</small>
+                </article>
+                <article className="metric-next-shift" data-tone="shift" data-code={contextoHoje.proximoTurno?.codigo ?? ''}>
+                  <span>Próximo turno</span>
+                  <div>
+                    <i><IconeTurno codigo={contextoHoje.proximoTurno?.codigo ?? ''} /></i>
+                    <p>
+                      <strong>{contextoHoje.proximoTurno?.descricao ?? 'Não encontrado'}</strong>
+                      <small>
+                        {contextoHoje.proximoTurno
+                          ? `${contextoHoje.proximoTurno.inicio}–${contextoHoje.proximoTurno.fim}`
+                          : 'Neste período'}
+                      </small>
+                    </p>
+                  </div>
+                </article>
+              </div>
+
+              <article
+                className="panel calendar-panel employee-calendar-panel"
+                data-mode={modoEscala}
+              >
+                <div className="panel-title schedule-panel-title">
+                  <div>
+                    {modoEscala === 'lembretes' ? (
+                      <>
+                        <h2>Lembretes</h2>
+                        <p>Compromissos pessoais e atribuídos pelo gestor</p>
+                      </>
                     ) : (
-                      <AgendaEscala
-                        datas={datas}
-                        dataHoje={dataHoje}
-                        dataSelecionada={dataSelecionadaEfetiva}
-                        escala={minhaEscala}
-                        catalogo={catalogo}
-                        onSelecionar={setDataSelecionada}
-                      />
+                      <>
+                        <h2>{tituloCalendario(datas)}</h2>
+                        <p>{minhaEscala?.turnoPadrao} · {minhaEscala?.login}</p>
+                      </>
                     )}
                   </div>
-                  <DetalheDia
-                    data={dataSelecionadaEfetiva}
-                    dataHoje={dataHoje}
-                    escala={minhaEscala}
-                    catalogo={catalogo}
-                    onSolicitarTroca={(diaEscolhido) => abrirNovaSolicitacaoTroca(diaEscolhido)}
-                  />
-                </>
-              )}
-            </div>
-          </article>
-          <ScheduleLegend catalogo={catalogo} titulo="Legenda" />
+                  <div className="segmented-control" aria-label="Modo de visualização">
+                    <button
+                      type="button"
+                      className={modoEscala === 'calendario' ? 'active' : ''}
+                      onClick={() => setModoEscala('calendario')}
+                      aria-pressed={modoEscala === 'calendario'}
+                    >
+                      <CalendarDays size={16} /> Calendário
+                    </button>
+                    <button
+                      type="button"
+                      className={modoEscala === 'agenda' ? 'active' : ''}
+                      onClick={() => setModoEscala('agenda')}
+                      aria-pressed={modoEscala === 'agenda'}
+                    >
+                      <List size={16} /> Agenda
+                    </button>
+                    <button
+                      type="button"
+                      className={modoEscala === 'lembretes' ? 'active' : ''}
+                      onClick={() => setModoEscala('lembretes')}
+                      aria-pressed={modoEscala === 'lembretes'}
+                    >
+                      <Bell size={16} /> Lembretes
+                    </button>
+                  </div>
+                </div>
+                <div className="schedule-explorer">
+                  {modoEscala === 'lembretes' ? (
+                    <LembretesView
+                      login={usuario.login}
+                      nomeGestorDemo={GESTOR_DEMO.nome}
+                      modoDemonstracao={modoDemonstracao}
+                      listenersLiberados={listenersLiberados}
+                      dataHoje={dataHoje}
+                      escala={minhaEscala}
+                      catalogo={catalogo}
+                    />
+                  ) : (
+                    <>
+                      <div className="schedule-view-panel">
+                        {modoEscala === 'calendario' ? (
+                          <CalendarioEscala
+                            datas={datas}
+                            dataHoje={dataHoje}
+                            dataSelecionada={dataSelecionadaEfetiva}
+                            escala={minhaEscala}
+                            catalogo={catalogo}
+                            onSelecionar={setDataSelecionada}
+                          />
+                        ) : (
+                          <AgendaEscala
+                            datas={datas}
+                            dataHoje={dataHoje}
+                            dataSelecionada={dataSelecionadaEfetiva}
+                            escala={minhaEscala}
+                            catalogo={catalogo}
+                            onSelecionar={setDataSelecionada}
+                          />
+                        )}
+                      </div>
+                      <DetalheDia
+                        data={dataSelecionadaEfetiva}
+                        dataHoje={dataHoje}
+                        escala={minhaEscala}
+                        catalogo={catalogo}
+                        onSolicitarTroca={(diaEscolhido) => abrirNovaSolicitacaoTroca(diaEscolhido)}
+                      />
+                    </>
+                  )}
+                </div>
+              </article>
+              <ScheduleLegend catalogo={catalogo} titulo="Legenda" />
+            </>
+          )}
         </section>
       )}
 
@@ -2707,63 +2904,85 @@ export function EmployeeApp() {
               <h1>Trocas de escala</h1>
               <p>Peça e responda trocas de turno — a aprovação final é sempre do gestor.</p>
             </div>
-            <button className="primary-button" type="button" onClick={() => abrirNovaSolicitacaoTroca()}>
-              <ArrowLeftRight size={16} /> Nova solicitação
-            </button>
-          </header>
-          {erroTroca && <div className="alert error" role="alert">{erroTroca}</div>}
-          {avisoTrocaNaoEncontrada && <div className="alert warning" role="status">{avisoTrocaNaoEncontrada}</div>}
-          <div className="segmented-control troca-abas">
-            {([
-              ['minhas', 'Minhas', trocas.filter((item) => item.solicitanteLogin === usuario.login).length],
-              ['responder', 'Para responder', trocas.filter((item) => item.destinatarioLogin === usuario.login && item.status === 'PENDENTE_USUARIO').length],
-              ['gestor', 'Gestor', trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login) && item.status === 'PENDENTE_GESTOR').length],
-              ['historico', 'Histórico', trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login) && !statusEhAtivo(item.status)).length],
-            ] as const).map(([id, rotulo, contagem]) => (
-              <button
-                key={id}
-                type="button"
-                className={abaTrocas === id ? 'active' : ''}
-                onClick={() => setAbaTrocas(id)}
-              >
-                {rotulo}{contagem > 0 && ` (${contagem})`}
+            {jornadaPublicadaApp && (
+              <button className="primary-button" type="button" onClick={() => abrirNovaSolicitacaoTroca()}>
+                <ArrowLeftRight size={16} /> Nova solicitação
               </button>
-            ))}
-          </div>
-          <div className="troca-lista">
-            {(() => {
-              const minhas = trocas.filter((item) => item.solicitanteLogin === usuario.login);
-              const paraResponder = trocas.filter((item) => item.destinatarioLogin === usuario.login && item.status === 'PENDENTE_USUARIO');
-              const aguardandoGestor = trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login)
-                && item.status === 'PENDENTE_GESTOR');
-              const historicoTrocas = trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login)
-                && !statusEhAtivo(item.status));
-              const listaAtual = abaTrocas === 'minhas' ? minhas
-                : abaTrocas === 'responder' ? paraResponder
-                  : abaTrocas === 'gestor' ? aguardandoGestor
-                    : historicoTrocas;
-              const mensagemVazia = abaTrocas === 'minhas' ? 'Você ainda não pediu nenhuma troca.'
-                : abaTrocas === 'responder' ? 'Nenhuma solicitação esperando sua resposta.'
-                  : abaTrocas === 'gestor' ? 'Nenhuma troca aguardando o gestor agora.'
-                    : 'Nenhuma troca concluída ainda.';
-              if (listaAtual.length === 0) {
-                return (
-                  <div className="notification-empty">
-                    <ArrowLeftRight size={22} />
-                    <span>{mensagemVazia}</span>
-                  </div>
-                );
-              }
-              return listaAtual.map((item) => (
-                <TrocaItemButton
-                  key={item.trocaId}
-                  troca={item}
-                  usuario={usuario}
-                  onAbrir={() => setTrocaAbertaId(item.trocaId)}
-                />
-              ));
-            })()}
-          </div>
+            )}
+          </header>
+          {/*
+            FASE-APP-OPERACOES-UNIVERSAIS-1 — regra 8: sem Jornada 6x1
+            publicada, o fluxo de troca de Jornada não tem o que mostrar —
+            mas isso é uma limitação CONTEXTUAL desta tela, nunca o alerta
+            vermelho global (que só aparece por erro técnico real).
+          */}
+          {!jornadaPublicadaApp && (
+            <div className="alert warning" role="status">
+              Trocas de Jornada 6x1 não estão disponíveis porque não há Jornada publicada para este período.
+            </div>
+          )}
+          {plantaoPublicadoApp && (
+            <div className="alert warning" role="status">
+              Trocas de Plantão serão tratadas em uma próxima fase.
+            </div>
+          )}
+          {jornadaPublicadaApp && (
+            <>
+              {erroTroca && <div className="alert error" role="alert">{erroTroca}</div>}
+              {avisoTrocaNaoEncontrada && <div className="alert warning" role="status">{avisoTrocaNaoEncontrada}</div>}
+              <div className="segmented-control troca-abas">
+                {([
+                  ['minhas', 'Minhas', trocas.filter((item) => item.solicitanteLogin === usuario.login).length],
+                  ['responder', 'Para responder', trocas.filter((item) => item.destinatarioLogin === usuario.login && item.status === 'PENDENTE_USUARIO').length],
+                  ['gestor', 'Gestor', trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login) && item.status === 'PENDENTE_GESTOR').length],
+                  ['historico', 'Histórico', trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login) && !statusEhAtivo(item.status)).length],
+                ] as const).map(([id, rotulo, contagem]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={abaTrocas === id ? 'active' : ''}
+                    onClick={() => setAbaTrocas(id)}
+                  >
+                    {rotulo}{contagem > 0 && ` (${contagem})`}
+                  </button>
+                ))}
+              </div>
+              <div className="troca-lista">
+                {(() => {
+                  const minhas = trocas.filter((item) => item.solicitanteLogin === usuario.login);
+                  const paraResponder = trocas.filter((item) => item.destinatarioLogin === usuario.login && item.status === 'PENDENTE_USUARIO');
+                  const aguardandoGestor = trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login)
+                    && item.status === 'PENDENTE_GESTOR');
+                  const historicoTrocas = trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login)
+                    && !statusEhAtivo(item.status));
+                  const listaAtual = abaTrocas === 'minhas' ? minhas
+                    : abaTrocas === 'responder' ? paraResponder
+                      : abaTrocas === 'gestor' ? aguardandoGestor
+                        : historicoTrocas;
+                  const mensagemVazia = abaTrocas === 'minhas' ? 'Você ainda não pediu nenhuma troca.'
+                    : abaTrocas === 'responder' ? 'Nenhuma solicitação esperando sua resposta.'
+                      : abaTrocas === 'gestor' ? 'Nenhuma troca aguardando o gestor agora.'
+                        : 'Nenhuma troca concluída ainda.';
+                  if (listaAtual.length === 0) {
+                    return (
+                      <div className="notification-empty">
+                        <ArrowLeftRight size={22} />
+                        <span>{mensagemVazia}</span>
+                      </div>
+                    );
+                  }
+                  return listaAtual.map((item) => (
+                    <TrocaItemButton
+                      key={item.trocaId}
+                      troca={item}
+                      usuario={usuario}
+                      onAbrir={() => setTrocaAbertaId(item.trocaId)}
+                    />
+                  ));
+                })()}
+              </div>
+            </>
+          )}
         </section>
       )}
 
@@ -2941,41 +3160,104 @@ export function EmployeeApp() {
           <header className="page-heading">
             <div>
               <p className="eyebrow">COSI &gt; SOC</p>
-              <h1>Escala da equipe</h1>
+              <h1>{equipeOperacaoEfetiva === 'PLANTAO' ? 'Participantes do Plantão' : 'Escala da equipe'}</h1>
               <p>Apenas escalas publicadas são exibidas.</p>
             </div>
             <span className="read-only-badge">
               <ShieldCheck size={16} /> Publicada
             </span>
           </header>
-          <article className="panel grid-panel">
-            <div className="toolbar">
-              <label>
-                <Filter size={16} />
-                <select
-                  value={filtroTurno}
-                  onChange={(evento) => setFiltroTurno(evento.target.value)}
-                  aria-label="Filtrar por turno"
-                >
-                  <option value="TODOS">Todos os turnos</option>
-                  <option value="MD">Madrugada</option>
-                  <option value="M">Manhã</option>
-                  <option value="T">Tarde</option>
-                  <option value="N">Noite</option>
-                </select>
-              </label>
-              <span><Users size={16} /> {documentos.length} colaboradores</span>
+
+          {/*
+            FASE-APP-OPERACOES-UNIVERSAIS-1 — regra 7: seletor só quando as
+            duas operações existem; caso contrário o contexto único decide
+            sozinho o que aparece (nunca mais "0 colaboradores" para quem só
+            tem Plantão).
+          */}
+          {jornadaPublicadaApp && plantaoPublicadoApp && (
+            <div className="segmented-control equipe-operacao-seletor" aria-label="Operação">
+              <button
+                type="button"
+                className={equipeOperacaoEfetiva === 'JORNADA' ? 'active' : ''}
+                aria-pressed={equipeOperacaoEfetiva === 'JORNADA'}
+                onClick={() => setOperacaoEquipeApp('JORNADA')}
+              >
+                Equipe Jornada
+              </button>
+              <button
+                type="button"
+                className={equipeOperacaoEfetiva === 'PLANTAO' ? 'active' : ''}
+                aria-pressed={equipeOperacaoEfetiva === 'PLANTAO'}
+                onClick={() => setOperacaoEquipeApp('PLANTAO')}
+              >
+                Participantes do Plantão
+              </button>
             </div>
-            <ScheduleGrid
-              documentos={documentos}
-              usuarios={usuarios}
-              catalogo={catalogo}
-              filtroTurno={filtroTurno}
-              agruparPorPeriodo
-              avisoDivergencia={false}
-            />
-          </article>
-          <ScheduleLegend catalogo={catalogo} titulo="Legenda" />
+          )}
+
+          {equipeOperacaoEfetiva === 'PLANTAO' && plantaoPublicadoApp ? (
+            <article className="panel grid-panel">
+              <div className="toolbar">
+                <span><Users size={16} /> {participantesPlantaoApp.filter((participante) => participante.ativo).length} participante(s)</span>
+              </div>
+              <div className="plantao-participantes-lista">
+                {participantesPlantaoApp.filter((participante) => participante.ativo).map((participante) => (
+                  <article key={participante.login} className="contato-plantonista-linha">
+                    <span className="avatar">
+                      {inicialPlantonista(nomeExibicaoPlantonista(participante.login, usuarios))}
+                    </span>
+                    <div>
+                      <strong>{nomeExibicaoPlantonista(participante.login, usuarios)}</strong>
+                      <small>{participante.login}</small>
+                    </div>
+                    {contatosAtivosDoPlantonista(participante.login, participantesPlantaoApp).length > 0 && (
+                      <div className="plantao-contatos-lista">
+                        {contatosAtivosDoPlantonista(participante.login, participantesPlantaoApp).map((contato) => (
+                          <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
+                            <Phone size={13} /> {contato.rotulo}: {contato.numero}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                ))}
+                {participantesPlantaoApp.filter((participante) => participante.ativo).length === 0 && (
+                  <p className="empty-inline">Nenhum participante ativo neste Grupo.</p>
+                )}
+              </div>
+            </article>
+          ) : (
+            <>
+              <article className="panel grid-panel">
+                <div className="toolbar">
+                  <label>
+                    <Filter size={16} />
+                    <select
+                      value={filtroTurno}
+                      onChange={(evento) => setFiltroTurno(evento.target.value)}
+                      aria-label="Filtrar por turno"
+                    >
+                      <option value="TODOS">Todos os turnos</option>
+                      <option value="MD">Madrugada</option>
+                      <option value="M">Manhã</option>
+                      <option value="T">Tarde</option>
+                      <option value="N">Noite</option>
+                    </select>
+                  </label>
+                  <span><Users size={16} /> {documentos.length} colaboradores</span>
+                </div>
+                <ScheduleGrid
+                  documentos={documentos}
+                  usuarios={usuarios}
+                  catalogo={catalogo}
+                  filtroTurno={filtroTurno}
+                  agruparPorPeriodo
+                  avisoDivergencia={false}
+                />
+              </article>
+              <ScheduleLegend catalogo={catalogo} titulo="Legenda" />
+            </>
+          )}
         </section>
       )}
 
