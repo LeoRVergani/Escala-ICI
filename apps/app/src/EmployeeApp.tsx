@@ -400,7 +400,11 @@ function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso
             <div className="plantao-contatos-lista">
               {contatosAtual.map((contato) => (
                 <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
-                  <Phone size={13} /> {contato.rotulo}: {contato.numero}
+                  <span className="plantao-contato-chip-icone"><Phone size={13} /></span>
+                  <span className="plantao-contato-chip-info">
+                    <small>{contato.rotulo}</small>
+                    <strong>{contato.numero}</strong>
+                  </span>
                 </span>
               ))}
             </div>
@@ -3084,7 +3088,11 @@ export function EmployeeApp() {
                         <div className="plantao-contatos-lista">
                           {contatosAtual.map((contato) => (
                             <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
-                              <Phone size={13} /> {contato.rotulo}: {contato.numero}
+                              <span className="plantao-contato-chip-icone"><Phone size={13} /></span>
+                              <span className="plantao-contato-chip-info">
+                                <small>{contato.rotulo}</small>
+                                <strong>{contato.numero}</strong>
+                              </span>
                             </span>
                           ))}
                         </div>
@@ -3247,7 +3255,11 @@ export function EmployeeApp() {
                         <div className="plantao-contatos-lista">
                           {contatosAtivos.map((contato) => (
                             <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
-                              <Phone size={13} /> {contato.rotulo}: {contato.numero}
+                              <span className="plantao-contato-chip-icone"><Phone size={13} /></span>
+                              <span className="plantao-contato-chip-info">
+                                <small>{contato.rotulo}</small>
+                                <strong>{contato.numero}</strong>
+                              </span>
                             </span>
                           ))}
                         </div>
@@ -3354,22 +3366,24 @@ export function EmployeeApp() {
                           <Trash2 size={14} />
                         </button>
                       </header>
-                      <label className="app-contact-field">
-                        <span>Rótulo</span>
-                        <input
-                          placeholder="Ex.: Contato principal"
-                          value={contato.rotulo}
-                          onChange={(evento) => setContatosEdicaoApp((atuais) => (atuais ?? []).map((item, posicao) => (posicao === indice ? { ...item, rotulo: evento.target.value } : item)))}
-                        />
-                      </label>
-                      <label className="app-contact-field">
-                        <span>Número</span>
-                        <input
-                          placeholder="Ex.: (41) 99999-9999"
-                          value={contato.numero}
-                          onChange={(evento) => setContatosEdicaoApp((atuais) => (atuais ?? []).map((item, posicao) => (posicao === indice ? { ...item, numero: evento.target.value } : item)))}
-                        />
-                      </label>
+                      <div className="app-contact-card-fields">
+                        <label className="app-contact-field">
+                          <span>Rótulo</span>
+                          <input
+                            placeholder="Ex.: Contato principal"
+                            value={contato.rotulo}
+                            onChange={(evento) => setContatosEdicaoApp((atuais) => (atuais ?? []).map((item, posicao) => (posicao === indice ? { ...item, rotulo: evento.target.value } : item)))}
+                          />
+                        </label>
+                        <label className="app-contact-field">
+                          <span>Número</span>
+                          <input
+                            placeholder="Ex.: (41) 99999-9999"
+                            value={contato.numero}
+                            onChange={(evento) => setContatosEdicaoApp((atuais) => (atuais ?? []).map((item, posicao) => (posicao === indice ? { ...item, numero: evento.target.value } : item)))}
+                          />
+                        </label>
+                      </div>
                       <label className="app-contact-toggle-row">
                         <input
                           type="checkbox"
