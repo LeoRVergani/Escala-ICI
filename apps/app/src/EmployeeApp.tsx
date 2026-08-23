@@ -111,11 +111,14 @@ import {
   listarParticipantesPlantao,
   obterCompetenciaPlantaoPublicada,
 } from '@/lib/firebase/plantaoReadRepository';
-import { atualizarContatosPlantonista } from '@/lib/firebase/plantaoWriteRepository';
+import { atualizarContatosPlantonista, atualizarCorPlantonista } from '@/lib/firebase/plantaoWriteRepository';
 import {
+  atribuicoesPorDiaCivil,
   contatosAtivosDoPlantonista,
+  diasCivisNoPeriodo,
   horarioPlantaoParaExibicao,
   inicialPlantonista,
+  indiceCorPlantonista,
   nomeExibicaoPlantonista,
   proximosPlantoesDoUsuario,
   resolverPlantaoAgora,
@@ -329,6 +332,92 @@ function ProximoTurno({ turno }: { turno: IntervaloTurno | null }) {
       )}
       {!turno && <p>Não encontrado neste período.</p>}
     </article>
+  );
+}
+
+interface CalendarioPlantaoAppProps {
+  periodoInicio: string;
+  periodoFim: string;
+  dataHoje: string;
+  atribuicoes: AtribuicaoPlantaoPersistida[];
+  participantes: ParticipantePlantao[];
+  usuarios: Usuario[];
+  timezone: string;
+  loginUsuarioAtual: string;
+}
+
+/**
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — calendário mensal de
+ * Plantão do App. Reaproveita a MESMA grade compacta já usada pela Jornada
+ * (`.calendar-view`/`.calendar-weekdays`/`.calendar-grid`/`.calendar-blank`,
+ * ver `CalendarioEscala` acima) em vez de um componente visual novo — só o
+ * conteúdo de cada dia muda (cor por PESSOA via `[data-identidade]`, não
+ * por código de turno). O dia do próprio usuário logado ganha destaque
+ * (`meu-plantao`) e o rótulo "Você" — atende ao pedido de "ver os dias que
+ * está de plantão" sem precisar caçar o próprio nome entre vários.
+ */
+function CalendarioPlantaoApp({
+  periodoInicio,
+  periodoFim,
+  dataHoje,
+  atribuicoes,
+  participantes,
+  usuarios,
+  timezone,
+  loginUsuarioAtual,
+}: CalendarioPlantaoAppProps) {
+  const dias = diasCivisNoPeriodo(periodoInicio, periodoFim);
+  const porDia = atribuicoesPorDiaCivil(atribuicoes, timezone);
+  const espacosIniciais = dias[0] ? new Date(`${dias[0]}T12:00:00Z`).getUTCDay() : 0;
+
+  return (
+    <div className="calendar-view">
+      <div className="calendar-weekdays" aria-hidden="true">
+        {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((dia) => <span key={dia}>{dia}</span>)}
+      </div>
+      <div className="calendar-grid" role="grid" aria-label="Calendário de Plantão">
+        {Array.from({ length: espacosIniciais }, (_, indice) => (
+          <span className="calendar-blank" key={`blank-${indice}`} aria-hidden="true" />
+        ))}
+        {dias.map((data) => {
+          const atribuicoesDoDia = porDia.get(data) ?? [];
+          const principal = atribuicoesDoDia[0] ?? null;
+          const extras = atribuicoesDoDia.length - 1;
+          const meuDia = atribuicoesDoDia.some((item) => item.plantonistaLogin === loginUsuarioAtual);
+          const nomePrincipal = principal ? nomeExibicaoPlantonista(principal.plantonistaLogin, usuarios) : null;
+          return (
+            <button
+              key={data}
+              type="button"
+              className={[
+                data === dataHoje ? 'today' : '',
+                meuDia ? 'meu-plantao' : '',
+              ].filter(Boolean).join(' ')}
+              aria-label={principal
+                ? `${formatarData(data, { weekday: 'long', day: '2-digit', month: 'long' })}: ${nomePrincipal}${meuDia ? ' (você)' : ''}`
+                : `${formatarData(data, { weekday: 'long', day: '2-digit', month: 'long' })}: sem plantão`}
+            >
+              <span>
+                {formatarData(data, { day: 'numeric' })}
+                <small>{formatarData(data, { month: 'short' }).replace('.', '')}</small>
+              </span>
+              {principal ? (
+                <strong
+                  className="shift-chip"
+                  data-identidade={indiceCorPlantonista(principal.plantonistaLogin, participantes)}
+                >
+                  {inicialPlantonista(nomePrincipal ?? '')}
+                  {extras > 0 ? <small>+{extras}</small> : null}
+                </strong>
+              ) : (
+                <strong className="shift-chip shift-chip-vazio">—</strong>
+              )}
+              <small>{meuDia ? 'Você' : (nomePrincipal ?? 'Sem plantão')}</small>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -1283,6 +1372,14 @@ export function EmployeeApp() {
    */
   const [grupoPlantaoApp, setGrupoPlantaoApp] = useState<GrupoPlantao | null | undefined>(undefined);
   const [competenciaPlantaoApp, setCompetenciaPlantaoApp] = useState<string | null>(null);
+  /**
+   * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — período REAL da
+   * competência publicada (`CompetenciaPlantao.periodoInicio/Fim`), à parte
+   * de `competenciaPlantaoApp` (só a chave "AAAA-MM"). O calendário mensal
+   * precisa do período exato porque uma competência de Plantão nem sempre
+   * alinha com o mês civil (pode ir de 26/07 a 25/08, por exemplo).
+   */
+  const [periodoPlantaoApp, setPeriodoPlantaoApp] = useState<{ inicio: string; fim: string } | null>(null);
   const [atribuicoesPlantaoApp, setAtribuicoesPlantaoApp] = useState<AtribuicaoPlantaoPersistida[]>([]);
   const [participantesPlantaoApp, setParticipantesPlantaoApp] = useState<ParticipantePlantao[]>([]);
   const [carregandoPlantaoApp, setCarregandoPlantaoApp] = useState(false);
@@ -1290,6 +1387,8 @@ export function EmployeeApp() {
   const [contatosEdicaoApp, setContatosEdicaoApp] = useState<ContatoPlantonista[] | null>(null);
   const [salvandoContatosApp, setSalvandoContatosApp] = useState(false);
   const [mensagemContatosApp, setMensagemContatosApp] = useState('');
+  const [salvandoCorPlantaoApp, setSalvandoCorPlantaoApp] = useState(false);
+  const [mensagemCorPlantaoApp, setMensagemCorPlantaoApp] = useState('');
   const carregouPlantaoAppRef = useRef(false);
   const [eventos, setEventos] = useState<EventoEscala[]>([]);
   const [idsLidos, setIdsLidos] = useState<Set<string>>(() => new Set());
@@ -1619,11 +1718,13 @@ export function EmployeeApp() {
     carregouPlantaoAppRef.current = false;
     setGrupoPlantaoApp(undefined);
     setCompetenciaPlantaoApp(null);
+    setPeriodoPlantaoApp(null);
     setAtribuicoesPlantaoApp([]);
     setParticipantesPlantaoApp([]);
     setErroPlantaoApp('');
     setContatosEdicaoApp(null);
     setMensagemContatosApp('');
+    setMensagemCorPlantaoApp('');
     try {
       if (demonstracao) {
         const { carregarEscalaDemonstracao } = await import('@/lib/demo');
@@ -1712,25 +1813,53 @@ export function EmployeeApp() {
         return;
       }
       const competencia = competenciaOperacional(dataHoje);
-      const [competenciaPublicada, participantes] = await Promise.all([
-        obterCompetenciaPlantaoPublicada(grupo.grupoId, competencia),
-        listarParticipantesPlantao(grupo.grupoId),
-      ]);
-      setParticipantesPlantaoApp(participantes);
-      setContatosEdicaoApp(
-        participantes.find((participante) => participante.login === usuario.login)?.contatos ?? [],
-      );
-      if (competenciaPublicada === null) {
-        setCompetenciaPlantaoApp(null);
-        setAtribuicoesPlantaoApp([]);
-        return;
+      /**
+       * A leitura do Grupo (acima) e a leitura dos detalhes (participantes/
+       * competência/atribuições) passam por regras diferentes no Firestore:
+       * a Matriz de Responsáveis tem sua PRÓPRIA lista de "equipes que
+       * consultam" por Grupo (`escoposOperacionais`, distinta de
+       * `GrupoPlantao.equipesConsulta`) e, quando existe, ela manda — uma
+       * equipe pode aparecer na lista do Grupo (por isso o Grupo é
+       * encontrado aqui) e ainda assim não estar na lista da Matriz (por
+       * isso os detalhes abaixo podem ser negados). Isolado num try/catch
+       * próprio para nunca confundir esse "permission-denied" específico
+       * com uma falha de rede/sessão, e para nunca sugerir que o próprio
+       * usuário precisa de "permissão de gestor" (mensagem padrão de
+       * `mensagemErroFirebase`, pensada para ações administrativas — aqui é
+       * consulta, ver `docs/spec/APP_PLANTAO_VISUALIZACAO.md` § 2).
+       */
+      try {
+        const [competenciaPublicada, participantes] = await Promise.all([
+          obterCompetenciaPlantaoPublicada(grupo.grupoId, competencia),
+          listarParticipantesPlantao(grupo.grupoId),
+        ]);
+        setParticipantesPlantaoApp(participantes);
+        setContatosEdicaoApp(
+          participantes.find((participante) => participante.login === usuario.login)?.contatos ?? [],
+        );
+        if (competenciaPublicada === null) {
+          setCompetenciaPlantaoApp(null);
+          setPeriodoPlantaoApp(null);
+          setAtribuicoesPlantaoApp([]);
+          return;
+        }
+        setCompetenciaPlantaoApp(competencia);
+        setPeriodoPlantaoApp({ inicio: competenciaPublicada.periodoInicio, fim: competenciaPublicada.periodoFim });
+        const atribuicoes = await listarAtribuicoesPlantaoPublicada(grupo.grupoId, competencia);
+        setAtribuicoesPlantaoApp(atribuicoes);
+      } catch (falhaDetalhe) {
+        const codigoDetalhe = typeof falhaDetalhe === 'object' && falhaDetalhe !== null && 'code' in falhaDetalhe
+          ? String(falhaDetalhe.code)
+          : '';
+        if (codigoDetalhe.includes('permission-denied')) {
+          setErroPlantaoApp('Sua equipe ainda não tem permissão para consultar os detalhes deste Plantão (quem está de plantão, contatos). Peça ao coordenador para liberar a consulta em Administração > Responsáveis por escala.');
+          return;
+        }
+        throw falhaDetalhe;
       }
-      setCompetenciaPlantaoApp(competencia);
-      const atribuicoes = await listarAtribuicoesPlantaoPublicada(grupo.grupoId, competencia);
-      setAtribuicoesPlantaoApp(atribuicoes);
     } catch (falha) {
       carregouPlantaoAppRef.current = false;
-      setErroPlantaoApp(mensagemErroFirebase(falha, 'Não foi possível carregar o Plantão.', ambienteFirebaseAtual));
+      setErroPlantaoApp(mensagemErroFirebase(falha, 'Não foi possível carregar o Plantão.', ambienteFirebaseAtual, 'autoatendimento'));
     } finally {
       setCarregandoPlantaoApp(false);
     }
@@ -1762,6 +1891,38 @@ export function EmployeeApp() {
       setMensagemContatosApp(mensagemErroFirebase(falha, 'Não foi possível salvar seus contatos.', ambienteFirebaseAtual));
     } finally {
       setSalvandoContatosApp(false);
+    }
+  }
+
+  /**
+   * Aplica na hora (sem botão "Salvar" separado — é uma preferência de UI,
+   * não um formulário): clicar numa cor já grava. Sempre a própria cor, no
+   * próprio Grupo — nunca outro login (ver `firestore.rules`).
+   */
+  async function salvarCorPlantaoApp(indice: number | null) {
+    if (usuario === null || grupoPlantaoApp === null || grupoPlantaoApp === undefined) {
+      return;
+    }
+    setSalvandoCorPlantaoApp(true);
+    setMensagemCorPlantaoApp('');
+    try {
+      if (!modoDemonstracao) {
+        await atualizarCorPlantonista(grupoPlantaoApp.grupoId, usuario.login, indice);
+      }
+      setParticipantesPlantaoApp((atuais) => {
+        const existe = atuais.some((participante) => participante.login === usuario.login);
+        const atualizadoEm = new Date().toISOString();
+        if (!existe) {
+          return atuais;
+        }
+        return atuais.map((participante) => (participante.login === usuario.login
+          ? { ...participante, corPreferida: indice, atualizadoEm }
+          : participante));
+      });
+    } catch (falha) {
+      setMensagemCorPlantaoApp(mensagemErroFirebase(falha, 'Não foi possível salvar sua cor.', ambienteFirebaseAtual));
+    } finally {
+      setSalvandoCorPlantaoApp(false);
     }
   }
 
@@ -2709,6 +2870,27 @@ export function EmployeeApp() {
                   )}
                 </article>
 
+                {periodoPlantaoApp && (
+                  <article className="panel">
+                    <div className="panel-title">
+                      <div>
+                        <h2>Calendário do mês</h2>
+                        <p>Competência {formatarCompetencia(competenciaPlantaoApp)}</p>
+                      </div>
+                    </div>
+                    <CalendarioPlantaoApp
+                      periodoInicio={periodoPlantaoApp.inicio}
+                      periodoFim={periodoPlantaoApp.fim}
+                      dataHoje={dataHoje}
+                      atribuicoes={atribuicoesPlantaoApp}
+                      participantes={participantesPlantaoApp}
+                      usuarios={usuarios}
+                      timezone={grupo.timezone}
+                      loginUsuarioAtual={usuario.login}
+                    />
+                  </article>
+                )}
+
                 {souPlantonista && (
                   <article className="panel">
                     <div className="panel-title"><div><h2>Meus próximos plantões</h2><p>Competência {formatarCompetencia(competenciaPlantaoApp)}</p></div></div>
@@ -2829,7 +3011,7 @@ export function EmployeeApp() {
             {grupoPlantaoApp != null
               && participantesPlantaoApp.some((participante) => participante.login === usuario.login && participante.ativo)
               && contatosEdicaoApp !== null && (
-              <article className="panel">
+              <article className="panel profile-plantao-contatos">
                 <div className="panel-title">
                   <div>
                     <h2>Meus contatos de plantão</h2>
@@ -2891,6 +3073,42 @@ export function EmployeeApp() {
                   <button className="primary-button" type="button" disabled={salvandoContatosApp} onClick={() => void salvarMeusContatosApp()}>
                     {salvandoContatosApp ? <LoaderCircle className="spin" size={16} /> : <Phone size={16} />} Atualizar meus contatos
                   </button>
+                </div>
+
+                <div className="profile-plantao-cor">
+                  <p className="profile-plantao-cor-titulo">Minha cor no calendário de Plantão</p>
+                  <p className="empty-inline">Escolha uma cor para se achar mais fácil no calendário mensal.</p>
+                  <div className="profile-plantao-cor-paleta" role="radiogroup" aria-label="Cor de identificação no calendário">
+                    {Array.from({ length: 8 }, (_, indice) => indice).map((indice) => {
+                      const corAtual = indiceCorPlantonista(usuario.login, participantesPlantaoApp);
+                      const selecionada = corAtual === indice;
+                      return (
+                        <button
+                          key={indice}
+                          type="button"
+                          className="profile-plantao-cor-opcao"
+                          data-identidade={indice}
+                          disabled={salvandoCorPlantaoApp}
+                          aria-pressed={selecionada}
+                          aria-label={`Cor ${indice + 1}${selecionada ? ' (selecionada)' : ''}`}
+                          onClick={() => void salvarCorPlantaoApp(indice)}
+                        >
+                          {selecionada && <Check size={14} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {participantesPlantaoApp.find((participante) => participante.login === usuario.login)?.corPreferida != null && (
+                    <button
+                      className="secondary-button compact-button"
+                      type="button"
+                      disabled={salvandoCorPlantaoApp}
+                      onClick={() => void salvarCorPlantaoApp(null)}
+                    >
+                      Usar cor automática
+                    </button>
+                  )}
+                  {mensagemCorPlantaoApp !== '' && <p className="admin-form-erro">{mensagemCorPlantaoApp}</p>}
                 </div>
               </article>
             )}

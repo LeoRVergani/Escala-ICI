@@ -1,5 +1,7 @@
 import {
+  adicionarDias,
   converterInstanteUtcParaMomento,
+  TAMANHO_PALETA_IDENTIDADE_PLANTAO,
   type AtribuicaoPlantaoPersistida,
   type ContatoPlantonista,
   type ParticipantePlantao,
@@ -90,4 +92,66 @@ export function horarioPlantaoParaExibicao(
 
 export function rotuloHorarioPlantaoExibicao(horario: HorarioPlantaoExibicao): string {
   return `${horario.horaInicio}–${horario.horaFim}${horario.cruzaDiaSeguinte ? ' (+1 dia)' : ''}`;
+}
+
+/**
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — todos os dias civis
+ * entre `periodoInicio` e `periodoFim` (inclusive), na ordem do calendário.
+ * A competência de Plantão nem sempre alinha com o mês civil (pode ir de
+ * 26/07 a 25/08, por exemplo) — por isso o calendário do App usa o período
+ * REAL da competência publicada (`CompetenciaPlantao.periodoInicio/Fim`),
+ * nunca o primeiro/último dia do mês calculado a partir da competência.
+ * Comparação/iteração por string ISO (largura fixa), mesmo princípio do
+ * restante do módulo.
+ */
+export function diasCivisNoPeriodo(periodoInicio: string, periodoFim: string): string[] {
+  const dias: string[] = [];
+  let cursor = periodoInicio;
+  while (cursor <= periodoFim) {
+    dias.push(cursor);
+    cursor = adicionarDias(cursor, 1);
+  }
+  return dias;
+}
+
+/** Atribuições agrupadas pelo dia civil (no timezone do Grupo) em que CADA UMA começa — mesmo critério de `lib/editorPlantao.ts`. */
+export function atribuicoesPorDiaCivil(
+  atribuicoes: readonly AtribuicaoPlantaoPersistida[],
+  timezone: string,
+): Map<string, AtribuicaoPlantaoPersistida[]> {
+  const porDia = new Map<string, AtribuicaoPlantaoPersistida[]>();
+  for (const atribuicao of atribuicoes) {
+    const dia = converterInstanteUtcParaMomento(atribuicao.inicio, timezone).data;
+    const lista = porDia.get(dia) ?? [];
+    lista.push(atribuicao);
+    porDia.set(dia, lista);
+  }
+  for (const lista of porDia.values()) {
+    lista.sort((a, b) => a.inicio.localeCompare(b.inicio));
+  }
+  return porDia;
+}
+
+/**
+ * Índice ESTÁVEL (0..7) na paleta categórica de identidade visual
+ * (`TAMANHO_PALETA_IDENTIDADE_PLANTAO`, `app/globals.css`). Usa
+ * `ParticipantePlantao.corPreferida` quando o próprio plantonista já
+ * escolheu uma cor válida; caso contrário cai num hash determinístico do
+ * LOGIN (identificador estável, ao contrário do nome digitado no XLS usado
+ * por `lib/editorPlantao.ts` — por isso um hash próprio aqui, não o mesmo
+ * cálculo). A mesma pessoa nunca muda de cor entre sessões sem escolher.
+ */
+export function indiceCorPlantonista(
+  login: string,
+  participantes: readonly ParticipantePlantao[],
+): number {
+  const preferida = participantes.find((participante) => participante.login === login)?.corPreferida;
+  if (typeof preferida === 'number' && Number.isInteger(preferida) && preferida >= 0 && preferida < TAMANHO_PALETA_IDENTIDADE_PLANTAO) {
+    return preferida;
+  }
+  let hash = 0;
+  for (let indice = 0; indice < login.length; indice += 1) {
+    hash = (hash * 31 + login.charCodeAt(indice)) >>> 0;
+  }
+  return hash % TAMANHO_PALETA_IDENTIDADE_PLANTAO;
 }

@@ -3,9 +3,12 @@ import { describe, expect, it } from 'vitest';
 
 import type { Usuario } from '@/lib/modelos';
 import {
+  atribuicoesPorDiaCivil,
   contatosAtivosDoPlantonista,
+  diasCivisNoPeriodo,
   horarioPlantaoParaExibicao,
   inicialPlantonista,
+  indiceCorPlantonista,
   nomeExibicaoPlantonista,
   proximosPlantoesDoUsuario,
   resolverPlantaoAgora,
@@ -173,5 +176,60 @@ describe('horarioPlantaoParaExibicao / rotuloHorarioPlantaoExibicao', () => {
     );
     expect(horario.cruzaDiaSeguinte).toBe(true);
     expect(rotuloHorarioPlantaoExibicao(horario)).toContain('(+1 dia)');
+  });
+});
+
+describe('diasCivisNoPeriodo', () => {
+  it('lista todos os dias, inclusive, mesmo quando a competência não alinha com o mês civil', () => {
+    expect(diasCivisNoPeriodo('2026-07-26', '2026-07-29')).toEqual([
+      '2026-07-26', '2026-07-27', '2026-07-28', '2026-07-29',
+    ]);
+  });
+
+  it('período de um único dia devolve só esse dia', () => {
+    expect(diasCivisNoPeriodo('2026-08-01', '2026-08-01')).toEqual(['2026-08-01']);
+  });
+});
+
+describe('atribuicoesPorDiaCivil', () => {
+  it('agrupa pelo dia civil (no timezone do Grupo) em que a atribuição COMEÇA', () => {
+    const noturno = atribuicao({ atribuicaoId: 'a', inicio: '2026-08-10T22:00:00.000Z', fim: '2026-08-11T10:00:00.000Z' });
+    const diurno = atribuicao({ atribuicaoId: 'b', inicio: '2026-08-11T13:00:00.000Z', fim: '2026-08-11T19:00:00.000Z' });
+    const porDia = atribuicoesPorDiaCivil([noturno, diurno], 'America/Sao_Paulo');
+    expect(porDia.get('2026-08-10')?.map((item) => item.atribuicaoId)).toEqual(['a']);
+    expect(porDia.get('2026-08-11')?.map((item) => item.atribuicaoId)).toEqual(['b']);
+  });
+
+  it('mais de uma atribuição no mesmo dia fica ordenada por início', () => {
+    const depois = atribuicao({ atribuicaoId: 'depois', inicio: '2026-08-11T19:00:00.000Z', fim: '2026-08-11T22:00:00.000Z' });
+    const antes = atribuicao({ atribuicaoId: 'antes', inicio: '2026-08-11T13:00:00.000Z', fim: '2026-08-11T16:00:00.000Z' });
+    const porDia = atribuicoesPorDiaCivil([depois, antes], 'America/Sao_Paulo');
+    expect(porDia.get('2026-08-11')?.map((item) => item.atribuicaoId)).toEqual(['antes', 'depois']);
+  });
+});
+
+describe('indiceCorPlantonista', () => {
+  it('usa corPreferida quando o participante já escolheu uma cor válida', () => {
+    const participantes = [participante({ login: 'clis', corPreferida: 5 })];
+    expect(indiceCorPlantonista('clis', participantes)).toBe(5);
+  });
+
+  it('ignora corPreferida inválida (fora de 0..7) e cai no hash por login', () => {
+    const comInvalida = [participante({ login: 'clis', corPreferida: 99 })];
+    const semPreferencia = [participante({ login: 'clis', corPreferida: undefined })];
+    expect(indiceCorPlantonista('clis', comInvalida)).toBe(indiceCorPlantonista('clis', semPreferencia));
+  });
+
+  it('sem participante cadastrado (ou corPreferida null/ausente) cai no hash — determinístico e estável', () => {
+    expect(indiceCorPlantonista('clis', [])).toBe(indiceCorPlantonista('clis', []));
+    const indice = indiceCorPlantonista('login.qualquer', []);
+    expect(indice).toBeGreaterThanOrEqual(0);
+    expect(indice).toBeLessThan(8);
+  });
+
+  it('corPreferida: null (preferência limpa) também cai no hash automático', () => {
+    const semPreferencia = [participante({ login: 'clis', corPreferida: undefined })];
+    const limpa = [participante({ login: 'clis', corPreferida: null })];
+    expect(indiceCorPlantonista('clis', limpa)).toBe(indiceCorPlantonista('clis', semPreferencia));
   });
 });

@@ -4,6 +4,7 @@ import {
   calcularDuracaoEntreMomentos,
   detectarSobreposicoesPlantao,
   identificarLacunasPlantao,
+  TAMANHO_PALETA_IDENTIDADE_PLANTAO,
   type AtribuicaoPlantaoBruta,
   type LacunaPlantao,
   type MomentoPlantao,
@@ -272,11 +273,12 @@ export function nomeCurtoPlantonista(nomeOriginal: string): string {
 }
 
 /**
- * Tamanho da paleta de identidade visual — precisa bater com o número de
- * classes `.plantao-identidade-0`..`.plantao-identidade-{N-1}` em
- * `app/globals.css`.
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — movida para
+ * `@escala-ici/contrato` (fonte única, também usada por
+ * `apps/app/src/plantaoApp.ts`); reexportada aqui para não quebrar quem já
+ * importa `TAMANHO_PALETA_IDENTIDADE_PLANTAO` deste módulo.
  */
-export const TAMANHO_PALETA_IDENTIDADE_PLANTAO = 8;
+export { TAMANHO_PALETA_IDENTIDADE_PLANTAO };
 
 /**
  * Índice ESTÁVEL (0..N-1) de identidade visual por pessoa — hash
@@ -284,7 +286,10 @@ export const TAMANHO_PALETA_IDENTIDADE_PLANTAO = 8;
  * array (que mudaria de valor conforme outras pessoas entram/saem do
  * conjunto). A mesma pessoa sempre recebe o mesmo índice, em qualquer
  * competência, em qualquer sessão — sem depender de quem mais está na
- * lista. Não é um seletor de cor (nenhuma customização manual nesta fase).
+ * lista. Específico do Editor/importação (hash por NOME digitado no XLS,
+ * que pode diferir do `Usuario.nome` canônico) — nunca um seletor de cor
+ * manual aqui (essa opção existe só no App, por login, ver
+ * `apps/app/src/plantaoApp.ts`/`ParticipantePlantao.corPreferida`).
  */
 export function indiceIdentidadePlantonista(nomeOriginal: string): number {
   const chave = normalizarNome(nomeOriginal);

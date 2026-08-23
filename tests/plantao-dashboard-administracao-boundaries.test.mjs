@@ -120,10 +120,13 @@ test('7. apps/app (colaborador) continua sem qualquer símbolo ADMINISTRATIVO de
    * acrescentou a leitura da competência/atribuições PUBLICADAS (a visão
    * "Plantão" de verdade) e a escrita pessoal de contatos — nenhum modal,
    * nenhuma tela administrativa, nenhuma escrita de Grupo/participante
-   * alheio.
+   * alheio. FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 acrescentou a
+   * escrita pessoal da cor de identificação no calendário
+   * (`atualizarCorPlantonista`), mesmo padrão de escopo (só o próprio
+   * documento, nunca administração).
    */
   assert.match(app, /import \{\s*listarAtribuicoesPlantaoPublicada,\s*listarGruposPlantaoPermitidos,\s*listarParticipantesPlantao,\s*obterCompetenciaPlantaoPublicada,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
-  assert.match(app, /import \{ atualizarContatosPlantonista \} from '@\/lib\/firebase\/plantaoWriteRepository';/u);
+  assert.match(app, /import \{ atualizarContatosPlantonista, atualizarCorPlantonista \} from '@\/lib\/firebase\/plantaoWriteRepository';/u);
 });
 
 test('8. apps/push-worker continua sem qualquer menção a Plantão', async () => {

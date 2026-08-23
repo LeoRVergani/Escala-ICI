@@ -2999,6 +2999,100 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
     });
   });
 
+  /**
+   * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — o próprio plantonista
+   * escolhe a cor de identificação no calendário do App
+   * (`atualizarCorPlantonista()`). Mesmo ramo self-update de
+   * PATCH-PLANTAO-CONTATOS-APP-1, agora também aceitando `corPreferida`.
+   */
+  describe('FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — plantonista autoatualiza a própria cor no calendário', () => {
+    beforeEach(async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        const db = contexto.firestore();
+        await setDoc(
+          doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colega.login),
+          participantePlantao(usuarios.colega.login),
+        );
+      });
+    });
+
+    it('o participante escolhe um índice válido (0..7) de cor', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { corPreferida: 5, atualizadoEm: '2026-08-10T12:00:00.000Z' },
+      ));
+      const participante = await assertSucceeds(getDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+      ));
+      expect(participante.data()?.corPreferida).toBe(5);
+    });
+
+    it('rejeita um índice fora de 0..7', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { corPreferida: 8 },
+      ));
+      await assertFails(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { corPreferida: -1 },
+      ));
+    });
+
+    it('aceita corPreferida: null para limpar a preferência (volta ao hash automático)', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { corPreferida: 2 },
+      ));
+      await assertSucceeds(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { corPreferida: null },
+      ));
+    });
+
+    it('pode alterar contatos e corPreferida na mesma escrita', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        {
+          contatos: [{ rotulo: 'Celular', numero: '11999990000', ativo: true }],
+          corPreferida: 3,
+        },
+      ));
+    });
+
+    it('não altera a cor de outro participante', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colega.login),
+        { corPreferida: 1 },
+      ));
+    });
+
+    it('não consegue combinar corPreferida com um campo fora da allowlist (ex.: ativo)', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { corPreferida: 4, ativo: false },
+      ));
+    });
+
+    it('gestor continua conseguindo editar qualquer participante mesmo depois que corPreferida existe no documento (allowlist administrativa cobre o campo)', async () => {
+      const dbColaborador = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(updateDoc(
+        doc(dbColaborador, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { corPreferida: 6 },
+      ));
+      const dbGestor = autenticarComo(usuarios.gestor);
+      await assertSucceeds(updateDoc(
+        doc(dbGestor, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { contatos: [{ rotulo: 'Ramal', numero: '4321', ativo: true }] },
+      ));
+    });
+  });
+
   describe('gestor autorizado (equipe responsável)', () => {
     it('cria e edita o Grupo', async () => {
       const db = autenticarComo(usuarios.gestor);

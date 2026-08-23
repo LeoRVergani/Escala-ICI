@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const ler = (caminho) => readFile(new URL(`../${caminho}`, import.meta.url), 'utf8');
+const semComentarios = (fonte) => fonte.replace(/\/\*[\s\S]*?\*\//g, '');
 
 /**
  * Fase FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — primeira versão
@@ -101,4 +102,59 @@ test('8. "Meus contatos de plantão" (Perfil) só aparece para quem é participa
     /participantesPlantaoApp\.some\(\(participante\) => participante\.login === usuario\.login && participante\.ativo\)/u,
     'o card de contatos precisa checar participação ativa do próprio usuário antes de aparecer',
   );
+});
+
+/**
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — calendário mensal +
+ * cor de identificação por plantonista. Ver docs/spec/PLANTOES.md § 33.5.
+ */
+
+test('9. o calendário mensal de Plantão do App reaproveita a MESMA grade da Jornada — nenhum sistema de calendário paralelo', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  const inicio = app.indexOf('function CalendarioPlantaoApp(');
+  assert.ok(inicio > 0, 'CalendarioPlantaoApp precisa existir');
+  const fim = app.indexOf('\nfunction ', inicio + 10);
+  const componente = app.slice(inicio, fim > 0 ? fim : inicio + 4000);
+  for (const classe of ['calendar-view', 'calendar-weekdays', 'calendar-grid', 'calendar-blank', 'shift-chip']) {
+    assert.match(componente, new RegExp(`className="[^"]*\\b${classe}\\b`, 'u'), `precisa reaproveitar .${classe}`);
+  }
+  assert.doesNotMatch(componente, /className="plantao-grid/u, 'não pode importar o grid do Editor (Dashboard) para o App');
+});
+
+test('10. a cor no calendário usa a MESMA paleta de identidade (data-identidade), nunca uma cor livre/hex escolhida pelo usuário', async () => {
+  const [app, contrato] = await Promise.all([
+    ler('apps/app/src/EmployeeApp.tsx'),
+    ler('packages/contrato/src/modeloPlantaoPersistente.ts'),
+  ]);
+  assert.match(app, /data-identidade=\{indice\}/u, 'o seletor de cor no Perfil precisa usar data-identidade (paleta fixa)');
+  assert.doesNotMatch(app, /type="color"/u, 'nunca um <input type="color"> livre');
+  assert.match(contrato, /export const TAMANHO_PALETA_IDENTIDADE_PLANTAO = 8;/u);
+  assert.match(contrato, /export function corPlantonistaPreferidaValida/u);
+});
+
+test('11. a autoatualização da cor de Plantão sempre usa o próprio login — nunca outro login', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  assert.match(
+    app,
+    /atualizarCorPlantonista\(grupoPlantaoApp\.grupoId, usuario\.login, indice\)/u,
+    'a chamada de escrita da cor precisa usar usuario.login (o próprio usuário autenticado)',
+  );
+});
+
+test('12. Rules: o próprio plantonista pode alterar corPreferida, mas o campo é opcional e validado (0..7)', async () => {
+  const rules = await ler('firestore.rules');
+  const bloco = /match \/gruposPlantao\/\{grupoId\}\/participantes\/\{login\} \{([\s\S]*?)\n {4}\}/u.exec(rules);
+  assert.ok(bloco, 'match de participantes precisa existir');
+  assert.match(bloco[1], /hasOnly\(\['contatos', 'corPreferida', 'atualizadoEm'\]\)/u, 'a allowlist do self-update precisa incluir corPreferida');
+  assert.match(rules, /function corPlantonistaPreferidaValida\(cor\) \{/u);
+});
+
+test('13. a visão "Plantão" não mostra mais o texto genérico de permissão de gestor quando a Matriz nega a consulta — mensagem específica e honesta', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  const inicio = app.indexOf('async function carregarPlantaoApp()');
+  const fim = app.indexOf('\n  async function salvarMeusContatosApp', inicio);
+  assert.ok(inicio > 0 && fim > inicio, 'carregarPlantaoApp precisa existir');
+  const corpo = semComentarios(app.slice(inicio, fim));
+  assert.match(corpo, /permission-denied/u, 'precisa distinguir especificamente o erro de permissão');
+  assert.doesNotMatch(corpo, /permissão de gestor/u, 'nunca sugerir "permissão de gestor" (fora de comentários) para uma ação de CONSULTA do App');
 });
