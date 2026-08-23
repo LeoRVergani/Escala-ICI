@@ -8,7 +8,7 @@ COPY apps/app/package.json apps/app/package.json
 COPY packages/contrato/package.json packages/contrato/package.json
 COPY packages/contrato/package-lock.json packages/contrato/package-lock.json
 
-RUN npm ci --ignore-scripts --no-audit --no-fund
+RUN npm install -g npm@10.9.2 --no-audit --no-fund && npm ci --ignore-scripts --no-audit --no-fund
 
 COPY . .
 
