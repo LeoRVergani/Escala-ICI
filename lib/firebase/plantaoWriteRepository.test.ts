@@ -54,6 +54,7 @@ vi.mock('firebase/firestore', () => ({
 }));
 
 const {
+  atualizarContatosPlantonista,
   atualizarEquipeConsultaPlantao,
   desativarParticipantePlantao,
   publicarCompetenciaPlantao,
@@ -233,6 +234,37 @@ describe('salvarParticipantePlantao', () => {
   it('rejeita login vazio antes de enviar', async () => {
     await expect(salvarParticipantePlantao(participanteValido({ login: '' }))).rejects.toThrow();
     expect(estado.operacoes).toHaveLength(0);
+  });
+});
+
+describe('atualizarContatosPlantonista — FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 (App: plantonista atualiza os próprios contatos)', () => {
+  it('grava só contatos e atualizadoEm via updateDoc — nunca o participante inteiro', async () => {
+    await atualizarContatosPlantonista('PLANTAO_SEGURANCA', 'acosta', [
+      { rotulo: 'Celular corporativo', numero: '11999990000', ativo: true },
+    ]);
+    expect(estado.operacoes).toHaveLength(1);
+    expect(estado.operacoes[0]?.tipo).toBe('update');
+    expect(estado.operacoes[0]?.colecao).toBe('participantes');
+    expect(estado.operacoes[0]?.id).toBe('acosta');
+    expect(Object.keys(estado.operacoes[0]?.dados ?? {}).sort()).toEqual(['atualizadoEm', 'contatos']);
+  });
+
+  it('rejeita mais de 3 contatos antes de enviar (mesma regra de salvarParticipantePlantao)', async () => {
+    await expect(atualizarContatosPlantonista('PLANTAO_SEGURANCA', 'acosta', [
+      { rotulo: 'A', numero: '1', ativo: true },
+      { rotulo: 'B', numero: '2', ativo: true },
+      { rotulo: 'C', numero: '3', ativo: true },
+      { rotulo: 'D', numero: '4', ativo: true },
+    ])).rejects.toThrow();
+    expect(estado.operacoes).toHaveLength(0);
+  });
+
+  it('não exige a escrita administrativa habilitada — é uma ação pessoal do colaborador, não administrativa', async () => {
+    estado.escritaHabilitada = false;
+    await atualizarContatosPlantonista('PLANTAO_SEGURANCA', 'acosta', [
+      { rotulo: 'Celular', numero: '11999990000', ativo: true },
+    ]);
+    expect(estado.operacoes).toHaveLength(1);
   });
 });
 

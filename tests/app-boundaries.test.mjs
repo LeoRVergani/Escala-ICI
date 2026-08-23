@@ -12,8 +12,17 @@ test('o app do colaborador não incorpora operações administrativas', async ()
   ]);
   const fontePublica = `${app}\n${login}\n${packageJson}`;
 
+  /**
+   * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — o App passou a
+   * importar `plantaoWriteRepository` (só `atualizarContatosPlantonista`,
+   * ação pessoal do plantonista — ver `tests/plantao-model-boundaries.test.mjs`
+   * teste 1). O `writeRepository` GENÉRICO (escrita administrativa de
+   * Jornada 6x1) continua proibido — por isso o padrão abaixo casa o
+   * CAMINHO de import exato, nunca a palavra solta (que também bateria,
+   * por coincidência de sufixo, em `plantaoWriteRepository`).
+   */
+  assert.doesNotMatch(fontePublica, /from '@\/lib\/firebase\/writeRepository'/u, 'writeRepository administrativo (Jornada 6x1)');
   for (const proibido of [
-    'writeRepository',
     'salvarRascunho',
     'publicarEscalas',
     'salvarUsuario',
@@ -699,7 +708,18 @@ test('o cabeçalho do AppFrame mostra o cargo real (rotuloCargoExibicao), nunca 
 test('o App diferencia "sem Jornada" de "tem participação em Plantão" ao não encontrar escala publicada', async () => {
   const app = await ler('apps/app/src/EmployeeApp.tsx');
 
-  assert.match(app, /import \{\s*listarGruposPlantaoPermitidos,\s*listarParticipantesPlantao,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
+  /**
+   * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — o import de
+   * `plantaoReadRepository` cresceu de 2 para 4 símbolos porque a "fase
+   * futura" que este teste (PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1) previa
+   * na mensagem abaixo ("A visualização detalhada será exibida na aba
+   * Plantão") chegou: `obterCompetenciaPlantaoPublicada`/
+   * `listarAtribuicoesPlantaoPublicada` agora alimentam a aba "Plantão" de
+   * verdade (ver `tests/plantao-dashboard-administracao-boundaries.test.mjs`,
+   * teste 7). `mensagemAusenciaEscalaAcao` continua igual — só a proibição
+   * de antecipar a visão deixou de valer.
+   */
+  assert.match(app, /import \{\s*listarAtribuicoesPlantaoPublicada,\s*listarGruposPlantaoPermitidos,\s*listarParticipantesPlantao,\s*obterCompetenciaPlantaoPublicada,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
   assert.match(app, /async function mensagemAusenciaEscalaAcao\(usuario: Usuario\): Promise<string> \{/u);
   assert.match(app, /'Nenhuma jornada 6x1 encontrada para este período\.'/u);
   assert.match(app, /'Você possui participação em Plantão\. A visualização detalhada será exibida na aba Plantão\.'/u);
@@ -713,7 +733,4 @@ test('o App diferencia "sem Jornada" de "tem participação em Plantão" ao não
   const corpo = /async function mensagemAusenciaEscalaAcao\(usuario: Usuario\): Promise<string> \{([\s\S]*?)\n\}/u.exec(app);
   assert.ok(corpo, 'mensagemAusenciaEscalaAcao precisa existir');
   assert.match(corpo[1], /\} catch \{/u, 'precisa capturar falha da consulta de Plantão, nunca propagar');
-
-  // Não implementa a visão detalhada de Plantão nesta fase — nenhuma tela/aba nova.
-  assert.doesNotMatch(app, /obterCompetenciaPlantaoPublicada|listarAtribuicoesPlantao/u, 'a fase grande de visão de Plantão no App não deve ser antecipada aqui');
 });

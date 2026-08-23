@@ -141,6 +141,7 @@ import { sair } from '@/lib/firebase/authRepository';
 import { mensagemErroFirebase } from '@/lib/firebase/errors';
 import { ambienteFirebaseAtual } from '@/lib/firebase/shared';
 import {
+  listarAtribuicoesPlantaoPublicada,
   listarAtribuicoesPlantaoRascunho,
   listarCompetenciasPlantaoRascunho,
   listarGruposPlantaoPermitidos,
@@ -609,8 +610,16 @@ function estadoPlantaoDashboard(resumo: ResumoPlantaoDashboard | null): EstadoEs
 const classeSaudeOperacional = classeSaudeOperacaoDashboard;
 const rotuloEstadoEscalaOperacional = rotuloStatusOperacaoDashboard;
 
-function resumoPublicacaoJornada(resumo: ResumoJornadaDashboard | null): ResumoPublicacao {
-  const estado = estadoJornadaDashboard(resumo);
+/**
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — extraída de
+ * `resumoPublicacaoJornada` (que já tratava os 4 estados corretamente)
+ * para virar a única fonte de "texto de publicação" tanto de Jornada
+ * quanto de Plantão — "SOC e Plantão devem seguir a mesma lógica de
+ * status agregada". Recebe o status já resolvido por
+ * `derivarStatusOperacaoDashboard`, nunca recalcula nada por conta
+ * própria.
+ */
+function resumoPublicacaoOperacao(estado: EstadoEscalaOperacionalDashboard): ResumoPublicacao {
   if (estado === 'sem-escala') {
     return {
       estado: 'vazio',
@@ -3805,7 +3814,17 @@ export function DashboardApp() {
   const periodoPlantaoDashboard = competenciaPlantaoExibidaDashboard === null
     ? 'Sem competência criada'
     : `${formatarData(competenciaPlantaoExibidaDashboard?.periodoInicio, opcoesDataResumoDashboard)} — ${formatarData(competenciaPlantaoExibidaDashboard?.periodoFim, opcoesDataResumoDashboard)}`;
-  const resumoPublicacaoDashboard = resumoPublicacaoJornada(resumoJornadaDashboard);
+  const resumoPublicacaoDashboard = resumoPublicacaoOperacao(estadoJornadaOperacionalDashboard);
+  /**
+   * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — causa raiz do
+   * "Publicação da escala" mostrar Plantão publicado como "Rascunho
+   * disponível": o `<small>` daquela linha usava `plantaoPossuiEscalaDashboard`
+   * (um booleano 2 estados) direto, nunca `estadoPlantaoOperacionalDashboard`
+   * (os 4 estados corretos), então "publicada" e "rascunho" apareciam com
+   * o mesmo texto. Agora usa a MESMA função que a Jornada já usa, com o
+   * status de Plantão.
+   */
+  const resumoPublicacaoPlantaoDashboard = resumoPublicacaoOperacao(estadoPlantaoOperacionalDashboard);
   const plantaoMetricasDashboard = plantaoPossuiEscalaDashboard
     ? `${participantesPlantaoDashboard} ${participantesPlantaoDashboard === 1 ? 'participante' : 'participantes'} · ${plantaoTotalBrutoDashboard?.quantidade ?? 0} ${plantaoTotalBrutoDashboard?.quantidade === 1 ? 'plantão' : 'plantões'}`
     : `${participantesPlantaoDashboard} ${participantesPlantaoDashboard === 1 ? 'participante' : 'participantes'} · nenhum rascunho`;
@@ -4833,10 +4852,38 @@ export function DashboardApp() {
       competenciaPlantaoDashboard?.competencia ?? competenciaDashboard,
     );
     if (contextosEscalaIguais(contextoEscalaAtivo, alvo)) {
-      setTela(plantaoPossuiEscalaDashboard ? 'importar' : 'escalas');
+      if (plantaoPossuiEscalaDashboard) {
+        abrirEditorPlantaoDashboard();
+      } else {
+        setTela('escalas');
+      }
       return;
     }
     solicitarTrocaContexto(alvo);
+  }
+  /**
+   * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — antes, tanto aqui
+   * quanto no botão "Abrir editor" da aba Escalas, um `setTela('importar')`
+   * bastava para Jornada nunca chegar aqui, mas para Plantão pousava na
+   * tela de importação em branco sempre que não havia rascunho aberto
+   * (o caso mais comum logo após publicar) — `origemPlantaoAtual`
+   * continuava `null`, então nem `PreviewPlantao` nem `PlantaoCalendario`
+   * apareciam. Agora resolve a competência a mostrar (rascunho mais
+   * recente se existir, senão a publicada — `competenciaPlantaoExibidaDashboard`,
+   * já calculado) e reidrata pelo MESMO caminho usado para reabrir
+   * rascunho — nenhum segundo modelo de dados, só uma fonte a mais
+   * (`abrirRascunhoNoEditorAcao` já aceita competência publicada).
+   */
+  function abrirEditorPlantaoDashboard() {
+    if (grupoPlantaoDashboard === null) {
+      setTela('escalas');
+      return;
+    }
+    if (competenciaPlantaoExibidaDashboard === null) {
+      setTela('importar');
+      return;
+    }
+    void abrirRascunhoNoEditorAcao(grupoPlantaoDashboard, competenciaPlantaoExibidaDashboard);
   }
   function abrirTrocasDoDashboard() {
     setTela('trocas');
@@ -6623,17 +6670,35 @@ export function DashboardApp() {
    * Nunca navega para "Importar" antes da leitura terminar (§ 17 da
    * fase) — o calendário só aparece depois que tudo foi carregado com
    * sucesso.
+   *
+   * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — passou a abrir
+   * também uma competência JÁ PUBLICADA (`competenciaAlvo.status ===
+   * 'PUBLICADA'`), não só rascunho. Antes, "Escalas > Plantão COSI" sem
+   * nenhum rascunho aberto (o caso mais comum logo após publicar) não
+   * tinha como reidratar a working copy — "Abrir editor" caía direto na
+   * tela de importação em branco. Reidrata pela MESMA função
+   * (`reidratarRascunhoPlantao`, que nunca olha `.status` — só monta a
+   * working copy a partir de atribuições+participantes+competência já
+   * carregados), só troca a FONTE da leitura (publicada vs rascunho) —
+   * nunca um segundo modelo de dados para a mesma escala. Editar e depois
+   * "Salvar rascunho" cria um novo rascunho normalmente; a publicação
+   * atual nunca é sobrescrita direto.
    */
   async function abrirRascunhoNoEditorAcao(
     grupo: GrupoPlantao,
     competenciaAlvo: CompetenciaPlantao,
   ): Promise<{ ok: true } | { ok: false; motivo: 'nao-encontrado' } | { ok: false; motivo: 'erro'; mensagem: string }> {
     setAbrirRascunhoPlantaoStatus({ fase: 'carregando' });
+    const abrindoPublicada = competenciaAlvo.status === 'PUBLICADA';
     try {
       const [atribuicoesPersistidas, participantes, competenciaFresca, usuariosDoGrupo] = await Promise.all([
-        modoDemo ? Promise.resolve([]) : listarAtribuicoesPlantaoRascunho(grupo.grupoId, competenciaAlvo.competencia),
+        modoDemo ? Promise.resolve([]) : (abrindoPublicada
+          ? listarAtribuicoesPlantaoPublicada(grupo.grupoId, competenciaAlvo.competencia)
+          : listarAtribuicoesPlantaoRascunho(grupo.grupoId, competenciaAlvo.competencia)),
         modoDemo ? Promise.resolve(participantesPorGrupoPlantao[grupo.grupoId] ?? []) : listarParticipantesPlantao(grupo.grupoId),
-        modoDemo ? Promise.resolve(competenciaAlvo) : obterCompetenciaPlantaoRascunho(grupo.grupoId, competenciaAlvo.competencia),
+        modoDemo ? Promise.resolve(competenciaAlvo) : (abrindoPublicada
+          ? obterCompetenciaPlantaoPublicada(grupo.grupoId, competenciaAlvo.competencia)
+          : obterCompetenciaPlantaoRascunho(grupo.grupoId, competenciaAlvo.competencia)),
         modoDemo ? Promise.resolve(usuarios) : listarUsuariosElegiveisPlantao(grupo.equipeResponsavelId, grupo.grupoId, grupo.unidadeResponsavelId, grupo.equipesConsulta),
       ]);
       if (competenciaFresca === null) {
@@ -6677,12 +6742,14 @@ export function DashboardApp() {
       setTipoArquivoDetectado('PLANTAO');
       setContextoEscalaAtivo(criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, reidratado.competencia.competencia));
       setContextoSemEscala(false);
-      setMensagem(`Rascunho de Plantão reaberto — "${grupo.nome}" (${reidratado.competencia.competencia}). Nenhum dado foi publicado.`);
+      setMensagem(abrindoPublicada
+        ? `Competência publicada aberta para conferência — "${grupo.nome}" (${reidratado.competencia.competencia}), revisão ${reidratado.competencia.revisao}. Qualquer alteração cria um novo rascunho, nunca sobrescreve a publicação atual.`
+        : `Rascunho de Plantão reaberto — "${grupo.nome}" (${reidratado.competencia.competencia}). Nenhum dado foi publicado.`);
       setAbrirRascunhoPlantaoStatus(null);
       setTela('importar');
       return { ok: true };
     } catch (falha) {
-      const mensagem = mensagemErroFirebase(falha, 'Não foi possível abrir este rascunho.', ambienteFirebaseAtual);
+      const mensagem = mensagemErroFirebase(falha, abrindoPublicada ? 'Não foi possível abrir a competência publicada.' : 'Não foi possível abrir este rascunho.', ambienteFirebaseAtual);
       setAbrirRascunhoPlantaoStatus({ fase: 'erro', mensagem });
       return { ok: false, motivo: 'erro', mensagem };
     }
@@ -7261,21 +7328,47 @@ export function DashboardApp() {
      * Grupo.
      */
     const ehGestorDeEquipe = perfilEfetivo(usuarioReal) === 'GESTOR_EQUIPE' || perfilEfetivo(usuarioReal) === 'SUPERVISOR_EQUIPE';
+    /**
+     * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — antes usava `Promise.all`: uma
+     * ÚNICA sub-consulta negada (ex.: `listarGruposPlantaoPorUnidadeResponsavel`
+     * para uma unidade cujas Rules de staging ainda não foram publicadas)
+     * derrubava TODAS as outras, mesmo as que teriam sucesso — zerando
+     * `gruposPlantaoAdmin` por completo. Isso tinha um efeito colateral
+     * sério: com `gruposPlantaoAdmin` vazio, `idsEquipeResponsavelPlantao`
+     * (`lib/escoposOperacionais.ts`) também fica vazio, e o fallback de
+     * Jornada amplo deixa de conseguir EXCLUIR a equipe responsável por um
+     * Grupo de Plantão — ela passa a aparecer como se fosse uma Jornada
+     * (ex.: o card "Jornada" mostrando "Plantão COSI"). Agora tolera falha
+     * parcial (`allSettled`, aproveita quem teve sucesso) e só propaga erro
+     * quando TODAS as sub-consultas falharem — nunca esconde uma falha
+     * total, mas também nunca zera o resultado por causa de uma falha
+     * isolada.
+     */
     const carregarGrupos = souAdmin
       ? listarTodosGruposPlantao()
-      : Promise.all([
+      : Promise.allSettled([
         ...equipesPermitidasEfetivas(usuarioReal).map((equipeId) => listarGruposPlantaoPermitidos(equipeId)),
         ...(souGestorUnidade
           ? unidadesPermitidasEfetivas(usuarioReal).map((unidadeId) => listarGruposPlantaoPorUnidadeResponsavel(unidadeId))
           : []),
         ...(ehGestorDeEquipe ? [listarTodosGruposPlantao()] : []),
       ])
-        .then((listas) => {
+        .then((resultados) => {
           const porId = new Map<string, GrupoPlantao>();
-          for (const lista of listas) {
-            for (const grupo of lista) {
-              porId.set(grupo.grupoId, grupo);
+          let algumSucesso = false;
+          let primeiraFalha: unknown = null;
+          for (const resultado of resultados) {
+            if (resultado.status === 'fulfilled') {
+              algumSucesso = true;
+              for (const grupo of resultado.value) {
+                porId.set(grupo.grupoId, grupo);
+              }
+            } else if (primeiraFalha === null) {
+              primeiraFalha = resultado.reason;
             }
+          }
+          if (!algumSucesso && resultados.length > 0 && primeiraFalha !== null) {
+            throw primeiraFalha;
           }
           return [...porId.values()];
         });
@@ -7376,7 +7469,21 @@ export function DashboardApp() {
               if (ehAdminSistema(usuarioReal)) {
                 gruposLegados = await listarTodosGruposPlantao();
               } else {
-                const listas = await Promise.all([
+                /**
+                 * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — antes usava
+                 * `Promise.all`: uma única sub-consulta negada (ex.: a
+                 * unidade responsável ainda sem Rules de staging publicadas)
+                 * derrubava TODAS as outras, zerando `gruposLegados` por
+                 * completo mesmo quando outra sub-consulta teria sucesso.
+                 * Com `gruposLegados` vazio, `idsEquipeResponsavelPlantao`
+                 * (`lib/escoposOperacionais.ts`) também fica vazio e o
+                 * fallback de Jornada amplo deixa de excluir a equipe
+                 * responsável por um Grupo de Plantão — ela passa a
+                 * aparecer como se fosse uma Jornada. Agora tolera falha
+                 * parcial e só registra `falhaLegado` quando NENHUMA
+                 * sub-consulta teve sucesso.
+                 */
+                const resultados = await Promise.allSettled([
                   ...equipesPermitidasEfetivas(usuarioReal).map((equipeId) => listarGruposPlantaoPermitidos(equipeId)),
                   ...(perfil === 'GESTOR_UNIDADE'
                     ? unidadesPermitidasEfetivas(usuarioReal).map((unidadeId) => listarGruposPlantaoPorUnidadeResponsavel(unidadeId))
@@ -7385,7 +7492,13 @@ export function DashboardApp() {
                     ? [listarTodosGruposPlantao()]
                     : []),
                 ]);
-                gruposLegados = listas.flat();
+                const algumSucessoLegado = resultados.some((resultado) => resultado.status === 'fulfilled');
+                gruposLegados = resultados
+                  .filter((resultado): resultado is PromiseFulfilledResult<GrupoPlantao[]> => resultado.status === 'fulfilled')
+                  .flatMap((resultado) => resultado.value);
+                if (!algumSucessoLegado && resultados.length > 0) {
+                  throw resultados.find((resultado): resultado is PromiseRejectedResult => resultado.status === 'rejected')?.reason;
+                }
               }
             } catch (falha) {
               falhaLegado = falha;
@@ -8229,7 +8342,7 @@ export function DashboardApp() {
               <div className="overview-operation-list">
                 <button type="button" onClick={() => abrirOperacaoDoDashboard('JORNADA')}><ShieldCheck size={18} /><span><strong>{nomeJornadaDashboard}</strong><small>{resumoPublicacaoDashboard.titulo}</small></span><em className={resumoPublicacaoDashboard.estado}>{rotuloEstadoEscalaOperacional(estadoJornadaOperacionalDashboard)}</em><ChevronRight size={15} /></button>
                 {possuiOperacaoPlantaoDashboard && (
-                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>{nomePlantaoDashboard}</strong><small>{plantaoPossuiEscalaDashboard ? 'Rascunho disponível' : 'Nenhuma escala criada'}</small></span><em className={estadoPlantaoOperacionalDashboard === 'sem-escala' ? 'vazio' : estadoPlantaoOperacionalDashboard === 'publicada' ? 'completo' : 'parcial'}>{rotuloEstadoEscalaOperacional(estadoPlantaoOperacionalDashboard)}</em><ChevronRight size={15} /></button>
+                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>{nomePlantaoDashboard}</strong><small>{resumoPublicacaoPlantaoDashboard.titulo}</small></span><em className={resumoPublicacaoPlantaoDashboard.estado}>{rotuloEstadoEscalaOperacional(estadoPlantaoOperacionalDashboard)}</em><ChevronRight size={15} /></button>
                 )}
               </div>
               <button className="overview-card-link" type="button" onClick={() => setTela('escalas')}>Ver escalas e histórico <ChevronRight size={16} /></button>
@@ -8730,7 +8843,7 @@ export function DashboardApp() {
                 <button
                   className="secondary-button"
                   type="button"
-                  onClick={() => setTela(contextoEhPlantao(contextoEscalaAtivo) ? 'importar' : 'grade')}
+                  onClick={() => (contextoEhPlantao(contextoEscalaAtivo) ? abrirEditorPlantaoDashboard() : setTela('grade'))}
                 >
                   {contextoPlantaoSomenteConsulta ? 'Abrir consulta' : 'Abrir editor'}
                 </button>
@@ -8758,6 +8871,22 @@ export function DashboardApp() {
               </div>
             </article>
           )}
+          {/*
+           * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — este painel
+           * inteiro é modelado em cima de `historico`/`detalhesPublicacao`
+           * (formato `PublicacaoEscala`/rollback por dia — só existe para
+           * Jornada 6x1). Nunca foi populado para Plantão
+           * (`aplicarTrocaContexto` nunca chama `setHistorico` no branch
+           * Plantão) — antes disso ficava visível mesmo em contexto
+           * Plantão, mostrando histórico da Jornada anterior ou "Nenhuma
+           * revisão encontrada" mesmo com uma publicação real. Corrigido
+           * gateando por `contextoEhJornada`; o contexto Plantão mostra o
+           * bloco de revisão abaixo (dados reais já existentes em
+           * `CompetenciaPlantao.revisao`/`.atualizadoEm`/`.criadoPorLogin`
+           * — nunca um histórico completo inventado, já que não existe
+           * infraestrutura de múltiplas revisões para Plantão nesta fase).
+           */}
+          {contextoEhJornada(contextoEscalaAtivo) && (
           <article className="panel publication-history-panel">
             <div className="panel-title">
               <div>
@@ -8862,6 +8991,44 @@ export function DashboardApp() {
               </div>
             )}
           </article>
+          )}
+          {contextoEhPlantao(contextoEscalaAtivo) && (
+          <article className="panel publication-history-panel">
+            <div className="panel-title">
+              <div>
+                <p className="eyebrow">Rastreabilidade local</p>
+                <h2>Revisão publicada</h2>
+                <p>Plantão ainda não tem histórico de múltiplas revisões nesta fase — mostra a publicação atual.</p>
+              </div>
+              <ShieldCheck />
+            </div>
+            {resumoPlantaoDashboard?.competenciaPublicada === null || resumoPlantaoDashboard?.competenciaPublicada === undefined ? (
+              <div className="history-empty">
+                <RotateCcw size={22} />
+                <span>Nenhuma publicação encontrada para esta competência.</span>
+              </div>
+            ) : (
+              <div className="publication-history-list">
+                <div className="publication-history-entry">
+                  <div className="publication-history-item">
+                    <span className="revision-dot publicacao" />
+                    <div>
+                      <strong>Revisão {resumoPlantaoDashboard.competenciaPublicada.revisao}</strong>
+                      <span>Publicada por {resumoPlantaoDashboard.competenciaPublicada.criadoPorLogin}</span>
+                      <small>{participantesPlantaoDashboard} participante(s) ativo(s)</small>
+                    </div>
+                    <time dateTime={resumoPlantaoDashboard.competenciaPublicada.atualizadoEm}>
+                      {new Intl.DateTimeFormat('pt-BR', {
+                        dateStyle: 'short',
+                        timeStyle: 'short',
+                      }).format(new Date(resumoPlantaoDashboard.competenciaPublicada.atualizadoEm))}
+                    </time>
+                  </div>
+                </div>
+              </div>
+            )}
+          </article>
+          )}
           </>}
         </section>
       )}

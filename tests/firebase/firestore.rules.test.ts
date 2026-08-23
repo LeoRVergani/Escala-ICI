@@ -2913,6 +2913,92 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
     });
   });
 
+  /**
+   * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — Parte E: o próprio
+   * plantonista atualiza os PRÓPRIOS contatos a partir do App
+   * (`atualizarContatosPlantonista()`). Mesmo padrão de `usuarios/{login}`
+   * self-update: allowlist fechada por `diff().affectedKeys()`, nunca
+   * qualquer outro campo — participação nunca vira administração.
+   */
+  describe('PATCH-PLANTAO-CONTATOS-APP-1 — plantonista autoatualiza os próprios contatos', () => {
+    beforeEach(async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        const db = contexto.firestore();
+        await setDoc(
+          doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colega.login),
+          participantePlantao(usuarios.colega.login),
+        );
+      });
+    });
+
+    it('o participante atualiza os próprios contatos (até 3), preservando os demais campos', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        {
+          contatos: [
+            { rotulo: 'Celular pessoal', numero: '11977776666', ativo: true },
+            { rotulo: 'WhatsApp', numero: '11977776666', ativo: true },
+          ],
+          atualizadoEm: '2026-08-10T12:00:00.000Z',
+        },
+      ));
+      const participante = await assertSucceeds(getDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+      ));
+      expect(participante.data()?.contatos).toHaveLength(2);
+      expect(participante.data()?.ativo).toBe(true);
+      expect(participante.data()?.criadoPorLogin).toBe(usuarios.gestor.login);
+    });
+
+    it('rejeita mais de 3 contatos, mesmo no autoatualização', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        {
+          contatos: [
+            { rotulo: 'A', numero: '1', ativo: true },
+            { rotulo: 'B', numero: '2', ativo: true },
+            { rotulo: 'C', numero: '3', ativo: true },
+            { rotulo: 'D', numero: '4', ativo: true },
+          ],
+        },
+      ));
+    });
+
+    it('não consegue alterar ativo/ordem/schemaVersion/grupoId/login/criadoPorLogin/criadoEm junto com contatos — allowlist fechada', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { contatos: [{ rotulo: 'Celular', numero: '11999990000', ativo: true }], ativo: false },
+      ));
+      await assertFails(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { contatos: [{ rotulo: 'Celular', numero: '11999990000', ativo: true }], ordem: 1 },
+      ));
+      await assertFails(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { contatos: [{ rotulo: 'Celular', numero: '11999990000', ativo: true }], criadoPorLogin: usuarios.colaborador.login },
+      ));
+    });
+
+    it('não edita os contatos de outro participante', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colega.login),
+        { contatos: [{ rotulo: 'Celular', numero: '11999990000', ativo: true }] },
+      ));
+    });
+
+    it('gestor continua conseguindo editar contatos de qualquer participante do grupo (nenhuma regressão do caminho administrativo)', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(updateDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+        { contatos: [{ rotulo: 'Celular', numero: '11999990000', ativo: true }] },
+      ));
+    });
+  });
+
   describe('gestor autorizado (equipe responsável)', () => {
     it('cria e edita o Grupo', async () => {
       const db = autenticarComo(usuarios.gestor);

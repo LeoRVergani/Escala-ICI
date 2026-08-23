@@ -1435,18 +1435,34 @@ service cloud.firestore {
         ]);
 
       allow update: if autenticado()
-        && podeAdministrarEscalaPlantao(grupoId)
-        && request.resource.data.grupoId == resource.data.grupoId
-        && request.resource.data.login == resource.data.login
-        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
-        && request.resource.data.criadoEm == resource.data.criadoEm
-        && request.resource.data.ativo is bool
-        && contatosPlantonistaValidos(request.resource.data.contatos)
-        && request.resource.data.schemaVersion in [1]
-        && request.resource.data.keys().hasOnly([
-          'grupoId', 'login', 'ativo', 'ordem', 'contatos',
-          'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
-        ]);
+        && (
+          (
+            podeAdministrarEscalaPlantao(grupoId)
+            && request.resource.data.grupoId == resource.data.grupoId
+            && request.resource.data.login == resource.data.login
+            && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
+            && request.resource.data.criadoEm == resource.data.criadoEm
+            && request.resource.data.ativo is bool
+            && contatosPlantonistaValidos(request.resource.data.contatos)
+            && request.resource.data.schemaVersion in [1]
+            && request.resource.data.keys().hasOnly([
+              'grupoId', 'login', 'ativo', 'ordem', 'contatos',
+              'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
+            ])
+          )
+          // FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — o próprio
+          // plantonista atualiza os PRÓPRIOS contatos a partir do App
+          // (`atualizarContatosPlantonista()`, lib/firebase/plantaoWriteRepository.ts).
+          // Mesmo padrão de `usuarios/{login}` self-update (`hasOnly(['nome'])`
+          // acima): allowlist fechada por `diff().affectedKeys()`, nunca
+          // `perfil`/`escopo`/`ativo`/`ordem`/`grupoId`/`login` — participação
+          // de Plantão nunca altera cadastro nem autorização.
+          || (
+            loginDoAuth() == login
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['contatos', 'atualizadoEm'])
+            && contatosPlantonistaValidos(request.resource.data.contatos)
+          )
+        );
 
       allow delete: if false;
     }

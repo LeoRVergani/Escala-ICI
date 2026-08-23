@@ -1033,3 +1033,69 @@ As três foram substituídas por chamadas à mesma função: `estadoJornadaDashb
 mesmo `derivarStatusOperacaoDashboard`, nunca uma fórmula própria. Plantão
 COSI publicado aparece como "Publicada" em todo lugar — nunca "Sem escala"
 numa tela e "Publicada" em outra.
+
+## 19. FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — descrição da "Publicação da escala" e abertura do editor de Plantão
+
+### 19.1 O badge tinha 4 estados; a descrição abaixo dele só tinha 2
+
+A seção 18.3 unificou o **badge** (`<em>`) de "Publicação da escala" nos 4
+estados de `StatusOperacaoDashboard`, para Jornada e para Plantão. O que
+ficou de fora: o texto **abaixo** do badge (`<small>`, ex. "Rascunho
+disponível"/"Publicada — revisão 3") continuava vindo de duas fontes
+diferentes — `resumoPublicacaoJornada(resumoJornadaDashboard)` para Jornada
+(já correto, 4 casos) e um booleano solto,
+`plantaoPossuiEscalaDashboard ? 'Rascunho disponível' : 'Nenhuma escala
+criada'`, para Plantão (só 2 casos, nunca dizia "Publicada"). Resultado:
+Plantão COSI publicado (sem rascunho aberto) mostrava o badge "Publicada" e,
+na mesma linha, a descrição "Rascunho disponível" — a causa raiz relatada
+pelo usuário.
+
+Correção: `resumoPublicacaoJornada(resumo)` foi generalizada para
+`resumoPublicacaoOperacao(estado: EstadoEscalaOperacionalDashboard)`,
+recebendo só o estado de 4 vias (o mesmo já usado pelo badge) em vez de um
+objeto `resumo` no formato específico da Jornada. Jornada e Plantão passaram
+a chamar a mesma função para o `<small>` e para a classe do `<em>`; não há
+mais um segundo cálculo de texto para Plantão.
+
+### 19.2 "Abrir editor" de Plantão caía na tela de importação em branco
+
+Dois pontos do Dashboard abriam o Editor de Plantão chamando
+`setTela('importar')` diretamente: o botão "Abrir editor" da aba Escalas e o
+card da Visão geral (quando o contexto de Plantão já estava ativo e havia
+"alguma escala"). Nenhum dos dois passava por `abrirRascunhoNoEditorAcao()`
+— a única função que popula a working copy do editor
+(`atribuicoesEditaveisPlantao`, `origemPlantaoAtual`,
+`resultadoPlantao`). Como `abrirRascunhoNoEditorAcao()` só sabia ler o lado
+**rascunho** (`rascunhosCompetenciasPlantao`), o sintoma mais comum era
+justamente o pós-publicação: competência publicada, sem rascunho aberto —
+"Abrir editor" caía na tela de importação vazia, como se a escala nunca
+tivesse existido, embora a Visão geral já mostrasse "Publicada".
+
+Correção, sem criar um segundo formato de working copy:
+
+- `listarAtribuicoesPlantaoPublicada(grupoId, competencia)` (novo, em
+  `lib/firebase/plantaoReadRepository.ts`) espelha
+  `listarAtribuicoesPlantaoRascunho`, lendo
+  `competenciasPlantao/{id}/atribuicoes` em vez do lado rascunho.
+- `abrirRascunhoNoEditorAcao(grupo, competenciaAlvo)` passou a checar
+  `competenciaAlvo.status === 'PUBLICADA'` e, nesse caso, buscar pelos
+  repositórios "publicada" (`listarAtribuicoesPlantaoPublicada`/
+  `obterCompetenciaPlantaoPublicada`) em vez dos de rascunho — mas sempre
+  reidratando pela MESMA `reidratarRascunhoPlantao()`, independente da
+  origem dos dados.
+- `abrirEditorPlantaoDashboard()` (novo) decide entre abrir o editor (quando
+  já existe uma competência — publicada ou rascunho — exibível) e cair para
+  a tela de importação (quando genuinamente não existe nenhuma). Os dois
+  pontos que chamavam `setTela('importar')` direto agora chamam esta
+  função.
+
+O painel **"Histórico de publicações"** (construído sobre `PublicacaoEscala`
+e reversão por dia — conceitos exclusivos da Jornada 6x1) passou a aparecer
+só quando o contexto ativo é Jornada. Para Plantão, um painel novo e mais
+simples, **"Revisão publicada"**, mostra apenas os dados que o modelo atual
+de fato grava (`revisao`, `criadoPorLogin`, `atualizadoEm` da competência
+publicada) — não simula um histórico de revisões que não existe.
+
+Ver também `docs/spec/PLANTOES.md` § 33 (documentação completa da fase,
+incluindo a aba "Plantão" no App e a autoatualização de contatos do
+plantonista).

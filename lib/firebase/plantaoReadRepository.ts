@@ -155,3 +155,28 @@ export async function listarAtribuicoesPlantaoRascunho(
   ));
   return resultado.docs.map((snapshot) => snapshot.data() as AtribuicaoPlantaoPersistida);
 }
+
+/**
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — equivalente de
+ * `listarAtribuicoesPlantaoRascunho()`, mas para a competência PUBLICADA
+ * (`competenciasPlantao/{id}/atribuicoes`). Faltava: só existia o lado
+ * rascunho, o que deixava "Escalas > Plantão COSI" sem forma de reidratar
+ * a working copy quando NÃO havia rascunho aberto (competência só
+ * publicada) — a causa raiz de "abrir editor" mostrar a tela de import em
+ * branco em vez da escala publicada. Mesmo `where('grupoId', ...)` pelo
+ * mesmo motivo (provar a Rule estaticamente para `list`, ver
+ * `firestore.rules`, `match /competenciasPlantao/{id}/atribuicoes/{atribuicaoId}`).
+ */
+export async function listarAtribuicoesPlantaoPublicada(
+  grupoId: string,
+  competencia: string,
+): Promise<AtribuicaoPlantaoPersistida[]> {
+  const { db } = exigirFirebase();
+  const id = idCompetenciaPlantao(grupoId, competencia);
+  const resultado = await getDocs(query(
+    collection(db, 'competenciasPlantao', id, 'atribuicoes'),
+    where('grupoId', '==', grupoId),
+    orderBy('atribuicaoId'),
+  ));
+  return resultado.docs.map((snapshot) => snapshot.data() as AtribuicaoPlantaoPersistida);
+}

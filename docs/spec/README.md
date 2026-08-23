@@ -16,6 +16,7 @@ Esta pasta concentra a fonte normativa atual do projeto. Checkpoints e arquivos 
 11. `PLANTAO_MODAL_D.md` — modal visual de atribuição de Plantão, presets e exceção manual.
 12. `NAVEGACAO_RETORNO_ESCALAS.md` — padrão de retorno visual para Escalas.
 13. `UI_CASCADE_E_HERANCA.md` — regra permanente para alterações de CSS/layout.
+14. `APP_PLANTAO_VISUALIZACAO.md` — visão "Plantão" no App/PWA do colaborador (quem está de plantão agora/próximo, meus plantões, contatos do plantonista).
 
 ## Specs herdadas ainda válidas por domínio
 
@@ -28,6 +29,7 @@ Esta pasta concentra a fonte normativa atual do projeto. Checkpoints e arquivos 
 - `AUTENTICACAO_FIREBASE_MICROSOFT_EMAIL.md` — login Microsoft/e-mail e identidade por `usuarios/{login}`.
 - `LEMBRETES.md` — módulo de Lembretes, separado de Escalas.
 - `TROCA_ESCALA_PLANO.md` — módulo de Trocas no estado atual.
+- `APP_PLANTAO_VISUALIZACAO.md` — fonte normativa da aba "Plantão" no App/PWA do colaborador e da autoatualização de contatos do plantonista.
 
 Nota ESCOPO-OPERACIONAL-MATRIZ-1: a tela **Administração → Responsáveis por
 escala** é a interface normativa para configurar responsáveis. Seed/fixture
@@ -111,6 +113,9 @@ conciliação herda o período detectado na planilha.
 - As operações canônicas do Dashboard são só três: SOC (`JORNADA`/`GEDSI_COSI_SOC`), NOC (`JORNADA`/`GEDSI_CODB_NOC`) e Plantão COSI (`PLANTAO`/`PLANTAO_GEDSI_COSI`) — nunca existe uma operação genérica "Plantão"; qualquer card de Plantão vem de um `GrupoPlantao` real no escopo, ou não aparece.
 - "Quais operações o Dashboard mostra, com qual status" tem uma única fonte, `resolverOperacoesDashboard()` (`lib/operacoesDashboard.ts`) — seletor superior e Visão geral nunca podem divergir sobre isso.
 - Status operacional tem 4 estados únicos (sem-escala/rascunho/publicada/publicada-com-rascunho-pendente), derivados por uma única função (`derivarStatusOperacaoDashboard()`) — nenhuma tela recalcula status por conta própria.
+- O título e a descrição de "Publicação da escala" (badge e texto abaixo dele) vêm sempre de `resumoPublicacaoOperacao(estado)` — nenhuma tela volta a calcular esse texto por um booleano solto.
+- No App, a fonte da escala/atribuições de Plantão é sempre a competência publicada lida do Firestore — nunca `localStorage`, reservado só a preferências de UI.
+- Autoatualização de contatos do plantonista (`atualizarContatosPlantonista`) sempre grava o próprio login autenticado — nunca um login recebido de fora — e nunca usa o gate de escrita administrativa.
 
 Nota IMPORTACAO-PLANTAO-REVISAO-COMPACTA-1: a revisão de Plantão prioriza o
 Calendário no topo, usa upload compacto e move fonte/divergências para o final.
@@ -185,8 +190,9 @@ publicada", ignorando Plantão — `mensagemAusenciaEscalaAcao()` agora
 diferencia "sem Jornada 6x1" de "tem participação em Plantão" (leitura
 tolerante a falha, nunca quebra o login). Confirmado que participação em
 Plantão nunca altera perfil/cargo/equipe principal. Não implementa a visão
-detalhada de Plantão no App nesta fase. Ver `docs/spec/EDITOR_ESCALAS.md`
-§ 16.
+detalhada de Plantão no App nesta fase (a visão detalhada chega na fase
+FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1, abaixo). Ver
+`docs/spec/EDITOR_ESCALAS.md` § 16.
 
 Nota PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1: corrigiu dois problemas de
 navegação/apresentação — nenhuma Rule/seed/reset/publicação tocada. (1)
@@ -216,3 +222,30 @@ divergir para a mesma operação/competência — corrigidas com uma única
 derivação de 4 estados (`StatusOperacaoDashboard`). Admin vê SOC+NOC+Plantão
 COSI; Claudio (`GESTOR_UNIDADE` de `GEDSI_COSI`) vê SOC+Plantão COSI, nunca
 NOC; a supervisora do NOC vê só NOC. Ver `docs/spec/EDITOR_ESCALAS.md` § 18.
+
+Nota FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1: corrigiu duas
+inconsistências pós-publicação do Plantão no Dashboard e implementou a
+primeira visão de Plantão no App. (1) o badge de "Publicação da escala" já
+tinha 4 estados (§ 18.3), mas o texto abaixo dele ainda usava um booleano de
+2 estados para Plantão — nunca dizia "Publicada"; unificado em
+`resumoPublicacaoOperacao(estado)`, usado por Jornada e Plantão. (2) "Abrir
+editor"/o card da Visão geral chamavam `setTela('importar')` direto, sem
+popular a working copy — uma competência só publicada (sem rascunho) caía
+na tela de importação vazia; corrigido com
+`listarAtribuicoesPlantaoPublicada()` (novo) e
+`abrirRascunhoNoEditorAcao()` branchando por `status`, sempre reidratando
+pela mesma função, nunca um segundo formato de working copy. O painel
+"Histórico de publicações" (conceito só de Jornada) ficou restrito a
+Jornada; Plantão ganhou "Revisão publicada", mostrando só o que o modelo
+atual grava de fato. (3) o App ganhou a aba "Plantão" (quem está de plantão
+agora/próximo, "Meus próximos plantões", ícone `Radio` já mapeado desde
+antes), lendo sempre a competência publicada (nunca rascunho, nunca
+`localStorage`). (4) `ParticipantePlantao.contatos` (já existente) ganhou
+autoatualização pelo próprio plantonista — `atualizarContatosPlantonista()`
+com o mesmo gate de `criarSolicitacaoTroca()` (nunca o gate
+administrativo), e um novo ramo em Rules restrito a
+`affectedKeys().hasOnly(['contatos', 'atualizadoEm'])` do próprio login. (5)
+troca de plantão ficou como entrada visual desabilitada — o modelo de troca
+de Jornada 6x1 (`lib/trocasEscala.ts`) não serve para turnos de duração
+variável; fica documentado como próxima fase. Ver `docs/spec/PLANTOES.md`
+§ 33 e `docs/spec/EDITOR_ESCALAS.md` § 19.

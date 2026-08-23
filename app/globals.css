@@ -1367,6 +1367,40 @@ button.shift-chip:disabled { cursor: default; }
 .today-team-panel { padding: 18px; }
 .today-team-title { margin-bottom: 14px; }
 
+/*
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — visão "Plantão" do App
+ * reaproveita `.today-hero`/`.next-shift-card`/`.next-shift-title`
+ * (Jornada) para o mesmo layout "agora"/"próximo"; os círculos de ícone às
+ * vezes mostram iniciais em vez de um ícone svg (não há foto de perfil).
+ */
+.today-hero-icon:not(:has(svg)),
+.next-shift-icon:not(:has(svg)) { font-size: 14px; font-weight: 800; }
+.plantao-contatos-lista { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.plantao-contato-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+  font-size: 11px;
+  font-weight: 600;
+}
+.plantao-meus-lista { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.plantao-meu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  font-size: 13px;
+}
+.plantao-meu-item strong { font-variant-numeric: tabular-nums; }
+
 .today-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 .shift-group { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .shift-group > header { background: var(--surface-muted); padding: 12px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
