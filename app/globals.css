@@ -285,6 +285,26 @@ textarea:focus-visible,
   cursor: pointer; transition: background 150ms ease-out, border-color 150ms ease-out, box-shadow 150ms ease-out;
 }
 .icon-button:hover { border-color: var(--border-strong); background: var(--surface-muted); box-shadow: 0 4px 12px color-mix(in srgb, var(--text) 8%, transparent); }
+
+/*
+ * FASE-APP-UX-OPERACOES-MOBILE-1 — botão de Perfil no topo (App), ao lado
+ * dos sinos e do tema. Sem `.active` só a cor mudaria (WCAG: estado ativo
+ * não pode depender só de cor) — por isso o anel (`box-shadow`) em vez de
+ * um simples troca de fundo.
+ */
+.profile-header-button { padding: 0; overflow: hidden; }
+.profile-header-avatar {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(145deg, var(--primary), var(--primary-bright));
+  color: white;
+  font-size: 11px;
+  font-weight: 800;
+}
+.profile-header-button.active { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--primary-bright); }
 .product-link { color: var(--primary-bright); font-weight: 600; font-size: 12px; padding: 9px 10px; border-radius: var(--radius-control); transition: background 150ms ease-out; }
 .product-link:hover { background: var(--primary-soft); }
 
@@ -1402,6 +1422,17 @@ button.shift-chip:disabled { cursor: default; }
   font-size: 11px;
   font-weight: 600;
 }
+
+/*
+ * FASE-APP-UX-OPERACOES-MOBILE-1 — no mobile, contatos de Plantão (Hoje,
+ * aba Plantão, Equipe > Participantes) quebram em linha própria em vez de
+ * ficar como pílulas coladas: cada telefone precisa de espaço para não
+ * encostar na borda do card nem ficar difícil de tocar.
+ */
+@media (max-width: 560px) {
+  .plantao-contatos-lista { flex-direction: column; align-items: stretch; }
+  .plantao-contato-chip { width: 100%; justify-content: flex-start; }
+}
 .plantao-meus-lista { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .plantao-meu-item {
   display: flex;
@@ -2396,6 +2427,17 @@ button.shift-chip:disabled { cursor: default; }
 .profile-notifications-orientacao { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .profile-notifications-acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .profile-notifications-acoes .secondary-button { min-width: 0; }
+
+/*
+ * FASE-APP-UX-OPERACOES-MOBILE-1 — feedback tipado do Perfil (sucesso/
+ * erro/aviso). Antes, sucesso e erro do editor de contatos de Plantão
+ * compartilhavam `.admin-form-erro` (sempre vermelha) — "Contatos
+ * atualizados." aparecia com a mesma cor de uma falha real.
+ */
+.profile-feedback { margin: 10px 0 0; padding: 9px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; }
+.profile-feedback--sucesso { background: var(--success-soft); color: var(--success); }
+.profile-feedback--erro { background: var(--danger-soft); color: var(--danger); }
+.profile-feedback--aviso { background: var(--warning-soft); color: var(--warning); }
 
 @media (max-width: 780px) {
   .app-shell.product-app .topbar {
@@ -5176,6 +5218,81 @@ fieldset.checkbox-card-list > legend {
 
 @media (max-width: 560px) {
   .contato-plantonista-linha { flex-direction: column; align-items: stretch; }
+}
+
+/*
+ * FASE-APP-UX-OPERACOES-MOBILE-1 — editor "Meus contatos de plantão" do
+ * Perfil (App). Deixou de reaproveitar `.contato-plantonista-linha`
+ * (compartilhada com `ModalContatosParticipante` do Dashboard, § "Não
+ * fazer": não mexer no Dashboard) por um card próprio por contato — o
+ * pedido era "cada contato é um bloco/card", não uma linha de 3 campos
+ * espremidos.
+ */
+.app-contact-list { display: flex; flex-direction: column; gap: 16px; margin: 14px 0; }
+.app-contact-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.app-contact-card-header { display: flex; align-items: center; justify-content: space-between; }
+.app-contact-card-header strong { font-size: 12.5px; color: var(--text); }
+.app-contact-field { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.app-contact-field input {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: 13px;
+  min-height: 40px;
+}
+.app-contact-toggle-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--text); }
+.app-contact-toggle-row input[type="checkbox"] { width: 18px; height: 18px; }
+.app-contact-add-button { align-self: flex-start; }
+
+@media (max-width: 560px) {
+  .app-contact-add-button,
+  .app-contact-submit-button { width: 100%; justify-content: center; }
+}
+
+/*
+ * FASE-APP-UX-OPERACOES-MOBILE-1 — "Participantes do Plantão" (aba
+ * Equipe, contexto Plantão). Card próprio por participante — nome/login
+ * separados e contatos num bloco próprio, em vez da lista crua de antes
+ * (a classe reaproveitava `.contato-plantonista-linha`, sem CSS próprio
+ * dedicado a este contexto).
+ */
+.plantao-participantes-lista { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+.app-participant-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.app-participant-card-header { display: flex; align-items: center; gap: 10px; }
+.app-participant-identidade { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.app-participant-identidade strong { font-size: 13px; overflow-wrap: anywhere; }
+.app-participant-identidade small { color: var(--muted); font-size: 11px; }
+.app-participant-badge {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary-bright);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.app-participant-contato-vazio { margin: 0; color: var(--muted); font-size: 11.5px; }
+
+@media (min-width: 700px) {
+  .plantao-participantes-lista { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 }
 
 /*

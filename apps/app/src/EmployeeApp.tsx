@@ -161,6 +161,19 @@ type ModoEscala = 'calendario' | 'agenda' | 'lembretes';
 type AbaTrocas = 'minhas' | 'responder' | 'gestor' | 'historico';
 
 /**
+ * FASE-APP-UX-OPERACOES-MOBILE-1 — estado tipado do feedback do editor de
+ * contatos de Plantão (Perfil). Antes disso, sucesso e erro compartilhavam
+ * a mesma string (`mensagemContatosApp`) sempre renderizada com a classe
+ * `.admin-form-erro` (vermelha) — "Contatos atualizados." aparecia com a
+ * mesma cor de um erro real. `null` = nenhum feedback pendente.
+ */
+type FeedbackPerfilTipo = 'sucesso' | 'erro' | 'aviso';
+interface FeedbackPerfil {
+  tipo: FeedbackPerfilTipo;
+  mensagem: string;
+}
+
+/**
  * Estado do card "Notificações" do Perfil (Fase PUSH-PWA-1). `DEMO` e
  * `NAO_CONFIGURADO` nunca chegam a pedir permissão nem a chamar
  * `ativarPush()` — só descrevem por que a ativação não está disponível.
@@ -182,7 +195,7 @@ const NAVEGACAO: ItemNavegacao[] = [
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   { id: 'plantao', rotulo: 'Plantão', icone: 'plantao' },
   { id: 'equipe', rotulo: 'Equipe', icone: 'users' },
-  { id: 'perfil', rotulo: 'Perfil', icone: 'user' },
+  { id: 'perfil', rotulo: 'Perfil', icone: 'user', apenasDesktop: true },
 ];
 
 function tituloCalendario(datas: string[]): string {
@@ -1432,7 +1445,7 @@ export function EmployeeApp() {
   const [erroPlantaoApp, setErroPlantaoApp] = useState('');
   const [contatosEdicaoApp, setContatosEdicaoApp] = useState<ContatoPlantonista[] | null>(null);
   const [salvandoContatosApp, setSalvandoContatosApp] = useState(false);
-  const [mensagemContatosApp, setMensagemContatosApp] = useState('');
+  const [feedbackContatosApp, setFeedbackContatosApp] = useState<FeedbackPerfil | null>(null);
   const [salvandoCorPlantaoApp, setSalvandoCorPlantaoApp] = useState(false);
   const [mensagemCorPlantaoApp, setMensagemCorPlantaoApp] = useState('');
   const carregouPlantaoAppRef = useRef(false);
@@ -1788,7 +1801,7 @@ export function EmployeeApp() {
     setParticipantesPlantaoApp([]);
     setErroPlantaoApp('');
     setContatosEdicaoApp(null);
-    setMensagemContatosApp('');
+    setFeedbackContatosApp(null);
     setMensagemCorPlantaoApp('');
     try {
       if (demonstracao) {
@@ -1944,7 +1957,7 @@ export function EmployeeApp() {
       return;
     }
     setSalvandoContatosApp(true);
-    setMensagemContatosApp('');
+    setFeedbackContatosApp(null);
     try {
       if (!modoDemonstracao) {
         await atualizarContatosPlantonista(grupoPlantaoApp.grupoId, usuario.login, contatosEdicaoApp);
@@ -1959,9 +1972,12 @@ export function EmployeeApp() {
           ? { ...participante, contatos: contatosEdicaoApp, atualizadoEm }
           : participante));
       });
-      setMensagemContatosApp('Contatos atualizados.');
+      setFeedbackContatosApp({ tipo: 'sucesso', mensagem: 'Contatos atualizados com sucesso.' });
     } catch (falha) {
-      setMensagemContatosApp(mensagemErroFirebase(falha, 'Não foi possível salvar seus contatos.', ambienteFirebaseAtual));
+      setFeedbackContatosApp({
+        tipo: 'erro',
+        mensagem: mensagemErroFirebase(falha, 'Não foi possível salvar seus contatos.', ambienteFirebaseAtual),
+      });
     } finally {
       setSalvandoContatosApp(false);
     }
@@ -2503,6 +2519,11 @@ export function EmployeeApp() {
       ativo={tela}
       onNavegar={(id) => setTela(id as Tela)}
       onSair={encerrarSessao}
+      perfil={{
+        iniciais: usuario.nome.split(' ').map((parte) => parte[0]).slice(0, 2).join('').toUpperCase(),
+        ativo: tela === 'perfil',
+        onAbrir: () => setTela('perfil'),
+      }}
       acoesTopo={(
         <>
           <TrocaNotificationBell
@@ -2598,89 +2619,91 @@ export function EmployeeApp() {
             </div>
           )}
 
-          <article className="panel today-team-panel">
-            <div className="panel-title today-team-title">
-              <div>
-                <h2>{tituloEquipeEscalada}</h2>
-                <p>{escaladosNoDiaConsultado.length} colaborador(es) encontrado(s)</p>
-                {!consultaEhHoje && (
-                  <button
-                    type="button"
-                    className="today-back-to-today"
-                    onClick={() => setDataConsultaEquipe(dataHoje)}
-                  >
-                    <CalendarDays size={13} /> Voltar para hoje
-                  </button>
-                )}
+          {jornadaPublicadaApp && (
+            <article className="panel today-team-panel">
+              <div className="panel-title today-team-title">
+                <div>
+                  <h2>{tituloEquipeEscalada}</h2>
+                  <p>{escaladosNoDiaConsultado.length} colaborador(es) encontrado(s)</p>
+                  {!consultaEhHoje && (
+                    <button
+                      type="button"
+                      className="today-back-to-today"
+                      onClick={() => setDataConsultaEquipe(dataHoje)}
+                    >
+                      <CalendarDays size={13} /> Voltar para hoje
+                    </button>
+                  )}
+                </div>
+                <Users />
               </div>
-              <Users />
-            </div>
-            <div className="toolbar">
-              <label className="search-control">
-                <Search size={16} />
-                <input
-                  value={busca}
-                  onChange={(evento) => setBusca(evento.target.value)}
-                  placeholder="Buscar colaborador"
-                  aria-label="Buscar colaborador"
-                />
-              </label>
-              <label>
-                <Filter size={16} />
-                <select
-                  value={filtroTurno}
-                  onChange={(evento) => setFiltroTurno(evento.target.value)}
-                  aria-label="Filtrar por turno"
-                >
-                  <option value="TODOS">Todos os turnos</option>
-                  <option value="MD">Madrugada</option>
-                  <option value="M">Manhã</option>
-                  <option value="T">Tarde</option>
-                  <option value="N">Noite</option>
-                </select>
-              </label>
-            </div>
-            <div className="today-grid">
-              {turnosExibidos.map((turno) => {
-                const tipo = catalogo[turno];
-                const pessoas = escaladosNoDiaConsultado.filter(
-                  ({ jornada }) => jornada.codigo === turno,
-                );
-                return (
-                  <section key={turno} className="shift-group">
-                    <header>
-                      <span className="shift-chip" data-code={turno}>{turno}</span>
+              <div className="toolbar">
+                <label className="search-control">
+                  <Search size={16} />
+                  <input
+                    value={busca}
+                    onChange={(evento) => setBusca(evento.target.value)}
+                    placeholder="Buscar colaborador"
+                    aria-label="Buscar colaborador"
+                  />
+                </label>
+                <label>
+                  <Filter size={16} />
+                  <select
+                    value={filtroTurno}
+                    onChange={(evento) => setFiltroTurno(evento.target.value)}
+                    aria-label="Filtrar por turno"
+                  >
+                    <option value="TODOS">Todos os turnos</option>
+                    <option value="MD">Madrugada</option>
+                    <option value="M">Manhã</option>
+                    <option value="T">Tarde</option>
+                    <option value="N">Noite</option>
+                  </select>
+                </label>
+              </div>
+              <div className="today-grid">
+                {turnosExibidos.map((turno) => {
+                  const tipo = catalogo[turno];
+                  const pessoas = escaladosNoDiaConsultado.filter(
+                    ({ jornada }) => jornada.codigo === turno,
+                  );
+                  return (
+                    <section key={turno} className="shift-group">
+                      <header>
+                        <span className="shift-chip" data-code={turno}>{turno}</span>
+                        <div>
+                          <strong>{tipo?.descricao}</strong>
+                          <small>{tipo?.horaInicio}–{tipo?.horaFim}</small>
+                        </div>
+                        <b>{pessoas.length}</b>
+                      </header>
                       <div>
-                        <strong>{tipo?.descricao}</strong>
-                        <small>{tipo?.horaInicio}–{tipo?.horaFim}</small>
+                        {pessoas.length ? pessoas.map(({ documento, jornada }) => (
+                          <article key={documento.login}>
+                            <span className="avatar">
+                              {(nomes[documento.login] ?? documento.login)
+                                .split(' ')
+                                .map((parte) => parte[0])
+                                .slice(0, 2)
+                                .join('')}
+                            </span>
+                            <div>
+                              <strong>{nomes[documento.login] ?? documento.login}</strong>
+                              <small>{jornada.inicio}–{jornada.fim} · {documento.login}</small>
+                            </div>
+                            {documento.login === usuario.login
+                              ? <CheckCircle2 size={17} aria-label="Você" />
+                              : <Clock3 size={16} />}
+                          </article>
+                        )) : <p className="empty-inline">Ninguém neste turno.</p>}
                       </div>
-                      <b>{pessoas.length}</b>
-                    </header>
-                    <div>
-                      {pessoas.length ? pessoas.map(({ documento, jornada }) => (
-                        <article key={documento.login}>
-                          <span className="avatar">
-                            {(nomes[documento.login] ?? documento.login)
-                              .split(' ')
-                              .map((parte) => parte[0])
-                              .slice(0, 2)
-                              .join('')}
-                          </span>
-                          <div>
-                            <strong>{nomes[documento.login] ?? documento.login}</strong>
-                            <small>{jornada.inicio}–{jornada.fim} · {documento.login}</small>
-                          </div>
-                          {documento.login === usuario.login
-                            ? <CheckCircle2 size={17} aria-label="Você" />
-                            : <Clock3 size={16} />}
-                        </article>
-                      )) : <p className="empty-inline">Ninguém neste turno.</p>}
-                    </div>
-                  </section>
-                );
-              })}
-            </div>
-          </article>
+                    </section>
+                  );
+                })}
+              </div>
+            </article>
+          )}
         </section>
       )}
 
@@ -3161,7 +3184,11 @@ export function EmployeeApp() {
             <div>
               <p className="eyebrow">COSI &gt; SOC</p>
               <h1>{equipeOperacaoEfetiva === 'PLANTAO' ? 'Participantes do Plantão' : 'Escala da equipe'}</h1>
-              <p>Apenas escalas publicadas são exibidas.</p>
+              <p>
+                {equipeOperacaoEfetiva === 'PLANTAO'
+                  ? 'Contatos visíveis para quem consulta este Plantão.'
+                  : 'Apenas escalas publicadas são exibidas.'}
+              </p>
             </div>
             <span className="read-only-badge">
               <ShieldCheck size={16} /> Publicada
@@ -3201,26 +3228,35 @@ export function EmployeeApp() {
                 <span><Users size={16} /> {participantesPlantaoApp.filter((participante) => participante.ativo).length} participante(s)</span>
               </div>
               <div className="plantao-participantes-lista">
-                {participantesPlantaoApp.filter((participante) => participante.ativo).map((participante) => (
-                  <article key={participante.login} className="contato-plantonista-linha">
-                    <span className="avatar">
-                      {inicialPlantonista(nomeExibicaoPlantonista(participante.login, usuarios))}
-                    </span>
-                    <div>
-                      <strong>{nomeExibicaoPlantonista(participante.login, usuarios)}</strong>
-                      <small>{participante.login}</small>
-                    </div>
-                    {contatosAtivosDoPlantonista(participante.login, participantesPlantaoApp).length > 0 && (
-                      <div className="plantao-contatos-lista">
-                        {contatosAtivosDoPlantonista(participante.login, participantesPlantaoApp).map((contato) => (
-                          <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
-                            <Phone size={13} /> {contato.rotulo}: {contato.numero}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </article>
-                ))}
+                {participantesPlantaoApp.filter((participante) => participante.ativo).map((participante) => {
+                  const contatosAtivos = contatosAtivosDoPlantonista(participante.login, participantesPlantaoApp);
+                  const souEu = participante.login === usuario.login;
+                  return (
+                    <article key={participante.login} className="app-participant-card">
+                      <header className="app-participant-card-header">
+                        <span className="avatar">
+                          {inicialPlantonista(nomeExibicaoPlantonista(participante.login, usuarios))}
+                        </span>
+                        <div className="app-participant-identidade">
+                          <strong>{nomeExibicaoPlantonista(participante.login, usuarios)}</strong>
+                          <small>{participante.login}</small>
+                        </div>
+                        {souEu && <span className="app-participant-badge">Você</span>}
+                      </header>
+                      {contatosAtivos.length > 0 ? (
+                        <div className="plantao-contatos-lista">
+                          {contatosAtivos.map((contato) => (
+                            <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
+                              <Phone size={13} /> {contato.rotulo}: {contato.numero}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="app-participant-contato-vazio">Contato não informado.</p>
+                      )}
+                    </article>
+                  );
+                })}
                 {participantesPlantaoApp.filter((participante) => participante.ativo).length === 0 && (
                   <p className="empty-inline">Nenhum participante ativo neste Grupo.</p>
                 )}
@@ -3300,59 +3336,74 @@ export function EmployeeApp() {
                     <p>Visíveis para quem consulta o Plantão — até {MAXIMO_CONTATOS_PLANTONISTA} contatos.</p>
                   </div>
                 </div>
-                <div className="contato-plantonista-lista">
+                <div className="app-contact-list">
                   {contatosEdicaoApp.length === 0 && (
                     <p className="empty-inline">Contato não informado.</p>
                   )}
                   {contatosEdicaoApp.map((contato, indice) => (
-                    <div className="contato-plantonista-linha" key={indice}>
-                      <label>
-                        Rótulo
+                    <article className="app-contact-card" key={indice}>
+                      <header className="app-contact-card-header">
+                        <strong>Contato {indice + 1}</strong>
+                        <button
+                          className="icon-button"
+                          type="button"
+                          title="Remover contato"
+                          aria-label={`Remover contato ${indice + 1}`}
+                          onClick={() => setContatosEdicaoApp((atuais) => (atuais ?? []).filter((_, posicao) => posicao !== indice))}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </header>
+                      <label className="app-contact-field">
+                        <span>Rótulo</span>
                         <input
-                          placeholder="Ex.: Celular"
+                          placeholder="Ex.: Contato principal"
                           value={contato.rotulo}
                           onChange={(evento) => setContatosEdicaoApp((atuais) => (atuais ?? []).map((item, posicao) => (posicao === indice ? { ...item, rotulo: evento.target.value } : item)))}
                         />
                       </label>
-                      <label>
-                        Número
+                      <label className="app-contact-field">
+                        <span>Número</span>
                         <input
-                          placeholder="Ex.: (11) 99999-0000"
+                          placeholder="Ex.: (41) 99999-9999"
                           value={contato.numero}
                           onChange={(evento) => setContatosEdicaoApp((atuais) => (atuais ?? []).map((item, posicao) => (posicao === indice ? { ...item, numero: evento.target.value } : item)))}
                         />
                       </label>
-                      <label className="checkbox-row">
+                      <label className="app-contact-toggle-row">
                         <input
                           type="checkbox"
                           checked={contato.ativo}
                           onChange={() => setContatosEdicaoApp((atuais) => (atuais ?? []).map((item, posicao) => (posicao === indice ? { ...item, ativo: !item.ativo } : item)))}
                         />
-                        <span>Ativo</span>
+                        <span>Contato ativo</span>
                       </label>
-                      <button
-                        className="icon-button"
-                        type="button"
-                        title="Remover contato"
-                        aria-label={`Remover contato ${indice + 1}`}
-                        onClick={() => setContatosEdicaoApp((atuais) => (atuais ?? []).filter((_, posicao) => posicao !== indice))}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+                    </article>
                   ))}
                 </div>
                 <button
-                  className="secondary-button compact-button"
+                  className="secondary-button compact-button app-contact-add-button"
                   type="button"
                   disabled={contatosEdicaoApp.length >= MAXIMO_CONTATOS_PLANTONISTA}
                   onClick={() => setContatosEdicaoApp((atuais) => ((atuais ?? []).length >= MAXIMO_CONTATOS_PLANTONISTA ? atuais : [...(atuais ?? []), { rotulo: '', numero: '', ativo: true }]))}
                 >
                   <Plus size={14} /> Adicionar contato
                 </button>
-                {mensagemContatosApp !== '' && <p className="admin-form-erro">{mensagemContatosApp}</p>}
+                {feedbackContatosApp && (
+                  <p
+                    className={`profile-feedback profile-feedback--${feedbackContatosApp.tipo}`}
+                    role={feedbackContatosApp.tipo === 'erro' ? 'alert' : 'status'}
+                  >
+                    {feedbackContatosApp.mensagem}
+                  </p>
+                )}
                 <div className="rollback-actions">
-                  <button className="primary-button" type="button" disabled={salvandoContatosApp} onClick={() => void salvarMeusContatosApp()}>
+                  <button
+                    className="primary-button app-contact-submit-button"
+                    type="button"
+                    disabled={salvandoContatosApp}
+                    onClick={() => void salvarMeusContatosApp()}
+                  >
                     {salvandoContatosApp ? <LoaderCircle className="spin" size={16} /> : <Phone size={16} />} Atualizar meus contatos
                   </button>
                 </div>

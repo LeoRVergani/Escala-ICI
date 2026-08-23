@@ -30,6 +30,15 @@ export interface ItemNavegacao {
   id: string;
   rotulo: string;
   icone: 'home' | 'upload' | 'calendar' | 'grid' | 'users' | 'user' | 'trocas' | 'admin' | 'plantao';
+  /**
+   * FASE-APP-UX-OPERACOES-MOBILE-1 — item some da barra inferior mobile
+   * (`.bottom-nav`) mas continua na sidebar (desktop). Usado por "Perfil":
+   * a barra inferior mobile só tem espaço confortável para os destinos
+   * operacionais (Hoje/Agenda/Trocas/Plantão/Equipe); Perfil ganhou um
+   * acesso próprio no topo (ver prop `perfil`), então não compete mais por
+   * espaço lá embaixo.
+   */
+  apenasDesktop?: boolean;
 }
 
 const ICONES: Record<ItemNavegacao['icone'], LucideIcon> = {
@@ -63,6 +72,18 @@ interface AppFrameProps {
    * estático de sempre (usado hoje por `apps/app`, inalterado).
    */
   contextoEscala?: ReactNode;
+  /**
+   * FASE-APP-UX-OPERACOES-MOBILE-1 — botão de Perfil no canto direito do
+   * topo (avatar circular com iniciais), junto dos demais botões de
+   * `acoesTopo`/tema. Substitui, no mobile, o acesso a Perfil que saiu da
+   * `.bottom-nav` (ver `ItemNavegacao.apenasDesktop`). Opcional: quando
+   * ausente, nenhum botão extra aparece (comportamento de sempre).
+   */
+  perfil?: {
+    iniciais: string;
+    ativo: boolean;
+    onAbrir: () => void;
+  };
   children: ReactNode;
 }
 
@@ -77,6 +98,7 @@ export function AppFrame({
   produtoHref,
   acoesTopo,
   contextoEscala,
+  perfil,
   children,
 }: AppFrameProps) {
   const [recolhida, setRecolhida] = useState(false);
@@ -198,6 +220,17 @@ export function AppFrame({
           )}
           <div className="topbar-actions">
             {acoesTopo}
+            {perfil && (
+              <button
+                className={`icon-button profile-header-button ${perfil.ativo ? 'active' : ''}`}
+                type="button"
+                onClick={perfil.onAbrir}
+                aria-label="Abrir perfil"
+                aria-current={perfil.ativo ? 'page' : undefined}
+              >
+                <span className="profile-header-avatar">{perfil.iniciais}</span>
+              </button>
+            )}
             <ThemeToggle />
             {produto === 'dashboard' && (
               <a
@@ -253,7 +286,7 @@ export function AppFrame({
       </div>
       {produto === 'app' && (
         <nav className="bottom-nav" aria-label="Navegação principal do aplicativo">
-          {itens.map((item) => {
+          {itens.filter((item) => !item.apenasDesktop).map((item) => {
             const Icone = ICONES[item.icone];
             return (
               <button
