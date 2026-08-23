@@ -2369,3 +2369,136 @@ campos organizacionais administrativos também não são inferidos nesse fluxo.
 A gravação continua usando `salvarUsuario()` e as Firestore Rules existentes:
 o modal não amplia autorização, não contorna `permission-denied` e mantém o
 erro recuperável visível sem confirmar um vínculo falso.
+
+## 33. FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — status único no Dashboard + primeira visão de Plantão no App
+
+Duas frentes independentes, sem alterar o modelo persistente de Plantão
+(`packages/contrato/src/modeloPlantaoPersistente.ts` sem diff nesta fase,
+exceto pela reutilização do campo `contatos` já existente em
+`ParticipantePlantao` — ver abaixo).
+
+### 33.1 Dashboard — um único cálculo de status para Jornada e Plantão
+
+Antes desta fase, a Visão geral e o card "Publicação da escala" liam o
+status de Plantão de formas diferentes: o topo já usava o estado de 4 vias
+(`sem-escala`/`rascunho`/`publicada`/`publicada-com-rascunho-pendente`, ver
+`lib/operacoesDashboard.ts`), mas a descrição abaixo dele ainda checava um
+booleano solto (`plantaoPossuiEscalaDashboard`) que só distinguia
+"tem alguma escala" de "não tem nenhuma" — por isso uma competência
+publicada (sem rascunho aberto) aparecia como "Publicada" no topo e
+"Rascunho disponível" logo abaixo, no mesmo card. `resumoPublicacaoJornada()`
+(que já calculava essa descrição corretamente para a Jornada) foi
+generalizado para `resumoPublicacaoOperacao(estado)`, recebendo só o estado
+de 4 vias — Jornada e Plantão passaram a usar exatamente a mesma função para
+o título e a descrição em toda tela do Dashboard (Visão geral, "Publicação
+da escala", aba Escalas, cabeçalho de contexto).
+
+Jornada e Plantão continuam sendo **modelos de dados diferentes**
+(`publicacoesEscala`/`historicoPublicacoes` de um lado,
+`competenciasPlantao`/`rascunhosCompetenciasPlantao` do outro) — a
+unificação é só da camada de apresentação do status, nunca do armazenamento.
+
+### 33.2 Dashboard — "Escalas > Plantão COSI" abre o editor de verdade
+
+"Abrir editor" (e o card da Visão geral, quando o contexto de Plantão já
+estava ativo) chamava `setTela('importar')` diretamente, sem nunca passar
+por `abrirRascunhoNoEditorAcao()` — o que só populava a working copy
+(`atribuicoesEditaveisPlantao`, `origemPlantaoAtual`) quando havia um
+**rascunho** aberto. Uma competência **só publicada** (o estado mais comum
+depois de publicar) caía direto na tela de importação em branco, como se
+nenhuma escala existisse.
+
+Duas mudanças resolvem isso, mantendo um único modelo de working copy
+(nunca dois formatos divergentes para a mesma escala):
+
+- `listarAtribuicoesPlantaoPublicada()` (novo, em `plantaoReadRepository.ts`)
+  é o espelho de `listarAtribuicoesPlantaoRascunho()`, mas lendo
+  `competenciasPlantao/{id}/atribuicoes` em vez de
+  `rascunhosCompetenciasPlantao/{id}/atribuicoes`.
+- `abrirRascunhoNoEditorAcao()` passou a checar
+  `competenciaAlvo.status === 'PUBLICADA'` e, nesse caso, ler pelos
+  repositórios "publicada" em vez dos de rascunho — mas sempre reidratando a
+  working copy pela **mesma** `reidratarRascunhoPlantao()`, independente da
+  origem. Um novo `abrirEditorPlantaoDashboard()` centraliza essa decisão e
+  substitui as chamadas soltas a `setTela('importar')`.
+
+Com isso, "Escalas > Plantão COSI" mostra a grade publicada, os
+participantes corretos, permite alternar Compacta/Edição, salvar como
+rascunho e publicar uma nova revisão — igual à Jornada, respeitando o
+modelo de Plantão. O painel **"Histórico de publicações"** (baseado em
+`PublicacaoEscala`/reversão por dia, conceito que não existe em Plantão) foi
+restrito à Jornada; Plantão ganhou um painel próprio, **"Revisão
+publicada"**, mostrando só o que realmente existe hoje (número da revisão,
+quem publicou, quando) — sem simular um histórico multi-revisão que o
+modelo atual não grava.
+
+### 33.3 App/PWA — aba "Plantão"
+
+Primeira versão funcional de uma visão de Plantão no App do colaborador,
+nova aba entre "Trocas" e "Equipe" (ícone `Radio`, já mapeado em
+`components/AppFrame.tsx` desde uma fase anterior). Lógica pura isolada em
+`apps/app/src/plantaoApp.ts` (sem Firestore/React, mesmo padrão de
+`hojeConsulta.ts`), com dados carregados uma única vez por sessão ao abrir a
+aba "Plantão" ou "Perfil" (`carregarPlantaoApp`, em `EmployeeApp.tsx`).
+
+**Fonte de dados**: sempre a competência **publicada**
+(`obterCompetenciaPlantaoPublicada`/`listarAtribuicoesPlantaoPublicada`),
+nunca rascunho e nunca `localStorage` — `localStorage` no App continua
+reservado a preferências de UI (ex.: notificações lidas), nunca à escala em
+si, mesmo princípio já usado pelo toggle Compacta/Edição do Dashboard
+(`CHAVE_MODO_VISUALIZACAO_PLANTAO`, que guarda só a preferência visual, não
+os dados).
+
+Para todo usuário com um Grupo de Plantão no escopo da própria equipe
+(`equipesConsulta`), a aba mostra:
+
+- **"De plantão agora"**: quem está de plantão neste instante (nome,
+  iniciais, horário civil no timezone do Grupo, se cruza a meia-noite,
+  contatos ativos) ou "Ninguém está de plantão neste momento".
+- **"Próximo plantonista"**: nome e horário da próxima atribuição.
+
+Quando o usuário logado é, ele mesmo, um participante ativo do Grupo, a aba
+acrescenta:
+
+- **"Meus próximos plantões"**: lista cronológica (até 6) das próprias
+  atribuições futuras na competência publicada.
+- **"Solicitar troca de plantão"**: entrada visual **desabilitada**, com
+  texto explicando que a troca de Plantão (turnos de duração variável, ex.
+  24h/12h/8h) não é o mesmo modelo da troca de Jornada 6x1
+  (`lib/trocasEscala.ts`, inteiramente baseada em `turnoSolicitanteAntes`/
+  `turnoDestinatarioAntes` por dia) e por isso não foi implementada nesta
+  fase — decisão deliberada para não escrever um fluxo incompleto que
+  gravaria errado no banco; fica documentada aqui como próxima fase, sem
+  prazo definido. A troca de Jornada SOC não foi alterada.
+
+### 33.4 Contatos do plantonista — autoatualização
+
+`ParticipantePlantao.contatos: ContatoPlantonista[]` já existia (usado até
+aqui só pelo modal administrativo `ModalContatosParticipante`, no
+Dashboard). Em vez de criar um segundo modelo de contato em `Usuario`, esta
+fase reaproveita o mesmo campo para a autoatualização pelo próprio
+plantonista:
+
+- `atualizarContatosPlantonista(grupoId, login, contatos)` (novo, em
+  `plantaoWriteRepository.ts`) grava só `{contatos, atualizadoEm}` via
+  `updateDoc`, com o mesmo gate de `exigirFirebase()` usado por
+  `criarSolicitacaoTroca()` — nunca o gate administrativo
+  (`exigirEscritaAdministrativaHabilitada()`), porque esta é uma ação
+  pessoal, não uma escrita de administração de escala.
+- Firestore Rules (`gruposPlantao/{grupoId}/participantes/{login}`, `allow
+  update`): novo ramo `loginDoAuth() == login &&
+  diff(...).affectedKeys().hasOnly(['contatos', 'atualizadoEm']) &&
+  contatosPlantonistaValidos(...)`, ao lado do ramo administrativo
+  existente (`podeAdministrarEscalaPlantao(grupoId)`). O plantonista só
+  altera os próprios `contatos`; nunca `ativo`, `ordem`,
+  `criadoPorLogin`/`criadoEm`, nem os contatos de outro participante.
+- No App, a aba "Perfil" ganha um card **"Meus contatos de plantão"**
+  (rótulo/número/ativo, até `MAXIMO_CONTATOS_PLANTONISTA` = 3, mesmos
+  limites e validação de `validarContatosPlantonista()` do modal do
+  Dashboard), visível só quando o usuário é participante ativo do Grupo já
+  carregado pela aba "Plantão".
+
+Um usuário pode ser gestor de um Grupo e também participante dele ao mesmo
+tempo (ex.: coordenador que também cobre plantões) — os dois papéis usam
+caminhos de escrita diferentes (administrativo vs. pessoal) sobre o mesmo
+documento, sem conflito.

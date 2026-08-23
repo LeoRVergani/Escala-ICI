@@ -94,6 +94,13 @@ Cores semânticas preservadas: madrugada `#7c5ce0`, manhã `#13b99a`, tarde `#e9
 **Spec:** `docs/spec/PLANTAO_MODAL_D.md`.  
 **Helpers/testes:** `components/plantao/horariosPlantao.ts` e `components/plantao/horariosPlantao.test.ts`.
 
+No Dashboard, "Publicação da escala" e "Escalas > <Plantão>" usam a mesma
+função de status/resumo da Jornada (`resumoPublicacaoOperacao`) e abrem o
+mesmo Editor (rascunho ou publicada, via `abrirRascunhoNoEditorAcao`) — ver
+`docs/spec/EDITOR_ESCALAS.md` § 19. No App do colaborador, a aba "Plantão"
+mostra quem está de plantão agora/próximo e os próprios plantões, sempre a
+partir da competência publicada — ver `docs/spec/APP_PLANTAO_VISUALIZACAO.md`.
+
 ## 8. Navegação e retorno
 
 O retorno às escalas usa o botão compacto **Escalas**, com seta, borda discreta, foco acessível e sem hiperlink sublinhado. O padrão deve ser reutilizado nas telas internas e não substituído por links textuais antigos.
@@ -269,6 +276,7 @@ A entrega deve conter ZIP completo sem `node_modules`, `dist`, `.git` ou caches,
 - `docs/spec/PLANTAO_MODAL_D.md`
 - `docs/spec/NAVEGACAO_RETORNO_ESCALAS.md`
 - `docs/spec/REVISAO_JORNADA_6X1_LAYOUT_CALENDARIO.md`
+- `docs/spec/APP_PLANTAO_VISUALIZACAO.md`
 - `CHECKPOINT-FASE-REVIEW-JORNADA-6X1-VISUAL.md`
 - `CHECKPOINT-VISAO-GERAL-OPERACIONAL-2026-08.md`
 - `docs/validation/dashboard-overview-research-2026-08.md`

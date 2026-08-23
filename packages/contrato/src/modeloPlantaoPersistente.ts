@@ -170,10 +170,38 @@ export interface ParticipantePlantao {
   ativo: boolean;
   ordem?: number;
   contatos: ContatoPlantonista[];
+  /**
+   * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — índice (0..7) na
+   * paleta categórica de `TAMANHO_PALETA_IDENTIDADE_PLANTAO` cores
+   * (`app/globals.css`, `[data-identidade="0"]`..`[data-identidade="7"]`),
+   * escolhido pelo próprio plantonista no App para se identificar mais
+   * fácil no calendário mensal de Plantão. OPCIONAL — sem ele (ou com
+   * `null`, gravado ao "limpar" a preferência), a cor continua vindo do
+   * hash automático do nome/login (nunca quebra para quem nunca escolheu
+   * uma). Só o próprio plantonista altera este campo
+   * (`atualizarCorPlantonista()`, Rules em `firestore.rules`).
+   */
+  corPreferida?: number | null;
   schemaVersion: number;
   criadoPorLogin: string;
   criadoEm: string;
   atualizadoEm: string;
+}
+
+/**
+ * Tamanho da paleta categórica de identidade visual por plantonista — 8
+ * tons distintos definidos em `app/globals.css`
+ * (`--plantao-id-0-bg`..`--plantao-id-7-bg`, aplicados via
+ * `[data-identidade="0"]`..`[data-identidade="7"]`). Fonte única
+ * compartilhada por `lib/editorPlantao.ts` (Dashboard, hash por nome
+ * importado do XLS) e `apps/app/src/plantaoApp.ts` (App, hash por login) —
+ * nunca duas constantes divergentes para o mesmo tamanho de paleta.
+ */
+export const TAMANHO_PALETA_IDENTIDADE_PLANTAO = 8;
+
+/** Espelha `corPlantonistaPreferidaValida()` em `firestore.rules` — índice válido na paleta acima, ausente ou `null` (preferência limpa). */
+export function corPlantonistaPreferidaValida(cor: number | null | undefined): boolean {
+  return cor === undefined || cor === null || (Number.isInteger(cor) && cor >= 0 && cor < TAMANHO_PALETA_IDENTIDADE_PLANTAO);
 }
 
 /**

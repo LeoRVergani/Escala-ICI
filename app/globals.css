@@ -1158,9 +1158,24 @@ button.shift-chip:disabled { cursor: default; }
 .calendar-grid > button:hover { background: var(--surface-muted); }
 .calendar-grid > button.today { background: var(--primary-soft); box-shadow: inset 0 0 0 2px var(--primary-bright); }
 .calendar-grid > button.selected:not(.today) { box-shadow: inset 0 0 0 2px var(--cyan); }
+/*
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — destaque do "meu dia" no
+ * calendário de Plantão do App: `.meu-plantao` é um estado NOVO (nunca
+ * `.today`/`.selected`, que já têm semântica própria de Jornada) para o
+ * plantonista achar os próprios dias sem precisar ler todos os nomes.
+ * `:not(.today)` porque `.today` já tem seu próprio destaque — nunca dois
+ * anéis empilhados no mesmo dia.
+ */
+.calendar-grid > button.meu-plantao:not(.today) { box-shadow: inset 0 0 0 2px var(--success); }
 .calendar-grid > button > span { font-size: 15px; font-weight: 800; }
 .calendar-grid > button > span small { color: var(--muted); font-size: 8px; text-transform: uppercase; margin-left: 4px; }
 .calendar-grid > button > small { color: var(--muted); font-size: 9px; }
+/* Mesma paleta de identidade de `[data-identidade]` (linha ~5325) — nunca uma segunda paleta para o calendário do App. */
+.calendar-grid > button .shift-chip[data-identidade] {
+  background: var(--plantao-id-bg);
+  border-color: var(--plantao-id-border);
+  color: var(--plantao-id-text);
+}
 .calendar-blank {
   min-height: 96px;
   border-right: 1px solid var(--border);
@@ -1366,6 +1381,40 @@ button.shift-chip:disabled { cursor: default; }
 .next-shift-card > p { color: var(--muted); margin: 12px 0 0; font-size: 11px; }
 .today-team-panel { padding: 18px; }
 .today-team-title { margin-bottom: 14px; }
+
+/*
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — visão "Plantão" do App
+ * reaproveita `.today-hero`/`.next-shift-card`/`.next-shift-title`
+ * (Jornada) para o mesmo layout "agora"/"próximo"; os círculos de ícone às
+ * vezes mostram iniciais em vez de um ícone svg (não há foto de perfil).
+ */
+.today-hero-icon:not(:has(svg)),
+.next-shift-icon:not(:has(svg)) { font-size: 14px; font-weight: 800; }
+.plantao-contatos-lista { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.plantao-contato-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+  font-size: 11px;
+  font-weight: 600;
+}
+.plantao-meus-lista { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.plantao-meu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  font-size: 13px;
+}
+.plantao-meu-item strong { font-variant-numeric: tabular-nums; }
 
 .today-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 .shift-group { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
@@ -2323,6 +2372,17 @@ button.shift-chip:disabled { cursor: default; }
 .profile-details span { color: var(--muted); font-size: 10px; }
 .profile-details strong { overflow-wrap: anywhere; font-size: 12px; }
 .profile-logout { grid-column: 1 / -1; justify-self: end; }
+
+/*
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — sem `grid-column: 1 / -1`
+ * este card caía na primeira faixa de `.profile-layout`
+ * (`minmax(280px, 0.75fr)`, a mesma largura estreita do `.profile-card` de
+ * avatar), espremendo os três campos + botão de `.contato-plantonista-linha`
+ * lado a lado numa coluna pensada só para nome/avatar — daí o layout
+ * quebrado. Mesmo tratamento de `.profile-logout`/`.profile-notifications`
+ * acima: span das duas colunas.
+ */
+.profile-plantao-contatos { grid-column: 1 / -1; padding: 18px 22px; }
 
 .profile-notifications { grid-column: 1 / -1; padding: 18px 22px; display: flex; flex-direction: column; gap: 8px; }
 .profile-notifications-destaque { outline: 1px solid rgba(32, 197, 255, 0.45); box-shadow: 0 0 0 4px rgba(32, 197, 255, 0.08); }
@@ -3473,6 +3533,11 @@ button.shift-chip:disabled { cursor: default; }
 .app-shell.product-app .calendar-grid > button.selected:not(.today) {
   background: var(--app-purple-soft);
   box-shadow: inset 0 0 0 1px var(--app-purple);
+}
+
+.app-shell.product-app .calendar-grid > button.meu-plantao:not(.today) {
+  background: var(--success-soft);
+  box-shadow: inset 0 0 0 2px var(--success);
 }
 
 .app-shell.product-app .employee-profile-screen {
@@ -5304,6 +5369,28 @@ fieldset.checkbox-card-list > legend {
 [data-identidade="5"] { --plantao-id-bg: var(--plantao-id-5-bg); --plantao-id-border: var(--plantao-id-5-border); --plantao-id-text: var(--plantao-id-5-text); }
 [data-identidade="6"] { --plantao-id-bg: var(--plantao-id-6-bg); --plantao-id-border: var(--plantao-id-6-border); --plantao-id-text: var(--plantao-id-6-text); }
 [data-identidade="7"] { --plantao-id-bg: var(--plantao-id-7-bg); --plantao-id-border: var(--plantao-id-7-border); --plantao-id-text: var(--plantao-id-7-text); }
+
+/*
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — seletor de cor pessoal
+ * (aba Perfil do App). Cada opção reaproveita a MESMA paleta `[data-identidade]`
+ * acima — nunca uma segunda paleta livre/hex escolhida pelo usuário.
+ */
+.profile-plantao-cor { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.profile-plantao-cor-titulo { margin: 0 0 2px; font-size: 12.5px; font-weight: 700; color: var(--text); }
+.profile-plantao-cor-paleta { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.profile-plantao-cor-opcao {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--plantao-id-border);
+  background: var(--plantao-id-bg);
+  color: var(--plantao-id-text);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.profile-plantao-cor-opcao:disabled { opacity: 0.6; cursor: default; }
+.profile-plantao-cor-opcao[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--plantao-id-border); }
 
 /*
  * Fase ESCALAS-UX-1B — as classes abaixo já existiam no JSX desde a

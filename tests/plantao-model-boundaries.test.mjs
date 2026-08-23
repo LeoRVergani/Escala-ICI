@@ -12,21 +12,32 @@ const semComentarios = (fonte) => fonte.replace(/\/\*[\s\S]*?\*\//g, '');
  * PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 — o App passou a importar
  * `plantaoReadRepository` (leitura tolerante, só para diferenciar a
  * mensagem de "sem escala" quando há participação em Plantão — ver
- * `mensagemAusenciaEscalaAcao`), então saiu desta lista de proibidos. O
- * título do teste sempre foi sobre ESCRITA administrativa — nunca sobre
- * leitura — e essa garantia continua intacta abaixo.
+ * `mensagemAusenciaEscalaAcao`), então saiu desta lista de proibidos.
+ *
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1/2 — o App passou a
+ * importar `plantaoWriteRepository` também, mas só duas ações PESSOAIS do
+ * próprio plantonista sobre o PRÓPRIO documento: `atualizarContatosPlantonista`
+ * e `atualizarCorPlantonista` (cor de identificação no calendário — nunca
+ * `exigirEscritaAdministrativaHabilitada()`, mesmo padrão de
+ * `criarSolicitacaoTroca()`). O título do teste sempre foi sobre ESCRITA
+ * ADMINISTRATIVA — nunca sobre toda e qualquer escrita — e essa garantia
+ * continua intacta abaixo: nenhuma das funções administrativas da lista
+ * pode aparecer no App.
  */
-test('1. o App do colaborador não ganha nenhuma escrita administrativa de Plantão', async () => {
+test('1. o App do colaborador não ganha nenhuma escrita ADMINISTRATIVA de Plantão (só as atualizações pessoais de contatos/cor)', async () => {
   const app = await ler('apps/app/src/EmployeeApp.tsx');
   for (const proibido of [
-    'plantaoWriteRepository',
     'salvarGrupoPlantao',
     'salvarParticipantePlantao',
     'salvarCompetenciaPlantaoRascunho',
     'salvarAtribuicoesPlantaoRascunho',
+    'publicarCompetenciaPlantao',
+    'desativarParticipantePlantao',
+    'atualizarEquipeConsultaPlantao',
   ]) {
     assert.doesNotMatch(app, new RegExp(proibido), proibido);
   }
+  assert.match(app, /import \{ atualizarContatosPlantonista, atualizarCorPlantonista \} from '@\/lib\/firebase\/plantaoWriteRepository';/u);
 });
 
 /**

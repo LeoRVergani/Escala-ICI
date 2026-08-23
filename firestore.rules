@@ -305,6 +305,20 @@ service cloud.firestore {
     }
 
     /**
+     * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — índice (0..7) na
+     * MESMA paleta categórica de 8 cores já usada pelo calendário do
+     * Editor (`indiceIdentidadePlantonista()`/`TAMANHO_PALETA_IDENTIDADE_PLANTAO`,
+     * `lib/editorPlantao.ts` + `app/globals.css`), escolhido pelo próprio
+     * plantonista no App para se identificar mais fácil no calendário
+     * mensal. Campo OPCIONAL — ausência é válida (cai no hash automático).
+     * Nunca uma cor livre/hex: restringir a um índice fixo garante que todo
+     * valor gravado corresponde a uma cor com contraste já validado.
+     */
+    function corPlantonistaPreferidaValida(cor) {
+      return cor == null || (cor is int && cor >= 0 && cor <= 7);
+    }
+
+    /**
      * Fase PLANTAO-PADRAO-1 — uma entrada do padrão semanal de um Grupo de
      * Plantão. Valida estrutura/tipos/faixas (mesmo nível das outras Rules
      * deste arquivo, ex. `duracaoMinutos > 0` em atribuições, que também
@@ -1435,18 +1449,38 @@ service cloud.firestore {
         ]);
 
       allow update: if autenticado()
-        && podeAdministrarEscalaPlantao(grupoId)
-        && request.resource.data.grupoId == resource.data.grupoId
-        && request.resource.data.login == resource.data.login
-        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
-        && request.resource.data.criadoEm == resource.data.criadoEm
-        && request.resource.data.ativo is bool
-        && contatosPlantonistaValidos(request.resource.data.contatos)
-        && request.resource.data.schemaVersion in [1]
-        && request.resource.data.keys().hasOnly([
-          'grupoId', 'login', 'ativo', 'ordem', 'contatos',
-          'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
-        ]);
+        && (
+          (
+            podeAdministrarEscalaPlantao(grupoId)
+            && request.resource.data.grupoId == resource.data.grupoId
+            && request.resource.data.login == resource.data.login
+            && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
+            && request.resource.data.criadoEm == resource.data.criadoEm
+            && request.resource.data.ativo is bool
+            && contatosPlantonistaValidos(request.resource.data.contatos)
+            && corPlantonistaPreferidaValida(request.resource.data.get('corPreferida', null))
+            && request.resource.data.schemaVersion in [1]
+            && request.resource.data.keys().hasOnly([
+              'grupoId', 'login', 'ativo', 'ordem', 'contatos', 'corPreferida',
+              'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
+            ])
+          )
+          // FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1/2 — o próprio
+          // plantonista atualiza os PRÓPRIOS contatos e a própria cor de
+          // identificação no calendário, a partir do App
+          // (`atualizarContatosPlantonista()`/`atualizarCorPlantonista()`,
+          // lib/firebase/plantaoWriteRepository.ts). Mesmo padrão de
+          // `usuarios/{login}` self-update (`hasOnly(['nome'])` acima):
+          // allowlist fechada por `diff().affectedKeys()`, nunca
+          // `perfil`/`escopo`/`ativo`/`ordem`/`grupoId`/`login` — participação
+          // de Plantão nunca altera cadastro nem autorização.
+          || (
+            loginDoAuth() == login
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['contatos', 'corPreferida', 'atualizadoEm'])
+            && contatosPlantonistaValidos(request.resource.data.contatos)
+            && corPlantonistaPreferidaValida(request.resource.data.get('corPreferida', null))
+          )
+        );
 
       allow delete: if false;
     }

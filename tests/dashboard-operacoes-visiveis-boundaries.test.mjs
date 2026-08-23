@@ -72,16 +72,32 @@ test('8. o badge de status do contexto ativo (aba Escalas / topo) reaproveita o 
   assert.match(statusVar[1], /estadoEscalaAtiva/u);
 });
 
-test('9. "Publicação da escala" (Plantão) mostra o mesmo rótulo de status usado em todo o resto — nunca mais um booleano ad-hoc que ignora competenciaPublicada', async () => {
+/**
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — a correção anterior só
+ * tinha alcançado o badge (`<em>`) desta linha; o `<small>` (a descrição
+ * logo abaixo do nome) continuava um booleano de 2 estados
+ * (`plantaoPossuiEscalaDashboard`), então "Rascunho disponível" aparecia
+ * mesmo com o badge ao lado já dizendo "Publicada" — exatamente o bug
+ * relatado ("card superior mostra Publicada, mas Publicação da escala
+ * mostra Rascunho"). Agora o `<small>` E o `<em>` vêm da MESMA função
+ * (`resumoPublicacaoOperacao`, compartilhada com Jornada) — nunca podem
+ * divergir entre si.
+ */
+test('9. "Publicação da escala" (Plantão) mostra o mesmo rótulo de status em <small> e <em> — nunca mais um booleano ad-hoc que ignora competenciaPublicada', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   assert.match(
     dashboard,
-    /<em className=\{estadoPlantaoOperacionalDashboard === 'sem-escala' \? 'vazio' : estadoPlantaoOperacionalDashboard === 'publicada' \? 'completo' : 'parcial'\}>\{rotuloEstadoEscalaOperacional\(estadoPlantaoOperacionalDashboard\)\}<\/em>/u,
+    /<small>\{resumoPublicacaoPlantaoDashboard\.titulo\}<\/small><\/span><em className=\{resumoPublicacaoPlantaoDashboard\.estado\}>\{rotuloEstadoEscalaOperacional\(estadoPlantaoOperacionalDashboard\)\}<\/em>/u,
   );
   assert.doesNotMatch(
     dashboard,
-    /<em className=\{plantaoPossuiEscalaDashboard \? 'parcial' : 'vazio'\}>\{plantaoPossuiEscalaDashboard \? 'Rascunho' : 'Sem escala'\}<\/em>/u,
-    'a fórmula antiga (nunca reconhecia "Publicada") não pode sobreviver',
+    /plantaoPossuiEscalaDashboard \? 'Rascunho disponível' : 'Nenhuma escala criada'/u,
+    'a fórmula antiga do <small> (nunca reconhecia "Publicada") não pode sobreviver',
+  );
+  assert.doesNotMatch(
+    dashboard,
+    /<em className=\{estadoPlantaoOperacionalDashboard === 'sem-escala' \? 'vazio' : estadoPlantaoOperacionalDashboard === 'publicada' \? 'completo' : 'parcial'\}>/u,
+    'o <em> não pode mais ter sua própria fórmula de classe — precisa vir de resumoPublicacaoPlantaoDashboard.estado, igual ao <small>',
   );
 });
 

@@ -98,24 +98,35 @@ test('6. o Dashboard publica Plantão somente por uma ação explícita', async 
   assert.match(corpo, /publicarCompetenciaPlantao\(/u);
 });
 
-test('7. apps/app (colaborador) continua sem qualquer símbolo administrativo de Plantão desta fase — só a leitura tolerante de participação (PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1)', async () => {
+test('7. apps/app (colaborador) continua sem qualquer símbolo ADMINISTRATIVO de Plantão — só leitura de participação/escala publicada e a atualização pessoal de contatos (FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1)', async () => {
   const app = await ler('apps/app/src/EmployeeApp.tsx');
   for (const proibido of [
-    'plantaoWriteRepository',
     'ModalGrupoPlantao',
     'ModalContatosParticipante',
     'montagemRascunhoPlantao',
     'podeGerenciarGrupoPlantao',
     'souGestorDePlantao',
     'listarTodosGruposPlantao',
+    'salvarGrupoPlantao',
+    'salvarParticipantePlantao',
+    'desativarParticipantePlantao',
+    'publicarCompetenciaPlantao',
   ]) {
     assert.doesNotMatch(app, new RegExp(proibido), proibido);
   }
-  // PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 — o App passou a importar
-  // plantaoReadRepository, mas só para diferenciar a mensagem de "sem
-  // escala" (mensagemAusenciaEscalaAcao); nenhuma escrita, nenhum modal,
-  // nenhuma tela nova de Plantão.
-  assert.match(app, /import \{\s*listarGruposPlantaoPermitidos,\s*listarParticipantesPlantao,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
+  /**
+   * PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 acrescentou a leitura tolerante
+   * de participação (mensagemAusenciaEscalaAcao). FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1
+   * acrescentou a leitura da competência/atribuições PUBLICADAS (a visão
+   * "Plantão" de verdade) e a escrita pessoal de contatos — nenhum modal,
+   * nenhuma tela administrativa, nenhuma escrita de Grupo/participante
+   * alheio. FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 acrescentou a
+   * escrita pessoal da cor de identificação no calendário
+   * (`atualizarCorPlantonista`), mesmo padrão de escopo (só o próprio
+   * documento, nunca administração).
+   */
+  assert.match(app, /import \{\s*listarAtribuicoesPlantaoPublicada,\s*listarGruposPlantaoPermitidos,\s*listarParticipantesPlantao,\s*obterCompetenciaPlantaoPublicada,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
+  assert.match(app, /import \{ atualizarContatosPlantonista, atualizarCorPlantonista \} from '@\/lib\/firebase\/plantaoWriteRepository';/u);
 });
 
 test('8. apps/push-worker continua sem qualquer menção a Plantão', async () => {
@@ -128,13 +139,20 @@ test('8. apps/push-worker continua sem qualquer menção a Plantão', async () =
   }
 });
 
-test('9. o ícone novo de navegação ("plantao") é aditivo em components/AppFrame.tsx — nunca usado pelo App do colaborador', async () => {
+/**
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — até esta fase o ícone
+ * "plantao" era aditivo (mapeado em AppFrame.tsx) mas nunca usado pelo App
+ * do colaborador. Agora o App ganha a aba "Plantão" de verdade (visão de
+ * quem está de plantão agora/próximo, ver `apps/app/src/plantaoApp.ts`) e
+ * passa a usar o mesmo ícone compartilhado — sem duplicar o mapeamento.
+ */
+test('9. o ícone novo de navegação ("plantao") é compartilhado por components/AppFrame.tsx e agora também usado pela aba "Plantão" do App', async () => {
   const [appFrame, app] = await Promise.all([
     ler('components/AppFrame.tsx'),
     ler('apps/app/src/EmployeeApp.tsx'),
   ]);
   assert.match(appFrame, /plantao: Radio/u, 'o ícone precisa estar mapeado em AppFrame.tsx');
-  assert.doesNotMatch(app, /icone:\s*['"]plantao['"]/u, 'o App do colaborador nunca usa o ícone de Plantão');
+  assert.match(app, /icone:\s*['"]plantao['"]/u, 'o App do colaborador usa o ícone compartilhado de Plantão na própria aba "Plantão"');
 });
 
 test('10. lib/montagemRascunhoPlantao.ts é puro — sem SDK do Firestore, sem React', async () => {

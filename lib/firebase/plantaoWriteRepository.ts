@@ -1,10 +1,13 @@
 import {
+  corPlantonistaPreferidaValida,
   validarAtribuicaoPlantaoPersistida,
   validarCompetenciaPlantao,
+  validarContatosPlantonista,
   validarGrupoPlantao,
   validarParticipantePlantao,
   type AtribuicaoPlantaoPersistida,
   type CompetenciaPlantao,
+  type ContatoPlantonista,
   type GrupoPlantao,
   type ParticipantePlantao,
 } from '@escala-ici/contrato';
@@ -88,6 +91,60 @@ export async function salvarParticipantePlantao(participante: ParticipantePlanta
     doc(db, 'gruposPlantao', participante.grupoId, 'participantes', participante.login),
     removerUndefined(participante),
   );
+}
+
+/**
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — o próprio plantonista
+ * atualiza os PRÓPRIOS contatos, do App. Diferente de
+ * `salvarParticipantePlantao()` (grava o `ParticipantePlantao` inteiro,
+ * autorização de administrador do Grupo): esta função só grava `contatos`/
+ * `atualizadoEm` via `updateDoc` — nunca `perfil`/`escopo`/`ativo`/
+ * `ordem`/etc., espelhando exatamente o allowlist de campos que
+ * `firestore.rules` passa a aceitar no autoatualização (`hasOnly(['contatos',
+ * 'atualizadoEm'])`). Reaproveita o MESMO modelo `ContatoPlantonista` já
+ * usado pelo Dashboard (`ModalContatosParticipante`) — nunca um segundo
+ * modelo de contato. Sem `exigirEscritaAdministrativaHabilitada()`: é uma
+ * ação pessoal do colaborador no App, não uma escrita administrativa (mesmo
+ * padrão de `criarSolicitacaoTroca()` em `lib/firebase/trocasRepository.ts`
+ * — autorização real fica só nas Rules).
+ */
+export async function atualizarContatosPlantonista(
+  grupoId: string,
+  login: string,
+  contatos: readonly ContatoPlantonista[],
+): Promise<void> {
+  const erros = validarContatosPlantonista(contatos);
+  if (erros.length > 0) {
+    throw new Error(erros.join(' '));
+  }
+  const { db } = exigirFirebase();
+  await updateDoc(doc(db, 'gruposPlantao', grupoId, 'participantes', login), {
+    contatos: contatos.map((contato) => removerUndefined(contato)),
+    atualizadoEm: new Date().toISOString(),
+  });
+}
+
+/**
+ * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — o próprio plantonista
+ * escolhe um índice (0..7) na paleta de identidade visual do calendário de
+ * Plantão do App, para se achar mais fácil quando várias pessoas aparecem
+ * no mesmo mês. Mesmo padrão de `atualizarContatosPlantonista()` acima:
+ * ação pessoal, sem `exigirEscritaAdministrativaHabilitada()`. `cor: null`
+ * remove a preferência (volta para o hash automático por login).
+ */
+export async function atualizarCorPlantonista(
+  grupoId: string,
+  login: string,
+  cor: number | null,
+): Promise<void> {
+  if (!corPlantonistaPreferidaValida(cor)) {
+    throw new Error('Cor de identificação inválida.');
+  }
+  const { db } = exigirFirebase();
+  await updateDoc(doc(db, 'gruposPlantao', grupoId, 'participantes', login), {
+    corPreferida: cor,
+    atualizadoEm: new Date().toISOString(),
+  });
 }
 
 /** Nunca exclui fisicamente — mesmo princípio de `equipes`/`unidadesOrganizacionais` (`ativo: false`). */

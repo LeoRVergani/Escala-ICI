@@ -199,7 +199,14 @@ test('30. Visão geral distingue Jornada sem escala, rascunho, publicada e publi
   assert.ok(estado, 'estadoJornadaDashboard precisa existir');
   assert.match(estado[1], /statusJornadaResumo\(resumo\)/u, 'precisa converter o resumo para {temRascunho, temPublicada} — nunca uma fórmula inline própria');
   assert.match(estado[1], /derivarStatusOperacaoDashboard\(temRascunho, temPublicada\)/u, 'precisa delegar para a função única de derivação de status');
-  assert.match(dashboard, /resumoPublicacaoJornada\(resumoJornadaDashboard\)/u, 'card de Publicação precisa usar o resumo separado por alvo');
+  /**
+   * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — `resumoPublicacaoJornada`
+   * virou `resumoPublicacaoOperacao(estado)`, compartilhada com Plantão
+   * ("SOC e Plantão devem seguir a mesma lógica de status agregada") —
+   * nunca mais uma função exclusiva de Jornada.
+   */
+  assert.match(dashboard, /const resumoPublicacaoDashboard = resumoPublicacaoOperacao\(estadoJornadaOperacionalDashboard\);/u, 'card de Publicação da Jornada precisa usar a função única de resumo, compartilhada com Plantão');
+  assert.match(dashboard, /const resumoPublicacaoPlantaoDashboard = resumoPublicacaoOperacao\(estadoPlantaoOperacionalDashboard\);/u, 'Plantão precisa usar a MESMA função de resumo que a Jornada');
   assert.match(dashboard, /Rascunho não publicado/u, 'ausência de publicação não pode ser exibida como ausência total quando há rascunho');
   assert.match(dashboard, /Publicada, com rascunho pendente/u, 'publicada com rascunho pendente precisa de mensagem própria, nunca mascarada como só "Rascunho"');
 });
@@ -634,4 +641,29 @@ test('53. o pool de usuários (setUsuarios) e os dados de escala continuam sendo
   assert.match(corpo[1], /setUsuarios\(usuariosDaEquipe\)/u);
   const trechoAntesDoPrimeiroGate = corpo[1].slice(0, corpo[1].indexOf('if (TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA'));
   assert.match(trechoAntesDoPrimeiroGate, /setContextoEscalaAtivo\(alvo\)/u, 'setContextoEscalaAtivo precisa continuar incondicional');
+});
+
+/**
+ * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — causa raiz de um GESTOR_UNIDADE
+ * (ex.: Claudio) ver o card "Jornada" mostrando o nome do Plantão ("Plantão
+ * COSI") e o card real de Plantão sumir: as duas buscas de
+ * `gruposPlantao` por múltiplas fontes (equipe/unidade/legado) usavam
+ * `Promise.all` — uma única sub-consulta negada (Rules de staging ainda
+ * incompletas para aquele alvo específico) derrubava TODAS as outras,
+ * zerando `gruposPlantaoAdmin` por completo. Com `gruposPlantaoAdmin`
+ * vazio, `idsEquipeResponsavelPlantao` (lib/escoposOperacionais.ts)
+ * também fica vazio, e o fallback de Jornada amplo deixa de conseguir
+ * EXCLUIR a equipe responsável por um Grupo de Plantão do resultado — ela
+ * passa a aparecer como se fosse uma Jornada.
+ */
+test('54. as duas buscas multi-fonte de gruposPlantao (efeito de Plantões admin e carga única da matriz) toleram falha parcial — Promise.allSettled, nunca Promise.all', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+
+  const efeitoPlantoesAdmin = /const carregarGrupos = souAdmin\s*\? listarTodosGruposPlantao\(\)\s*: (Promise\.\w+)\(\[/u.exec(dashboard);
+  assert.ok(efeitoPlantoesAdmin, 'o efeito de carregamento de Plantões admin precisa existir');
+  assert.equal(efeitoPlantoesAdmin[1], 'Promise.allSettled', 'nunca Promise.all — uma sub-consulta negada não pode zerar todas as outras');
+
+  const cargaUnicaMatriz = /const resultados = await Promise\.allSettled\(\[\s*\.\.\.equipesPermitidasEfetivas\(usuarioReal\)\.map\(\(equipeId\) => listarGruposPlantaoPermitidos\(equipeId\)\),\s*\.\.\.\(perfil === 'GESTOR_UNIDADE'/u.exec(dashboard);
+  assert.ok(cargaUnicaMatriz, 'a busca legada/amplo-staging dentro da carga única da matriz precisa usar Promise.allSettled');
+  assert.doesNotMatch(dashboard, /const listas = await Promise\.all\(\[\s*\.\.\.equipesPermitidasEfetivas/u, 'a versão antiga com Promise.all não pode sobreviver');
 });

@@ -98,6 +98,16 @@ Essa regra é **Regra transitória / fallback de compatibilidade**. Quando exist
 
 Consulta é diferente de administração. `equipesConsulta` permite leitura e monitoramento de Plantões, nunca edição, importação, salvamento, publicação ou administração de participantes/contatos.
 
+Nota FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1: a autoatualização dos
+próprios contatos pelo plantonista (`atualizarContatosPlantonista`, App —
+ver `docs/spec/APP_PLANTAO_VISUALIZACAO.md` § 4) **não** é administração de
+participante/contato de terceiro e não passa pela Matriz — é autorizada só
+por identidade (`loginDoAuth() == login`), restrita a
+`{contatos, atualizadoEm}` do próprio documento. Continua distinta de
+`podeAdministrarEscalaPlantao(grupoId)`, que segue exigindo responsabilidade
+na Matriz (ou `ADMIN_SISTEMA`) e é o único caminho para alterar contatos de
+**outro** participante.
+
 Responsáveis, equipes administradoras e equipes que consultam são três conceitos distintos:
 
 - **Responsáveis**: usuários humanos gestores/supervisores elegíveis.
