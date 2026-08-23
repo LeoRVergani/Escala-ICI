@@ -407,3 +407,27 @@ altera `perfil`/`escopo`/`equipeId`/`cargo`. Também corrigido: trocar o
 contexto ativo não força mais a navegação para "Escalas" quando a tela atual
 (Usuários, Visão geral, Trocas, Administração) continua válida no novo
 contexto — ver `docs/spec/EDITOR_ESCALAS.md` § 17.
+
+**PATCH-DASHBOARD-OPERACOES-SIMPLES-1**: as três operações canônicas do
+Dashboard são **SOC** (`JORNADA`, `equipeId GEDSI_COSI_SOC`), **NOC**
+(`JORNADA`, `equipeId GEDSI_CODB_NOC`) e **Plantão COSI** (`PLANTAO`,
+`grupoId PLANTAO_GEDSI_COSI`) — nunca uma operação genérica "Plantão"/
+"COSI"/IDs legados (`EQ_SOC`/`EQ_NOC`/`EQ_PLANTAO_COSI`/`PLANTAO_COSI`
+antigo). Este patch não muda quem administra o quê (`resolverEscoposOperacionais`,
+`resolverMatrizOperacional` continuam intocados, autoridade normativa) — só
+consolida "quais operações aparecem, com qual status" numa única função,
+`resolverOperacoesDashboard(usuario, contexto, dados)`
+(`lib/operacoesDashboard.ts`), usada pelo seletor superior e pela Visão
+geral (ver `docs/spec/EDITOR_ESCALAS.md` § 18). Antes existiam ao menos
+quatro derivações independentes que podiam divergir — inclusive um card
+"Plantão" genérico que aparecia sempre que o Grupo de Plantão do escopo era
+`null` (ex.: para a supervisora do NOC, que não tem nenhum Plantão no
+escopo), em vez de simplesmente não aparecer.
+
+Visibilidade resultante (via a Matriz + os fallbacks já existentes de
+`resolverEscoposOperacionais`, nada alterado aqui): `ADMIN_SISTEMA` vê SOC +
+NOC + Plantão COSI; `GESTOR_UNIDADE` de `GEDSI_COSI` (ex.: Claudio) vê SOC +
+Plantão COSI, nunca NOC; `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` de
+`GEDSI_CODB_NOC` vê só NOC, nunca SOC nem Plantão COSI (salvo ACL explícita
+de consulta, `plantoesMonitorados`); nenhum perfil enxerga um card
+genérico "Plantão" — só a operação real, pelo nome real do Grupo.

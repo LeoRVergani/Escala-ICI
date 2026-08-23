@@ -183,14 +183,25 @@ test('29. Visão geral carrega Jornada pelo alvo da matriz operacional, não pel
   assert.doesNotMatch(trechoResumo[1], /usuario(?:Real|Efetivo)\.equipeId/u, 'resumo do card nunca pode cair para a equipe do usuário logado');
 });
 
-test('30. Visão geral distingue Jornada sem escala, rascunho e publicada sem mascarar rascunho como publicação', async () => {
+/**
+ * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — `estadoJornadaDashboard()` parou de
+ * ter a própria fórmula inline (`publicadas.length > 0 && rascunhos.length
+ * === 0 ? 'publicada' : 'rascunho'`, que colapsava "publicada COM rascunho
+ * pendente" para um simples "rascunho", escondendo que já existe uma
+ * publicação) e passou a delegar para `derivarStatusOperacaoDashboard()`
+ * (`lib/operacoesDashboard.ts`) — a única função de status do Dashboard,
+ * que distingue os 4 estados corretamente (ver
+ * `lib/operacoesDashboard.test.ts`).
+ */
+test('30. Visão geral distingue Jornada sem escala, rascunho, publicada e publicada-com-rascunho-pendente, via a função única de status', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const estado = /function estadoJornadaDashboard\(resumo: ResumoJornadaDashboard \| null\): EstadoEscalaOperacionalDashboard \{([\s\S]*?)\n\}/u.exec(dashboard);
   assert.ok(estado, 'estadoJornadaDashboard precisa existir');
-  assert.match(estado[1], /resumo\.documentos\.length === 0/u, 'sem escala só quando não há rascunho nem publicação carregada');
-  assert.match(estado[1], /resumo\.publicadas\.length > 0 && resumo\.rascunhos\.length === 0 \? 'publicada' : 'rascunho'/u, 'rascunho tem precedência quando existe rascunho não publicado');
+  assert.match(estado[1], /statusJornadaResumo\(resumo\)/u, 'precisa converter o resumo para {temRascunho, temPublicada} — nunca uma fórmula inline própria');
+  assert.match(estado[1], /derivarStatusOperacaoDashboard\(temRascunho, temPublicada\)/u, 'precisa delegar para a função única de derivação de status');
   assert.match(dashboard, /resumoPublicacaoJornada\(resumoJornadaDashboard\)/u, 'card de Publicação precisa usar o resumo separado por alvo');
   assert.match(dashboard, /Rascunho não publicado/u, 'ausência de publicação não pode ser exibida como ausência total quando há rascunho');
+  assert.match(dashboard, /Publicada, com rascunho pendente/u, 'publicada com rascunho pendente precisa de mensagem própria, nunca mascarada como só "Rascunho"');
 });
 
 test('31. Visão geral carrega Plantão pelo grupoId do alvo operacional, sem misturar equipeResponsavelId', async () => {
@@ -302,14 +313,24 @@ test('15. a tela Escalas mostra "Nenhuma escala criada" só quando contextoSemEs
 
 // --- § 51: status ---
 
-test('16. status publicado reflete o estado persistido de Jornada ou Plantão', async () => {
+/**
+ * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — `statusContextoAtivo` tinha sua
+ * PRÓPRIA fórmula para Jornada (`documentos.length > 0 && publicados.length
+ * === documentos.length`), uma terceira derivação de status independente
+ * de `estadoJornadaOperacionalDashboard`/`estadoPlantaoOperacionalDashboard`
+ * — exatamente a causa raiz de uma tela poder dizer "Publicada" e outra
+ * "Sem escala" para a mesma operação/competência. Agora só reaproveita
+ * `estadoEscalaAtiva`, já calculado pela função única de status.
+ */
+test('16. status do badge superior (statusContextoAtivo) reaproveita estadoEscalaAtiva — nunca uma terceira fórmula de status independente', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const statusVar = /const statusContextoAtivo: StatusContextoEscala \| null = ([\s\S]*?);\n {2}const rotuloEscalaAtiva/u.exec(dashboard);
   assert.ok(statusVar, 'statusContextoAtivo precisa existir');
-  assert.match(statusVar[1], /publicados\.length === documentos\.length/u, 'Jornada precisa reaproveitar o cálculo já existente de "publicados"');
-  assert.match(statusVar[1], /estadoPlantaoOperacionalDashboard/u);
+  assert.doesNotMatch(statusVar[1], /publicados\.length === documentos\.length/u, 'nunca mais uma fórmula própria de "publicada" para Jornada aqui');
+  assert.match(statusVar[1], /estadoEscalaAtiva/u, 'precisa reaproveitar o status já resolvido pela função única (derivarStatusOperacaoDashboard)');
   const badge = semComentarios(await ler('components/escalas/ScheduleStatusBadge.tsx'));
   assert.match(badge, /publicada: 'Publicada'/u);
+  assert.match(badge, /'publicada-com-rascunho-pendente': 'Publicada \(rascunho pendente\)'/u);
 });
 
 test('17. status nunca vira um controle editável — ScheduleStatusBadge não tem nenhum onClick/onChange', async () => {

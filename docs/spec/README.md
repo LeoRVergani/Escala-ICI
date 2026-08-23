@@ -108,6 +108,9 @@ conciliação herda o período detectado na planilha.
 - Participar de um Plantão (`ParticipantePlantao`) nunca altera `perfil`/`escopo`/`equipeId`/`cargo` do usuário — um colaborador de Jornada pode também ser plantonista sem qualquer mudança de acesso.
 - Trocar o contexto ativo (seletor superior) nunca força a navegação para "Escalas" quando a tela atual (Visão geral, Usuários, Trocas, Administração...) continua válida — só telas de editor/rascunho (`escalas`/`grade`/`importar`) podem ser redirecionadas automaticamente.
 - O filtro de setor/equipe da tela Usuários é gerado a partir do próprio Grupo de Plantão (equipe responsável, `equipesConsulta`, unidade responsável) — nunca hardcoded por sigla, nunca duplica quem aparece em mais de uma categoria (ex.: SOC e Plantão ao mesmo tempo).
+- As operações canônicas do Dashboard são só três: SOC (`JORNADA`/`GEDSI_COSI_SOC`), NOC (`JORNADA`/`GEDSI_CODB_NOC`) e Plantão COSI (`PLANTAO`/`PLANTAO_GEDSI_COSI`) — nunca existe uma operação genérica "Plantão"; qualquer card de Plantão vem de um `GrupoPlantao` real no escopo, ou não aparece.
+- "Quais operações o Dashboard mostra, com qual status" tem uma única fonte, `resolverOperacoesDashboard()` (`lib/operacoesDashboard.ts`) — seletor superior e Visão geral nunca podem divergir sobre isso.
+- Status operacional tem 4 estados únicos (sem-escala/rascunho/publicada/publicada-com-rascunho-pendente), derivados por uma única função (`derivarStatusOperacaoDashboard()`) — nenhuma tela recalcula status por conta própria.
 
 Nota IMPORTACAO-PLANTAO-REVISAO-COMPACTA-1: a revisão de Plantão prioriza o
 Calendário no topo, usa upload compacto e move fonte/divergências para o final.
@@ -198,3 +201,18 @@ gerado a partir do próprio Grupo, nunca hardcoded), na ordem pool → setor →
 busca textual (agora cobrindo nome/login/e-mail/aliases/cargo). Confirmado
 que um usuário pode aparecer em SOC e em Plantão sem duplicar. Ver
 `docs/spec/EDITOR_ESCALAS.md` § 17.
+
+Nota PATCH-DASHBOARD-OPERACOES-SIMPLES-1: consolidou "quais operações o
+Dashboard mostra, com qual status" em `resolverOperacoesDashboard()`
+(`lib/operacoesDashboard.ts`) — sem alterar quem administra o quê
+(`resolverEscoposOperacionais`/a Matriz continuam intocados). Três operações
+canônicas, nunca uma genérica "Plantão": SOC, NOC, Plantão COSI. Causa raiz
+do card duplicado: a Visão geral renderizava o card/linha de Plantão
+incondicionalmente em 4 seções, caindo num rótulo genérico sempre que o
+usuário não tinha nenhum Grupo de Plantão no escopo (ex.: supervisora do
+NOC) — corrigido com um gate único, `possuiOperacaoPlantaoDashboard`. Causa
+raiz do status inconsistente: 3 fórmulas de status independentes que podiam
+divergir para a mesma operação/competência — corrigidas com uma única
+derivação de 4 estados (`StatusOperacaoDashboard`). Admin vê SOC+NOC+Plantão
+COSI; Claudio (`GESTOR_UNIDADE` de `GEDSI_COSI`) vê SOC+Plantão COSI, nunca
+NOC; a supervisora do NOC vê só NOC. Ver `docs/spec/EDITOR_ESCALAS.md` § 18.

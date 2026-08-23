@@ -967,3 +967,69 @@ herda um id de equipe que pode não existir no novo Grupo. Confirmado (ver
 § 16.3) que um usuário pode aparecer simultaneamente em SOC e em Plantão sem
 duplicar na lista — a classificação é sobre o mesmo pool já deduplicado por
 login, nunca uma união de arrays.
+
+## 18. PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — operações canônicas e status único
+
+### 18.1 Regra principal: uma única função de operações visíveis
+
+Antes desta fase, "quais operações o usuário vê" era decidido de forma
+independente em pelo menos quatro lugares: o seletor superior (três listas
+próprias, `opcoesContextoJornada`/`opcoesContextoPlantao`/
+`opcoesContextoPlantaoMonitorados`, mapeando `escoposOperacionais` direto),
+a Visão geral (dois "slots" fixos — `equipeJornadaDashboard`/
+`grupoPlantaoDashboard` — nunca uma lista), o status do contexto ativo no
+topo (`statusContextoAtivo`, com sua PRÓPRIA fórmula para "Jornada
+publicada") e a "Publicação da escala" (um booleano ad-hoc para Plantão que
+nunca checava se havia competência publicada). Nada impedia essas quatro
+lógicas divergirem para a mesma operação/competência.
+
+`resolverOperacoesDashboard(usuario, contexto, dados)`
+(`lib/operacoesDashboard.ts`, puro, sem React/Firebase) é agora a única
+fonte: recebe o `EscoposOperacionais` já resolvido (`resolverEscoposOperacionais`,
+inalterado — continua a autoridade normativa de quem administra/consulta o
+quê) e devolve uma lista de `OperacaoDashboard` (`tipo`, `alvoId`, `nome`,
+`status`, `ativa`, `consulta`). Cada item vem SEMPRE de um `Equipe`/
+`GrupoPlantao` real de `escopos.jornadasAdministraveis`/
+`plantoesAdministraveis`/`plantoesMonitorados` — a função não tem como
+inventar uma operação sem `alvoId` real. O seletor superior e a Visão geral
+agora leem essa MESMA lista (`operacoesDashboard`, calculada uma única vez
+por render) — nunca podem mais divergir sobre quais operações existem.
+
+### 18.2 Não existe operação genérica "Plantão"
+
+Causa raiz do card genérico duplicado: `nomePlantaoDashboard` (a Visão
+geral) já caía num fallback textual `'Plantão'` quando o usuário não tinha
+nenhum Grupo de Plantão no escopo (`grupoPlantaoDashboard === null`) — mas
+o card/linha correspondente em QUATRO seções (cards superiores, "Saúde das
+escalas", "Publicação da escala", "Alertas por operação") era renderizado
+incondicionalmente. Uma das quatro (`<strong>Plantão</strong>` na "Saúde
+das escalas") nem usava essa variável — era um literal fixo, sempre visível
+ao lado do card corretamente rotulado "Plantão COSI".
+
+Corrigido com um único gate, `possuiOperacaoPlantaoDashboard = grupoPlantaoDashboard
+!== null`, aplicado nas quatro seções: sem Grupo de Plantão no escopo, a
+seção inteira não aparece — nunca um card com nome genérico. Com Grupo no
+escopo, todas as quatro usam `{nomePlantaoDashboard}` (o nome real, ex.:
+"Plantão COSI"), nunca o literal fixo.
+
+### 18.3 Status operacional único (4 estados)
+
+`StatusOperacaoDashboard` (`lib/operacoesDashboard.ts`) tem 4 valores —
+`sem-escala` / `rascunho` / `publicada` / `publicada-com-rascunho-pendente`
+— derivados por uma única função pura, `derivarStatusOperacaoDashboard(temRascunho,
+temPublicada)`. Antes, Jornada e Plantão tinham cada uma sua própria fórmula
+inline, e NENHUMA delas distinguia "publicada" de "publicada com rascunho
+pendente": um rascunho aberto por cima de uma competência já publicada
+aparecia só como "Rascunho", escondendo que já existe algo publicado — e a
+"Publicação da escala" de Plantão nem chegava a checar se havia publicação
+(`plantaoPossuiEscalaDashboard ? 'Rascunho' : 'Sem escala'`, nunca
+"Publicada"). O badge do contexto ativo (topo/aba Escalas,
+`ScheduleStatusBadge`) também tinha uma TERCEIRA fórmula independente só
+para Jornada (`documentos.length > 0 && publicados.length === documentos.length`).
+
+As três foram substituídas por chamadas à mesma função: `estadoJornadaDashboard`/
+`estadoPlantaoDashboard` (Visão geral, Publicação, Alertas) e
+`statusContextoAtivo` (badge do topo/aba Escalas) agora sempre derivam do
+mesmo `derivarStatusOperacaoDashboard`, nunca uma fórmula própria. Plantão
+COSI publicado aparece como "Publicada" em todo lugar — nunca "Sem escala"
+numa tela e "Publicada" em outra.

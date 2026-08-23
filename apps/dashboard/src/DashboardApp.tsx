@@ -332,6 +332,14 @@ import {
   type EscoposOperacionais,
 } from '@/lib/escoposOperacionais';
 import {
+  classeSaudeOperacaoDashboard,
+  derivarStatusOperacaoDashboard,
+  resolverOperacoesDashboard,
+  rotuloStatusOperacaoDashboard,
+  type OperacaoDashboard,
+  type StatusOperacaoDashboard,
+} from '@/lib/operacoesDashboard';
+import {
   usuarioPodeAdministrarAlvoOperacional,
   usuarioPodeConsultarPlantaoOperacional,
 } from '@/lib/escoposOperacionaisMatriz';
@@ -539,7 +547,14 @@ function formatarHorasDescanso(horas: number): string {
 }
 
 type EstadoPublicacaoVisual = 'completo' | 'parcial' | 'vazio';
-type EstadoEscalaOperacionalDashboard = 'sem-escala' | 'rascunho' | 'publicada';
+/**
+ * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — alias local só para não repetir o
+ * import em todo call site; o TIPO e a DERIVAÇÃO de status são únicos e
+ * vivem em `lib/operacoesDashboard.ts` (`StatusOperacaoDashboard`/
+ * `derivarStatusOperacaoDashboard`). Nenhuma tela deste arquivo volta a
+ * calcular status por conta própria.
+ */
+type EstadoEscalaOperacionalDashboard = StatusOperacaoDashboard;
 
 interface ResumoPublicacao {
   estado: EstadoPublicacaoVisual;
@@ -566,36 +581,33 @@ interface ResumoPlantaoDashboard {
   participantesAtivos: number;
 }
 
+/** Converte o resumo local (working copy quando em contexto, ou snapshot persistido) para o formato genérico que `derivarStatusOperacaoDashboard` espera. */
+function statusJornadaResumo(resumo: ResumoJornadaDashboard | null): { temRascunho: boolean; temPublicada: boolean } {
+  return {
+    temRascunho: (resumo?.rascunhos.length ?? 0) > 0,
+    temPublicada: (resumo?.publicadas.length ?? 0) > 0,
+  };
+}
+
+function statusPlantaoResumo(resumo: ResumoPlantaoDashboard | null): { temRascunho: boolean; temPublicada: boolean } {
+  return {
+    temRascunho: resumo?.competenciaRascunho != null,
+    temPublicada: resumo?.competenciaPublicada != null,
+  };
+}
+
 function estadoJornadaDashboard(resumo: ResumoJornadaDashboard | null): EstadoEscalaOperacionalDashboard {
-  if (resumo === null || resumo.documentos.length === 0) {
-    return 'sem-escala';
-  }
-  return resumo.publicadas.length > 0 && resumo.rascunhos.length === 0 ? 'publicada' : 'rascunho';
+  const { temRascunho, temPublicada } = statusJornadaResumo(resumo);
+  return derivarStatusOperacaoDashboard(temRascunho, temPublicada);
 }
 
 function estadoPlantaoDashboard(resumo: ResumoPlantaoDashboard | null): EstadoEscalaOperacionalDashboard {
-  if (resumo === null) return 'sem-escala';
-  if (resumo.competenciaRascunho !== null) return 'rascunho';
-  return resumo.competenciaPublicada !== null ? 'publicada' : 'sem-escala';
+  const { temRascunho, temPublicada } = statusPlantaoResumo(resumo);
+  return derivarStatusOperacaoDashboard(temRascunho, temPublicada);
 }
 
-function classeSaudeOperacional(estado: EstadoEscalaOperacionalDashboard, alertas: number): 'stable' | 'attention' | 'empty' {
-  if (estado === 'sem-escala') {
-    return 'empty';
-  }
-  return alertas > 0 ? 'attention' : 'stable';
-}
-
-function rotuloEstadoEscalaOperacional(estado: EstadoEscalaOperacionalDashboard): string {
-  switch (estado) {
-    case 'publicada':
-      return 'Publicada';
-    case 'rascunho':
-      return 'Rascunho';
-    default:
-      return 'Sem escala';
-  }
-}
+const classeSaudeOperacional = classeSaudeOperacaoDashboard;
+const rotuloEstadoEscalaOperacional = rotuloStatusOperacaoDashboard;
 
 function resumoPublicacaoJornada(resumo: ResumoJornadaDashboard | null): ResumoPublicacao {
   const estado = estadoJornadaDashboard(resumo);
@@ -611,6 +623,13 @@ function resumoPublicacaoJornada(resumo: ResumoJornadaDashboard | null): ResumoP
       estado: 'parcial',
       titulo: 'Rascunho não publicado',
       descricao: 'Existe rascunho para a competência, mas ele ainda não foi publicado.',
+    };
+  }
+  if (estado === 'publicada-com-rascunho-pendente') {
+    return {
+      estado: 'parcial',
+      titulo: 'Publicada, com rascunho pendente',
+      descricao: 'Já existe uma publicação disponível, mas um rascunho mais recente ainda não foi publicado.',
     };
   }
   return {
@@ -3767,6 +3786,17 @@ export function DashboardApp() {
     : Math.max(18, 100 - Math.min(82, plantaoAlertasDashboard * 12));
   const rotuloSaudeDashboard = (status: 'stable' | 'attention' | 'empty') =>
     status === 'stable' ? 'Operação estável' : status === 'attention' ? 'Revisão necessária' : 'Sem escala';
+  /**
+   * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — causa raiz do card genérico
+   * "Plantão": `grupoPlantaoDashboard` é `null` sempre que o usuário não
+   * tem NENHUM Grupo de Plantão no escopo (ex.: supervisora do NOC), mas o
+   * card/linha de Plantão da Visão geral era renderizado incondicionalmente
+   * — caindo neste fallback textual em vez de simplesmente não aparecer.
+   * `possuiOperacaoPlantaoDashboard` passa a gatear cada um desses pontos;
+   * o fallback deixou de ser necessário (nunca mais renderizado), mas
+   * permanece como defesa — nunca inventa uma operação sem Grupo real.
+   */
+  const possuiOperacaoPlantaoDashboard = grupoPlantaoDashboard !== null;
   const nomePlantaoDashboard = grupoPlantaoDashboard?.nome ?? 'Plantão';
   const opcoesDataResumoDashboard = { day: '2-digit', month: '2-digit', year: 'numeric' } as const;
   const periodoJornadaDashboard = resumoJornadaDashboard === null
@@ -3781,6 +3811,36 @@ export function DashboardApp() {
     : `${participantesPlantaoDashboard} ${participantesPlantaoDashboard === 1 ? 'participante' : 'participantes'} · nenhum rascunho`;
   const chaveJornadasDashboard = escoposOperacionais.jornadasAdministraveis.map((equipe) => equipe.id).join('|');
   const chavePlantoesDashboard = escoposOperacionais.plantoesAdministraveis.map((grupo) => grupo.grupoId).join('|');
+
+  /**
+   * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — Regra principal: única lista de
+   * "operações visíveis" do Dashboard. Para a operação que É o contexto
+   * ativo agora, usa o resumo "ao vivo" (`resumoJornadaDashboard`/
+   * `resumoPlantaoDashboard`, que já reflete edição não salva); para as
+   * demais, usa só o snapshot persistido (`resumosJornadaDashboard`/
+   * `resumosPlantaoDashboard`) — não há dado "ao vivo" de uma operação que
+   * não está sendo editada agora. Seletor superior, Visão geral, Escalas,
+   * Publicação da escala e Alertas por operação leem só esta lista.
+   */
+  function statusJornadaOperacao(equipeId: string): { temRascunho: boolean; temPublicada: boolean } {
+    if (equipeId === equipeJornadaDashboardId) {
+      return statusJornadaResumo(resumoJornadaDashboard);
+    }
+    return statusJornadaResumo(resumosJornadaDashboard[`${equipeId}:${competenciaDashboard}`] ?? null);
+  }
+  function statusPlantaoOperacao(grupoId: string): { temRascunho: boolean; temPublicada: boolean } {
+    if (grupoId === grupoPlantaoDashboard?.grupoId) {
+      return statusPlantaoResumo(resumoPlantaoDashboard);
+    }
+    return statusPlantaoResumo(resumosPlantaoDashboard[`${grupoId}:${competenciaDashboard}`] ?? null);
+  }
+  const operacoesDashboard: OperacaoDashboard[] = usuarioReal !== null
+    ? resolverOperacoesDashboard(usuarioReal, contextoEscalaAtivo, {
+      escopos: escoposOperacionais,
+      statusJornada: statusJornadaOperacao,
+      statusPlantao: statusPlantaoOperacao,
+    })
+    : [];
 
   useEffect(() => {
     if (modoDemo || usuarioReal === null) {
@@ -7861,18 +7921,23 @@ export function DashboardApp() {
    * uma segunda Jornada. Se no futuro a mesma equipe tiver os dois produtos,
    * o contexto Jornada já ativo continua preservado.
    */
-  const opcoesContextoJornada: OpcaoContextoEscala[] = escoposOperacionais.jornadasAdministraveis.map((equipe) => ({
-    contexto: criarContextoEscala(
-      'JORNADA',
-      equipe.id,
-      equipe.nome,
-      contextoEhJornada(contextoEscalaAtivo) && contextoEscalaAtivo.alvoId === equipe.id
+  function contextoOpcaoOperacao(operacao: OperacaoDashboard): ContextoEscalaAtivo {
+    return criarContextoEscala(
+      operacao.tipo,
+      operacao.alvoId,
+      operacao.nome,
+      contextoEscalaAtivo !== null && contextoEscalaAtivo.tipo === operacao.tipo && contextoEscalaAtivo.alvoId === operacao.alvoId
         ? contextoEscalaAtivo.competencia
         : competenciaParaNovasOpcoes,
-    ),
-    rotuloPrincipal: equipe.nome,
-    rotuloSecundario: 'Jornada 6x1',
-  }));
+    );
+  }
+  const opcoesContextoJornada: OpcaoContextoEscala[] = operacoesDashboard
+    .filter((operacao) => operacao.tipo === 'JORNADA')
+    .map((operacao) => ({
+      contexto: contextoOpcaoOperacao(operacao),
+      rotuloPrincipal: operacao.nome,
+      rotuloSecundario: 'Jornada 6x1',
+    }));
   /**
    * FASE ESCALAS-UX-2A.1-FIX (Problema 3) — o switcher desta fase só
    * oferece para EDIÇÃO os grupos que o usuário administra
@@ -7885,20 +7950,22 @@ export function DashboardApp() {
    * Não é mudança de ACL/Rules/GrupoPlantao — é só filtro de UX deste
    * seletor. Depois de PLANTÃO-3C isto pode evoluir para distinguir
    * Editáveis/Consulta ou abrir uma escala publicada read-only.
+   *
+   * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — ambas as listas abaixo agora
+   * filtram `operacoesDashboard` (a única fonte, `resolverOperacoesDashboard`)
+   * em vez de mapear `escoposOperacionais` direto — o seletor superior e a
+   * Visão geral nunca podem divergir sobre quais operações existem.
    */
-  const opcoesContextoPlantao: OpcaoContextoEscala[] = escoposOperacionais.plantoesAdministraveis
-    .map((grupo) => ({
-      contexto: criarContextoEscala(
-        'PLANTAO',
-        grupo.grupoId,
-        grupo.nome,
-        contextoEhPlantao(contextoEscalaAtivo) && contextoEscalaAtivo.alvoId === grupo.grupoId
-          ? contextoEscalaAtivo.competencia
-          : competenciaParaNovasOpcoes,
-      ),
-      rotuloPrincipal: grupo.nome,
-      rotuloSecundario: equipesAdmin.find((item) => item.id === grupo.equipeResponsavelId)?.nome ?? grupo.equipeResponsavelId,
-    }));
+  const opcoesContextoPlantao: OpcaoContextoEscala[] = operacoesDashboard
+    .filter((operacao) => operacao.tipo === 'PLANTAO' && !operacao.consulta)
+    .map((operacao) => {
+      const grupo = escoposOperacionais.plantoesAdministraveis.find((item) => item.grupoId === operacao.alvoId);
+      return {
+        contexto: contextoOpcaoOperacao(operacao),
+        rotuloPrincipal: operacao.nome,
+        rotuloSecundario: equipesAdmin.find((item) => item.id === grupo?.equipeResponsavelId)?.nome ?? grupo?.equipeResponsavelId ?? '',
+      };
+    });
   /**
    * Fase ESCOPO-CONSULTA-PLANTAO-1 — seção separada de "Plantões
    * monitorados" no seletor superior: Grupos que a equipe do usuário só
@@ -7906,19 +7973,16 @@ export function DashboardApp() {
    * misturado com `opcoesContextoPlantao` (administráveis) — consulta não
    * é administração.
    */
-  const opcoesContextoPlantaoMonitorados: OpcaoContextoEscala[] = escoposOperacionais.plantoesMonitorados
-    .map((grupo) => ({
-      contexto: criarContextoEscala(
-        'PLANTAO',
-        grupo.grupoId,
-        grupo.nome,
-        contextoEhPlantao(contextoEscalaAtivo) && contextoEscalaAtivo.alvoId === grupo.grupoId
-          ? contextoEscalaAtivo.competencia
-          : competenciaParaNovasOpcoes,
-      ),
-      rotuloPrincipal: grupo.nome,
-      rotuloSecundario: equipesAdmin.find((item) => item.id === grupo.equipeResponsavelId)?.nome ?? grupo.equipeResponsavelId,
-    }));
+  const opcoesContextoPlantaoMonitorados: OpcaoContextoEscala[] = operacoesDashboard
+    .filter((operacao) => operacao.tipo === 'PLANTAO' && operacao.consulta)
+    .map((operacao) => {
+      const grupo = escoposOperacionais.plantoesMonitorados.find((item) => item.grupoId === operacao.alvoId);
+      return {
+        contexto: contextoOpcaoOperacao(operacao),
+        rotuloPrincipal: operacao.nome,
+        rotuloSecundario: equipesAdmin.find((item) => item.id === grupo?.equipeResponsavelId)?.nome ?? grupo?.equipeResponsavelId ?? '',
+      };
+    });
   /**
    * `true` quando o contexto de Plantão ativo agora é só consultável (o
    * grupo está em `plantoesConsultaveis`, nunca em `plantoesAdministraveis`)
@@ -7936,21 +8000,25 @@ export function DashboardApp() {
         ? 'Nenhuma operação configurada'
         : 'Selecionar escala'
     : contextoEscalaAtivo.label;
+  const estadoEscalaAtiva = contextoEhPlantao(contextoEscalaAtivo)
+    ? estadoPlantaoOperacionalDashboard
+    : estadoJornadaOperacionalDashboard;
   /**
-   * Status contextual (§ 17/§ 18 do redesign): "Publicada" para Jornada só
-   * reflete um fato já calculado por `publicados`/`documentos` (nunca uma
-   * funcionalidade nova) — Plantão nunca mostra "Publicada" nesta fase
-   * (PLANTÃO-3C não existe ainda), só "Rascunho"/"Sem escala".
+   * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — antes recalculava "Publicada"
+   * para Jornada por conta própria (`documentos.length > 0 &&
+   * publicados.length === documentos.length`), uma TERCEIRA derivação de
+   * status independente de `estadoJornadaOperacionalDashboard`/
+   * `estadoPlantaoOperacionalDashboard` (a mesma causa raiz do "status
+   * operacional único": nada impedia essas três lógicas divergirem para a
+   * mesma operação/competência). Agora só reaproveita `estadoEscalaAtiva`,
+   * já calculado pela mesma função (`derivarStatusOperacaoDashboard`) usada
+   * em toda outra tela.
    */
   const statusContextoAtivo: StatusContextoEscala | null = contextoEscalaAtivo === null
     ? null
     : contextoSemEscala
       ? 'sem-escala'
-      : contextoEhPlantao(contextoEscalaAtivo)
-        ? estadoPlantaoOperacionalDashboard === 'publicada' ? 'publicada' : 'rascunho'
-      : (contextoEhJornada(contextoEscalaAtivo) && documentos.length > 0 && publicados.length === documentos.length)
-        ? 'publicada'
-        : 'rascunho';
+      : estadoEscalaAtiva;
   const rotuloEscalaAtiva = contextoEscalaAtivo?.label ?? 'Nenhuma escala selecionada';
   const periodoEscalaAtiva = contextoEhJornada(contextoEscalaAtivo) && resultado !== null
     ? `${formatarData(resultado.periodoInicio, opcoesDataResumoDashboard)} até ${formatarData(resultado.periodoFim, opcoesDataResumoDashboard)}`
@@ -7960,9 +8028,6 @@ export function DashboardApp() {
   const quantidadePessoasEscalaAtiva = contextoEhPlantao(contextoEscalaAtivo)
     ? participantesPlantaoDashboard
     : documentos.length;
-  const estadoEscalaAtiva = contextoEhPlantao(contextoEscalaAtivo)
-    ? estadoPlantaoOperacionalDashboard
-    : estadoJornadaOperacionalDashboard;
   const [anoEscalaAtiva = '', mesEscalaAtiva = ''] = (contextoEscalaAtivo?.competencia ?? competenciaDashboard).split('-');
   const mesCurtoEscalaAtiva = /^\d{4}$/u.test(anoEscalaAtiva) && /^\d{2}$/u.test(mesEscalaAtiva)
     ? new Intl.DateTimeFormat('pt-BR', { month: 'short', timeZone: 'UTC' })
@@ -8113,6 +8178,16 @@ export function DashboardApp() {
               <span className="overview-operation-action"><Pencil size={15} /> Abrir operação {nomeJornadaDashboard} <ArrowUpRight size={16} /></span>
             </button>
 
+            {/*
+             * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — o card de Plantão só
+             * existe quando o usuário TEM um Grupo de Plantão real no
+             * escopo (`possuiOperacaoPlantaoDashboard`). Antes era
+             * incondicional: quem não tem nenhum Plantão (ex.: supervisora
+             * do NOC) via um card com o rótulo genérico "Plantão"
+             * (fallback de `nomePlantaoDashboard`) em vez de nada — a causa
+             * raiz do "card genérico Plantão" relatado.
+             */}
+            {possuiOperacaoPlantaoDashboard && (
             <button
               className={`overview-operation-card ${plantaoStatusDashboard}`}
               type="button"
@@ -8129,17 +8204,20 @@ export function DashboardApp() {
                 <span><AlertTriangle size={16} /><small>Alertas</small><strong>{plantaoAlertasDashboard}</strong><em>{plantaoPossuiEscalaDashboard ? 'na operação' : 'nenhuma escala criada'}</em></span>
               </span>
               <span className="overview-operation-health"><i style={{ width: `${healthBarPlantao}%` }} /></span>
-              <span className="overview-operation-action"><Radio size={15} /> Abrir operação Plantão <ArrowUpRight size={16} /></span>
+              <span className="overview-operation-action"><Radio size={15} /> Abrir operação {nomePlantaoDashboard} <ArrowUpRight size={16} /></span>
             </button>
+            )}
           </div>
 
           <div className="metric-grid overview-summary-metrics">
-            <article><span>Colaboradores</span><strong>{colaboradoresOperacoesDashboard}</strong><small>ativos nas duas operações</small></article>
+            <article><span>Colaboradores</span><strong>{colaboradoresOperacoesDashboard}</strong><small>{possuiOperacaoPlantaoDashboard ? 'ativos nas duas operações' : 'ativos na operação'}</small></article>
             <article><span>Dias no período</span><strong>{totaisGerais.dias || 31}</strong><small>{formatarCompetencia(competenciaDashboard)}</small></article>
             <article className="overview-health-summary">
               <div className="overview-health-summary-heading"><span>Saúde das escalas</span><ShieldCheck size={18} /></div>
               <div className="overview-health-row"><strong>{nomeJornadaDashboard}</strong><small className={socStatusDashboard}>{rotuloSaudeDashboard(socStatusDashboard)}</small><b>{estadoJornadaOperacionalDashboard === 'sem-escala' ? '—' : `${healthBarSoc}%`}</b><i><em style={{ width: `${healthBarSoc}%` }} /></i></div>
-              <div className="overview-health-row"><strong>Plantão</strong><small className={plantaoStatusDashboard}>{rotuloSaudeDashboard(plantaoStatusDashboard)}</small><b>{estadoPlantaoOperacionalDashboard === 'sem-escala' ? '—' : `${healthBarPlantao}%`}</b><i><em style={{ width: `${healthBarPlantao}%` }} /></i></div>
+              {possuiOperacaoPlantaoDashboard && (
+              <div className="overview-health-row"><strong>{nomePlantaoDashboard}</strong><small className={plantaoStatusDashboard}>{rotuloSaudeDashboard(plantaoStatusDashboard)}</small><b>{estadoPlantaoOperacionalDashboard === 'sem-escala' ? '—' : `${healthBarPlantao}%`}</b><i><em style={{ width: `${healthBarPlantao}%` }} /></i></div>
+              )}
               <small className="overview-health-note">{pendenciasDashboard > 0 ? `${pendenciasDashboard} ${pendenciasDashboard === 1 ? 'pendência requer' : 'pendências requerem'} atenção` : 'Nenhuma pendência operacional'}</small>
             </article>
             <article><span>Pendências</span><strong>{pendenciasDashboard}</strong><small>requerem atenção</small></article>
@@ -8150,7 +8228,9 @@ export function DashboardApp() {
               <div className="panel-title"><div><h2>Publicação da escala</h2><p>Disponibilidade no aplicativo</p></div><ShieldCheck /></div>
               <div className="overview-operation-list">
                 <button type="button" onClick={() => abrirOperacaoDoDashboard('JORNADA')}><ShieldCheck size={18} /><span><strong>{nomeJornadaDashboard}</strong><small>{resumoPublicacaoDashboard.titulo}</small></span><em className={resumoPublicacaoDashboard.estado}>{rotuloEstadoEscalaOperacional(estadoJornadaOperacionalDashboard)}</em><ChevronRight size={15} /></button>
-                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>{nomePlantaoDashboard}</strong><small>{plantaoPossuiEscalaDashboard ? 'Rascunho disponível' : 'Nenhuma escala criada'}</small></span><em className={plantaoPossuiEscalaDashboard ? 'parcial' : 'vazio'}>{plantaoPossuiEscalaDashboard ? 'Rascunho' : 'Sem escala'}</em><ChevronRight size={15} /></button>
+                {possuiOperacaoPlantaoDashboard && (
+                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>{nomePlantaoDashboard}</strong><small>{plantaoPossuiEscalaDashboard ? 'Rascunho disponível' : 'Nenhuma escala criada'}</small></span><em className={estadoPlantaoOperacionalDashboard === 'sem-escala' ? 'vazio' : estadoPlantaoOperacionalDashboard === 'publicada' ? 'completo' : 'parcial'}>{rotuloEstadoEscalaOperacional(estadoPlantaoOperacionalDashboard)}</em><ChevronRight size={15} /></button>
+                )}
               </div>
               <button className="overview-card-link" type="button" onClick={() => setTela('escalas')}>Ver escalas e histórico <ChevronRight size={16} /></button>
             </article>
@@ -8159,7 +8239,9 @@ export function DashboardApp() {
               <div className="panel-title"><div><h2>Alertas por operação</h2><p>Pontos que merecem atenção do gestor</p></div><Bell size={18} /></div>
               <div className="overview-operation-list">
                 <button type="button" onClick={() => abrirOperacaoDoDashboard('JORNADA')}><ShieldCheck size={18} /><span><strong>{nomeJornadaDashboard}</strong><small>Jornada 6x1</small></span><em className={socStatusDashboard}>{alertasJornadaDashboard}</em><ChevronRight size={15} /></button>
+                {possuiOperacaoPlantaoDashboard && (
                 <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>{nomePlantaoDashboard}</strong><small>{plantaoMetricasDashboard}</small></span><em className={plantaoStatusDashboard}>{plantaoAlertasDashboard}</em><ChevronRight size={15} /></button>
+                )}
               </div>
               <button className="overview-card-link" type="button" onClick={() => setAlertaSelecionado(alertasVisiveis[0] ?? null)}>Ver alertas de {nomeJornadaDashboard} <ChevronRight size={16} /></button>
             </article>

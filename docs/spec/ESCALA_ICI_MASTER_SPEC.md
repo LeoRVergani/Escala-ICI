@@ -421,3 +421,25 @@ pool → setor → busca textual (agora cobrindo nome/login/e-mail/aliases/
 cargo). Confirmado de novo que um usuário pode aparecer em SOC e em Plantão
 ao mesmo tempo sem duplicar na lista, e que o filtro nunca altera `perfil`/
 `escopo`/`equipeId`/`cargo`. Ver `docs/spec/EDITOR_ESCALAS.md` § 17.
+
+**PATCH-DASHBOARD-OPERACOES-SIMPLES-1** consolidou "quais operações o
+Dashboard mostra, com qual status" numa única função,
+`resolverOperacoesDashboard(usuario, contexto, dados)`
+(`lib/operacoesDashboard.ts`) — sem alterar quem administra o quê
+(`resolverEscoposOperacionais`/a Matriz continuam a autoridade normativa,
+intocadas). As três operações canônicas continuam sendo exatamente SOC
+(`JORNADA`/`GEDSI_COSI_SOC`), NOC (`JORNADA`/`GEDSI_CODB_NOC`) e Plantão
+COSI (`PLANTAO`/`PLANTAO_GEDSI_COSI`) — nunca uma operação genérica
+"Plantão". Causa raiz do card duplicado: a Visão geral renderizava um
+card/linha de Plantão incondicionalmente em quatro seções, caindo num
+fallback textual `'Plantão'` (ou, numa delas, um literal fixo) sempre que o
+usuário não tinha nenhum Grupo de Plantão no escopo — corrigido com um gate
+único (`possuiOperacaoPlantaoDashboard`). Causa raiz do status
+inconsistente: existiam três fórmulas de status independentes (Jornada,
+Plantão, e uma terceira só para o badge do contexto ativo) que podiam
+divergir para a mesma operação/competência — corrigidas com uma única
+derivação de 4 estados (`StatusOperacaoDashboard`: sem-escala/rascunho/
+publicada/publicada-com-rascunho-pendente). Admin vê SOC+NOC+Plantão COSI;
+`GESTOR_UNIDADE` de `GEDSI_COSI` vê SOC+Plantão COSI (nunca NOC);
+`GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` de `GEDSI_CODB_NOC` vê só NOC. Ver
+`docs/spec/EDITOR_ESCALAS.md` § 18 e `docs/spec/ESCOPO_OPERACIONAL_MATRIZ.md`.
