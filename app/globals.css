@@ -1446,10 +1446,9 @@ button.shift-chip:disabled { cursor: default; }
 .plantao-contato-chip-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .plantao-contato-chip-info small {
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
   overflow-wrap: anywhere;
 }
 .plantao-contato-chip-info strong {
@@ -3438,6 +3437,31 @@ button.shift-chip:disabled { cursor: default; }
   border-radius: 15px;
 }
 
+/*
+ * FASE-APP-UX-VISUAL-POLIMENTO-1 — quando Jornada 6x1 E Plantão convivem em
+ * "Hoje", o `.plantao-hoje-card` vinha depois de `.week-strip` (que já
+ * ocupa a linha inteira via `grid-column: 1 / -1`), então o auto-placement
+ * do grid o jogava sozinho numa nova linha de 2 colunas — deixando metade
+ * da largura vazia ao lado dele. Aqui ele também ganha a linha inteira,
+ * do mesmo jeito que `.week-strip` (ver referências visuais em
+ * `docs/spec/` — cards precisam ocupar bem a largura no desktop).
+ */
+.app-shell.product-app .today-dashboard-grid > .plantao-hoje-card {
+  grid-column: 1 / -1;
+}
+.app-shell.product-app .today-dashboard-grid > .plantao-hoje-card .plantao-contatos-lista {
+  max-width: 640px;
+}
+
+/*
+ * FASE-APP-UX-VISUAL-POLIMENTO-1 — a aba "Plantão" empilhava "De plantão
+ * agora" e "Próximo plantonista" cada um em 100% da largura (sem grid
+ * nenhum), diferente da aba "Hoje", que já usa `.today-dashboard-grid`
+ * pros mesmos dois tipos de card lado a lado. `.plantao-screen-grid`
+ * reaproveita a MESMA grade (sem duplicar breakpoints).
+ */
+.plantao-screen-grid { margin-bottom: 18px; }
+
 .app-shell.product-app .today-card-heading {
   min-height: 47px;
   padding-inline: 18px;
@@ -5290,12 +5314,18 @@ fieldset.checkbox-card-list > legend {
  * pedido era "cada contato é um bloco/card", não uma linha de 3 campos
  * espremidos.
  */
-.app-contact-list { display: flex; flex-direction: column; gap: 16px; margin: 14px 0; max-width: 640px; }
+.app-contact-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+  margin: 14px 0;
+  max-width: 920px;
+}
 .app-contact-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 16px;
+  padding: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
   background: var(--surface);
@@ -5319,17 +5349,16 @@ fieldset.checkbox-card-list > legend {
 .app-contact-add-button { align-self: flex-start; }
 
 /*
- * FASE-APP-UX-PLANTAO-POLIMENTO-2 — no desktop, `.profile-plantao-contatos`
- * ocupa a largura toda de `.profile-layout` (até a `max-width` do
- * workspace), então Rótulo/Número empilhados ficavam com inputs enormes.
- * A partir de 640px, os dois campos dividem a linha — o `.app-contact-list`
- * acima já limita a largura do card em si (`max-width: 640px`).
+ * FASE-APP-UX-VISUAL-POLIMENTO-1 — `.app-contact-list` virou grid (cards
+ * lado a lado, até ~240px cada) para o Perfil ficar mais compacto no
+ * desktop, em vez de cada contato empilhado ocupando 100% da largura do
+ * painel. Card mais estreito não sobra espaço para Rótulo/Número lado a
+ * lado — por isso os campos continuam empilhados dentro do card (sem o
+ * `flex-direction: row` que existia quando o card em si tinha 640px).
  */
-@media (min-width: 640px) {
-  .app-contact-card-fields { flex-direction: row; gap: 12px; }
-}
 
 @media (max-width: 560px) {
+  .app-contact-list { grid-template-columns: 1fr; }
   .app-contact-add-button,
   .app-contact-submit-button { width: 100%; justify-content: center; }
 }

@@ -376,7 +376,7 @@ function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso
   const contatosAtual = resumo.atual ? contatosAtivosDoPlantonista(resumo.atual.plantonistaLogin, participantes) : [];
 
   return (
-    <article className="today-hero" data-state={resumo.atual !== null ? 'PLANTAO' : 'DESCANSO'}>
+    <article className="today-hero plantao-hoje-card" data-state={resumo.atual !== null ? 'PLANTAO' : 'DESCANSO'}>
       <header className="today-card-heading">
         <span>Plantão de hoje</span>
       </header>
@@ -3064,61 +3064,63 @@ export function EmployeeApp() {
 
             return (
               <>
-                <article className="today-hero" data-state={resumo.atual !== null ? 'PLANTAO' : 'DESCANSO'}>
-                  <header className="today-card-heading">
-                    <span>De plantão agora</span>
-                  </header>
-                  {resumo.atual === null || horarioAtual === null ? (
-                    <p className="today-rest-copy">Ninguém está de plantão neste momento.</p>
-                  ) : (
-                    <>
-                      <div className="today-hero-heading">
-                        <span className="today-hero-icon">{inicialPlantonista(nomeAtual ?? '')}</span>
-                        <div>
-                          <strong className="today-shift-name">{nomeAtual}</strong>
-                          <div className="today-hours"><strong>{rotuloHorarioPlantaoExibicao(horarioAtual)}</strong></div>
+                <div className="today-summary-grid today-dashboard-grid plantao-screen-grid">
+                  <article className="today-hero" data-state={resumo.atual !== null ? 'PLANTAO' : 'DESCANSO'}>
+                    <header className="today-card-heading">
+                      <span>De plantão agora</span>
+                    </header>
+                    {resumo.atual === null || horarioAtual === null ? (
+                      <p className="today-rest-copy">Ninguém está de plantão neste momento.</p>
+                    ) : (
+                      <>
+                        <div className="today-hero-heading">
+                          <span className="today-hero-icon">{inicialPlantonista(nomeAtual ?? '')}</span>
+                          <div>
+                            <strong className="today-shift-name">{nomeAtual}</strong>
+                            <div className="today-hours"><strong>{rotuloHorarioPlantaoExibicao(horarioAtual)}</strong></div>
+                          </div>
                         </div>
-                      </div>
-                      <div className="today-meta">
-                        <span className="live-badge">
-                          <i /> Até {horarioAtual.horaFim}{horarioAtual.cruzaDiaSeguinte ? ' (amanhã)' : ''}
-                        </span>
-                      </div>
-                      {contatosAtual.length > 0 && (
-                        <div className="plantao-contatos-lista">
-                          {contatosAtual.map((contato) => (
-                            <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
-                              <span className="plantao-contato-chip-icone"><Phone size={13} /></span>
-                              <span className="plantao-contato-chip-info">
-                                <small>{contato.rotulo}</small>
-                                <strong>{contato.numero}</strong>
+                        <div className="today-meta">
+                          <span className="live-badge">
+                            <i /> Até {horarioAtual.horaFim}{horarioAtual.cruzaDiaSeguinte ? ' (amanhã)' : ''}
+                          </span>
+                        </div>
+                        {contatosAtual.length > 0 && (
+                          <div className="plantao-contatos-lista">
+                            {contatosAtual.map((contato) => (
+                              <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
+                                <span className="plantao-contato-chip-icone"><Phone size={13} /></span>
+                                <span className="plantao-contato-chip-info">
+                                  <small>{contato.rotulo}</small>
+                                  <strong>{contato.numero}</strong>
+                                </span>
                               </span>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </article>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </article>
 
-                <article className="panel next-shift-card">
-                  <header className="today-card-heading">
-                    <span>Próximo plantonista</span>
-                    <CalendarCheck2 size={17} />
-                  </header>
-                  {resumo.proximo === null || horarioProximo === null ? (
-                    <p className="empty-inline">Nenhum próximo plantão publicado.</p>
-                  ) : (
-                    <div className="next-shift-title">
-                      <span className="next-shift-icon">{inicialPlantonista(nomeProximo ?? '')}</span>
-                      <div>
-                        <strong>{nomeProximo}</strong>
-                        <span>{rotuloHorarioPlantaoExibicao(horarioProximo)}</span>
-                        <small>Troca de plantonista</small>
+                  <article className="panel next-shift-card">
+                    <header className="today-card-heading">
+                      <span>Próximo plantonista</span>
+                      <CalendarCheck2 size={17} />
+                    </header>
+                    {resumo.proximo === null || horarioProximo === null ? (
+                      <p className="empty-inline">Nenhum próximo plantão publicado.</p>
+                    ) : (
+                      <div className="next-shift-title">
+                        <span className="next-shift-icon">{inicialPlantonista(nomeProximo ?? '')}</span>
+                        <div>
+                          <strong>{nomeProximo}</strong>
+                          <span>{rotuloHorarioPlantaoExibicao(horarioProximo)}</span>
+                          <small>Troca de plantonista</small>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </article>
+                    )}
+                  </article>
+                </div>
 
                 {periodoPlantaoApp && (
                   <article className="panel">
