@@ -42,6 +42,32 @@ export function resolverPlantaoAgora(
   return { atual, proximo };
 }
 
+/**
+ * PATCH-NOC-SUPERVISAO-CONSULTA-PLANTAO-UX-1 — classifica o que a aba "Hoje"
+ * deve destacar quando ninguém está de plantão agora (`resumo.atual ===
+ * null`): o próximo plantão ainda hoje, o próximo plantão futuro (outro
+ * dia), ou nenhum plantão publicado daqui pra frente. Nunca usa
+ * `resumo.atual` — quem chama já sabe tratar esse caso separadamente.
+ */
+export type DestaquePlantaoHoje =
+  | { estado: 'PROXIMO_HOJE' | 'PROXIMO_FUTURO'; atribuicao: AtribuicaoPlantaoPersistida }
+  | { estado: 'VAZIO' };
+
+export function resolverDestaquePlantaoHoje(
+  resumo: PlantaoAgoraResumo,
+  timezone: string,
+  dataHoje: string,
+): DestaquePlantaoHoje {
+  if (resumo.proximo === null) {
+    return { estado: 'VAZIO' };
+  }
+  const intervalo = intervaloPlantaoCivil(resumo.proximo, timezone);
+  return {
+    estado: intervalo.valido && intervalo.dataInicio === dataHoje ? 'PROXIMO_HOJE' : 'PROXIMO_FUTURO',
+    atribuicao: resumo.proximo,
+  };
+}
+
 export function nomeExibicaoPlantonista(login: string, usuarios: readonly Usuario[]): string {
   return usuarios.find((usuario) => usuario.login === login)?.nome ?? login;
 }

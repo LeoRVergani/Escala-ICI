@@ -220,6 +220,7 @@ export function AppFrame({
           )}
           <div className="topbar-actions">
             {acoesTopo}
+            <ThemeToggle />
             {perfil && (
               <button
                 className={`icon-button profile-header-button ${perfil.ativo ? 'active' : ''}`}
@@ -231,7 +232,6 @@ export function AppFrame({
                 <span className="profile-header-avatar">{perfil.iniciais}</span>
               </button>
             )}
-            <ThemeToggle />
             {produto === 'dashboard' && (
               <a
                 className="product-link"

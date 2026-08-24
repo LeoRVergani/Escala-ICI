@@ -1320,6 +1320,92 @@ describe('regras Firestore do Escala ICI', () => {
     });
   });
 
+  /**
+   * PATCH-NOC-SUPERVISAO-CONSULTA-PLANTAO-UX-1 — reproduz o bug relatado:
+   * uma supervisora (`SUPERVISOR_EQUIPE`) da própria equipe, SEM nenhum
+   * documento de Matriz (`escoposOperacionais`) cadastrado para JORNADA
+   * (o caso comum), recebia `permission-denied` ao tentar ler/aprovar/
+   * recusar uma Troca de Jornada da própria equipe — porque `souGestor()`
+   * só reconhecia `GESTOR_EQUIPE`. Cobre a paridade sem abrir acesso a
+   * outra equipe.
+   */
+  describe('trocasEscala — SUPERVISOR_EQUIPE tem paridade com GESTOR_EQUIPE na própria equipe (sem Matriz)', () => {
+    const supervisoraCosiSoc = {
+      login: 'supervisora.cosi.soc',
+      nome: 'Supervisora COSI/SOC',
+      email: 'supervisora.cosi.soc@teste.local',
+      equipeId: 'EQ_COSI_SOC',
+      nivelHierarquico: 4,
+      perfil: 'SUPERVISOR_EQUIPE',
+      equipesPermitidas: ['EQ_COSI_SOC'],
+    };
+
+    beforeEach(async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await Promise.all([
+          setDoc(doc(contexto.firestore(), 'usuarios', supervisoraCosiSoc.login), supervisoraCosiSoc),
+          setDoc(
+            doc(contexto.firestore(), 'trocasEscala', 'troca-pendente-supervisora'),
+            troca({ trocaId: 'troca-pendente-supervisora', status: 'PENDENTE_GESTOR' }),
+          ),
+        ]);
+      });
+    });
+
+    it('lê (get) a troca PENDENTE_GESTOR da própria equipe sem ser solicitante/destinatário', async () => {
+      const db = autenticarComo(supervisoraCosiSoc);
+      await assertSucceeds(getDoc(doc(db, 'trocasEscala', 'troca-pendente-supervisora')));
+    });
+
+    it('aprova e publica a partir de PENDENTE_GESTOR', async () => {
+      const db = autenticarComo(supervisoraCosiSoc);
+      await assertSucceeds(updateDoc(doc(db, 'trocasEscala', 'troca-pendente-supervisora'), {
+        status: 'APROVADA_PUBLICADA',
+        aprovadoEm: '2026-08-07T15:00:00.000Z',
+        publicadoEm: '2026-08-07T15:00:00.000Z',
+        gestorLogin: supervisoraCosiSoc.login,
+        gestorNome: supervisoraCosiSoc.nome,
+        historico: [
+          ...troca().historico,
+          { tipo: 'APROVADA_PUBLICADA', porLogin: supervisoraCosiSoc.login, porNome: supervisoraCosiSoc.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'Aprovada' },
+        ],
+      }));
+    });
+
+    it('recusa a partir de PENDENTE_GESTOR', async () => {
+      const db = autenticarComo(supervisoraCosiSoc);
+      await assertSucceeds(updateDoc(doc(db, 'trocasEscala', 'troca-pendente-supervisora'), {
+        status: 'RECUSADA_GESTOR',
+        gestorLogin: supervisoraCosiSoc.login,
+        gestorNome: supervisoraCosiSoc.nome,
+        historico: [
+          ...troca().historico,
+          { tipo: 'RECUSADA_GESTOR', porLogin: supervisoraCosiSoc.login, porNome: supervisoraCosiSoc.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'Recusada' },
+        ],
+      }));
+    });
+
+    it('NÃO consegue ler/decidir a troca de OUTRA equipe (paridade nunca abre acesso cross-equipe)', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'trocasEscala', 'troca-outra-equipe'),
+          troca({ trocaId: 'troca-outra-equipe', equipeId: 'EQ_SOC', status: 'PENDENTE_GESTOR' }),
+        );
+      });
+      const db = autenticarComo(supervisoraCosiSoc);
+      await assertFails(getDoc(doc(db, 'trocasEscala', 'troca-outra-equipe')));
+      await assertFails(updateDoc(doc(db, 'trocasEscala', 'troca-outra-equipe'), {
+        status: 'RECUSADA_GESTOR',
+        gestorLogin: supervisoraCosiSoc.login,
+        gestorNome: supervisoraCosiSoc.nome,
+        historico: [
+          ...troca({ equipeId: 'EQ_SOC' }).historico,
+          { tipo: 'FORJADO', porLogin: supervisoraCosiSoc.login, porNome: supervisoraCosiSoc.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'forjado' },
+        ],
+      }));
+    });
+  });
+
   describe('notificacoesTroca', () => {
     it('permite ao destinatário ler a própria notificação e nega a outro login', async () => {
       await ambiente.withSecurityRulesDisabled(async (contexto) => {
@@ -3917,6 +4003,51 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       await assertFails(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE')));
       const wanessaDb = autenticarComo(wanessaSupervisoraNoc);
       await assertFails(deleteDoc(doc(wanessaDb, 'gruposPlantao', 'PLANTAO_COSI')));
+    });
+
+    /**
+     * PATCH-NOC-SUPERVISAO-CONSULTA-PLANTAO-UX-1 — a consulta liberada acima
+     * (`EQ_NOC` em `equipesConsulta` de `PLANTAO_COSI`) precisa dar LEITURA
+     * (inclusive a um analista comum do NOC, não só à supervisora) e NUNCA
+     * poder de administração — participantes, contatos, competências e
+     * publicação continuam exclusividade de quem administra o Grupo.
+     */
+    describe('consulta dá leitura, nunca administração', () => {
+      beforeEach(async () => {
+        await ambiente.withSecurityRulesDisabled(async (contexto) => {
+          const db = contexto.firestore();
+          await Promise.all([
+            setDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoSemNoc({ equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_NOC'] })),
+            setDoc(
+              doc(db, 'gruposPlantao', 'PLANTAO_COSI', 'participantes', usuarios.externo.login),
+              participantePlantao(usuarios.externo.login, { grupoId: 'PLANTAO_COSI', criadoPorLogin: usuarios.gestor.login }),
+            ),
+          ]);
+        });
+      });
+
+      it('analista comum do NOC lê o Grupo e os participantes do Plantão COSI, já com a consulta ativa', async () => {
+        const db = autenticarComo(analistaNoc);
+        await assertSucceeds(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI')));
+        await assertSucceeds(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI', 'participantes', usuarios.externo.login)));
+      });
+
+      it('sem a consulta ativa, um usuário comum de outra equipe não lê os participantes do Plantão COSI', async () => {
+        const db = autenticarComo(usuarios.colaborador);
+        await assertFails(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI', 'participantes', usuarios.externo.login)));
+      });
+
+      it('Wanessa (supervisora do NOC, com consulta ativa) NÃO cria nem edita participante do Plantão COSI', async () => {
+        const db = autenticarComo(wanessaSupervisoraNoc);
+        await assertFails(setDoc(
+          doc(db, 'gruposPlantao', 'PLANTAO_COSI', 'participantes', analistaNoc.login),
+          participantePlantao(analistaNoc.login, { grupoId: 'PLANTAO_COSI', criadoPorLogin: wanessaSupervisoraNoc.login }),
+        ));
+        await assertFails(updateDoc(
+          doc(db, 'gruposPlantao', 'PLANTAO_COSI', 'participantes', usuarios.externo.login),
+          { ativo: false, atualizadoEm: '2026-08-20T00:00:00.000Z' },
+        ));
+      });
     });
   });
 

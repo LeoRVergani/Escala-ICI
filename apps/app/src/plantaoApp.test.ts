@@ -13,6 +13,7 @@ import {
   nomeExibicaoPlantonista,
   obterIniciaisParticipantePlantao,
   proximosPlantoesDoUsuario,
+  resolverDestaquePlantaoHoje,
   resolverPlantaoAgora,
   rotuloFimPlantao,
 } from './plantaoApp';
@@ -97,6 +98,35 @@ describe('resolverPlantaoAgora', () => {
     const passada = atribuicao({ atribuicaoId: 'passada', inicio: '2026-08-01T00:00:00.000Z', fim: '2026-08-01T12:00:00.000Z' });
     const resumo = resolverPlantaoAgora([passada], '2026-08-10T00:00:00.000Z');
     expect(resumo.proximo).toBeNull();
+  });
+});
+
+describe('resolverDestaquePlantaoHoje', () => {
+  it('ninguém agora, mas alguém entra mais tarde HOJE -> PROXIMO_HOJE', () => {
+    const maisTarde = atribuicao({ atribuicaoId: 'mais-tarde', inicio: '2026-08-11T18:00:00.000Z', fim: '2026-08-12T06:00:00.000Z' });
+    const resumo = resolverPlantaoAgora([maisTarde], '2026-08-11T10:00:00.000Z');
+    const destaque = resolverDestaquePlantaoHoje(resumo, 'UTC', '2026-08-11');
+    expect(destaque).toEqual({ estado: 'PROXIMO_HOJE', atribuicao: maisTarde });
+  });
+
+  it('ninguém hoje, mas existe plantão futuro em outro dia -> PROXIMO_FUTURO', () => {
+    const futuro = atribuicao({ atribuicaoId: 'futuro', inicio: '2026-08-15T22:00:00.000Z', fim: '2026-08-16T10:00:00.000Z' });
+    const resumo = resolverPlantaoAgora([futuro], '2026-08-11T10:00:00.000Z');
+    const destaque = resolverDestaquePlantaoHoje(resumo, 'UTC', '2026-08-11');
+    expect(destaque).toEqual({ estado: 'PROXIMO_FUTURO', atribuicao: futuro });
+  });
+
+  it('nenhum próximo plantão publicado -> VAZIO', () => {
+    const resumo = resolverPlantaoAgora([], '2026-08-11T10:00:00.000Z');
+    expect(resolverDestaquePlantaoHoje(resumo, 'UTC', '2026-08-11')).toEqual({ estado: 'VAZIO' });
+  });
+
+  it('o próximo plantão pode ser do próprio usuário (chamador decide o rótulo "Você" comparando plantonistaLogin)', () => {
+    const meu = atribuicao({ atribuicaoId: 'meu', plantonistaLogin: 'clis', inicio: '2026-08-11T18:00:00.000Z', fim: '2026-08-12T06:00:00.000Z' });
+    const resumo = resolverPlantaoAgora([meu], '2026-08-11T10:00:00.000Z');
+    const destaque = resolverDestaquePlantaoHoje(resumo, 'UTC', '2026-08-11');
+    expect(destaque.estado).toBe('PROXIMO_HOJE');
+    expect(destaque).toHaveProperty('atribuicao.plantonistaLogin', 'clis');
   });
 });
 
