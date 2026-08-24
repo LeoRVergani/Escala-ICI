@@ -162,3 +162,41 @@ export interface ResultadoParsePlantao {
   erros: ErroImportacaoPlantao[];
   avisos: string[];
 }
+
+/**
+ * Fase IMPORTADOR-PLANTAO-CODB-XLS-VISUAL-REFERENCIA-1 — domínio adicional
+ * e deliberadamente separado do acima: a planilha real de Plantão CODB
+ * (`Relatorio-PlantaoCODB.xls`, nunca versionada — ver
+ * `packages/contrato/test/fixtures/Plantao-CODB-SANITIZADO.xls`) tem UMA
+ * tabela cobrindo VÁRIAS fontes ao mesmo tempo, cada uma em sua própria
+ * coluna "Plantonista <fonte>" (`Plantonista DBA`/`Plantonista
+ * Linux`/`Plantonista Telecom`/`Plantonista Windows`), todas as colunas
+ * compartilhando o mesmo par "Data Inicio"/"Data Fim" por linha. Isso é
+ * estruturalmente diferente da tabela de fonte única já suportada por
+ * `AtribuicaoPlantaoBruta`/`parsePlanilhaPlantao` (uma única coluna
+ * "Plantonista..." seguida do seu próprio par de datas) — os dois tipos
+ * nunca são misturados nem reaproveitados um pelo outro.
+ */
+export interface AtribuicaoPlantaoBrutaMultiFonte {
+  /** Texto da coluna após "Plantonista" (ex.: "DBA"), preservado como está no cabeçalho real. */
+  fonte: string;
+  plantonistaNomeOriginal: string;
+  inicio: MomentoPlantao;
+  fim: MomentoPlantao;
+  duracaoMinutos: number;
+  /** Linha 1-based da planilha de origem, para diagnóstico. */
+  linhaOrigem: number;
+  /** Nome real da aba de origem — nunca assumir um nome fixo. */
+  abaOrigem: string;
+}
+
+export interface ResultadoParsePlantaoMultiFonte {
+  ok: boolean;
+  /** Nome real da aba de onde os dados foram lidos. */
+  abaOrigem: string;
+  /** Fontes distintas encontradas no cabeçalho, na ordem das colunas. */
+  fontes: string[];
+  atribuicoes: AtribuicaoPlantaoBrutaMultiFonte[];
+  erros: ErroImportacaoPlantao[];
+  avisos: string[];
+}
