@@ -123,6 +123,7 @@ import {
   nomeExibicaoPlantonista,
   obterIniciaisParticipantePlantao,
   proximosPlantoesDoUsuario,
+  resolverDestaquePlantaoHoje,
   resolverPlantaoAgora,
   rotuloFimPlantao,
 } from './plantaoApp';
@@ -395,6 +396,7 @@ interface PlantaoHojeCardProps {
   participantes: ParticipantePlantao[];
   usuarios: Usuario[];
   agoraIso: string;
+  loginUsuarioAtual: string;
 }
 
 /**
@@ -402,25 +404,31 @@ interface PlantaoHojeCardProps {
  * (a mesma lógica pura da aba Plantão, `plantaoApp.ts`) para a aba Hoje,
  * usada quando o usuário tem Plantão publicado — junto do card de Jornada
  * quando as duas operações existem, ou sozinha quando só há Plantão.
+ *
+ * PATCH-NOC-SUPERVISAO-CONSULTA-PLANTAO-UX-1 — quando ninguém está de
+ * plantão AGORA (`resumo.atual === null`), o card não pode mais ficar vazio
+ * enquanto existir um próximo plantão (`resumo.proximo`, já calculado por
+ * `resolverPlantaoAgora()` mas antes descartado aqui): mostra "Próximo
+ * plantão de hoje" quando o próximo ainda começa hoje, ou "Próximo plantão"
+ * quando é de outro dia — mesmo padrão visual do card "atual", com badge
+ * "Você" quando o próximo plantão é do próprio usuário logado.
  */
-function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso }: PlantaoHojeCardProps) {
+function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso, loginUsuarioAtual }: PlantaoHojeCardProps) {
   const resumo = resolverPlantaoAgora(atribuicoes, agoraIso);
-  const nomeAtual = resumo.atual ? nomeExibicaoPlantonista(resumo.atual.plantonistaLogin, usuarios) : null;
-  const intervaloAtual = resumo.atual ? intervaloPlantaoCivil(resumo.atual, grupo.timezone) : null;
   const dataHoje = converterInstanteUtcParaMomento(agoraIso, grupo.timezone).data;
-  const contatosAtual = resumo.atual ? contatosAtivosDoPlantonista(resumo.atual.plantonistaLogin, participantes) : [];
 
-  return (
-    <article className="today-hero plantao-hoje-card" data-state={resumo.atual !== null ? 'PLANTAO' : 'DESCANSO'}>
-      <header className="today-card-heading">
-        <span>Plantão de hoje</span>
-      </header>
-      {resumo.atual === null || intervaloAtual === null ? (
-        <p className="today-rest-copy">Ninguém está de plantão neste momento.</p>
-      ) : (
-        <>
+  if (resumo.atual !== null) {
+    const intervaloAtual = intervaloPlantaoCivil(resumo.atual, grupo.timezone);
+    const nomeAtual = nomeExibicaoPlantonista(resumo.atual.plantonistaLogin, usuarios);
+    const contatosAtual = contatosAtivosDoPlantonista(resumo.atual.plantonistaLogin, participantes);
+    if (intervaloAtual.valido) {
+      return (
+        <article className="today-hero plantao-hoje-card" data-state="PLANTAO">
+          <header className="today-card-heading">
+            <span>Plantão de hoje</span>
+          </header>
           <div className="today-hero-heading">
-            <span className="today-hero-icon">{obterIniciaisParticipantePlantao(nomeAtual ?? undefined, resumo.atual.plantonistaLogin)}</span>
+            <span className="today-hero-icon">{obterIniciaisParticipantePlantao(nomeAtual, resumo.atual.plantonistaLogin)}</span>
             <div>
               <strong className="today-shift-name">{nomeAtual}</strong>
               <div className="today-hours"><strong>{formatarIntervaloPlantaoRelativoAHoje(intervaloAtual, dataHoje)}</strong></div>
@@ -444,7 +452,64 @@ function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso
               ))}
             </div>
           )}
-        </>
+        </article>
+      );
+    }
+  }
+
+  const destaque = resolverDestaquePlantaoHoje(resumo, grupo.timezone, dataHoje);
+  if (destaque.estado === 'VAZIO') {
+    return (
+      <article className="today-hero plantao-hoje-card" data-state="DESCANSO">
+        <header className="today-card-heading">
+          <span>Plantão de hoje</span>
+        </header>
+        <p className="today-rest-copy">Ninguém está de plantão neste momento.</p>
+      </article>
+    );
+  }
+
+  const intervaloProximo = intervaloPlantaoCivil(destaque.atribuicao, grupo.timezone);
+  const nomeProximo = nomeExibicaoPlantonista(destaque.atribuicao.plantonistaLogin, usuarios);
+  const contatosProximo = contatosAtivosDoPlantonista(destaque.atribuicao.plantonistaLogin, participantes);
+  const souEuOProximo = destaque.atribuicao.plantonistaLogin === loginUsuarioAtual;
+  return (
+    <article className="today-hero plantao-hoje-card" data-state="DESCANSO">
+      <header className="today-card-heading">
+        <span>Plantão de hoje</span>
+      </header>
+      <p className="today-rest-copy">Ninguém está de plantão neste momento.</p>
+      <p className="today-rest-copy today-next-shift-label">
+        {destaque.estado === 'PROXIMO_HOJE' ? 'Próximo plantão de hoje:' : 'Próximo plantão:'}
+      </p>
+      <div className="today-hero-heading">
+        <span className="today-hero-icon">{obterIniciaisParticipantePlantao(nomeProximo, destaque.atribuicao.plantonistaLogin)}</span>
+        <div>
+          <strong className="today-shift-name">
+            {nomeProximo}
+            {souEuOProximo && <span className="status-badge neutral inline-badge">Você</span>}
+          </strong>
+          <div className="today-hours">
+            <strong>
+              {destaque.estado === 'PROXIMO_HOJE'
+                ? formatarIntervaloPlantaoRelativoAHoje(intervaloProximo, dataHoje)
+                : formatarIntervaloPlantaoCivil(intervaloProximo)}
+            </strong>
+          </div>
+        </div>
+      </div>
+      {contatosProximo.length > 0 && (
+        <div className="plantao-contatos-lista">
+          {contatosProximo.map((contato) => (
+            <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
+              <span className="plantao-contato-chip-icone"><Phone size={13} /></span>
+              <span className="plantao-contato-chip-info">
+                <small>{contato.rotulo}</small>
+                <strong>{contato.numero}</strong>
+              </span>
+            </span>
+          ))}
+        </div>
       )}
     </article>
   );
@@ -1900,6 +1965,8 @@ function AssistenteNovaTrocaPlantao({
           <div>
             <p className="eyebrow">Passo {passo} de 3</p>
             <h2 id="troca-plantao-wizard-title">{titulo}</h2>
+            {passo === 1 && <p className="troca-wizard-subtitulo">Escolha um dos seus plantões futuros.</p>}
+            {passo === 2 && <p className="troca-wizard-subtitulo">Escolha o plantão de outro plantonista da mesma escala.</p>}
           </div>
           <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
             <X size={18} />
@@ -3521,6 +3588,7 @@ export function EmployeeApp() {
                   participantes={participantesPlantaoApp}
                   usuarios={usuarios}
                   agoraIso={agora.toISOString()}
+                  loginUsuarioAtual={usuario.login}
                 />
               )}
             </div>

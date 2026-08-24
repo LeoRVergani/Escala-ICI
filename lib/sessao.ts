@@ -232,10 +232,13 @@ export function souGestorDePlantao(usuario: Usuario): boolean {
  * ESCOPO-GESTOR-UNIDADE-1 para também checar `unidadeResponsavelId`.
  *
  * Dois caminhos de autorização, nunca fundidos:
- * - `GESTOR_EQUIPE`/`ADMIN_SISTEMA`: pertencimento à equipe responsável
- *   (`equipesPermitidasEfetivas`) sozinho NUNCA basta — precisa também ser
- *   gestor (ou admin), mesmo bug já corrigido uma vez nas Rules (Fase
- *   PLANTÃO-3A): pertencimento à equipe não é autorização de gestor.
+ * - `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE`/`ADMIN_SISTEMA`: pertencimento à
+ *   equipe responsável (`equipesPermitidasEfetivas`) sozinho NUNCA basta —
+ *   precisa também ser gestor/supervisor (ou admin), mesmo bug já corrigido
+ *   uma vez nas Rules (Fase PLANTÃO-3A): pertencimento à equipe não é
+ *   autorização de gestor. PATCH-NOC-SUPERVISAO-CONSULTA-PLANTAO-UX-1 —
+ *   `SUPERVISOR_EQUIPE` tem o mesmo alcance de `GESTOR_EQUIPE` aqui, espelhando
+ *   `souGestor()` em `firestore.rules`.
  * - `GESTOR_UNIDADE`: precisa que o Grupo tenha `unidadeResponsavelId`
  *   preenchido (campo opcional/retrocompatível, ver
  *   `@escala-ici/contrato`) E que essa unidade (ou uma unidade ANCESTRAL
@@ -253,7 +256,7 @@ export function podeGerenciarGrupoPlantao(
     return true;
   }
   const perfil = perfilEfetivo(usuario);
-  if (perfil === 'GESTOR_EQUIPE') {
+  if (perfil === 'GESTOR_EQUIPE' || perfil === 'SUPERVISOR_EQUIPE') {
     return equipesPermitidasEfetivas(usuario).includes(grupo.equipeResponsavelId);
   }
   if (perfil === 'GESTOR_UNIDADE') {

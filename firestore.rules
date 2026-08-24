@@ -52,9 +52,20 @@ service cloud.firestore {
      * Mantido com o mesmo nome para não obrigar reescrever toda regra que já
      * chama souGestor() — agora também é true para ADMIN_SISTEMA, que herda
      * todo poder de gestor mais o cross-equipe de podeOperarNaEquipe().
+     *
+     * PATCH-NOC-SUPERVISAO-CONSULTA-PLANTAO-UX-1 — `SUPERVISOR_EQUIPE` tem o
+     * MESMO alcance operacional de `GESTOR_EQUIPE` sobre a própria equipe
+     * (ver comentário de `PerfilUsuario` em `lib/modelos.ts`: nomes
+     * distintos só refletem o cargo real na hierarquia, nunca um poder
+     * menor). Toda regra que compõe `souGestor()` já limita o escopo por
+     * fora (`podeOperarNaEquipe()`, `resource.data.equipeId == minhaEquipe()`,
+     * `escopoDoGrupoPlantaoNoMeuAlcance()`) — incluir `SUPERVISOR_EQUIPE`
+     * aqui nunca abre acesso cross-equipe, só remove a restrição artificial
+     * que exigia `GESTOR_EQUIPE` para ações que a supervisão da própria
+     * equipe já deveria poder fazer (ex.: aprovar/recusar Troca de Jornada).
      */
     function souGestor() {
-      return autenticado() && (meuPerfil() == 'GESTOR_EQUIPE' || souAdminSistema());
+      return autenticado() && (meuPerfil() in ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'] || souAdminSistema());
     }
 
     function souResponsavelOperacionalElegivel() {

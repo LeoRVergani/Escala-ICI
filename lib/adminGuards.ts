@@ -64,8 +64,8 @@ export function podeExcluirUsuario(candidato: Usuario, atorReal: Usuario): boole
 
 /**
  * `true` quando excluir `loginParaExcluir` deixaria a lista sem nenhum
- * GESTOR_EQUIPE/ADMIN_SISTEMA restante — sinal para a UI pedir uma segunda
- * confirmação explícita antes de prosseguir.
+ * GESTOR_EQUIPE/SUPERVISOR_EQUIPE/ADMIN_SISTEMA restante — sinal para a UI
+ * pedir uma segunda confirmação explícita antes de prosseguir.
  */
 export function exclusaoZeraGestores(
   usuarios: readonly Usuario[],
@@ -73,7 +73,9 @@ export function exclusaoZeraGestores(
 ): boolean {
   const restantes = usuarios.filter((usuario) => usuario.login !== loginParaExcluir);
   return !restantes.some((usuario) => (
-    perfilEfetivo(usuario) === 'GESTOR_EQUIPE' || perfilEfetivo(usuario) === 'ADMIN_SISTEMA'
+    perfilEfetivo(usuario) === 'GESTOR_EQUIPE'
+    || perfilEfetivo(usuario) === 'SUPERVISOR_EQUIPE'
+    || perfilEfetivo(usuario) === 'ADMIN_SISTEMA'
   ));
 }
 

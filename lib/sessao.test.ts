@@ -288,7 +288,18 @@ describe('podeGerenciarGrupoPlantao', () => {
     expect(podeGerenciarGrupoPlantao(gestor, { equipeResponsavelId: 'EQ_NOC' })).toBe(false);
   });
 
-  it('pertencer à equipe responsável NÃO basta sem ser GESTOR_EQUIPE/ADMIN_SISTEMA — mesmo bug corrigido nas Rules na Fase PLANTÃO-3A', () => {
+  /**
+   * PATCH-NOC-SUPERVISAO-CONSULTA-PLANTAO-UX-1 — SUPERVISOR_EQUIPE tem o
+   * MESMO alcance de GESTOR_EQUIPE aqui (só dentro da própria
+   * equipesPermitidasEfetivas, nunca fora dela).
+   */
+  it('SUPERVISOR_EQUIPE tem o mesmo alcance de GESTOR_EQUIPE, só dentro de equipesPermitidasEfetivas', () => {
+    const supervisora = usuarioBase({ perfil: 'SUPERVISOR_EQUIPE', equipeId: 'EQ_SOC', equipesPermitidas: ['EQ_SOC', 'EQ_PLANTAO_COSI'] });
+    expect(podeGerenciarGrupoPlantao(supervisora, { equipeResponsavelId: 'EQ_PLANTAO_COSI' })).toBe(true);
+    expect(podeGerenciarGrupoPlantao(supervisora, { equipeResponsavelId: 'EQ_NOC' })).toBe(false);
+  });
+
+  it('pertencer à equipe responsável NÃO basta sem ser GESTOR_EQUIPE/SUPERVISOR_EQUIPE/ADMIN_SISTEMA — mesmo bug corrigido nas Rules na Fase PLANTÃO-3A', () => {
     const analista = usuarioBase({ perfil: 'ANALISTA_SOC', equipeId: 'EQ_SOC' });
     expect(podeGerenciarGrupoPlantao(analista, { equipeResponsavelId: 'EQ_SOC' })).toBe(false);
   });
@@ -336,9 +347,15 @@ describe('STAGING-RESET-HIERARQUIA-ICI-1 — helpers da liberação operacional 
   });
 
   describe('escopoDoGrupoPlantaoNoMeuAlcance', () => {
-    it('true quando equipeResponsavelId está em equipesPermitidasEfetivas, mesmo para SUPERVISOR_EQUIPE (que podeGerenciarGrupoPlantao não cobre)', () => {
+    /**
+     * PATCH-NOC-SUPERVISAO-CONSULTA-PLANTAO-UX-1 — antes desta fase,
+     * `podeGerenciarGrupoPlantao()` só reconhecia GESTOR_EQUIPE/ADMIN_SISTEMA
+     * e divergia deste helper (que já tratava SUPERVISOR_EQUIPE com o mesmo
+     * alcance). Agora os dois concordam.
+     */
+    it('true quando equipeResponsavelId está em equipesPermitidasEfetivas, inclusive para SUPERVISOR_EQUIPE (agora também coberto por podeGerenciarGrupoPlantao)', () => {
       const supervisora = usuarioBase({ perfil: 'SUPERVISOR_EQUIPE', equipeId: 'EQ_PLANTAO_COSI', equipesPermitidas: ['EQ_PLANTAO_COSI'] });
-      expect(podeGerenciarGrupoPlantao(supervisora, { equipeResponsavelId: 'EQ_PLANTAO_COSI' })).toBe(false);
+      expect(podeGerenciarGrupoPlantao(supervisora, { equipeResponsavelId: 'EQ_PLANTAO_COSI' })).toBe(true);
       expect(escopoDoGrupoPlantaoNoMeuAlcance(supervisora, { equipeResponsavelId: 'EQ_PLANTAO_COSI' })).toBe(true);
     });
 

@@ -1563,6 +1563,9 @@ function ModalGrupoPlantao({
               Consultar é só visualizar o Plantão (participantes, atribuições) — nunca administra nada.
               Só quem gerencia a equipe responsável (sempre incluída abaixo) administra este grupo.
             </p>
+            <p className="admin-form-preview">
+              Para liberar consulta da sua própria equipe a um Plantão de outra área, use Plantões monitorados pela equipe, na página da sua equipe em Administração.
+            </p>
             <button
               ref={botaoEquipesConsultaRef}
               type="button"
@@ -3262,6 +3265,8 @@ export function DashboardApp() {
   const [erroPlantaoAdmin, setErroPlantaoAdmin] = useState('');
   /** Fase ESCOPO-CONSULTA-PLANTAO-1 — grupoId em processamento ao marcar/desmarcar um Plantão monitorado pela equipe (nunca dois ao mesmo tempo). */
   const [processandoConsultaPlantao, setProcessandoConsultaPlantao] = useState<string | null>(null);
+  /** PATCH-NOC-SUPERVISAO-CONSULTA-PLANTAO-UX-1 — filtro de busca por equipe, em "Plantões monitorados pela equipe" (chave = equipeId). */
+  const [filtroPlantaoMonitorado, setFiltroPlantaoMonitorado] = useState<Record<string, string>>({});
   // --- Reabrir rascunho (Fase ESCALAS-UX-1B.1) ---
   const [rascunhosPlantaoPorGrupo, setRascunhosPlantaoPorGrupo] = useState<Record<string, CompetenciaPlantao[]>>({});
   const [resumosJornadaDashboard, setResumosJornadaDashboard] = useState<Record<string, ResumoJornadaDashboard>>({});
@@ -9718,13 +9723,15 @@ export function DashboardApp() {
                        */}
                       {(souAdmin || minhasEquipesPermitidas.includes(item.id)) && (() => {
                         const monitorados = plantoesMonitoradosPelaEquipe(gruposPlantaoAdmin, item.id);
+                        const termoFiltro = filtroPlantaoMonitorado[item.id] ?? '';
                         const disponiveis = plantoesDisponiveisParaMonitoramento(gruposPlantaoAdmin, item.id)
-                          .filter((grupo) => grupo.equipeResponsavelId !== item.id);
+                          .filter((grupo) => grupo.equipeResponsavelId !== item.id)
+                          .filter((grupo) => termoFiltro.trim() === '' || normalizarNome(grupo.nome).includes(normalizarNome(termoFiltro)));
                         return (
                           <div className="organization-plantoes-monitorados">
-                            <h4>Plantões monitorados</h4>
+                            <h4>Plantões monitorados pela equipe</h4>
                             <p className="admin-form-preview">
-                              Esta configuração libera somente consulta. A edição, importação e publicação continuam restritas ao responsável pelo Plantão.
+                              Esta equipe poderá consultar quem está de plantão. Isso não permite editar participantes, contatos, rascunhos ou publicações.
                             </p>
                             {monitorados.length === 0 ? (
                               <p className="empty-inline">Nenhum Plantão monitorado por esta equipe ainda.</p>
@@ -9751,8 +9758,19 @@ export function DashboardApp() {
                                 ))}
                               </ul>
                             )}
-                            {disponiveis.length > 0 && (
+                            {plantoesDisponiveisParaMonitoramento(gruposPlantaoAdmin, item.id)
+                              .filter((grupo) => grupo.equipeResponsavelId !== item.id).length > 0 && (
                               <div className="wizard-inline-fields">
+                                <label htmlFor={`plantoes-filtro-${item.id}`}>
+                                  Buscar Plantão
+                                  <input
+                                    id={`plantoes-filtro-${item.id}`}
+                                    type="text"
+                                    value={termoFiltro}
+                                    placeholder="Buscar Plantão (ex.: COSI)"
+                                    onChange={(evento) => setFiltroPlantaoMonitorado((atual) => ({ ...atual, [item.id]: evento.target.value }))}
+                                  />
+                                </label>
                                 <label htmlFor={`plantoes-disponiveis-${item.id}`}>
                                   Adicionar Plantão monitorado
                                   <select
@@ -9766,7 +9784,9 @@ export function DashboardApp() {
                                       }
                                     }}
                                   >
-                                    <option value="">Selecione um Plantão para monitorar</option>
+                                    <option value="">
+                                      {disponiveis.length === 0 ? 'Nenhum Plantão encontrado para esse termo' : 'Selecione um Plantão para monitorar'}
+                                    </option>
                                     {disponiveis.map((grupo) => <option key={grupo.grupoId} value={grupo.grupoId}>{grupo.nome}</option>)}
                                   </select>
                                 </label>

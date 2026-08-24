@@ -155,7 +155,7 @@ export const SEVERIDADE_STATUS_TROCA_PLANTAO: Readonly<Record<StatusTrocaPlantao
  * do módulo).
  */
 export const AVISO_APROVACAO_NAO_PUBLICA =
-  'Aprovada. O ajuste na escala publicada é feito pelo coordenador no Dashboard — esta aprovação registra a decisão, não altera a escala automaticamente.';
+  'Esta aprovação registra a decisão. O ajuste na escala publicada ainda é manual no Dashboard.';
 
 export function statusTrocaPlantaoEhAtivo(status: StatusTrocaPlantao): boolean {
   return STATUS_TROCA_PLANTAO_ATIVOS.includes(status);
