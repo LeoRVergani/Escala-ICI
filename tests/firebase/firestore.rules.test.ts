@@ -4012,6 +4012,476 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE'), { padraoHorarioSemanal: [ENTRADA_VALIDA] }));
     });
   });
+
+  /**
+   * FASE-TROCAS-PLANTAO-1 — trocas de Plantão (coleção `trocasPlantao`).
+   * Reaproveita o Grupo/participante já semeados pelo `beforeEach` externo
+   * (`PLANTAO_TESTE`, `usuarios.colaborador` ativo) e ADICIONA, sem alterar
+   * nada do que já existe: `usuarios.colega` como segundo participante
+   * ativo, e `analistaSemPermissao` como participante INATIVO — mesmo
+   * padrão aditivo de `beforeEach` aninhado já usado em
+   * "PLANTAO-PADRAO-1" acima, para não arriscar os ~190 testes que já
+   * passam neste describe.
+   */
+  describe('trocasPlantao (FASE-TROCAS-PLANTAO-1)', () => {
+    function trocaPlantao(ajustes: Record<string, unknown> = {}) {
+      return {
+        trocaId: 'troca-plantao-1',
+        tipo: 'PLANTAO',
+        grupoId: 'PLANTAO_TESTE',
+        competencia: '2026-08',
+        solicitanteLogin: usuarios.colaborador.login,
+        solicitanteNome: usuarios.colaborador.nome,
+        destinatarioLogin: usuarios.colega.login,
+        destinatarioNome: usuarios.colega.nome,
+        plantaoSolicitanteId: '0001',
+        plantaoDestinatarioId: '0002',
+        inicioSolicitante: '2026-08-10T22:00:00.000Z',
+        fimSolicitante: '2026-08-11T10:00:00.000Z',
+        inicioDestinatario: '2026-08-12T22:00:00.000Z',
+        fimDestinatario: '2026-08-13T10:00:00.000Z',
+        status: 'PENDENTE_USUARIO',
+        mensagemSolicitante: null,
+        motivoRecusa: null,
+        criadoEm: '2026-08-05T00:00:00.000Z',
+        atualizadoEm: '2026-08-05T00:00:00.000Z',
+        respondidoEm: null,
+        decididoEm: null,
+        criadoPorLogin: usuarios.colaborador.login,
+        gestorLogin: null,
+        gestorNome: null,
+        historico: [{
+          tipo: 'SOLICITACAO_CRIADA',
+          porLogin: usuarios.colaborador.login,
+          porNome: usuarios.colaborador.nome,
+          porPerfil: 'SOLICITANTE',
+          em: '2026-08-05T00:00:00.000Z',
+          descricao: 'Solicitação de troca de plantão criada',
+        }],
+        schemaVersion: 1,
+        ...ajustes,
+      };
+    }
+
+    function eventoGenerico(porPerfil: string, em: string) {
+      return { tipo: 'X', porLogin: null, porNome: null, porPerfil, em, descricao: 'x' };
+    }
+
+    beforeEach(async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        const db = contexto.firestore();
+        await Promise.all([
+          setDoc(
+            doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colega.login),
+            participantePlantao(usuarios.colega.login),
+          ),
+          setDoc(
+            doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', analistaSemPermissao.login),
+            participantePlantao(analistaSemPermissao.login, { ativo: false }),
+          ),
+          setDoc(doc(db, 'trocasPlantao', 'troca-plantao-1'), trocaPlantao()),
+        ]);
+      });
+    });
+
+    describe('create', () => {
+      it('permite ao participante ativo criar em nome próprio, para outro participante ativo do mesmo grupo', async () => {
+        const db = autenticarComo(usuarios.colaborador);
+        await assertSucceeds(setDoc(doc(db, 'trocasPlantao', 'nova-troca'), trocaPlantao({ trocaId: 'nova-troca' })));
+      });
+
+      it('impede criar em nome de outro solicitante', async () => {
+        const db = autenticarComo(usuarios.colega);
+        await assertFails(setDoc(doc(db, 'trocasPlantao', 'nova-troca'), trocaPlantao({ trocaId: 'nova-troca' })));
+      });
+
+      it('impede criar troca consigo mesmo como destinatário', async () => {
+        const db = autenticarComo(usuarios.colaborador);
+        await assertFails(setDoc(doc(db, 'trocasPlantao', 'nova-troca'), trocaPlantao({
+          trocaId: 'nova-troca',
+          destinatarioLogin: usuarios.colaborador.login,
+        })));
+      });
+
+      it('impede criar com status inicial diferente de PENDENTE_USUARIO', async () => {
+        const db = autenticarComo(usuarios.colaborador);
+        await assertFails(setDoc(doc(db, 'trocasPlantao', 'nova-troca'), trocaPlantao({
+          trocaId: 'nova-troca',
+          status: 'PENDENTE_GESTOR',
+        })));
+      });
+
+      it('impede destinatário participante INATIVO', async () => {
+        const db = autenticarComo(usuarios.colaborador);
+        await assertFails(setDoc(doc(db, 'trocasPlantao', 'nova-troca'), trocaPlantao({
+          trocaId: 'nova-troca',
+          destinatarioLogin: analistaSemPermissao.login,
+          destinatarioNome: analistaSemPermissao.nome,
+        })));
+      });
+
+      it('impede solicitante que só CONSULTA o grupo (não é participante) de criar', async () => {
+        const db = autenticarComo(usuarios.externo);
+        await assertFails(setDoc(doc(db, 'trocasPlantao', 'nova-troca'), trocaPlantao({
+          trocaId: 'nova-troca',
+          solicitanteLogin: usuarios.externo.login,
+          solicitanteNome: usuarios.externo.nome,
+          criadoPorLogin: usuarios.externo.login,
+        })));
+      });
+
+      it('impede histórico nascendo com mais de 1 evento', async () => {
+        const db = autenticarComo(usuarios.colaborador);
+        const base = trocaPlantao({ trocaId: 'nova-troca' });
+        await assertFails(setDoc(doc(db, 'trocasPlantao', 'nova-troca'), {
+          ...base,
+          historico: [...base.historico, eventoGenerico('SISTEMA', '2026-08-05T00:00:01.000Z')],
+        }));
+      });
+
+      it('impede plantaoSolicitanteId igual a plantaoDestinatarioId', async () => {
+        const db = autenticarComo(usuarios.colaborador);
+        await assertFails(setDoc(doc(db, 'trocasPlantao', 'nova-troca'), trocaPlantao({
+          trocaId: 'nova-troca',
+          plantaoDestinatarioId: '0001',
+        })));
+      });
+
+      it('impede trocaId diferente do id do documento', async () => {
+        const db = autenticarComo(usuarios.colaborador);
+        await assertFails(setDoc(doc(db, 'trocasPlantao', 'nova-troca'), trocaPlantao({ trocaId: 'outro-id' })));
+      });
+    });
+
+    describe('update', () => {
+      it('permite ao destinatário aceitar, encaminhando para o gestor', async () => {
+        const db = autenticarComo(usuarios.colega);
+        const base = trocaPlantao();
+        await assertSucceeds(updateDoc(doc(db, 'trocasPlantao', 'troca-plantao-1'), {
+          status: 'PENDENTE_GESTOR',
+          atualizadoEm: '2026-08-06T00:00:00.000Z',
+          respondidoEm: '2026-08-06T00:00:00.000Z',
+          historico: [...base.historico, {
+            tipo: 'ACEITE_DESTINATARIO',
+            porLogin: usuarios.colega.login,
+            porNome: usuarios.colega.nome,
+            porPerfil: 'DESTINATARIO',
+            em: '2026-08-06T00:00:00.000Z',
+            descricao: 'Aceite',
+          }],
+        }));
+      });
+
+      it('permite ao destinatário recusar', async () => {
+        const db = autenticarComo(usuarios.colega);
+        const base = trocaPlantao();
+        await assertSucceeds(updateDoc(doc(db, 'trocasPlantao', 'troca-plantao-1'), {
+          status: 'RECUSADA_USUARIO',
+          atualizadoEm: '2026-08-06T00:00:00.000Z',
+          respondidoEm: '2026-08-06T00:00:00.000Z',
+          motivoRecusa: 'Não posso',
+          historico: [...base.historico, {
+            tipo: 'RECUSA_DESTINATARIO',
+            porLogin: usuarios.colega.login,
+            porNome: usuarios.colega.nome,
+            porPerfil: 'DESTINATARIO',
+            em: '2026-08-06T00:00:00.000Z',
+            descricao: 'Recusa',
+          }],
+        }));
+      });
+
+      it('impede o destinatário de pular direto para APROVADA', async () => {
+        const db = autenticarComo(usuarios.colega);
+        const base = trocaPlantao();
+        await assertFails(updateDoc(doc(db, 'trocasPlantao', 'troca-plantao-1'), {
+          status: 'APROVADA',
+          historico: [...base.historico, eventoGenerico('SISTEMA', '2026-08-06T00:00:00.000Z')],
+        }));
+      });
+
+      it('permite ao solicitante cancelar a própria solicitação pendente', async () => {
+        const db = autenticarComo(usuarios.colaborador);
+        const base = trocaPlantao();
+        await assertSucceeds(updateDoc(doc(db, 'trocasPlantao', 'troca-plantao-1'), {
+          status: 'CANCELADA',
+          atualizadoEm: '2026-08-06T00:00:00.000Z',
+          historico: [...base.historico, {
+            tipo: 'CANCELADA_SOLICITANTE',
+            porLogin: usuarios.colaborador.login,
+            porNome: usuarios.colaborador.nome,
+            porPerfil: 'SOLICITANTE',
+            em: '2026-08-06T00:00:00.000Z',
+            descricao: 'Cancelada',
+          }],
+        }));
+      });
+
+      it('impede o destinatário de cancelar a solicitação do outro', async () => {
+        const db = autenticarComo(usuarios.colega);
+        const base = trocaPlantao();
+        await assertFails(updateDoc(doc(db, 'trocasPlantao', 'troca-plantao-1'), {
+          status: 'CANCELADA',
+          historico: [...base.historico, eventoGenerico('SISTEMA', '2026-08-06T00:00:00.000Z')],
+        }));
+      });
+
+      it('impede update sem o historico crescer', async () => {
+        const db = autenticarComo(usuarios.colega);
+        await assertFails(updateDoc(doc(db, 'trocasPlantao', 'troca-plantao-1'), { status: 'PENDENTE_GESTOR' }));
+      });
+
+      it('impede o gestor de decidir uma troca ainda PENDENTE_USUARIO', async () => {
+        const db = autenticarComo(usuarios.gestor);
+        const base = trocaPlantao();
+        await assertFails(updateDoc(doc(db, 'trocasPlantao', 'troca-plantao-1'), {
+          status: 'APROVADA',
+          historico: [...base.historico, eventoGenerico('SISTEMA', '2026-08-06T00:00:00.000Z')],
+        }));
+      });
+
+      it('permite ao gestor do grupo aprovar ou recusar a partir de PENDENTE_GESTOR', async () => {
+        await ambiente.withSecurityRulesDisabled(async (contexto) => {
+          await updateDoc(doc(contexto.firestore(), 'trocasPlantao', 'troca-plantao-1'), { status: 'PENDENTE_GESTOR' });
+        });
+        const db = autenticarComo(usuarios.gestor);
+        const base = trocaPlantao();
+        await assertSucceeds(updateDoc(doc(db, 'trocasPlantao', 'troca-plantao-1'), {
+          status: 'APROVADA',
+          atualizadoEm: '2026-08-07T00:00:00.000Z',
+          decididoEm: '2026-08-07T00:00:00.000Z',
+          gestorLogin: usuarios.gestor.login,
+          gestorNome: usuarios.gestor.nome,
+          historico: [...base.historico, {
+            tipo: 'APROVACAO_GESTOR',
+            porLogin: usuarios.gestor.login,
+            porNome: usuarios.gestor.nome,
+            porPerfil: 'GESTOR',
+            em: '2026-08-07T00:00:00.000Z',
+            descricao: 'Aprovada pelo gestor',
+          }],
+        }));
+      });
+
+      it('gestor de fora do escopo (equipe responsável) não decide', async () => {
+        await ambiente.withSecurityRulesDisabled(async (contexto) => {
+          await updateDoc(doc(contexto.firestore(), 'trocasPlantao', 'troca-plantao-1'), { status: 'PENDENTE_GESTOR' });
+        });
+        const db = autenticarComo(gestorForaEscopo);
+        const base = trocaPlantao();
+        await assertFails(updateDoc(doc(db, 'trocasPlantao', 'troca-plantao-1'), {
+          status: 'APROVADA',
+          historico: [...base.historico, eventoGenerico('SISTEMA', '2026-08-07T00:00:00.000Z')],
+        }));
+      });
+
+      it('consulta-only (equipesConsulta, nunca responsável) não decide', async () => {
+        await ambiente.withSecurityRulesDisabled(async (contexto) => {
+          await updateDoc(doc(contexto.firestore(), 'trocasPlantao', 'troca-plantao-1'), { status: 'PENDENTE_GESTOR' });
+        });
+        const db = autenticarComo(usuarios.externo);
+        const base = trocaPlantao();
+        await assertFails(updateDoc(doc(db, 'trocasPlantao', 'troca-plantao-1'), {
+          status: 'APROVADA',
+          historico: [...base.historico, eventoGenerico('SISTEMA', '2026-08-07T00:00:00.000Z')],
+        }));
+      });
+
+      it('impede alterar campos-chave (grupoId, plantaoSolicitanteId) junto com a transição de status', async () => {
+        const db = autenticarComo(usuarios.colega);
+        const base = trocaPlantao();
+        await assertFails(updateDoc(doc(db, 'trocasPlantao', 'troca-plantao-1'), {
+          status: 'PENDENTE_GESTOR',
+          plantaoSolicitanteId: '0099',
+          historico: [...base.historico, eventoGenerico('DESTINATARIO', '2026-08-06T00:00:00.000Z')],
+        }));
+      });
+    });
+
+    describe('get/list', () => {
+      it('permite leitura ao solicitante, ao destinatário, a um participante ativo terceiro e ao gestor do grupo', async () => {
+        const solicitante = await assertSucceeds(getDoc(doc(autenticarComo(usuarios.colaborador), 'trocasPlantao', 'troca-plantao-1')));
+        expect(solicitante.exists()).toBe(true);
+        await assertSucceeds(getDoc(doc(autenticarComo(usuarios.colega), 'trocasPlantao', 'troca-plantao-1')));
+        await assertSucceeds(getDoc(doc(autenticarComo(usuarios.gestor), 'trocasPlantao', 'troca-plantao-1')));
+      });
+
+      it('nega leitura a quem só consulta o grupo (equipesConsulta, não participante)', async () => {
+        await assertFails(getDoc(doc(autenticarComo(usuarios.externo), 'trocasPlantao', 'troca-plantao-1')));
+      });
+
+      it('list: participante ativo do grupo consegue consultar por grupoId+competencia; consulta-only não', async () => {
+        const dbColaborador = autenticarComo(usuarios.colaborador);
+        await assertSucceeds(getDocs(query(
+          collection(dbColaborador, 'trocasPlantao'),
+          where('grupoId', '==', 'PLANTAO_TESTE'),
+          where('competencia', '==', '2026-08'),
+        )));
+        const dbExterno = autenticarComo(usuarios.externo);
+        await assertFails(getDocs(query(
+          collection(dbExterno, 'trocasPlantao'),
+          where('grupoId', '==', 'PLANTAO_TESTE'),
+          where('competencia', '==', '2026-08'),
+        )));
+      });
+    });
+
+    describe('delete', () => {
+      it('nega delete ao gestor; permite a ADMIN_SISTEMA', async () => {
+        await assertFails(deleteDoc(doc(autenticarComo(usuarios.gestor), 'trocasPlantao', 'troca-plantao-1')));
+        await assertSucceeds(deleteDoc(doc(autenticarComo(usuarios.admin), 'trocasPlantao', 'troca-plantao-1')));
+      });
+    });
+
+    describe('trocasPlantao — aprovação via Matriz operacional', () => {
+      const escopoPlantaoTeste = escopoOperacional({
+        tipo: 'PLANTAO',
+        alvoId: 'PLANTAO_TESTE',
+        responsaveisLogin: [gestorForaEscopo.login],
+        ativo: true,
+      });
+
+      beforeEach(async () => {
+        await ambiente.withSecurityRulesDisabled(async (contexto) => {
+          await setDoc(
+            doc(contexto.firestore(), 'escoposOperacionais', `PLANTAO_${escopoPlantaoTeste.alvoId}`),
+            escopoPlantaoTeste,
+          );
+          await updateDoc(doc(contexto.firestore(), 'trocasPlantao', 'troca-plantao-1'), { status: 'PENDENTE_GESTOR' });
+        });
+      });
+
+      it('o responsável da Matriz aprova mesmo sem pertencer/administrar a equipe responsável pela ACL legada', async () => {
+        const db = autenticarComo(gestorForaEscopo);
+        const base = trocaPlantao();
+        await assertSucceeds(updateDoc(doc(db, 'trocasPlantao', 'troca-plantao-1'), {
+          status: 'APROVADA',
+          atualizadoEm: '2026-08-07T00:00:00.000Z',
+          decididoEm: '2026-08-07T00:00:00.000Z',
+          gestorLogin: gestorForaEscopo.login,
+          gestorNome: gestorForaEscopo.nome,
+          historico: [...base.historico, eventoGenerico('GESTOR', '2026-08-07T00:00:00.000Z')],
+        }));
+      });
+
+      it('o gestor legado (ACL da equipe responsável) deixa de aprovar quando a Matriz existe e não o lista', async () => {
+        const db = autenticarComo(usuarios.gestor);
+        const base = trocaPlantao();
+        await assertFails(updateDoc(doc(db, 'trocasPlantao', 'troca-plantao-1'), {
+          status: 'APROVADA',
+          historico: [...base.historico, eventoGenerico('GESTOR', '2026-08-07T00:00:00.000Z')],
+        }));
+      });
+    });
+  });
+
+  describe('notificacoesTrocaPlantao (FASE-TROCAS-PLANTAO-1)', () => {
+    function notificacaoTrocaPlantao(ajustes: Record<string, unknown> = {}) {
+      return {
+        id: 'notif-plantao-1',
+        destinatarioLogin: usuarios.colega.login,
+        grupoId: 'PLANTAO_TESTE',
+        tipo: 'TROCA_PLANTAO_SOLICITADA',
+        titulo: 'Nova solicitação de troca de plantão',
+        mensagem: `${usuarios.colaborador.nome} quer trocar um plantão com você.`,
+        trocaId: 'troca-plantao-1',
+        criadoPorLogin: usuarios.colaborador.login,
+        criadoEm: '2026-08-05T00:00:00.000Z',
+        lidaEm: null,
+        acao: 'ABRIR_TROCA_PLANTAO',
+        ...ajustes,
+      };
+    }
+
+    beforeEach(async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colega.login),
+          participantePlantao(usuarios.colega.login),
+        );
+      });
+    });
+
+    it('participante ativo cria notificação para outro participante do mesmo grupo', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(setDoc(doc(db, 'notificacoesTrocaPlantao', 'nova-notificacao'), notificacaoTrocaPlantao()));
+    });
+
+    it('impede criar notificação para si mesmo', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(setDoc(doc(db, 'notificacoesTrocaPlantao', 'nova-notificacao'), notificacaoTrocaPlantao({
+        destinatarioLogin: usuarios.colaborador.login,
+      })));
+    });
+
+    it('impede forjar criadoPorLogin', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(setDoc(doc(db, 'notificacoesTrocaPlantao', 'nova-notificacao'), notificacaoTrocaPlantao({
+        criadoPorLogin: usuarios.colega.login,
+      })));
+    });
+
+    it('impede criar já lidaEm preenchido', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(setDoc(doc(db, 'notificacoesTrocaPlantao', 'nova-notificacao'), notificacaoTrocaPlantao({
+        lidaEm: '2026-08-05T00:00:00.000Z',
+      })));
+    });
+
+    it('terceiro sem relação com o grupo não cria notificação', async () => {
+      const db = autenticarComo(usuarios.externo);
+      await assertFails(setDoc(doc(db, 'notificacoesTrocaPlantao', 'nova-notificacao'), notificacaoTrocaPlantao({
+        criadoPorLogin: usuarios.externo.login,
+      })));
+    });
+
+    it('gestor do grupo cria notificação de decisão gerencial (TROCA_PLANTAO_APROVADA) mesmo sem ser participante', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(setDoc(doc(db, 'notificacoesTrocaPlantao', 'nova-notificacao'), notificacaoTrocaPlantao({
+        tipo: 'TROCA_PLANTAO_APROVADA',
+        criadoPorLogin: usuarios.gestor.login,
+      })));
+    });
+
+    it('gestor não pode criar um tipo fora da allowlist gerencial (ex.: TROCA_PLANTAO_SOLICITADA) em nome de terceiro', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertFails(setDoc(doc(db, 'notificacoesTrocaPlantao', 'nova-notificacao'), notificacaoTrocaPlantao({
+        criadoPorLogin: usuarios.gestor.login,
+      })));
+    });
+
+    it('destinatário marca lidaEm', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'notificacoesTrocaPlantao', 'notif-plantao-1'), notificacaoTrocaPlantao());
+      });
+      const db = autenticarComo(usuarios.colega);
+      await assertSucceeds(updateDoc(doc(db, 'notificacoesTrocaPlantao', 'notif-plantao-1'), { lidaEm: '2026-08-05T12:00:00.000Z' }));
+    });
+
+    it('destinatário não altera outros campos além de lidaEm', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'notificacoesTrocaPlantao', 'notif-plantao-1'), notificacaoTrocaPlantao());
+      });
+      const db = autenticarComo(usuarios.colega);
+      await assertFails(updateDoc(doc(db, 'notificacoesTrocaPlantao', 'notif-plantao-1'), { mensagem: 'outra coisa' }));
+    });
+
+    it('terceiro não lê a notificação de outra pessoa', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'notificacoesTrocaPlantao', 'notif-plantao-1'), notificacaoTrocaPlantao());
+      });
+      const db = autenticarComo(usuarios.externo);
+      await assertFails(getDoc(doc(db, 'notificacoesTrocaPlantao', 'notif-plantao-1')));
+    });
+
+    it('nega delete ao gestor; permite a ADMIN_SISTEMA', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'notificacoesTrocaPlantao', 'notif-plantao-1'), notificacaoTrocaPlantao());
+      });
+      await assertFails(deleteDoc(doc(autenticarComo(usuarios.gestor), 'notificacoesTrocaPlantao', 'notif-plantao-1')));
+      await assertSucceeds(deleteDoc(doc(autenticarComo(usuarios.admin), 'notificacoesTrocaPlantao', 'notif-plantao-1')));
+    });
+  });
 });
 
 /**

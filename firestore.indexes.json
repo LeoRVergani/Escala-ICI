@@ -134,6 +134,24 @@
         { "fieldPath": "equipeId", "order": "ASCENDING" },
         { "fieldPath": "criadoPorLogin", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "trocasPlantao",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "grupoId", "order": "ASCENDING" },
+        { "fieldPath": "competencia", "order": "ASCENDING" },
+        { "fieldPath": "solicitanteLogin", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "trocasPlantao",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "grupoId", "order": "ASCENDING" },
+        { "fieldPath": "competencia", "order": "ASCENDING" },
+        { "fieldPath": "destinatarioLogin", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

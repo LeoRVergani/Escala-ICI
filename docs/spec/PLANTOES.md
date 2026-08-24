@@ -2502,3 +2502,93 @@ Um usuário pode ser gestor de um Grupo e também participante dele ao mesmo
 tempo (ex.: coordenador que também cobre plantões) — os dois papéis usam
 caminhos de escrita diferentes (administrativo vs. pessoal) sobre o mesmo
 documento, sem conflito.
+
+## 34. FASE-TROCAS-PLANTAO-1 — trocas de Plantão
+
+Primeira versão funcional de troca de Plantão, em coleções e domínio
+PRÓPRIOS — nunca reaproveita `trocasEscala`/`trocasRepository.ts`
+(Jornada 6x1, modelada por dia + `TipoTurno`). Ver
+`docs/spec/APP_PLANTAO_VISUALIZACAO.md` § 5 para o fluxo completo do lado
+App; esta seção documenta o modelo de dados e as Rules.
+
+### 34.1 Por que não reaproveita o BASE/OVERRIDE/EFETIVA (§ 3)
+
+O modelo de três camadas descrito em § 3 reserva exatamente o lugar de uma
+troca/substituição futura (PLANTÃO-6), mas **não implementa** OVERRIDE nem
+EFETIVA ainda. As Rules atuais de `competenciasPlantao/*/atribuicoes`
+(§ 20.5) só aceitam republicação da competência INTEIRA, com `revisao`
+estritamente crescente — não há caminho seguro para uma troca cirúrgica de
+duas atribuições sem reabrir esse modelo. Por isso, FASE-TROCAS-PLANTAO-1
+implementa o fluxo de solicitação/aceite/aprovação com status e
+notificações, e deixa a efetivação automática (`OVERRIDE`) para uma fase
+seguinte — exatamente a decisão que § 3 já previa.
+
+### 34.2 Modelo de dados — `trocasPlantao/{trocaId}`
+
+```ts
+interface SolicitacaoTrocaPlantao {
+  trocaId: string;
+  tipo: 'PLANTAO';
+  grupoId: string;
+  competencia: string; // 'AAAA-MM'
+  solicitanteLogin: string; solicitanteNome: string;
+  destinatarioLogin: string; destinatarioNome: string;
+  plantaoSolicitanteId: string; plantaoDestinatarioId: string; // atribuicaoId
+  inicioSolicitante: string; fimSolicitante: string; // snapshot ISO UTC
+  inicioDestinatario: string; fimDestinatario: string;
+  status: 'PENDENTE_USUARIO' | 'RECUSADA_USUARIO' | 'CANCELADA'
+    | 'PENDENTE_GESTOR' | 'RECUSADA_GESTOR' | 'APROVADA';
+  mensagemSolicitante: string | null; motivoRecusa: string | null;
+  criadoEm: string; atualizadoEm: string; respondidoEm: string | null; decididoEm: string | null;
+  criadoPorLogin: string; gestorLogin: string | null; gestorNome: string | null;
+  historico: EventoHistoricoTrocaPlantao[]; // só cresce
+  schemaVersion: 1;
+}
+```
+
+`APROVADA` (não `APROVADA_PUBLICADA`, ao contrário de Jornada) é
+deliberado: nada é publicado nesta fase — é um status terminal de DECISÃO.
+Máquina de transições (`lib/trocasPlantao.ts`, espelhada nas Rules):
+
+```
+PENDENTE_USUARIO -> RECUSADA_USUARIO | PENDENTE_GESTOR | CANCELADA
+PENDENTE_GESTOR  -> RECUSADA_GESTOR | APROVADA
+```
+
+Notificações em `notificacoesTrocaPlantao/{id}` (paralela a
+`notificacoesTroca`, mesmo motivo de coleção separada): chaveada por
+`grupoId` (não `equipeId`), `acao: 'ABRIR_TROCA_PLANTAO'`.
+
+### 34.3 Autorização — Firestore Rules
+
+Reaproveita os helpers já existentes de administração/consulta de Plantão
+(`podeAdministrarEscalaPlantao(grupoId)`, `podeConsultarGrupoPlantao`) —
+nunca os de Jornada (`podeAdministrarJornada`/`minhaEquipe()`). Dois
+helpers novos, participação (não administração):
+
+```
+function participanteAtivoDoGrupoPlantao(grupoId, login) { ... } // exists() antes de get()
+function souParticipanteAtivoDoGrupoPlantao(grupoId) { ... }
+```
+
+Resumo do `match /trocasPlantao/{id}`: `create` exige identidade própria,
+destinatário ativo do mesmo grupo, status inicial `PENDENTE_USUARIO`,
+histórico com exatamente 1 evento; `update` exige histórico crescente e uma
+branch por ator (destinatário decide `PENDENTE_USUARIO`, solicitante
+cancela, `podeAdministrarEscalaPlantao(grupoId)` decide `PENDENTE_GESTOR`);
+`list` é mais estreito que o de `trocasEscala` — só participante ativo ou
+quem administra o grupo, nunca quem só consulta (`equipesConsulta`);
+`delete` só `ADMIN_SISTEMA`. `match /notificacoesTrocaPlantao/{id}` espelha
+`notificacoesTroca`. Testes: `tests/firebase/firestore.rules.test.ts`,
+describes `trocasPlantao (FASE-TROCAS-PLANTAO-1)` e
+`notificacoesTrocaPlantao (FASE-TROCAS-PLANTAO-1)`.
+
+### 34.4 O que esta fase explicitamente NÃO faz
+
+- Não escreve em `competenciasPlantao`/`atribuicoes` — nenhuma troca é
+  efetivada automaticamente na escala publicada.
+- Não valida descanso mínimo, conflito com Jornada, limite de horas, regra
+  6x1, nem sobreposição complexa de intervalos.
+- Não estende push (FCM) para troca de Plantão — só notificação in-app.
+- Não altera trocas de Jornada 6x1 (`trocasEscala`/`notificacoesTroca`
+  seguem intocadas nas Rules e no repositório).

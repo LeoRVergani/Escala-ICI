@@ -6,13 +6,15 @@ import {
   atribuicoesPorDiaCivil,
   contatosAtivosDoPlantonista,
   diasCivisNoPeriodo,
-  horarioPlantaoParaExibicao,
-  inicialPlantonista,
+  formatarIntervaloPlantaoCivil,
+  formatarIntervaloPlantaoRelativoAHoje,
   indiceCorPlantonista,
+  intervaloPlantaoCivil,
   nomeExibicaoPlantonista,
+  obterIniciaisParticipantePlantao,
   proximosPlantoesDoUsuario,
   resolverPlantaoAgora,
-  rotuloHorarioPlantaoExibicao,
+  rotuloFimPlantao,
 } from './plantaoApp';
 
 function atribuicao(overrides: Partial<AtribuicaoPlantaoPersistida> = {}): AtribuicaoPlantaoPersistida {
@@ -108,13 +110,35 @@ describe('nomeExibicaoPlantonista', () => {
   });
 });
 
-describe('inicialPlantonista', () => {
-  it('duas iniciais, maiúsculas', () => {
-    expect(inicialPlantonista('Claudio Lis')).toBe('CL');
+describe('obterIniciaisParticipantePlantao', () => {
+  it('primeiro nome + último sobrenome, nome com vários sobrenomes', () => {
+    expect(obterIniciaisParticipantePlantao('Jean Carlo Machado Ribeiro')).toBe('JR');
   });
 
-  it('nome de uma palavra só -> uma inicial', () => {
-    expect(inicialPlantonista('Madonna')).toBe('M');
+  it('nome composto simples', () => {
+    expect(obterIniciaisParticipantePlantao('Bruno Bueno')).toBe('BB');
+    expect(obterIniciaisParticipantePlantao('Claudio Lis')).toBe('CL');
+  });
+
+  it('ignora conectivos (de/da/do/dos/das) ao escolher o último sobrenome', () => {
+    expect(obterIniciaisParticipantePlantao('Caroline Ribeiro de Freitas')).toBe('CF');
+    expect(obterIniciaisParticipantePlantao('João da Silva')).toBe('JS');
+    expect(obterIniciaisParticipantePlantao('Ana Paula dos Santos Lima')).toBe('AL');
+  });
+
+  it('nome de uma palavra só -> duas primeiras letras', () => {
+    expect(obterIniciaisParticipantePlantao('Madonna')).toBe('MA');
+  });
+
+  it('sem nome, cai no login (separando por . _ - @)', () => {
+    expect(obterIniciaisParticipantePlantao(undefined, 'caio.monteiro')).toBe('CM');
+    expect(obterIniciaisParticipantePlantao('', 'clis')).toBe('CL');
+  });
+
+  it('nome e login vazios/ausentes -> string vazia, nunca lança', () => {
+    expect(obterIniciaisParticipantePlantao()).toBe('');
+    expect(obterIniciaisParticipantePlantao('', '')).toBe('');
+    expect(obterIniciaisParticipantePlantao('   ', '   ')).toBe('');
   });
 });
 
@@ -159,23 +183,111 @@ describe('proximosPlantoesDoUsuario', () => {
   });
 });
 
-describe('horarioPlantaoParaExibicao / rotuloHorarioPlantaoExibicao', () => {
+describe('intervaloPlantaoCivil + formatadores', () => {
   it('plantão dentro do mesmo dia civil (timezone do Grupo) não cruza dia seguinte', () => {
-    const horario = horarioPlantaoParaExibicao(
+    const intervalo = intervaloPlantaoCivil(
       { inicio: '2026-08-11T13:00:00.000Z', fim: '2026-08-11T19:00:00.000Z' },
       'America/Sao_Paulo',
     );
-    expect(horario.cruzaDiaSeguinte).toBe(false);
-    expect(rotuloHorarioPlantaoExibicao(horario)).toBe(`${horario.horaInicio}–${horario.horaFim}`);
+    expect(intervalo.valido).toBe(true);
+    expect(intervalo.cruzaDiaSeguinte).toBe(false);
+    expect(formatarIntervaloPlantaoCivil(intervalo)).toBe(`${intervalo.horaInicio}–${intervalo.horaFim}`);
   });
 
-  it('plantão noturno que cruza a meia-noite civil marca cruzaDiaSeguinte e o rótulo mostra "(+1 dia)"', () => {
-    const horario = horarioPlantaoParaExibicao(
+  it('plantão noturno que cruza a meia-noite civil marca cruzaDiaSeguinte e o rótulo neutro nunca diz "hoje"', () => {
+    const intervalo = intervaloPlantaoCivil(
       { inicio: '2026-08-10T22:00:00.000Z', fim: '2026-08-11T10:00:00.000Z' },
       'America/Sao_Paulo',
     );
-    expect(horario.cruzaDiaSeguinte).toBe(true);
-    expect(rotuloHorarioPlantaoExibicao(horario)).toContain('(+1 dia)');
+    expect(intervalo.cruzaDiaSeguinte).toBe(true);
+    expect(intervalo.diasDeDiferenca).toBe(1);
+    const rotulo = formatarIntervaloPlantaoCivil(intervalo);
+    expect(rotulo).toContain('termina no dia seguinte');
+    expect(rotulo).not.toContain('hoje');
+    expect(rotulo).not.toContain('+1 dia');
+  });
+
+  it('plantão de 24h também cruza dia seguinte', () => {
+    const intervalo = intervaloPlantaoCivil(
+      { inicio: '2026-08-10T22:00:00.000Z', fim: '2026-08-11T22:00:00.000Z' },
+      'America/Sao_Paulo',
+    );
+    expect(intervalo.cruzaDiaSeguinte).toBe(true);
+    expect(intervalo.horaInicio).toBe(intervalo.horaFim);
+  });
+
+  it('respeita o timezone do Grupo (diferente de America/Sao_Paulo)', () => {
+    const intervalo = intervaloPlantaoCivil(
+      { inicio: '2026-08-11T02:00:00.000Z', fim: '2026-08-11T08:00:00.000Z' },
+      'UTC',
+    );
+    expect(intervalo).toEqual({
+      horaInicio: '02:00', horaFim: '08:00', dataInicio: '2026-08-11', dataFim: '2026-08-11',
+      diasDeDiferenca: 0, cruzaDiaSeguinte: false, valido: true,
+    });
+  });
+
+  it('instante inválido nunca lança — cai no fallback seguro', () => {
+    const intervalo = intervaloPlantaoCivil({ inicio: 'não-é-uma-data', fim: '2026-08-11T10:00:00.000Z' }, 'America/Sao_Paulo');
+    expect(intervalo.valido).toBe(false);
+    expect(formatarIntervaloPlantaoCivil(intervalo)).toBe('Horário indisponível');
+  });
+
+  it('timezone inválida nunca lança — cai no fallback seguro', () => {
+    const intervalo = intervaloPlantaoCivil(
+      { inicio: '2026-08-11T13:00:00.000Z', fim: '2026-08-11T19:00:00.000Z' },
+      'Timezone/Inexistente',
+    );
+    expect(intervalo.valido).toBe(false);
+  });
+
+  describe('formatarIntervaloPlantaoRelativoAHoje', () => {
+    it('plantão que começa hoje e cruza a meia-noite -> "hoje -> amanhã"', () => {
+      const intervalo = intervaloPlantaoCivil(
+        { inicio: '2026-08-10T22:00:00.000Z', fim: '2026-08-11T10:00:00.000Z' },
+        'America/Sao_Paulo',
+      );
+      expect(formatarIntervaloPlantaoRelativoAHoje(intervalo, intervalo.dataInicio)).toBe(
+        `${intervalo.horaInicio} hoje → ${intervalo.horaFim} amanhã`,
+      );
+    });
+
+    it('plantão que NÃO começa hoje nunca finge que é "hoje" — cai na forma neutra', () => {
+      const intervalo = intervaloPlantaoCivil(
+        { inicio: '2026-08-10T22:00:00.000Z', fim: '2026-08-11T10:00:00.000Z' },
+        'America/Sao_Paulo',
+      );
+      const rotulo = formatarIntervaloPlantaoRelativoAHoje(intervalo, '2026-09-01');
+      expect(rotulo).not.toContain('hoje');
+      expect(rotulo).not.toContain('amanhã');
+      expect(rotulo).toBe(formatarIntervaloPlantaoCivil(intervalo));
+    });
+  });
+
+  describe('rotuloFimPlantao', () => {
+    it('mesmo dia -> "Até {horaFim}"', () => {
+      const intervalo = intervaloPlantaoCivil(
+        { inicio: '2026-08-11T13:00:00.000Z', fim: '2026-08-11T19:00:00.000Z' },
+        'America/Sao_Paulo',
+      );
+      expect(rotuloFimPlantao(intervalo, intervalo.dataInicio)).toBe(`Até ${intervalo.horaFim}`);
+    });
+
+    it('cruza a meia-noite e começou hoje -> "de amanhã"', () => {
+      const intervalo = intervaloPlantaoCivil(
+        { inicio: '2026-08-10T22:00:00.000Z', fim: '2026-08-11T10:00:00.000Z' },
+        'America/Sao_Paulo',
+      );
+      expect(rotuloFimPlantao(intervalo, intervalo.dataInicio)).toBe(`Até ${intervalo.horaFim} de amanhã`);
+    });
+
+    it('cruza a meia-noite mas NÃO começou hoje -> "do dia seguinte", nunca "amanhã"', () => {
+      const intervalo = intervaloPlantaoCivil(
+        { inicio: '2026-08-10T22:00:00.000Z', fim: '2026-08-11T10:00:00.000Z' },
+        'America/Sao_Paulo',
+      );
+      expect(rotuloFimPlantao(intervalo, '2026-08-11')).toBe(`Até ${intervalo.horaFim} do dia seguinte`);
+    });
   });
 });
 
