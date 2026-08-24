@@ -17,8 +17,8 @@ qualquer usuário com um `GrupoPlantao` no escopo da própria equipe
 - **"Meus próximos plantões"** (só quando o usuário logado é, ele mesmo, um
   participante ativo do Grupo): lista cronológica das próprias atribuições
   futuras na competência publicada.
-- **"Solicitar troca de plantão"** (só para plantonistas): entrada visual
-  desabilitada — ver seção 5.
+- **"Solicitar troca de plantão"** (só para plantonistas): fluxo real desde
+  FASE-TROCAS-PLANTAO-1 — ver seção 5.
 
 A aba "Perfil" ganha um card **"Meus contatos de plantão"** (só para quem é
 participante ativo), permitindo autoatualizar os próprios contatos sem
@@ -59,15 +59,24 @@ puro, sem Firestore/React (mesmo princípio de `hojeConsulta.ts`):
   `[inicio, fim)`, início inclusivo/fim exclusivo) e próximo (primeiro
   `inicio` estritamente depois de `agoraIso`). Comparação por string ISO
   8601 (largura fixa), nunca `Date`, para não herdar o timezone da máquina.
-- `nomeExibicaoPlantonista`/`inicialPlantonista` — nome de exibição (cai no
-  próprio login se o usuário não for encontrado) e iniciais.
+- `nomeExibicaoPlantonista`/`obterIniciaisParticipantePlantao` — nome de
+  exibição (cai no próprio login se o usuário não for encontrado) e
+  iniciais de **primeiro nome + último sobrenome significativo**
+  (conectivos "de/da/do/dos/das/e" nunca viram a inicial), com fallback por
+  login e por 1 palavra — ver FASE-TROCAS-PLANTAO-1 (substitui a antiga
+  `inicialPlantonista`, que usava as duas primeiras palavras).
 - `contatosAtivosDoPlantonista` — só contatos `ativo: true`.
 - `proximosPlantoesDoUsuario(login, atribuicoes, agoraIso, limite)` — só do
   próprio login, ordenado, nunca inclui um plantão já encerrado.
-- `horarioPlantaoParaExibicao(atribuicao, timezone)` +
-  `rotuloHorarioPlantaoExibicao` — horário civil de início/fim no timezone
-  do Grupo (`converterInstanteUtcParaMomento`, de
-  `@escala-ici/contrato`) e se cruza o dia seguinte.
+- `intervaloPlantaoCivil(atribuicao, timezone)` — horário e data civis de
+  início/fim no timezone do Grupo (`converterInstanteUtcParaMomento`, de
+  `@escala-ici/contrato`), quantos dias de diferença e se cruza o dia
+  seguinte; nunca lança (documento corrompido cai num `valido: false`
+  seguro). `formatarIntervaloPlantaoCivil` (forma neutra, nunca diz
+  "hoje"), `formatarIntervaloPlantaoRelativoAHoje` (só diz "hoje/amanhã"
+  quando o plantão realmente começa hoje) e `rotuloFimPlantao` substituem a
+  antiga `rotuloHorarioPlantaoExibicao`/o sufixo cru `(+1 dia)` — ver
+  FASE-TROCAS-PLANTAO-1, Parte 9.
 
 ## 4. Contatos do plantonista
 
@@ -103,37 +112,69 @@ Um usuário pode ser gestor de um Grupo (administra via
 próprios contatos via o ramo pessoal) ao mesmo tempo — os dois caminhos de
 escrita coexistem sobre o mesmo documento, sem conflito.
 
-## 5. Trocas — não implementado nesta fase (decisão deliberada)
+## 5. Trocas de Plantão (FASE-TROCAS-PLANTAO-1)
 
-O fluxo de troca existente (`lib/trocasEscala.ts`,
-`lib/firebase/trocasRepository.ts`) é inteiramente modelado em cima da
-Jornada 6x1: `SolicitacaoTrocaReal` grava `turnoSolicitanteAntes`/
-`turnoDestinatarioAntes` por **dia** (`TipoTurno`), e
-`aplicarTrocaNosDias` muta `TurnosMes`. Plantão não tem "dia" nem
+Implementado a partir desta fase, em coleção e domínio PRÓPRIOS — nunca
+reaproveita `lib/trocasEscala.ts`/`lib/firebase/trocasRepository.ts`
+(Jornada 6x1), que são inteiramente modelados por **dia** (`TipoTurno`) e
+mutam `TurnosMes` via `aplicarTrocaNosDias`. Plantão não tem "dia" nem
 "turno de catálogo" — tem atribuições de duração variável (`inicio`/`fim`
-como instantes UTC, ex. 24h/12h/8h, podendo cruzar a meia-noite). Adaptar o
-fluxo de troca para esse modelo exigiria uma entidade nova
-(`SolicitacaoTrocaPlantao` ou equivalente), Rules próprias e uma forma de
-aplicar a troca sobre `atribuicoesPlantao`/`competenciasPlantao` sem
-corromper a competência publicada — trabalho equivalente a uma fase
-própria, fora do escopo cirúrgico desta.
+como instantes UTC, podendo cruzar a meia-noite) — por isso o domínio vive
+em `lib/trocasPlantao.ts` (tipos, máquina de status, validação pura) e
+`lib/firebase/trocasPlantaoRepository.ts` (coleções `trocasPlantao` e
+`notificacoesTrocaPlantao`). Detalhe completo: `docs/spec/PLANTOES.md` § 34.
 
-Por isso, a aba "Plantão" mostra, para quem é plantonista, um card
-**"Solicitar troca de plantão"** com o botão desabilitado e um texto
-explicando o motivo — nunca dispara `criarSolicitacaoTroca` nem qualquer
-escrita. A troca de Jornada SOC (aba "Trocas") não foi alterada.
+**Decisão estrutural mais importante**: esta fase NÃO aplica a troca na
+escala publicada. `APROVADA` é um status terminal que só registra a decisão
+do gestor — as Rules de `competenciasPlantao/*/atribuicoes` exigem
+republicação inteira da competência com `revisao` crescente, e o modelo
+BASE→OVERRIDE→EFETIVA que permitiria uma troca cirúrgica está reservado mas
+não implementado (PLANTÃO-6). O ajuste real na escala publicada continua
+sendo edição manual do coordenador no Dashboard; a UI do App deixa isso
+explícito sempre que mostra uma troca `APROVADA` ou aguardando aprovação.
+
+Fluxo: colaborador escolhe um dos próprios plantões futuros → escolhe um
+plantão futuro de outro participante ativo do mesmo Grupo → confirma
+(`PENDENTE_USUARIO`) → colega aceita (`PENDENTE_GESTOR`) ou recusa
+(`RECUSADA_USUARIO`) → quem administra o Grupo (Matriz operacional
+`PLANTAO`) aprova (`APROVADA`) ou recusa (`RECUSADA_GESTOR`) — a decisão
+acontece no próprio App (bloco "Aprovações de Plantão" na tela Trocas),
+não no Dashboard: a escrita de aprovação não muda a escala publicada, só o
+documento da troca, então não depende do modo de escrita administrativa do
+ambiente. Só participante ATIVO do Grupo pode solicitar/receber troca —
+quem só consulta o Grupo (`equipesConsulta`) nunca aparece como
+solicitante/destinatário nem lista trocas de terceiros.
+
+Regras de negócio validadas nesta fase (`validarNovaSolicitacaoTrocaPlantao`,
+`lib/trocasPlantao.ts`): ambos os plantões são futuros; mesmo Grupo de
+Plantão; solicitante e destinatário participantes ativos; não é possível
+trocar consigo mesmo; não há troca ativa duplicada para nenhum dos dois
+plantões. Deliberadamente NÃO valida (fica para fases futuras, se algum dia
+forem necessárias): descanso mínimo, conflito com Jornada, limite de horas,
+regra 6x1, sobreposição complexa de intervalos.
+
+Notificação ao gestor usa só a Matriz operacional
+(`escoposOperacionais/PLANTAO_{grupoId}`) — nunca hardcoda nome/cargo. Sem
+Matriz configurada para o Grupo, ninguém recebe notificação dirigida, mas a
+troca continua visível a quem abrir a fila de aprovação.
 
 ## 6. O que esta fase explicitamente NÃO faz
 
 - Não altera o modelo persistente de Plantão
   (`packages/contrato/src/modeloPlantaoPersistente.ts`), exceto pela
   reutilização do campo `contatos` já existente.
-- Não implementa troca de Plantão (ver seção 5).
+- Não aplica a troca de Plantão na escala publicada — `APROVADA` é
+  decisão registrada, não efetivação (ver seção 5).
 - Não dá ao App nenhuma escrita administrativa de Plantão (grupo,
-  participante, publicação, rascunho) — só leitura da competência publicada
-  e a escrita pessoal de contatos.
+  participante, publicação, rascunho) — só leitura da competência publicada,
+  a escrita pessoal de contatos, e agora a criação/resposta/decisão de
+  trocas de Plantão (coleção própria, sem tocar em escala publicada).
 - Não usa `localStorage` como fonte de escala.
-- Não altera a Jornada SOC, a tela "Hoje" nem o fluxo de Trocas existente.
+- Não altera a Jornada SOC, a tela "Hoje" nem o fluxo de Trocas de Jornada
+  6x1 existente.
+- Não estende o push (FCM) para notificações de troca de Plantão nesta
+  fase — o sino in-app (Firestore em tempo real) cobre os 4 eventos
+  pedidos; push fica para uma fase seguinte.
 
 ## 7. FASE-APP-OPERACOES-UNIVERSAIS-1 — App universal por operação
 
@@ -179,10 +220,11 @@ Mudanças de comportamento no `EmployeeApp`:
   quando o contexto é Plantão, com o mesmo seletor quando as duas
   operações existem — nunca mais "0 colaboradores" para quem só tem
   Plantão.
-- **Trocas** — sem Jornada publicada, mostra a limitação dentro da própria
-  tela ("Trocas de Jornada 6x1 não estão disponíveis..."), nunca o alerta
-  global; e, quando há Plantão, lembra que "Trocas de Plantão serão
-  tratadas em uma próxima fase" (nenhum fluxo de escrita novo).
+- **Trocas** — sem Jornada publicada, mostra a limitação dentro do bloco
+  "Trocas de Jornada 6x1" ("...não estão disponíveis..."), nunca o alerta
+  global; o bloco "Trocas de Plantão" é independente e mostra seu próprio
+  fluxo real desde FASE-TROCAS-PLANTAO-1 (ver § 5) — nenhum dos dois blocos
+  desliga o outro nem a tela inteira.
 - **Messaging** — `assinarMensagensEmPrimeiroPlano()` (que pode lançar
   síncrono em ambientes sem suporte a `getMessaging()`) passou a rodar
   dentro de um `try/catch` com `console.warn` — o App nunca fica em branco
@@ -192,3 +234,14 @@ Nada muda em Firestore Rules, seed/staging, Dashboard ou no modelo de
 Plantão — ver `apps/app/src/operacoesApp.test.ts` e
 `tests/app-plantao-visualizacao-boundaries.test.mjs` (testes 14–20) para a
 cobertura desta fase.
+
+## 8. Clique no dia do calendário (FASE-TROCAS-PLANTAO-1)
+
+Clicar num dia do calendário mensal de Plantão (`CalendarioPlantaoApp`)
+abre `DetalheDiaPlantao` — um modal (bottom sheet no mobile, via
+`.modal-backdrop-sheet`) com data, plantonista (nome + iniciais + login),
+horário civil (`formatarIntervaloPlantaoCivil` — nunca finge que um dia
+diferente é "hoje"), contatos ativos, badge "Você" quando é o próprio
+usuário, e "Nenhum plantão neste dia." quando vazio. Nunca usa `alert()`.
+Se o dia clicado tem um plantão futuro do próprio usuário, um botão
+"Solicitar troca deste plantão" abre o assistente de troca já no passo 2.

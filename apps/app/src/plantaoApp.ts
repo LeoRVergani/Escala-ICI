@@ -46,8 +46,43 @@ export function nomeExibicaoPlantonista(login: string, usuarios: readonly Usuari
   return usuarios.find((usuario) => usuario.login === login)?.nome ?? login;
 }
 
-export function inicialPlantonista(nome: string): string {
-  return nome.split(' ').map((parte) => parte[0]).slice(0, 2).join('').toUpperCase();
+const CONECTIVOS_NOME_PLANTAO = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
+
+function iniciaisDeTokens(tokensBrutos: readonly string[]): string {
+  const tokens = tokensBrutos.filter((token) => token.length > 0);
+  if (tokens.length === 0) {
+    return '';
+  }
+  const significativos = tokens.filter((token) => !CONECTIVOS_NOME_PLANTAO.has(token.toLowerCase()));
+  const lista = significativos.length > 0 ? significativos : tokens;
+  if (lista.length >= 2) {
+    return `${lista[0][0]}${lista[lista.length - 1][0]}`.toUpperCase();
+  }
+  return lista[0].slice(0, 2).toUpperCase();
+}
+
+/**
+ * Iniciais de identificação de um participante de Plantão: primeira letra do
+ * primeiro nome + primeira letra do último nome SIGNIFICATIVO — conectivos
+ * ("de", "da", "do", "das", "dos", "e") nunca viram a inicial. Cai para o
+ * `login` quando não há `nome`, e para as 2 primeiras letras de uma única
+ * palavra quando não há como formar 2 iniciais. Nunca lança; string vazia só
+ * quando nem `nome` nem `login` têm conteúdo.
+ *
+ * Substitui `inicialPlantonista()` (usava as duas PRIMEIRAS palavras e
+ * devolvia 1 letra só para nome de uma palavra) e converge com o algoritmo
+ * já usado no Dashboard (`components/plantao/PlantaoCalendario.tsx`).
+ */
+export function obterIniciaisParticipantePlantao(nome?: string, login?: string): string {
+  const nomeLimpo = (nome ?? '').trim();
+  if (nomeLimpo !== '') {
+    return iniciaisDeTokens(nomeLimpo.split(/\s+/u));
+  }
+  const loginLimpo = (login ?? '').trim();
+  if (loginLimpo !== '') {
+    return iniciaisDeTokens(loginLimpo.split(/[.\-_@\s]+/u));
+  }
+  return '';
 }
 
 /** Só contatos `ativo: true` — o mesmo critério que o Dashboard já usa para não oferecer um número desligado/trocado. */
@@ -72,26 +107,96 @@ export function proximosPlantoesDoUsuario(
     .slice(0, limite);
 }
 
-export interface HorarioPlantaoExibicao {
-  /** "HH:mm". */
+export interface IntervaloPlantaoCivil {
+  /** "HH:mm", ou "--:--" quando `valido` é `false`. */
   horaInicio: string;
-  /** "HH:mm". */
+  /** "HH:mm", ou "--:--" quando `valido` é `false`. */
   horaFim: string;
-  /** `true` quando o plantão termina num dia civil diferente do início, no timezone do Grupo. */
+  /** "AAAA-MM-DD" no timezone do Grupo, ou "" quando `valido` é `false`. */
+  dataInicio: string;
+  /** "AAAA-MM-DD" no timezone do Grupo, ou "" quando `valido` é `false`. */
+  dataFim: string;
+  /** Diferença de dias civis entre `dataInicio` e `dataFim` (0 = mesmo dia). */
+  diasDeDiferenca: number;
+  /** `true` quando o plantão termina num dia civil diferente do início. */
   cruzaDiaSeguinte: boolean;
+  /** `false` quando `inicio`/`fim`/`timezone` não puderam ser convertidos (documento corrompido). */
+  valido: boolean;
 }
 
-export function horarioPlantaoParaExibicao(
+const INTERVALO_PLANTAO_CIVIL_INVALIDO: IntervaloPlantaoCivil = {
+  horaInicio: '--:--',
+  horaFim: '--:--',
+  dataInicio: '',
+  dataFim: '',
+  diasDeDiferenca: 0,
+  cruzaDiaSeguinte: false,
+  valido: false,
+};
+
+/**
+ * Converte um intervalo de Plantão (instantes UTC) para horário/data civil no
+ * timezone do Grupo. NUNCA lança: `converterInstanteUtcParaMomento()` lança
+ * em instante ou timezone inválido, e propagar isso derrubaria a árvore de
+ * render inteira por causa de um único documento corrompido — mesmo
+ * princípio de `lib/dataSegura.ts`.
+ */
+export function intervaloPlantaoCivil(
   atribuicao: Pick<AtribuicaoPlantaoPersistida, 'inicio' | 'fim'>,
   timezone: string,
-): HorarioPlantaoExibicao {
-  const inicio = converterInstanteUtcParaMomento(atribuicao.inicio, timezone);
-  const fim = converterInstanteUtcParaMomento(atribuicao.fim, timezone);
-  return { horaInicio: inicio.hora, horaFim: fim.hora, cruzaDiaSeguinte: inicio.data !== fim.data };
+): IntervaloPlantaoCivil {
+  try {
+    const inicio = converterInstanteUtcParaMomento(atribuicao.inicio, timezone);
+    const fim = converterInstanteUtcParaMomento(atribuicao.fim, timezone);
+    const diasDeDiferenca = Math.round(
+      (Date.parse(`${fim.data}T00:00:00.000Z`) - Date.parse(`${inicio.data}T00:00:00.000Z`)) / 86_400_000,
+    );
+    return {
+      horaInicio: inicio.hora,
+      horaFim: fim.hora,
+      dataInicio: inicio.data,
+      dataFim: fim.data,
+      diasDeDiferenca,
+      cruzaDiaSeguinte: diasDeDiferenca > 0,
+      valido: true,
+    };
+  } catch {
+    return INTERVALO_PLANTAO_CIVIL_INVALIDO;
+  }
 }
 
-export function rotuloHorarioPlantaoExibicao(horario: HorarioPlantaoExibicao): string {
-  return `${horario.horaInicio}–${horario.horaFim}${horario.cruzaDiaSeguinte ? ' (+1 dia)' : ''}`;
+/** Forma neutra: só descreve o próprio intervalo, nunca afirma "hoje"/"amanhã" — segura em qualquer contexto (inclusive plantão futuro). */
+export function formatarIntervaloPlantaoCivil(intervalo: IntervaloPlantaoCivil): string {
+  if (!intervalo.valido) {
+    return 'Horário indisponível';
+  }
+  if (!intervalo.cruzaDiaSeguinte) {
+    return `${intervalo.horaInicio}–${intervalo.horaFim}`;
+  }
+  const sufixo = intervalo.diasDeDiferenca === 1 ? 'termina no dia seguinte' : `termina ${intervalo.diasDeDiferenca} dias depois`;
+  return `${intervalo.horaInicio}–${intervalo.horaFim} · ${sufixo}`;
+}
+
+/** Forma relativa a HOJE: só usa "hoje/amanhã" quando o plantão realmente começa hoje; senão cai na forma neutra, nunca mente sobre a data. */
+export function formatarIntervaloPlantaoRelativoAHoje(intervalo: IntervaloPlantaoCivil, dataHoje: string): string {
+  if (!intervalo.valido || intervalo.dataInicio !== dataHoje) {
+    return formatarIntervaloPlantaoCivil(intervalo);
+  }
+  if (!intervalo.cruzaDiaSeguinte) {
+    return `${intervalo.horaInicio}–${intervalo.horaFim} hoje`;
+  }
+  return `${intervalo.horaInicio} hoje → ${intervalo.horaFim} amanhã`;
+}
+
+/** Substitui o ternário duplicado `Até {horaFim}{cruzaDiaSeguinte ? ' (amanhã)' : ''}` — mesma regra: só diz "amanhã" quando o plantão começou hoje de verdade. */
+export function rotuloFimPlantao(intervalo: IntervaloPlantaoCivil, dataHoje: string): string {
+  if (!intervalo.valido) {
+    return 'Horário indisponível';
+  }
+  if (!intervalo.cruzaDiaSeguinte) {
+    return `Até ${intervalo.horaFim}`;
+  }
+  return intervalo.dataInicio === dataHoje ? `Até ${intervalo.horaFim} de amanhã` : `Até ${intervalo.horaFim} do dia seguinte`;
 }
 
 /**

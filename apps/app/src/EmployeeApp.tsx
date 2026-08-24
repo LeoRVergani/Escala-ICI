@@ -116,13 +116,15 @@ import {
   atribuicoesPorDiaCivil,
   contatosAtivosDoPlantonista,
   diasCivisNoPeriodo,
-  horarioPlantaoParaExibicao,
-  inicialPlantonista,
+  formatarIntervaloPlantaoCivil,
+  formatarIntervaloPlantaoRelativoAHoje,
   indiceCorPlantonista,
+  intervaloPlantaoCivil,
   nomeExibicaoPlantonista,
+  obterIniciaisParticipantePlantao,
   proximosPlantoesDoUsuario,
   resolverPlantaoAgora,
-  rotuloHorarioPlantaoExibicao,
+  rotuloFimPlantao,
 } from './plantaoApp';
 import {
   cancelarSolicitacaoTroca as cancelarSolicitacaoTrocaFirebase,
@@ -132,8 +134,21 @@ import {
   observarTrocasDoUsuario,
   responderSolicitacaoTroca as responderSolicitacaoTrocaFirebase,
 } from '@/lib/firebase/trocasRepository';
+import {
+  cancelarSolicitacaoTrocaPlantao as cancelarSolicitacaoTrocaPlantaoFirebase,
+  criarSolicitacaoTrocaPlantao,
+  gestorAprovarTrocaPlantao,
+  gestorRecusarTrocaPlantao,
+  marcarNotificacaoTrocaPlantaoComoLida,
+  observarNotificacoesTrocaPlantao,
+  observarTrocasPlantaoDoGrupo,
+  observarTrocasPlantaoDoUsuario,
+  responderSolicitacaoTrocaPlantao as responderSolicitacaoTrocaPlantaoFirebase,
+} from '@/lib/firebase/trocasPlantaoRepository';
+import { obterEscopoOperacional } from '@/lib/firebase/escoposOperacionaisRepository';
+import { usuarioPodeAdministrarAlvoOperacional } from '@/lib/escoposOperacionaisMatriz';
 import { GESTOR_DEMO, USUARIOS_DEMO } from '@/lib/demoIdentidades';
-import type { EventoEscala, Usuario } from '@/lib/modelos';
+import type { EscopoOperacional, EventoEscala, Usuario } from '@/lib/modelos';
 import { deveExibirRestauracao, podeIniciarListeners } from '@/lib/sessao';
 import {
   classificarDiaSemana,
@@ -155,10 +170,29 @@ import {
   type NotificacaoTroca,
   type SolicitacaoTrocaReal,
 } from '@/lib/trocasEscala';
+import {
+  AVISO_APROVACAO_NAO_PUBLICA,
+  destinatariosNotificacaoGestorPlantao,
+  LIMITE_MENSAGEM_TROCA_PLANTAO,
+  plantoesFuturosDeOutrosParticipantes,
+  plantoesFuturosDoPlantonista,
+  ROTULO_STATUS_TROCA_PLANTAO,
+  SEVERIDADE_STATUS_TROCA_PLANTAO,
+  type NotificacaoTrocaPlantao,
+  type SolicitacaoTrocaPlantao,
+} from '@/lib/trocasPlantao';
+import {
+  contarAbasTrocaPlantao,
+  contarNaoLidas,
+  filtrarTrocasPlantaoPorAba,
+  mensagemVaziaAbaTrocaPlantao,
+  mesclarNotificacoesTrocaApp,
+  type AbaTrocas,
+  type ItemNotificacaoTrocaApp,
+} from './trocasApp';
 
 type Tela = 'hoje' | 'minha' | 'trocas' | 'plantao' | 'equipe' | 'perfil';
 type ModoEscala = 'calendario' | 'agenda' | 'lembretes';
-type AbaTrocas = 'minhas' | 'responder' | 'gestor' | 'historico';
 
 /**
  * FASE-APP-UX-OPERACOES-MOBILE-1 — estado tipado do feedback do editor de
@@ -372,7 +406,8 @@ interface PlantaoHojeCardProps {
 function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso }: PlantaoHojeCardProps) {
   const resumo = resolverPlantaoAgora(atribuicoes, agoraIso);
   const nomeAtual = resumo.atual ? nomeExibicaoPlantonista(resumo.atual.plantonistaLogin, usuarios) : null;
-  const horarioAtual = resumo.atual ? horarioPlantaoParaExibicao(resumo.atual, grupo.timezone) : null;
+  const intervaloAtual = resumo.atual ? intervaloPlantaoCivil(resumo.atual, grupo.timezone) : null;
+  const dataHoje = converterInstanteUtcParaMomento(agoraIso, grupo.timezone).data;
   const contatosAtual = resumo.atual ? contatosAtivosDoPlantonista(resumo.atual.plantonistaLogin, participantes) : [];
 
   return (
@@ -380,20 +415,20 @@ function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso
       <header className="today-card-heading">
         <span>Plantão de hoje</span>
       </header>
-      {resumo.atual === null || horarioAtual === null ? (
+      {resumo.atual === null || intervaloAtual === null ? (
         <p className="today-rest-copy">Ninguém está de plantão neste momento.</p>
       ) : (
         <>
           <div className="today-hero-heading">
-            <span className="today-hero-icon">{inicialPlantonista(nomeAtual ?? '')}</span>
+            <span className="today-hero-icon">{obterIniciaisParticipantePlantao(nomeAtual ?? undefined, resumo.atual.plantonistaLogin)}</span>
             <div>
               <strong className="today-shift-name">{nomeAtual}</strong>
-              <div className="today-hours"><strong>{rotuloHorarioPlantaoExibicao(horarioAtual)}</strong></div>
+              <div className="today-hours"><strong>{formatarIntervaloPlantaoRelativoAHoje(intervaloAtual, dataHoje)}</strong></div>
             </div>
           </div>
           <div className="today-meta">
             <span className="live-badge">
-              <i /> Até {horarioAtual.horaFim}{horarioAtual.cruzaDiaSeguinte ? ' (amanhã)' : ''}
+              <i /> {rotuloFimPlantao(intervaloAtual, dataHoje)}
             </span>
           </div>
           {contatosAtual.length > 0 && (
@@ -424,6 +459,8 @@ interface CalendarioPlantaoAppProps {
   usuarios: Usuario[];
   timezone: string;
   loginUsuarioAtual: string;
+  /** FASE-TROCAS-PLANTAO-1 — clique no dia; opcional para não quebrar quem ainda não passa a prop. */
+  onSelecionarDia?: (data: string) => void;
 }
 
 /**
@@ -445,6 +482,7 @@ function CalendarioPlantaoApp({
   usuarios,
   timezone,
   loginUsuarioAtual,
+  onSelecionarDia,
 }: CalendarioPlantaoAppProps) {
   const dias = diasCivisNoPeriodo(periodoInicio, periodoFim);
   const porDia = atribuicoesPorDiaCivil(atribuicoes, timezone);
@@ -473,6 +511,8 @@ function CalendarioPlantaoApp({
                 data === dataHoje ? 'today' : '',
                 meuDia ? 'meu-plantao' : '',
               ].filter(Boolean).join(' ')}
+              aria-haspopup="dialog"
+              onClick={() => onSelecionarDia?.(data)}
               aria-label={principal
                 ? `${formatarData(data, { weekday: 'long', day: '2-digit', month: 'long' })}: ${nomePrincipal}${meuDia ? ' (você)' : ''}`
                 : `${formatarData(data, { weekday: 'long', day: '2-digit', month: 'long' })}: sem plantão`}
@@ -486,7 +526,7 @@ function CalendarioPlantaoApp({
                   className="shift-chip"
                   data-identidade={indiceCorPlantonista(principal.plantonistaLogin, participantes)}
                 >
-                  {inicialPlantonista(nomePrincipal ?? '')}
+                  {obterIniciaisParticipantePlantao(nomePrincipal ?? undefined, principal.plantonistaLogin)}
                   {extras > 0 ? <small>+{extras}</small> : null}
                 </strong>
               ) : (
@@ -497,6 +537,114 @@ function CalendarioPlantaoApp({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+interface DetalheDiaPlantaoProps {
+  data: string;
+  agoraIso: string;
+  atribuicoesDoDia: AtribuicaoPlantaoPersistida[];
+  participantes: ParticipantePlantao[];
+  usuarios: Usuario[];
+  timezone: string;
+  loginUsuarioAtual: string;
+  onFechar: () => void;
+  onSolicitarTroca?: (atribuicaoId: string) => void;
+}
+
+/**
+ * FASE-TROCAS-PLANTAO-1 — detalhe do dia clicado no calendário de Plantão.
+ * Mesma convenção visual de `ModalRespostaTroca`/`ModalDetalheTroca`
+ * (`.modal-backdrop`/`.edit-modal`), com uma variante de folha inferior no
+ * mobile (`.modal-backdrop-sheet`) — um popup nativo do navegador nunca é
+ * usado aqui. Reaproveita `contatosAtivosDoPlantonista()` e as classes
+ * `.plantao-contatos-lista`/`.plantao-contato-chip` já usadas em outros
+ * cards de Plantão do App.
+ */
+function DetalheDiaPlantao({
+  data,
+  agoraIso,
+  atribuicoesDoDia,
+  participantes,
+  usuarios,
+  timezone,
+  loginUsuarioAtual,
+  onFechar,
+  onSolicitarTroca,
+}: DetalheDiaPlantaoProps) {
+  return (
+    <div className="modal-backdrop modal-backdrop-sheet" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal plantao-dia-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="plantao-dia-titulo"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Plantão do dia</p>
+            <h2 id="plantao-dia-titulo">{formatarData(data, { weekday: 'long', day: '2-digit', month: 'long' })}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+        {atribuicoesDoDia.length === 0 ? (
+          <p className="empty-inline">Nenhum plantão neste dia.</p>
+        ) : (
+          <div className="plantao-dia-lista">
+            {atribuicoesDoDia.map((atribuicao) => {
+              const nome = nomeExibicaoPlantonista(atribuicao.plantonistaLogin, usuarios);
+              const souEu = atribuicao.plantonistaLogin === loginUsuarioAtual;
+              const intervalo = intervaloPlantaoCivil(atribuicao, timezone);
+              const contatosAtivos = contatosAtivosDoPlantonista(atribuicao.plantonistaLogin, participantes);
+              const futuro = atribuicao.inicio > agoraIso;
+              return (
+                <div className="plantao-dia-item" key={atribuicao.atribuicaoId}>
+                  <div className="plantao-dia-item-header">
+                    <strong
+                      className="shift-chip"
+                      data-identidade={indiceCorPlantonista(atribuicao.plantonistaLogin, participantes)}
+                    >
+                      {obterIniciaisParticipantePlantao(nome, atribuicao.plantonistaLogin)}
+                    </strong>
+                    <div>
+                      <strong>{nome}</strong>
+                      {souEu && <span className="app-participant-badge">Você</span>}
+                      <small>{atribuicao.plantonistaLogin}</small>
+                    </div>
+                  </div>
+                  <span>{formatarIntervaloPlantaoCivil(intervalo)}</span>
+                  {contatosAtivos.length > 0 && (
+                    <div className="plantao-contatos-lista">
+                      {contatosAtivos.map((contato) => (
+                        <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
+                          <span className="plantao-contato-chip-icone"><Phone size={13} /></span>
+                          <span className="plantao-contato-chip-info">
+                            <small>{contato.rotulo}</small>
+                            <strong>{contato.numero}</strong>
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {souEu && futuro && onSolicitarTroca && (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => onSolicitarTroca(atribuicao.atribuicaoId)}
+                    >
+                      <ArrowLeftRight size={16} /> Solicitar troca deste plantão
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -840,10 +988,10 @@ function NotificationBell({
 }
 
 interface TrocaNotificationBellProps {
-  notificacoes: NotificacaoTroca[];
+  notificacoes: ItemNotificacaoTrocaApp[];
   aberta: boolean;
   onAlternar: () => void;
-  onAbrirNotificacao: (notificacao: NotificacaoTroca) => void;
+  onAbrirNotificacao: (notificacao: ItemNotificacaoTrocaApp) => void;
 }
 
 function TrocaNotificationBell({
@@ -852,7 +1000,7 @@ function TrocaNotificationBell({
   onAlternar,
   onAbrirNotificacao,
 }: TrocaNotificationBellProps) {
-  const naoLidas = notificacoes.filter((notificacao) => notificacao.lidaEm === null).length;
+  const naoLidas = contarNaoLidas(notificacoes);
   return (
     <div className="notification-center">
       <button
@@ -868,7 +1016,7 @@ function TrocaNotificationBell({
       {aberta && (
         <section className="notification-popover" aria-label="Notificações de troca">
           <header>
-            <div><strong>Trocas de escala</strong><span>{naoLidas ? `${naoLidas} nova(s)` : 'Tudo visto'}</span></div>
+            <div><strong>Trocas</strong><span>{naoLidas ? `${naoLidas} nova(s)` : 'Tudo visto'}</span></div>
           </header>
           <div className="notification-list">
             {notificacoes.length === 0 ? (
@@ -884,7 +1032,7 @@ function TrocaNotificationBell({
                   <span className="revision-dot" />
                   <div>
                     <strong>{notificacao.titulo}</strong>
-                    <small>{formatarDataHoraSafe(notificacao.criadoEm)}</small>
+                    <small>{notificacao.origem === 'PLANTAO' ? 'Plantão' : 'Jornada 6x1'} · {formatarDataHoraSafe(notificacao.criadoEm)}</small>
                   </div>
                 </div>
                 <p>{notificacao.mensagem}</p>
@@ -1222,6 +1370,14 @@ interface EstadoAssistenteTroca {
   mensagem: string;
 }
 
+/** FASE-TROCAS-PLANTAO-1 — mesmo formato de `EstadoAssistenteTroca`, mas os dois lados são `atribuicaoId`, não um dia + colega. */
+interface EstadoAssistenteTrocaPlantao {
+  passo: 1 | 2 | 3;
+  plantaoSolicitanteId: string | null;
+  plantaoDestinatarioId: string | null;
+  mensagem: string;
+}
+
 function AssistenteNovaTroca({
   estado,
   datas,
@@ -1391,6 +1547,475 @@ function AssistenteNovaTroca({
 }
 
 /**
+ * FASE-TROCAS-PLANTAO-1 — modal de escolha entre os dois tipos de troca,
+ * mostrado só quando o usuário tem Jornada 6x1 E Plantão publicados ao
+ * mesmo tempo (Parte 1 do pedido). Reusa a mesma folha `.edit-modal
+ * troca-modal` sem CSS novo.
+ */
+function ModalEscolhaTipoTroca({
+  onEscolher,
+  onFechar,
+}: {
+  onEscolher: (tipo: 'JORNADA' | 'PLANTAO') => void;
+  onFechar: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal troca-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="troca-escolha-tipo-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Nova solicitação</p>
+            <h2 id="troca-escolha-tipo-title">Que tipo de troca você quer solicitar?</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="troca-wizard-lista">
+          <button type="button" className="troca-wizard-opcao" onClick={() => onEscolher('JORNADA')}>
+            <div>
+              <strong>Troca de Jornada 6x1</strong>
+              <small>Trocar um dia de trabalho com um colega da equipe.</small>
+            </div>
+            <ChevronRight size={16} />
+          </button>
+          <button type="button" className="troca-wizard-opcao" onClick={() => onEscolher('PLANTAO')}>
+            <div>
+              <strong>Troca de Plantão</strong>
+              <small>Trocar um plantão futuro com outro participante do grupo.</small>
+            </div>
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function TrocaPlantaoItemButton({
+  troca,
+  usuario,
+  timezone,
+  onAbrir,
+}: {
+  troca: SolicitacaoTrocaPlantao;
+  usuario: Usuario;
+  timezone: string;
+  onAbrir: () => void;
+}) {
+  const souSolicitante = troca.solicitanteLogin === usuario.login;
+  const outroNome = souSolicitante ? troca.destinatarioNome : troca.solicitanteNome;
+  const intervaloMeu = intervaloPlantaoCivil(
+    souSolicitante
+      ? { inicio: troca.inicioSolicitante, fim: troca.fimSolicitante }
+      : { inicio: troca.inicioDestinatario, fim: troca.fimDestinatario },
+    timezone,
+  );
+  return (
+    <button type="button" className="troca-item-button" onClick={onAbrir}>
+      <ArrowLeftRight size={16} />
+      <div>
+        <strong>{souSolicitante ? `Você e ${outroNome}` : `${outroNome} e você`}</strong>
+        <small>
+          {capitalizar(formatarData(intervaloMeu.dataInicio, { weekday: 'short', day: '2-digit', month: 'short' })).replace('.', '')}
+          {' · '}{formatarIntervaloPlantaoCivil(intervaloMeu)}
+        </small>
+      </div>
+      <span className={`status-badge ${SEVERIDADE_STATUS_TROCA_PLANTAO[troca.status]}`}>
+        {ROTULO_STATUS_TROCA_PLANTAO[troca.status]}
+      </span>
+      <ChevronRight size={16} />
+    </button>
+  );
+}
+
+function TrocaPlantaoComparacao({ troca, timezone }: { troca: SolicitacaoTrocaPlantao; timezone: string }) {
+  const intervaloSolicitante = intervaloPlantaoCivil({ inicio: troca.inicioSolicitante, fim: troca.fimSolicitante }, timezone);
+  const intervaloDestinatario = intervaloPlantaoCivil({ inicio: troca.inicioDestinatario, fim: troca.fimDestinatario }, timezone);
+  return (
+    <div className="troca-comparacao">
+      <div>
+        <small>{troca.solicitanteNome}</small>
+        <strong>
+          {capitalizar(formatarData(intervaloSolicitante.dataInicio, { weekday: 'short' })).replace('.', '')}
+          {' '}{formatarData(intervaloSolicitante.dataInicio, { day: '2-digit', month: 'short' }).replace('.', '')}
+        </strong>
+        <span className="shift-chip">{formatarIntervaloPlantaoCivil(intervaloSolicitante)}</span>
+      </div>
+      <ArrowLeftRight size={18} />
+      <div>
+        <small>{troca.destinatarioNome}</small>
+        <strong>
+          {capitalizar(formatarData(intervaloDestinatario.dataInicio, { weekday: 'short' })).replace('.', '')}
+          {' '}{formatarData(intervaloDestinatario.dataInicio, { day: '2-digit', month: 'short' }).replace('.', '')}
+        </strong>
+        <span className="shift-chip">{formatarIntervaloPlantaoCivil(intervaloDestinatario)}</span>
+      </div>
+    </div>
+  );
+}
+
+function ModalRespostaTrocaPlantao({
+  troca,
+  timezone,
+  processando,
+  erro,
+  onFechar,
+  onAceitar,
+  onRecusar,
+}: {
+  troca: SolicitacaoTrocaPlantao;
+  timezone: string;
+  processando: boolean;
+  erro: string;
+  onFechar: () => void;
+  onAceitar: () => void;
+  onRecusar: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal troca-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="troca-plantao-resposta-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Solicitação de troca de plantão</p>
+            <h2 id="troca-plantao-resposta-title">{troca.solicitanteNome} quer trocar um plantão com você</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+        <TrocaPlantaoComparacao troca={troca} timezone={timezone} />
+        {troca.mensagemSolicitante && (
+          <p className="troca-mensagem">“{troca.mensagemSolicitante}”</p>
+        )}
+        <div className="alert warning">
+          <strong>Ainda falta a aprovação do gestor</strong>
+          <p>Se você aceitar, a solicitação segue para o gestor revisar antes de valer de verdade.</p>
+        </div>
+        {erro && <div className="alert error" role="alert">{erro}</div>}
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" disabled={processando} onClick={onRecusar}>Recusar</button>
+          <button className="primary-button" type="button" disabled={processando} onClick={onAceitar}>
+            <Check size={16} /> Aceitar
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ModalDetalheTrocaPlantao({
+  troca,
+  usuario,
+  timezone,
+  processando,
+  erro,
+  podeDecidirComoGestor,
+  onFechar,
+  onCancelar,
+  onAprovar,
+  onRecusar,
+}: {
+  troca: SolicitacaoTrocaPlantao;
+  usuario: Usuario;
+  timezone: string;
+  processando: boolean;
+  erro: string;
+  podeDecidirComoGestor: boolean;
+  onFechar: () => void;
+  onCancelar: () => void;
+  onAprovar: () => void;
+  onRecusar: (motivo: string) => void;
+}) {
+  const [motivoRecusaGestor, setMotivoRecusaGestor] = useState('');
+  const podeCancelar = troca.solicitanteLogin === usuario.login && troca.status === 'PENDENTE_USUARIO';
+  const aguardandoMinhaAprovacao = podeDecidirComoGestor && troca.status === 'PENDENTE_GESTOR';
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal troca-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="troca-plantao-detalhe-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">{ROTULO_STATUS_TROCA_PLANTAO[troca.status]}</p>
+            <h2 id="troca-plantao-detalhe-title">
+              {troca.solicitanteNome} ⇄ {troca.destinatarioNome}
+            </h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+        <TrocaPlantaoComparacao troca={troca} timezone={timezone} />
+        {troca.mensagemSolicitante && (
+          <p className="troca-mensagem">“{troca.mensagemSolicitante}”</p>
+        )}
+        {troca.status === 'APROVADA' && (
+          <div className="alert success">
+            <strong>Aprovada</strong>
+            <p>{AVISO_APROVACAO_NAO_PUBLICA}</p>
+          </div>
+        )}
+        {troca.motivoRecusa && (
+          <div className="alert error">
+            <strong>Motivo da recusa</strong>
+            <p>{troca.motivoRecusa}</p>
+          </div>
+        )}
+        <div className="troca-historico">
+          {(troca.historico ?? []).map((evento, indice) => (
+            <div className="troca-historico-item" key={indice}>
+              <span className="troca-historico-dot" />
+              <div>
+                <strong>{evento?.descricao || 'Atualização'}</strong>
+                <small>
+                  {formatarDataHoraSafe(evento?.em, 'Data não registrada')}
+                  {evento?.porNome ? ` · ${evento.porNome}` : ''}
+                </small>
+              </div>
+            </div>
+          ))}
+        </div>
+        {aguardandoMinhaAprovacao && (
+          <div className="troca-gestor-decisao">
+            <div className="alert warning">
+              <strong>Aguardando sua aprovação</strong>
+              <p>{AVISO_APROVACAO_NAO_PUBLICA}</p>
+            </div>
+            <label className="publication-reason">
+              Motivo da recusa (obrigatório se recusar)
+              <textarea
+                value={motivoRecusaGestor}
+                onChange={(evento) => setMotivoRecusaGestor(evento.target.value)}
+                placeholder="Explique por que a troca não pode ser aprovada."
+                maxLength={LIMITE_MENSAGEM_TROCA_PLANTAO}
+              />
+            </label>
+          </div>
+        )}
+        {erro && <div className="alert error" role="alert">{erro}</div>}
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onFechar}>Fechar</button>
+          {podeCancelar && (
+            <button className="primary-button" type="button" disabled={processando} onClick={onCancelar}>
+              Cancelar solicitação
+            </button>
+          )}
+          {aguardandoMinhaAprovacao && (
+            <>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={processando || motivoRecusaGestor.trim() === ''}
+                onClick={() => onRecusar(motivoRecusaGestor)}
+              >
+                Recusar
+              </button>
+              <button className="primary-button" type="button" disabled={processando} onClick={onAprovar}>
+                <Check size={16} /> Aprovar
+              </button>
+            </>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * FASE-TROCAS-PLANTAO-1 — wizard de 3 passos análogo a `AssistenteNovaTroca`,
+ * mas os dois lados são um `atribuicaoId` (plantão futuro), não um dia +
+ * colega escalado nesse dia. Passo 1: um dos MEUS plantões futuros. Passo 2:
+ * um plantão futuro de outro participante ATIVO do MESMO grupo. Passo 3:
+ * confirmação, com aviso explícito de que a aprovação não publica a troca
+ * sozinha (ver `AVISO_APROVACAO_NAO_PUBLICA`).
+ */
+function AssistenteNovaTrocaPlantao({
+  estado,
+  atribuicoes,
+  loginsParticipantesAtivos,
+  usuarios,
+  usuario,
+  timezone,
+  agoraIso,
+  enviando,
+  erro,
+  onMudarPasso,
+  onEscolherPlantaoSolicitante,
+  onEscolherPlantaoDestinatario,
+  onMudarMensagem,
+  onFechar,
+  onEnviar,
+}: {
+  estado: EstadoAssistenteTrocaPlantao;
+  atribuicoes: AtribuicaoPlantaoPersistida[];
+  loginsParticipantesAtivos: string[];
+  usuarios: Usuario[];
+  usuario: Usuario;
+  timezone: string;
+  agoraIso: string;
+  enviando: boolean;
+  erro: string;
+  onMudarPasso: (passo: 1 | 2 | 3) => void;
+  onEscolherPlantaoSolicitante: (atribuicaoId: string) => void;
+  onEscolherPlantaoDestinatario: (atribuicaoId: string) => void;
+  onMudarMensagem: (mensagem: string) => void;
+  onFechar: () => void;
+  onEnviar: () => void;
+}) {
+  const { passo, plantaoSolicitanteId, plantaoDestinatarioId, mensagem } = estado;
+  const meusPlantoes = plantoesFuturosDoPlantonista(atribuicoes, usuario.login, agoraIso);
+  const plantoesColegas = plantoesFuturosDeOutrosParticipantes(atribuicoes, usuario.login, loginsParticipantesAtivos, agoraIso);
+  const plantaoSolicitante = meusPlantoes.find((item) => item.atribuicaoId === plantaoSolicitanteId);
+  const plantaoDestinatario = plantoesColegas.find((item) => item.atribuicaoId === plantaoDestinatarioId);
+  const nomeDestinatario = plantaoDestinatario ? nomeExibicaoPlantonista(plantaoDestinatario.plantonistaLogin, usuarios) : '';
+  const titulo = passo === 1 ? 'Escolha o seu plantão' : passo === 2 ? 'Escolha o plantão do colega' : 'Confirmar solicitação';
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal troca-modal troca-wizard"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="troca-plantao-wizard-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Passo {passo} de 3</p>
+            <h2 id="troca-plantao-wizard-title">{titulo}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
+            <X size={18} />
+          </button>
+        </div>
+
+        {passo === 1 && (
+          <div className="troca-wizard-lista">
+            {meusPlantoes.length === 0 ? (
+              <div className="notification-empty">
+                <ArrowLeftRight size={22} />
+                <span>Você não tem plantões futuros nesta competência.</span>
+              </div>
+            ) : meusPlantoes.map((atribuicao) => {
+              const intervalo = intervaloPlantaoCivil(atribuicao, timezone);
+              return (
+                <button
+                  key={atribuicao.atribuicaoId}
+                  type="button"
+                  className={`troca-wizard-opcao ${atribuicao.atribuicaoId === plantaoSolicitanteId ? 'selecionada' : ''}`}
+                  onClick={() => { onEscolherPlantaoSolicitante(atribuicao.atribuicaoId); onMudarPasso(2); }}
+                >
+                  <div>
+                    <strong>
+                      {capitalizar(formatarData(intervalo.dataInicio, { weekday: 'short' })).replace('.', '')}
+                      {' '}{formatarData(intervalo.dataInicio, { day: '2-digit', month: 'short' }).replace('.', '')}
+                    </strong>
+                    <small>{formatarIntervaloPlantaoCivil(intervalo)}</small>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {passo === 2 && (
+          <>
+            <div className="troca-wizard-lista">
+              {plantoesColegas.length === 0 ? (
+                <div className="notification-empty">
+                  <Users size={22} />
+                  <span>Nenhum colega do grupo tem plantão futuro publicado.</span>
+                </div>
+              ) : plantoesColegas.map((atribuicao) => {
+                const intervalo = intervaloPlantaoCivil(atribuicao, timezone);
+                const nome = nomeExibicaoPlantonista(atribuicao.plantonistaLogin, usuarios);
+                return (
+                  <button
+                    key={atribuicao.atribuicaoId}
+                    type="button"
+                    className={`troca-wizard-opcao ${atribuicao.atribuicaoId === plantaoDestinatarioId ? 'selecionada' : ''}`}
+                    onClick={() => onEscolherPlantaoDestinatario(atribuicao.atribuicaoId)}
+                  >
+                    <div>
+                      <strong>{nome}</strong>
+                      <small>
+                        {capitalizar(formatarData(intervalo.dataInicio, { weekday: 'short' })).replace('.', '')}
+                        {' '}{formatarData(intervalo.dataInicio, { day: '2-digit', month: 'short' }).replace('.', '')}
+                        {' · '}{formatarIntervaloPlantaoCivil(intervalo)}
+                      </small>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="rollback-actions">
+              <button className="secondary-button" type="button" onClick={() => onMudarPasso(1)}>Voltar</button>
+              <button
+                className="primary-button"
+                type="button"
+                disabled={!plantaoDestinatarioId}
+                onClick={() => onMudarPasso(3)}
+              >
+                Continuar
+              </button>
+            </div>
+          </>
+        )}
+
+        {passo === 3 && plantaoSolicitante && plantaoDestinatario && (
+          <div className="troca-wizard-resumo">
+            <p className="troca-wizard-frase">
+              Você troca seu plantão de{' '}
+              <strong>{formatarIntervaloPlantaoCivil(intervaloPlantaoCivil(plantaoSolicitante, timezone))}</strong>
+              {' '}pelo plantão de <strong>{nomeDestinatario}</strong>, em{' '}
+              <strong>{formatarIntervaloPlantaoCivil(intervaloPlantaoCivil(plantaoDestinatario, timezone))}</strong>.
+            </p>
+            <label className="publication-reason">
+              Mensagem (opcional)
+              <textarea
+                value={mensagem}
+                onChange={(evento) => onMudarMensagem(evento.target.value)}
+                placeholder="Ex.: Preciso resolver um compromisso pessoal nesse plantão."
+                maxLength={LIMITE_MENSAGEM_TROCA_PLANTAO}
+              />
+              <small>{mensagem.trim().length}/{LIMITE_MENSAGEM_TROCA_PLANTAO} caracteres</small>
+            </label>
+            <div className="alert warning">
+              <strong>Aprovação não altera a escala sozinha</strong>
+              <p>{AVISO_APROVACAO_NAO_PUBLICA}</p>
+            </div>
+            {erro && <div className="alert error" role="alert">{erro}</div>}
+            <div className="rollback-actions">
+              <button className="secondary-button" type="button" disabled={enviando} onClick={() => onMudarPasso(2)}>Voltar</button>
+              <button className="primary-button" type="button" disabled={enviando} onClick={onEnviar}>
+                <ArrowLeftRight size={16} /> {enviando ? 'Enviando…' : 'Enviar solicitação'}
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/**
  * PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1 introduziu `mensagemAusenciaEscalaAcao()`
  * para diferenciar "sem Jornada" de "tem participação em Plantão" — mas
  * ainda mostrava as duas mensagens no alerta vermelho GLOBAL do topo do
@@ -1462,6 +2087,22 @@ export function EmployeeApp() {
   const [notificacoesTroca, setNotificacoesTroca] = useState<NotificacaoTroca[]>([]);
   const [centralTrocasAberta, setCentralTrocasAberta] = useState(false);
   const [abaTrocas, setAbaTrocas] = useState<AbaTrocas>('minhas');
+  /**
+   * FASE-TROCAS-PLANTAO-1 — mesmo padrão de estado das trocas de Jornada
+   * acima, em paralelo (nunca reaproveitando `trocas`/`abaTrocas`, que são
+   * moldadas para o domínio de Jornada — dia + turno de catálogo).
+   */
+  const [trocasPlantaoApp, setTrocasPlantaoApp] = useState<SolicitacaoTrocaPlantao[]>([]);
+  const [trocasPlantaoDoGrupoApp, setTrocasPlantaoDoGrupoApp] = useState<SolicitacaoTrocaPlantao[]>([]);
+  const [notificacoesTrocaPlantaoApp, setNotificacoesTrocaPlantaoApp] = useState<NotificacaoTrocaPlantao[]>([]);
+  const [abaTrocasPlantao, setAbaTrocasPlantao] = useState<AbaTrocas>('minhas');
+  const [trocaPlantaoAbertaId, setTrocaPlantaoAbertaId] = useState<string | null>(null);
+  const [assistenteTrocaPlantao, setAssistenteTrocaPlantao] = useState<EstadoAssistenteTrocaPlantao | null>(null);
+  const [processandoTrocaPlantao, setProcessandoTrocaPlantao] = useState(false);
+  const [erroTrocaPlantao, setErroTrocaPlantao] = useState('');
+  const [escolhaTipoTrocaAberta, setEscolhaTipoTrocaAberta] = useState(false);
+  const [escopoOperacionalPlantaoApp, setEscopoOperacionalPlantaoApp] = useState<EscopoOperacional | null>(null);
+  const [diaPlantaoSelecionado, setDiaPlantaoSelecionado] = useState<string | null>(null);
   /**
    * FASE-APP-OPERACOES-UNIVERSAIS-1 — só relevante quando o usuário tem
    * Jornada 6x1 E Plantão publicados ao mesmo tempo: qual operação as
@@ -1587,6 +2228,70 @@ export function EmployeeApp() {
       cancelarNotificacoesTroca();
     };
   }, [competenciaAtiva, equipeUsuario, listenersLiberados, loginUsuario]);
+
+  useEffect(() => {
+    if (!listenersLiberados || loginUsuario === null) {
+      return undefined;
+    }
+    const cancelarNotificacoesTrocaPlantao = observarNotificacoesTrocaPlantao(
+      loginUsuario,
+      setNotificacoesTrocaPlantaoApp,
+      (falha) => setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível acompanhar as notificações de troca de plantão.', ambienteFirebaseAtual)),
+    );
+    return cancelarNotificacoesTrocaPlantao;
+  }, [listenersLiberados, loginUsuario]);
+
+  const grupoIdPlantaoApp = grupoPlantaoApp?.grupoId ?? null;
+
+  useEffect(() => {
+    if (!listenersLiberados || loginUsuario === null || grupoIdPlantaoApp === null || competenciaPlantaoApp === null) {
+      return undefined;
+    }
+    const cancelarTrocasPlantao = observarTrocasPlantaoDoUsuario(
+      grupoIdPlantaoApp,
+      competenciaPlantaoApp,
+      loginUsuario,
+      setTrocasPlantaoApp,
+      (falha) => setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de plantão.', ambienteFirebaseAtual)),
+    );
+    return cancelarTrocasPlantao;
+  }, [competenciaPlantaoApp, grupoIdPlantaoApp, listenersLiberados, loginUsuario]);
+
+  /**
+   * FASE-TROCAS-PLANTAO-1 — fila de "Aprovações de Plantão" (todas as trocas
+   * do grupo, não só as minhas) só é assinada para quem pode administrar o
+   * Grupo via Matriz operacional (`usuarioPodeAdministrarAlvoOperacional`,
+   * que já cobre `ADMIN_SISTEMA` incondicionalmente). Deliberadamente NÃO
+   * usa o helper de ACL legada do Dashboard: o App do colaborador não
+   * importa símbolos administrativos de Plantão (ver a suíte de fronteira
+   * `plantao-dashboard-administracao-boundaries`) — um Grupo sem Matriz
+   * configurada simplesmente não mostra este bloco no App ainda, o que é
+   * aceitável, já que a Matriz é o caminho definitivo (a ACL legada é só
+   * transição, ver `podeAdministrarEscalaPlantao` em `firestore.rules`).
+   */
+  const podeAprovarTrocaPlantaoApp = usuario !== null && grupoPlantaoApp != null
+    && usuarioPodeAdministrarAlvoOperacional(
+      usuario,
+      escopoOperacionalPlantaoApp !== null ? [escopoOperacionalPlantaoApp] : [],
+      'PLANTAO',
+      grupoPlantaoApp.grupoId,
+    );
+
+  useEffect(() => {
+    if (!listenersLiberados || grupoIdPlantaoApp === null || competenciaPlantaoApp === null || !podeAprovarTrocaPlantaoApp) {
+      return undefined;
+    }
+    const cancelarTrocasPlantaoDoGrupo = observarTrocasPlantaoDoGrupo(
+      grupoIdPlantaoApp,
+      competenciaPlantaoApp,
+      setTrocasPlantaoDoGrupoApp,
+      (falha) => setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de plantão do grupo.', ambienteFirebaseAtual)),
+    );
+    return () => {
+      cancelarTrocasPlantaoDoGrupo();
+      setTrocasPlantaoDoGrupoApp([]);
+    };
+  }, [competenciaPlantaoApp, grupoIdPlantaoApp, listenersLiberados, podeAprovarTrocaPlantaoApp]);
 
   // Renovação de FID (chamada de novo por `pushsubscriptionchange` ou por
   // outra aba) — assinatura de longa duração, só enquanto o dispositivo
@@ -1728,6 +2433,17 @@ export function EmployeeApp() {
   const avisoTrocaNaoEncontrada = trocaAbertaId !== null && trocaAberta === null && dadosCarregados
     ? 'Troca não encontrada ou ainda carregando. Abra pela aba Trocas.'
     : '';
+  /**
+   * FASE-TROCAS-PLANTAO-1 — busca em `trocasPlantaoApp` (minhas, como
+   * solicitante/destinatário) E `trocasPlantaoDoGrupoApp` (fila de
+   * aprovação, só carregada para quem administra o Grupo): quem abre uma
+   * troca pela fila de "Aprovações de Plantão" pode não ser parte dela.
+   */
+  const trocaPlantaoAberta = trocaPlantaoAbertaId !== null
+    ? trocasPlantaoApp.find((item) => item.trocaId === trocaPlantaoAbertaId)
+      ?? trocasPlantaoDoGrupoApp.find((item) => item.trocaId === trocaPlantaoAbertaId)
+      ?? null
+    : null;
 
   const escalasDoUsuario = documentos.filter(
     (documento) => documento.login === usuario?.login,
@@ -1789,6 +2505,11 @@ export function EmployeeApp() {
     setTrocas([]);
     setNotificacoesTroca([]);
     setTrocaAbertaId(null);
+    setTrocasPlantaoApp([]);
+    setTrocasPlantaoDoGrupoApp([]);
+    setNotificacoesTrocaPlantaoApp([]);
+    setTrocaPlantaoAbertaId(null);
+    setEscopoOperacionalPlantaoApp(null);
     setDadosCarregados(false);
     setTela('hoje');
     eventosConhecidos.current = new Set();
@@ -1901,6 +2622,16 @@ export function EmployeeApp() {
       setGrupoPlantaoApp(grupo);
       if (grupo === null) {
         return;
+      }
+      // FASE-TROCAS-PLANTAO-1 — quem administra o Grupo, para notificar ao
+      // aceitar uma troca e para liberar "Aprovações de Plantão" no App.
+      // Nunca falha o carregamento do Plantão: sem Matriz configurada, a
+      // troca de plantão segue seu fluxo normal, só sem notificação dirigida
+      // a um gestor (ver `destinatariosNotificacaoGestorPlantao()`).
+      try {
+        setEscopoOperacionalPlantaoApp(await obterEscopoOperacional('PLANTAO', grupo.grupoId));
+      } catch {
+        setEscopoOperacionalPlantaoApp(null);
       }
       const competencia = competenciaOperacional(dataHoje);
       /**
@@ -2041,6 +2772,11 @@ export function EmployeeApp() {
     setTrocas([]);
     setNotificacoesTroca([]);
     setTrocaAbertaId(null);
+    setTrocasPlantaoApp([]);
+    setTrocasPlantaoDoGrupoApp([]);
+    setNotificacoesTrocaPlantaoApp([]);
+    setTrocaPlantaoAbertaId(null);
+    setEscopoOperacionalPlantaoApp(null);
     setDadosCarregados(false);
     setCentralAberta(false);
     setCentralTrocasAberta(false);
@@ -2361,9 +3097,18 @@ export function EmployeeApp() {
     setCentralTrocasAberta((atual) => !atual);
   }
 
-  function abrirNotificacaoTroca(notificacao: NotificacaoTroca) {
+  function abrirNotificacaoTrocaApp(notificacao: ItemNotificacaoTrocaApp) {
     setCentralTrocasAberta(false);
     setTela('trocas');
+    if (notificacao.origem === 'PLANTAO') {
+      setTrocaPlantaoAbertaId(notificacao.trocaId);
+      if (notificacao.lidaEm === null) {
+        void marcarNotificacaoTrocaPlantaoComoLida(notificacao.id).catch(() => {
+          // Falha em marcar como lida não impede abrir a troca — só o badge fica desatualizado.
+        });
+      }
+      return;
+    }
     setTrocaAbertaId(notificacao.trocaId);
     if (notificacao.lidaEm === null) {
       void marcarNotificacaoTrocaComoLida(notificacao.id).catch(() => {
@@ -2447,6 +3192,160 @@ export function EmployeeApp() {
     }
   }
 
+  // --- Troca de Plantão (FASE-TROCAS-PLANTAO-1, coleção `trocasPlantao`) ---
+
+  /**
+   * Ponto único do botão "Nova solicitação": Jornada e Plantão publicados ao
+   * mesmo tempo pedem escolha explícita do tipo (Parte 1 do pedido); só um
+   * dos dois abre o assistente correspondente direto, exatamente como antes
+   * desta fase para quem só tem Jornada.
+   */
+  function abrirNovaSolicitacaoTrocaEscolhendoTipo() {
+    const podePlantao = plantaoPublicadoApp && souPlantonistaAtivoApp;
+    if (jornadaPublicadaApp && podePlantao) {
+      setEscolhaTipoTrocaAberta(true);
+      return;
+    }
+    if (podePlantao) {
+      abrirAssistenteTrocaPlantao();
+      return;
+    }
+    abrirNovaSolicitacaoTroca();
+  }
+
+  function abrirAssistenteTrocaPlantao(atribuicaoIdPreenchido?: string) {
+    setEscolhaTipoTrocaAberta(false);
+    setErroTrocaPlantao('');
+    setAssistenteTrocaPlantao({
+      passo: atribuicaoIdPreenchido ? 2 : 1,
+      plantaoSolicitanteId: atribuicaoIdPreenchido ?? null,
+      plantaoDestinatarioId: null,
+      mensagem: '',
+    });
+  }
+
+  async function enviarSolicitacaoTrocaPlantao() {
+    if (
+      usuario === null
+      || grupoPlantaoApp == null
+      || competenciaPlantaoApp === null
+      || assistenteTrocaPlantao?.plantaoSolicitanteId == null
+      || assistenteTrocaPlantao.plantaoDestinatarioId == null
+    ) {
+      return;
+    }
+    const plantaoSolicitante = atribuicoesPlantaoApp.find(
+      (atribuicao) => atribuicao.atribuicaoId === assistenteTrocaPlantao.plantaoSolicitanteId,
+    );
+    const plantaoDestinatario = atribuicoesPlantaoApp.find(
+      (atribuicao) => atribuicao.atribuicaoId === assistenteTrocaPlantao.plantaoDestinatarioId,
+    );
+    if (plantaoSolicitante === undefined || plantaoDestinatario === undefined) {
+      setErroTrocaPlantao('Um dos plantões escolhidos não foi encontrado.');
+      return;
+    }
+    const destinatarioLogin = plantaoDestinatario.plantonistaLogin;
+    const destinatarioUsuario = usuarios.find((item) => item.login === destinatarioLogin);
+    const destinatarioParticipante = participantesPlantaoApp.find((item) => item.login === destinatarioLogin);
+    if (destinatarioUsuario === undefined || destinatarioParticipante === undefined) {
+      setErroTrocaPlantao('Colega não encontrado.');
+      return;
+    }
+    setProcessandoTrocaPlantao(true);
+    setErroTrocaPlantao('');
+    try {
+      await criarSolicitacaoTrocaPlantao({
+        grupoId: grupoPlantaoApp.grupoId,
+        competencia: competenciaPlantaoApp,
+        solicitante: { login: usuario.login, nome: usuario.nome, ativo: usuario.ativo },
+        destinatario: { login: destinatarioUsuario.login, nome: destinatarioUsuario.nome, ativo: destinatarioParticipante.ativo },
+        plantaoSolicitante,
+        plantaoDestinatario,
+        mensagem: assistenteTrocaPlantao.mensagem,
+        agoraIso: agora.toISOString(),
+      });
+      setAssistenteTrocaPlantao(null);
+      setAbaTrocasPlantao('minhas');
+    } catch (falha) {
+      setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível enviar a solicitação de troca de plantão.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoTrocaPlantao(false);
+    }
+  }
+
+  async function responderSolicitacaoTrocaPlantaoApp(trocaId: string, aceitar: boolean, motivoRecusa?: string) {
+    if (usuario === null) {
+      return;
+    }
+    setProcessandoTrocaPlantao(true);
+    setErroTrocaPlantao('');
+    try {
+      const gestoresLogin = destinatariosNotificacaoGestorPlantao(
+        escopoOperacionalPlantaoApp,
+        [usuario.login],
+      );
+      await responderSolicitacaoTrocaPlantaoFirebase(
+        trocaId,
+        { login: usuario.login, nome: usuario.nome },
+        aceitar,
+        { gestoresLogin, motivoRecusa },
+      );
+      setTrocaPlantaoAbertaId(null);
+    } catch (falha) {
+      setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível responder a solicitação de troca de plantão.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoTrocaPlantao(false);
+    }
+  }
+
+  async function cancelarSolicitacaoTrocaPlantaoApp(trocaId: string) {
+    if (usuario === null) {
+      return;
+    }
+    setProcessandoTrocaPlantao(true);
+    setErroTrocaPlantao('');
+    try {
+      await cancelarSolicitacaoTrocaPlantaoFirebase(trocaId, { login: usuario.login, nome: usuario.nome });
+      setTrocaPlantaoAbertaId(null);
+    } catch (falha) {
+      setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível cancelar a solicitação de troca de plantão.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoTrocaPlantao(false);
+    }
+  }
+
+  async function aprovarTrocaPlantaoApp(trocaId: string) {
+    if (usuario === null) {
+      return;
+    }
+    setProcessandoTrocaPlantao(true);
+    setErroTrocaPlantao('');
+    try {
+      await gestorAprovarTrocaPlantao(trocaId, { login: usuario.login, nome: usuario.nome });
+      setTrocaPlantaoAbertaId(null);
+    } catch (falha) {
+      setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível aprovar a troca de plantão.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoTrocaPlantao(false);
+    }
+  }
+
+  async function recusarTrocaPlantaoApp(trocaId: string, motivo: string) {
+    if (usuario === null) {
+      return;
+    }
+    setProcessandoTrocaPlantao(true);
+    setErroTrocaPlantao('');
+    try {
+      await gestorRecusarTrocaPlantao(trocaId, { login: usuario.login, nome: usuario.nome }, motivo);
+      setTrocaPlantaoAbertaId(null);
+    } catch (falha) {
+      setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível recusar a troca de plantão.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoTrocaPlantao(false);
+    }
+  }
+
   // Enquanto o Firebase Auth não confirmar a sessão local, o App não mostra
   // login nem telas vazias — só a tela de restauração.
   if (deveExibirRestauracao(sessao.estado)) {
@@ -2481,6 +3380,10 @@ export function EmployeeApp() {
   );
   const jornadaPublicadaApp = temJornadaPublicada(operacoesApp);
   const plantaoPublicadoApp = temPlantaoPublicado(operacoesApp);
+  /** FASE-TROCAS-PLANTAO-1 — só participante ATIVO do Grupo pode solicitar/receber troca de Plantão (mesmo critério de `resolverOperacoesApp` acima). */
+  const souPlantonistaAtivoApp = participantesPlantaoApp.some(
+    (participante) => participante.login === usuario.login && participante.ativo,
+  );
   const estadoGlobalApp = derivarEstadoGlobalApp(operacoesApp);
   const operacaoPrincipalHojeApp = operacaoPrincipalHoje(operacoesApp);
   // "Ainda não sabemos" (consulta de Plantão em andamento) nunca deve
@@ -2531,10 +3434,10 @@ export function EmployeeApp() {
       acoesTopo={(
         <>
           <TrocaNotificationBell
-            notificacoes={notificacoesTroca}
+            notificacoes={mesclarNotificacoesTrocaApp(notificacoesTroca, notificacoesTrocaPlantaoApp)}
             aberta={centralTrocasAberta}
             onAlternar={alternarCentralTrocas}
-            onAbrirNotificacao={abrirNotificacaoTroca}
+            onAbrirNotificacao={abrirNotificacaoTrocaApp}
           />
           <NotificationBell
             eventos={eventos}
@@ -2781,6 +3684,7 @@ export function EmployeeApp() {
                 usuarios={usuarios}
                 timezone={grupoPlantaoApp.timezone}
                 loginUsuarioAtual={usuario.login}
+                onSelecionarDia={setDiaPlantaoSelecionado}
               />
             </article>
           ) : (
@@ -2923,95 +3827,193 @@ export function EmployeeApp() {
         </section>
       )}
 
-      {tela === 'trocas' && usuario && (
-        <section className="employee-screen employee-trocas-screen">
-          <header className="page-heading">
-            <div>
-              <p className="eyebrow">Combinar com a equipe</p>
-              <h1>Trocas de escala</h1>
-              <p>Peça e responda trocas de turno — a aprovação final é sempre do gestor.</p>
-            </div>
-            {jornadaPublicadaApp && (
-              <button className="primary-button" type="button" onClick={() => abrirNovaSolicitacaoTroca()}>
-                <ArrowLeftRight size={16} /> Nova solicitação
-              </button>
-            )}
-          </header>
-          {/*
-            FASE-APP-OPERACOES-UNIVERSAIS-1 — regra 8: sem Jornada 6x1
-            publicada, o fluxo de troca de Jornada não tem o que mostrar —
-            mas isso é uma limitação CONTEXTUAL desta tela, nunca o alerta
-            vermelho global (que só aparece por erro técnico real).
-          */}
-          {!jornadaPublicadaApp && (
-            <div className="alert warning" role="status">
-              Trocas de Jornada 6x1 não estão disponíveis porque não há Jornada publicada para este período.
-            </div>
-          )}
-          {plantaoPublicadoApp && (
-            <div className="alert warning" role="status">
-              Trocas de Plantão serão tratadas em uma próxima fase.
-            </div>
-          )}
-          {jornadaPublicadaApp && (
-            <>
-              {erroTroca && <div className="alert error" role="alert">{erroTroca}</div>}
-              {avisoTrocaNaoEncontrada && <div className="alert warning" role="status">{avisoTrocaNaoEncontrada}</div>}
-              <div className="segmented-control troca-abas">
-                {([
-                  ['minhas', 'Minhas', trocas.filter((item) => item.solicitanteLogin === usuario.login).length],
-                  ['responder', 'Para responder', trocas.filter((item) => item.destinatarioLogin === usuario.login && item.status === 'PENDENTE_USUARIO').length],
-                  ['gestor', 'Gestor', trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login) && item.status === 'PENDENTE_GESTOR').length],
-                  ['historico', 'Histórico', trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login) && !statusEhAtivo(item.status)).length],
-                ] as const).map(([id, rotulo, contagem]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={abaTrocas === id ? 'active' : ''}
-                    onClick={() => setAbaTrocas(id)}
-                  >
-                    {rotulo}{contagem > 0 && ` (${contagem})`}
-                  </button>
-                ))}
+      {tela === 'trocas' && usuario && (() => {
+        const podeAlgumaTroca = jornadaPublicadaApp || (plantaoPublicadoApp && souPlantonistaAtivoApp);
+        const pendentesAprovacaoPlantao = trocasPlantaoDoGrupoApp.filter((item) => item.status === 'PENDENTE_GESTOR');
+        return (
+          <section className="employee-screen employee-trocas-screen">
+            <header className="page-heading">
+              <div>
+                <p className="eyebrow">Combinar com a equipe</p>
+                <h1>Trocas</h1>
+                <p>Peça e responda trocas de turno ou de plantão — a aprovação final é sempre do gestor.</p>
               </div>
-              <div className="troca-lista">
-                {(() => {
-                  const minhas = trocas.filter((item) => item.solicitanteLogin === usuario.login);
-                  const paraResponder = trocas.filter((item) => item.destinatarioLogin === usuario.login && item.status === 'PENDENTE_USUARIO');
-                  const aguardandoGestor = trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login)
-                    && item.status === 'PENDENTE_GESTOR');
-                  const historicoTrocas = trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login)
-                    && !statusEhAtivo(item.status));
-                  const listaAtual = abaTrocas === 'minhas' ? minhas
-                    : abaTrocas === 'responder' ? paraResponder
-                      : abaTrocas === 'gestor' ? aguardandoGestor
-                        : historicoTrocas;
-                  const mensagemVazia = abaTrocas === 'minhas' ? 'Você ainda não pediu nenhuma troca.'
-                    : abaTrocas === 'responder' ? 'Nenhuma solicitação esperando sua resposta.'
-                      : abaTrocas === 'gestor' ? 'Nenhuma troca aguardando o gestor agora.'
-                        : 'Nenhuma troca concluída ainda.';
-                  if (listaAtual.length === 0) {
-                    return (
-                      <div className="notification-empty">
-                        <ArrowLeftRight size={22} />
-                        <span>{mensagemVazia}</span>
-                      </div>
-                    );
-                  }
-                  return listaAtual.map((item) => (
-                    <TrocaItemButton
+              {podeAlgumaTroca && (
+                <button className="primary-button" type="button" onClick={abrirNovaSolicitacaoTrocaEscolhendoTipo}>
+                  <ArrowLeftRight size={16} /> Nova solicitação
+                </button>
+              )}
+            </header>
+
+            <article className="panel troca-bloco-jornada">
+              <div className="panel-title">
+                <div>
+                  <h2>Trocas de Jornada 6x1</h2>
+                  <p>Troca de dia de trabalho com um colega da equipe.</p>
+                </div>
+              </div>
+              {/*
+                FASE-APP-OPERACOES-UNIVERSAIS-1 — regra 8: sem Jornada 6x1
+                publicada, o fluxo de troca de Jornada não tem o que mostrar —
+                mas isso é uma limitação CONTEXTUAL deste bloco, nunca um
+                aviso que pareça desligar a tela Trocas inteira.
+              */}
+              {!jornadaPublicadaApp ? (
+                <p className="empty-inline">Trocas de Jornada 6x1 não estão disponíveis porque não há Jornada publicada para este período.</p>
+              ) : (
+                <>
+                  {erroTroca && <div className="alert error" role="alert">{erroTroca}</div>}
+                  {avisoTrocaNaoEncontrada && <div className="alert warning" role="status">{avisoTrocaNaoEncontrada}</div>}
+                  <div className="segmented-control troca-abas">
+                    {([
+                      ['minhas', 'Minhas', trocas.filter((item) => item.solicitanteLogin === usuario.login).length],
+                      ['responder', 'Para responder', trocas.filter((item) => item.destinatarioLogin === usuario.login && item.status === 'PENDENTE_USUARIO').length],
+                      ['gestor', 'Gestor', trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login) && item.status === 'PENDENTE_GESTOR').length],
+                      ['historico', 'Histórico', trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login) && !statusEhAtivo(item.status)).length],
+                    ] as const).map(([id, rotulo, contagem]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={abaTrocas === id ? 'active' : ''}
+                        onClick={() => setAbaTrocas(id)}
+                      >
+                        {rotulo}{contagem > 0 && ` (${contagem})`}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="troca-lista">
+                    {(() => {
+                      const minhas = trocas.filter((item) => item.solicitanteLogin === usuario.login);
+                      const paraResponder = trocas.filter((item) => item.destinatarioLogin === usuario.login && item.status === 'PENDENTE_USUARIO');
+                      const aguardandoGestor = trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login)
+                        && item.status === 'PENDENTE_GESTOR');
+                      const historicoTrocas = trocas.filter((item) => (item.solicitanteLogin === usuario.login || item.destinatarioLogin === usuario.login)
+                        && !statusEhAtivo(item.status));
+                      const listaAtual = abaTrocas === 'minhas' ? minhas
+                        : abaTrocas === 'responder' ? paraResponder
+                          : abaTrocas === 'gestor' ? aguardandoGestor
+                            : historicoTrocas;
+                      const mensagemVazia = abaTrocas === 'minhas' ? 'Você ainda não pediu nenhuma troca.'
+                        : abaTrocas === 'responder' ? 'Nenhuma solicitação esperando sua resposta.'
+                          : abaTrocas === 'gestor' ? 'Nenhuma troca aguardando o gestor agora.'
+                            : 'Nenhuma troca concluída ainda.';
+                      if (listaAtual.length === 0) {
+                        return (
+                          <div className="notification-empty">
+                            <ArrowLeftRight size={22} />
+                            <span>{mensagemVazia}</span>
+                          </div>
+                        );
+                      }
+                      return listaAtual.map((item) => (
+                        <TrocaItemButton
+                          key={item.trocaId}
+                          troca={item}
+                          usuario={usuario}
+                          onAbrir={() => setTrocaAbertaId(item.trocaId)}
+                        />
+                      ));
+                    })()}
+                  </div>
+                </>
+              )}
+            </article>
+
+            <article className="panel troca-bloco-plantao">
+              <div className="panel-title">
+                <div>
+                  <h2>Trocas de Plantão</h2>
+                  <p>As trocas de Plantão usam um fluxo próprio, por data e período.</p>
+                </div>
+              </div>
+              {grupoPlantaoApp === undefined ? (
+                <p className="empty-inline">Carregando Plantão…</p>
+              ) : grupoPlantaoApp === null ? (
+                <p className="empty-inline">Sua equipe não tem Grupo de Plantão configurado.</p>
+              ) : competenciaPlantaoApp === null ? (
+                <p className="empty-inline">Nenhuma escala de Plantão publicada neste período.</p>
+              ) : !souPlantonistaAtivoApp ? (
+                <p className="empty-inline">Só participantes do Plantão podem solicitar troca — você tem acesso de consulta a este Grupo.</p>
+              ) : (
+                <>
+                  {erroTrocaPlantao && <div className="alert error" role="alert">{erroTrocaPlantao}</div>}
+                  <div className="segmented-control troca-abas">
+                    {(Object.entries(contarAbasTrocaPlantao(trocasPlantaoApp, usuario.login)) as [AbaTrocas, number][]).map(([id, contagem]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={abaTrocasPlantao === id ? 'active' : ''}
+                        onClick={() => setAbaTrocasPlantao(id)}
+                      >
+                        {id === 'minhas' ? 'Minhas' : id === 'responder' ? 'Para responder' : id === 'gestor' ? 'Gestor' : 'Histórico'}
+                        {contagem > 0 && ` (${contagem})`}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="troca-lista">
+                    {(() => {
+                      const listaAtual = filtrarTrocasPlantaoPorAba(trocasPlantaoApp, usuario.login, abaTrocasPlantao);
+                      if (listaAtual.length === 0) {
+                        return (
+                          <div className="notification-empty">
+                            <ArrowLeftRight size={22} />
+                            <span>{mensagemVaziaAbaTrocaPlantao(abaTrocasPlantao)}</span>
+                          </div>
+                        );
+                      }
+                      return listaAtual.map((item) => (
+                        <TrocaPlantaoItemButton
+                          key={item.trocaId}
+                          troca={item}
+                          usuario={usuario}
+                          timezone={grupoPlantaoApp.timezone}
+                          onAbrir={() => setTrocaPlantaoAbertaId(item.trocaId)}
+                        />
+                      ));
+                    })()}
+                  </div>
+                </>
+              )}
+            </article>
+
+            {podeAprovarTrocaPlantaoApp && (
+              <article className="panel troca-bloco-aprovacoes">
+                <div className="panel-title">
+                  <div>
+                    <h2>Aprovações de Plantão</h2>
+                    <p>Trocas aceitas pelo colega, aguardando sua decisão como gestor do Grupo.</p>
+                  </div>
+                </div>
+                <div className="troca-lista">
+                  {pendentesAprovacaoPlantao.length === 0 ? (
+                    <div className="notification-empty">
+                      <ArrowLeftRight size={22} />
+                      <span>Nenhuma troca de plantão aguardando aprovação agora.</span>
+                    </div>
+                  ) : pendentesAprovacaoPlantao.map((item) => (
+                    <button
+                      type="button"
+                      className="troca-item-button"
                       key={item.trocaId}
-                      troca={item}
-                      usuario={usuario}
-                      onAbrir={() => setTrocaAbertaId(item.trocaId)}
-                    />
-                  ));
-                })()}
-              </div>
-            </>
-          )}
-        </section>
-      )}
+                      onClick={() => setTrocaPlantaoAbertaId(item.trocaId)}
+                    >
+                      <ArrowLeftRight size={16} />
+                      <div>
+                        <strong>{item.solicitanteNome} ⇄ {item.destinatarioNome}</strong>
+                        <small>Aguardando aprovação</small>
+                      </div>
+                      <span className={`status-badge ${SEVERIDADE_STATUS_TROCA_PLANTAO[item.status]}`}>
+                        {ROTULO_STATUS_TROCA_PLANTAO[item.status]}
+                      </span>
+                      <ChevronRight size={16} />
+                    </button>
+                  ))}
+                </div>
+              </article>
+            )}
+          </section>
+        );
+      })()}
 
       {tela === 'plantao' && usuario && (
         <section className="employee-screen employee-plantao-screen">
@@ -3053,12 +4055,13 @@ export function EmployeeApp() {
           {!carregandoPlantaoApp && erroPlantaoApp === '' && grupoPlantaoApp != null && competenciaPlantaoApp !== null && (() => {
             const grupo = grupoPlantaoApp;
             const agoraIso = agora.toISOString();
+            const dataHojeGrupo = converterInstanteUtcParaMomento(agoraIso, grupo.timezone).data;
             const resumo = resolverPlantaoAgora(atribuicoesPlantaoApp, agoraIso);
             const nomeAtual = resumo.atual ? nomeExibicaoPlantonista(resumo.atual.plantonistaLogin, usuarios) : null;
             const contatosAtual = resumo.atual ? contatosAtivosDoPlantonista(resumo.atual.plantonistaLogin, participantesPlantaoApp) : [];
-            const horarioAtual = resumo.atual ? horarioPlantaoParaExibicao(resumo.atual, grupo.timezone) : null;
+            const intervaloAtual = resumo.atual ? intervaloPlantaoCivil(resumo.atual, grupo.timezone) : null;
             const nomeProximo = resumo.proximo ? nomeExibicaoPlantonista(resumo.proximo.plantonistaLogin, usuarios) : null;
-            const horarioProximo = resumo.proximo ? horarioPlantaoParaExibicao(resumo.proximo, grupo.timezone) : null;
+            const intervaloProximo = resumo.proximo ? intervaloPlantaoCivil(resumo.proximo, grupo.timezone) : null;
             const souPlantonista = participantesPlantaoApp.some((participante) => participante.login === usuario.login && participante.ativo);
             const meusPlantoes = souPlantonista ? proximosPlantoesDoUsuario(usuario.login, atribuicoesPlantaoApp, agoraIso, 6) : [];
 
@@ -3069,20 +4072,20 @@ export function EmployeeApp() {
                     <header className="today-card-heading">
                       <span>De plantão agora</span>
                     </header>
-                    {resumo.atual === null || horarioAtual === null ? (
+                    {resumo.atual === null || intervaloAtual === null ? (
                       <p className="today-rest-copy">Ninguém está de plantão neste momento.</p>
                     ) : (
                       <>
                         <div className="today-hero-heading">
-                          <span className="today-hero-icon">{inicialPlantonista(nomeAtual ?? '')}</span>
+                          <span className="today-hero-icon">{obterIniciaisParticipantePlantao(nomeAtual ?? undefined, resumo.atual.plantonistaLogin)}</span>
                           <div>
                             <strong className="today-shift-name">{nomeAtual}</strong>
-                            <div className="today-hours"><strong>{rotuloHorarioPlantaoExibicao(horarioAtual)}</strong></div>
+                            <div className="today-hours"><strong>{formatarIntervaloPlantaoRelativoAHoje(intervaloAtual, dataHojeGrupo)}</strong></div>
                           </div>
                         </div>
                         <div className="today-meta">
                           <span className="live-badge">
-                            <i /> Até {horarioAtual.horaFim}{horarioAtual.cruzaDiaSeguinte ? ' (amanhã)' : ''}
+                            <i /> {rotuloFimPlantao(intervaloAtual, dataHojeGrupo)}
                           </span>
                         </div>
                         {contatosAtual.length > 0 && (
@@ -3107,14 +4110,14 @@ export function EmployeeApp() {
                       <span>Próximo plantonista</span>
                       <CalendarCheck2 size={17} />
                     </header>
-                    {resumo.proximo === null || horarioProximo === null ? (
+                    {resumo.proximo === null || intervaloProximo === null ? (
                       <p className="empty-inline">Nenhum próximo plantão publicado.</p>
                     ) : (
                       <div className="next-shift-title">
-                        <span className="next-shift-icon">{inicialPlantonista(nomeProximo ?? '')}</span>
+                        <span className="next-shift-icon">{obterIniciaisParticipantePlantao(nomeProximo ?? undefined, resumo.proximo.plantonistaLogin)}</span>
                         <div>
                           <strong>{nomeProximo}</strong>
-                          <span>{rotuloHorarioPlantaoExibicao(horarioProximo)}</span>
+                          <span>{capitalizar(formatarData(intervaloProximo.dataInicio, { weekday: 'short', day: '2-digit', month: '2-digit' }))} · {formatarIntervaloPlantaoCivil(intervaloProximo)}</span>
                           <small>Troca de plantonista</small>
                         </div>
                       </div>
@@ -3139,6 +4142,7 @@ export function EmployeeApp() {
                       usuarios={usuarios}
                       timezone={grupo.timezone}
                       loginUsuarioAtual={usuario.login}
+                      onSelecionarDia={setDiaPlantaoSelecionado}
                     />
                   </article>
                 )}
@@ -3151,12 +4155,11 @@ export function EmployeeApp() {
                     ) : (
                       <div className="plantao-meus-lista">
                         {meusPlantoes.map((atribuicao) => {
-                          const horario = horarioPlantaoParaExibicao(atribuicao, grupo.timezone);
-                          const dataInicio = converterInstanteUtcParaMomento(atribuicao.inicio, grupo.timezone).data;
+                          const intervalo = intervaloPlantaoCivil(atribuicao, grupo.timezone);
                           return (
                             <div className="plantao-meu-item" key={atribuicao.atribuicaoId}>
-                              <span>{capitalizar(formatarData(dataInicio, { weekday: 'short', day: '2-digit', month: '2-digit' }))}</span>
-                              <strong>{rotuloHorarioPlantaoExibicao(horario)}</strong>
+                              <span>{capitalizar(formatarData(intervalo.dataInicio, { weekday: 'short', day: '2-digit', month: '2-digit' }))}</span>
+                              <strong>{formatarIntervaloPlantaoCivil(intervalo)}</strong>
                             </div>
                           );
                         })}
@@ -3170,15 +4173,11 @@ export function EmployeeApp() {
                     <div className="panel-title">
                       <div>
                         <h2>Solicitar troca de plantão</h2>
-                        <p>
-                          Ainda não disponível. A troca de Plantão funciona de um jeito diferente da
-                          Jornada SOC (turnos de 24h/12h/8h, em vez de dias inteiros) e exige uma etapa
-                          própria — está planejada para uma próxima fase, sem prazo definido.
-                        </p>
+                        <p>Selecione um plantão futuro para solicitar troca com um colega do grupo.</p>
                       </div>
                     </div>
-                    <button className="secondary-button" type="button" disabled title="Em breve">
-                      <ArrowLeftRight size={16} /> Solicitar troca (em breve)
+                    <button className="secondary-button" type="button" onClick={() => abrirAssistenteTrocaPlantao()}>
+                      <ArrowLeftRight size={16} /> Solicitar troca
                     </button>
                   </article>
                 )}
@@ -3245,7 +4244,7 @@ export function EmployeeApp() {
                     <article key={participante.login} className="app-participant-card">
                       <header className="app-participant-card-header">
                         <span className="avatar">
-                          {inicialPlantonista(nomeExibicaoPlantonista(participante.login, usuarios))}
+                          {obterIniciaisParticipantePlantao(nomeExibicaoPlantonista(participante.login, usuarios), participante.login)}
                         </span>
                         <div className="app-participant-identidade">
                           <strong>{nomeExibicaoPlantonista(participante.login, usuarios)}</strong>
@@ -3521,6 +4520,77 @@ export function EmployeeApp() {
             onCancelar={() => void cancelarSolicitacaoTroca(trocaAberta.trocaId)}
           />
         )
+      )}
+
+      {escolhaTipoTrocaAberta && (
+        <ModalEscolhaTipoTroca
+          onEscolher={(tipo) => (tipo === 'JORNADA' ? abrirNovaSolicitacaoTroca() : abrirAssistenteTrocaPlantao())}
+          onFechar={() => setEscolhaTipoTrocaAberta(false)}
+        />
+      )}
+
+      {assistenteTrocaPlantao && usuario && grupoPlantaoApp != null && (
+        <AssistenteNovaTrocaPlantao
+          estado={assistenteTrocaPlantao}
+          atribuicoes={atribuicoesPlantaoApp}
+          loginsParticipantesAtivos={participantesPlantaoApp.filter((participante) => participante.ativo).map((participante) => participante.login)}
+          usuarios={usuarios}
+          usuario={usuario}
+          timezone={grupoPlantaoApp.timezone}
+          agoraIso={agora.toISOString()}
+          enviando={processandoTrocaPlantao}
+          erro={erroTrocaPlantao}
+          onMudarPasso={(passo) => setAssistenteTrocaPlantao((atual) => atual && { ...atual, passo })}
+          onEscolherPlantaoSolicitante={(atribuicaoId) => setAssistenteTrocaPlantao((atual) => atual && { ...atual, plantaoSolicitanteId: atribuicaoId })}
+          onEscolherPlantaoDestinatario={(atribuicaoId) => setAssistenteTrocaPlantao((atual) => atual && { ...atual, plantaoDestinatarioId: atribuicaoId })}
+          onMudarMensagem={(mensagem) => setAssistenteTrocaPlantao((atual) => atual && { ...atual, mensagem })}
+          onFechar={() => { setAssistenteTrocaPlantao(null); setErroTrocaPlantao(''); }}
+          onEnviar={() => void enviarSolicitacaoTrocaPlantao()}
+        />
+      )}
+
+      {trocaPlantaoAberta && usuario && grupoPlantaoApp != null && (
+        trocaPlantaoAberta.destinatarioLogin === usuario.login && trocaPlantaoAberta.status === 'PENDENTE_USUARIO' ? (
+          <ModalRespostaTrocaPlantao
+            troca={trocaPlantaoAberta}
+            timezone={grupoPlantaoApp.timezone}
+            processando={processandoTrocaPlantao}
+            erro={erroTrocaPlantao}
+            onFechar={() => { setTrocaPlantaoAbertaId(null); setErroTrocaPlantao(''); }}
+            onAceitar={() => void responderSolicitacaoTrocaPlantaoApp(trocaPlantaoAberta.trocaId, true)}
+            onRecusar={() => void responderSolicitacaoTrocaPlantaoApp(trocaPlantaoAberta.trocaId, false)}
+          />
+        ) : (
+          <ModalDetalheTrocaPlantao
+            troca={trocaPlantaoAberta}
+            usuario={usuario}
+            timezone={grupoPlantaoApp.timezone}
+            processando={processandoTrocaPlantao}
+            erro={erroTrocaPlantao}
+            podeDecidirComoGestor={podeAprovarTrocaPlantaoApp}
+            onFechar={() => { setTrocaPlantaoAbertaId(null); setErroTrocaPlantao(''); }}
+            onCancelar={() => void cancelarSolicitacaoTrocaPlantaoApp(trocaPlantaoAberta.trocaId)}
+            onAprovar={() => void aprovarTrocaPlantaoApp(trocaPlantaoAberta.trocaId)}
+            onRecusar={(motivo) => void recusarTrocaPlantaoApp(trocaPlantaoAberta.trocaId, motivo)}
+          />
+        )
+      )}
+
+      {diaPlantaoSelecionado !== null && usuario && grupoPlantaoApp != null && (
+        <DetalheDiaPlantao
+          data={diaPlantaoSelecionado}
+          agoraIso={agora.toISOString()}
+          atribuicoesDoDia={atribuicoesPorDiaCivil(atribuicoesPlantaoApp, grupoPlantaoApp.timezone).get(diaPlantaoSelecionado) ?? []}
+          participantes={participantesPlantaoApp}
+          usuarios={usuarios}
+          timezone={grupoPlantaoApp.timezone}
+          loginUsuarioAtual={usuario.login}
+          onFechar={() => setDiaPlantaoSelecionado(null)}
+          onSolicitarTroca={souPlantonistaAtivoApp ? (atribuicaoId) => {
+            setDiaPlantaoSelecionado(null);
+            abrirAssistenteTrocaPlantao(atribuicaoId);
+          } : undefined}
+        />
       )}
     </AppFrame>
   );

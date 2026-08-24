@@ -213,6 +213,8 @@ A tela Trocas contém filtros Pendentes, Aprovadas, Recusadas e Histórico. O da
 
 Nenhuma troca deve ser aprovada ou recusada diretamente no dashboard sem passar pela tela e pelos handlers existentes.
 
+Esta seção descreve trocas de **Jornada 6x1** (coleção `trocasEscala`, aplicação automática na escala publicada ao aprovar). Desde FASE-TROCAS-PLANTAO-1 existe também troca de **Plantão** (coleção própria `trocasPlantao`, aprovação acontece no App do colaborador e só registra a decisão — não aplica nada na escala publicada, que continua sendo ajustada manualmente pelo coordenador). Ver `docs/spec/PLANTOES.md` § 34 e `docs/spec/APP_PLANTAO_VISUALIZACAO.md` § 5 para o detalhe completo.
+
 ## 11. Dados e domínio
 
 As métricas da Visão geral usam estados já carregados pelo DashboardApp:

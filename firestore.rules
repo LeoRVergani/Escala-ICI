@@ -528,6 +528,24 @@ service cloud.firestore {
         || (!existeMatrizOperacional('PLANTAO', grupoId) && podeConsultarGrupoPlantao(grupoPlantaoPorId(grupoId)));
     }
 
+    /**
+     * FASE-TROCAS-PLANTAO-1 — participação ATIVA no Grupo é o que autoriza
+     * pedir/responder uma troca de Plantão (nunca `minhaEquipe()`: um
+     * participante pode ser de outra equipe, e um colega de equipe pode não
+     * ser plantonista). `exists()` antes de `get()` é obrigatório aqui: em
+     * Firestore Rules, `get()` sobre um documento inexistente é ERRO DE
+     * AVALIAÇÃO (não `null`), o que reprovaria a expressão inteira — mesmo
+     * cuidado já tomado em `competenciasPlantao` (comentário acima).
+     */
+    function participanteAtivoDoGrupoPlantao(grupoId, login) {
+      return exists(/databases/$(database)/documents/gruposPlantao/$(grupoId)/participantes/$(login))
+        && get(/databases/$(database)/documents/gruposPlantao/$(grupoId)/participantes/$(login)).data.ativo == true;
+    }
+
+    function souParticipanteAtivoDoGrupoPlantao(grupoId) {
+      return autenticado() && participanteAtivoDoGrupoPlantao(grupoId, loginDoAuth());
+    }
+
     match /config/{doc} {
       allow read: if true;
       allow write: if false;
@@ -1684,6 +1702,158 @@ service cloud.firestore {
     }
 
     /**
+     * FASE-TROCAS-PLANTAO-1 — trocas de PLANTÃO. Coleção PRÓPRIA, nunca
+     * `trocasEscala`: aquela é modelada por DIA + código de turno de
+     * catálogo da Jornada 6x1 (`turnoSolicitanteAntes`,
+     * `aplicarTrocaNosDias`); esta é modelada por ATRIBUIÇÃO/intervalo —
+     * "dois domínios, não um" (docs/spec/PLANTOES.md). Estrutura espelha
+     * `trocasEscala` (get/list separados, `historico` só cresce, uma branch
+     * de `update` por ator), trocando `equipeId` -> `grupoId` e
+     * `podeAdministrarJornada()` -> `podeAdministrarEscalaPlantao()`. Mudar
+     * a tabela de transições aqui sem mudar `TRANSICOES_TROCA_PLANTAO`
+     * (lib/trocasPlantao.ts) — ou vice-versa — quebra a fronteira: não
+     * existe Cloud Function neste projeto, toda transição de status é
+     * escrita de client autorizada só por Rules.
+     *
+     * NESTA FASE A APROVAÇÃO NÃO ESCREVE EM `competenciasPlantao`: o modelo
+     * BASE/OVERRIDE/EFETIVA que permitiria uma troca cirúrgica está
+     * reservado mas não implementado (docs/spec/PLANTOES.md, PLANTÃO-6), e
+     * as Rules de atribuição publicada (acima) só aceitam republicação da
+     * competência inteira com `revisao` estritamente crescente. `APROVADA`
+     * é status TERMINAL DE DECISÃO, não de efetivação — o ajuste real na
+     * escala publicada continua sendo edição manual do coordenador no
+     * Dashboard.
+     *
+     * `get`/`list` separados pelo mesmo motivo já documentado em
+     * `trocasEscala` (quirk do emulador: uma condição de `list` avaliada
+     * contra um documento não relacionado nega a consulta inteira). `list`
+     * é deliberadamente MAIS ESTREITO que o de `trocasEscala` (que libera a
+     * equipe inteira): quem só CONSULTA o Grupo (`equipesConsulta`) não
+     * enumera pedidos de troca de terceiros — só participante ativo ou quem
+     * administra o Grupo.
+     *
+     * "Estar no futuro" não é verificável em Rules (não há comparação entre
+     * `request.time` e uma string ISO arbitrária do documento) — fica em
+     * `validarNovaSolicitacaoTrocaPlantao()` (lib/trocasPlantao.ts) e no
+     * repositório, exatamente como `trocasEscala` também nunca validou o
+     * campo `data` nas Rules.
+     */
+    match /trocasPlantao/{id} {
+      allow get: if autenticado()
+        && (
+          resource.data.solicitanteLogin == loginDoAuth()
+          || resource.data.destinatarioLogin == loginDoAuth()
+          || souParticipanteAtivoDoGrupoPlantao(resource.data.grupoId)
+          || podeAdministrarEscalaPlantao(resource.data.grupoId)
+        );
+
+      allow list: if autenticado()
+        && (
+          souParticipanteAtivoDoGrupoPlantao(resource.data.grupoId)
+          || podeAdministrarEscalaPlantao(resource.data.grupoId)
+        );
+
+      // Autoatendimento: em nome próprio, para outro participante ATIVO do
+      // MESMO Grupo, sempre em PENDENTE_USUARIO, histórico nascendo com
+      // exatamente 1 evento.
+      allow create: if autenticado()
+        && request.resource.data.trocaId == id
+        && request.resource.data.tipo == 'PLANTAO'
+        && request.resource.data.status == 'PENDENTE_USUARIO'
+        && request.resource.data.solicitanteLogin == loginDoAuth()
+        && request.resource.data.criadoPorLogin == loginDoAuth()
+        && request.resource.data.destinatarioLogin != loginDoAuth()
+        && request.resource.data.grupoId is string && request.resource.data.grupoId.size() > 0
+        && request.resource.data.plantaoSolicitanteId is string && request.resource.data.plantaoSolicitanteId.size() > 0
+        && request.resource.data.plantaoDestinatarioId is string && request.resource.data.plantaoDestinatarioId.size() > 0
+        && request.resource.data.plantaoSolicitanteId != request.resource.data.plantaoDestinatarioId
+        && request.resource.data.historico.size() == 1
+        && request.resource.data.gestorLogin == null
+        && request.resource.data.motivoRecusa == null
+        && souParticipanteAtivoDoGrupoPlantao(request.resource.data.grupoId)
+        && participanteAtivoDoGrupoPlantao(request.resource.data.grupoId, request.resource.data.destinatarioLogin);
+
+      allow update: if autenticado()
+        && request.resource.data.historico.size() > resource.data.historico.size()
+        && request.resource.data.grupoId == resource.data.grupoId
+        && request.resource.data.solicitanteLogin == resource.data.solicitanteLogin
+        && request.resource.data.destinatarioLogin == resource.data.destinatarioLogin
+        && request.resource.data.plantaoSolicitanteId == resource.data.plantaoSolicitanteId
+        && request.resource.data.plantaoDestinatarioId == resource.data.plantaoDestinatarioId
+        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
+        && request.resource.data.criadoEm == resource.data.criadoEm
+        && (
+          (
+            resource.data.destinatarioLogin == loginDoAuth()
+            && resource.data.status == 'PENDENTE_USUARIO'
+            && request.resource.data.status in ['RECUSADA_USUARIO', 'PENDENTE_GESTOR']
+          )
+          || (
+            resource.data.solicitanteLogin == loginDoAuth()
+            && resource.data.status == 'PENDENTE_USUARIO'
+            && request.resource.data.status == 'CANCELADA'
+          )
+          // Aprovar/recusar é autorização OPERACIONAL do Grupo — nunca
+          // "souGestor()" solto, nunca só pertencer a `equipesConsulta`.
+          // `podeAdministrarEscalaPlantao()` já cobre, nesta ordem:
+          // ADMIN_SISTEMA; responsável ativo na Matriz para tipo=PLANTAO e
+          // alvoId=grupoId; fallback de ACL histórica só quando não existe
+          // matriz; liberação de staging.
+          || (
+            podeAdministrarEscalaPlantao(resource.data.grupoId)
+            && resource.data.status == 'PENDENTE_GESTOR'
+            && request.resource.data.status in ['RECUSADA_GESTOR', 'APROVADA']
+          )
+        );
+
+      // Mesmo critério de `trocasEscala`: só ADMIN_SISTEMA, para limpeza de
+      // conta excluída. Nunca o gestor, nunca o solicitante.
+      allow delete: if souAdminSistema();
+    }
+
+    /**
+     * Notificações de troca de PLANTÃO — coleção dedicada, paralela a
+     * `notificacoesTroca` (Jornada), pelo mesmo motivo da coleção de trocas
+     * acima. Nada em `notificacoesTroca` muda nesta fase. Quem cria é
+     * sempre quem executou a ação; `criadoPorLogin` autentica o autor sem
+     * `get()` sobre `trocasPlantao` (a troca e a notificação são criadas no
+     * mesmo lote, e `get()`/`exists()` em Rules não veem escritas
+     * pendentes do próprio lote).
+     */
+    match /notificacoesTrocaPlantao/{id} {
+      // Só o próprio destinatário — ou um admin de verdade, para limpeza de
+      // conta removida. Igual `notificacoesTroca`: a checagem de admin em
+      // `list` só passa se a consulta também filtrar por `grupoId`.
+      allow read: if autenticado()
+        && (
+          resource.data.destinatarioLogin == loginDoAuth()
+          || (resource.data.get('grupoId', null) != null && souAdminSistema())
+        );
+
+      allow create: if autenticado()
+        && request.resource.data.criadoPorLogin == loginDoAuth()
+        && request.resource.data.destinatarioLogin != loginDoAuth()
+        && request.resource.data.lidaEm == null
+        && request.resource.data.acao == 'ABRIR_TROCA_PLANTAO'
+        && (
+          // solicitante/destinatário avisando o outro lado (ou o gestor)
+          souParticipanteAtivoDoGrupoPlantao(request.resource.data.grupoId)
+          // gestor avisando as duas partes de uma decisão gerencial — pode
+          // não ser participante do Grupo
+          || (
+            podeAdministrarEscalaPlantao(request.resource.data.grupoId)
+            && request.resource.data.tipo in ['TROCA_PLANTAO_RECUSADA_GESTOR', 'TROCA_PLANTAO_APROVADA']
+          )
+        );
+
+      allow update: if autenticado()
+        && resource.data.destinatarioLogin == loginDoAuth()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lidaEm']);
+
+      allow delete: if souAdminSistema();
+    }
+
+    /**
      * Riscos conscientemente aceitos nesta fase (não são bugs esquecidos):
      *
      * - `LEITURA` (PerfilUsuario) hoje equivale exatamente a ANALISTA_SOC —
@@ -1698,6 +1868,12 @@ service cloud.firestore {
      *   também não é possível nesta fase (campo imutável no `update`) —
      *   decisão aceita para não abrir uma via de transferência de poder
      *   administrativo sem revisão dedicada.
+     * - FASE-TROCAS-PLANTAO-1: `trocasPlantao.create` não checa
+     *   `gruposPlantao/{grupoId}.ativo` (só a existência do participante
+     *   ativo) — um Grupo desativado com participantes ainda marcados como
+     *   ativos aceitaria uma solicitação de troca. Aceito para não somar
+     *   mais um `get()`/expressão à regra; desativar um Grupo já devia vir
+     *   acompanhado de desativar seus participantes.
      */
   }
 }

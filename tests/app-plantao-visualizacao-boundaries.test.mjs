@@ -71,15 +71,16 @@ test('5. o App do colaborador não ganha nenhuma escrita administrativa de Plant
   }
 });
 
-test('6. a troca de plantão ainda não tem fluxo de escrita — só uma entrada visual desabilitada, documentada como próxima fase', async () => {
+test('6. a troca de plantão agora tem fluxo próprio de solicitação (FASE-TROCAS-PLANTAO-1) — botão habilitado, abre o assistente de troca de Plantão', async () => {
   const app = await ler('apps/app/src/EmployeeApp.tsx');
   const inicio = app.indexOf("{tela === 'plantao' && usuario && (");
   const fim = app.indexOf("{tela === 'equipe' && (");
   assert.ok(inicio > 0 && fim > inicio, 'a tela "plantao" precisa existir antes da tela "equipe"');
   const telaPlantao = app.slice(inicio, fim);
   assert.match(telaPlantao, /Solicitar troca de plantão/u);
-  assert.match(telaPlantao, /disabled/u, 'o botão de solicitar troca de Plantão precisa estar desabilitado nesta fase');
-  assert.doesNotMatch(telaPlantao, /criarSolicitacaoTroca/u, 'a tela de Plantão não pode disparar a escrita de troca (o fluxo ainda não existe para Plantão)');
+  assert.doesNotMatch(telaPlantao, /disabled title="Em breve"/u, 'o botão de solicitar troca de Plantão não pode mais ficar permanentemente desabilitado');
+  assert.match(telaPlantao, /abrirAssistenteTrocaPlantao/u, 'o botão precisa abrir o assistente de troca de Plantão');
+  assert.doesNotMatch(telaPlantao, /criarSolicitacaoTrocaPlantao/u, 'a tela de Plantão não escreve direto no Firestore — só chama o handler, que passa pelo repositório');
 });
 
 test('7. a tela "Hoje" (Jornada SOC) e o fluxo de Trocas SOC continuam intactos — a aba Plantão é aditiva', async () => {
@@ -208,14 +209,21 @@ test('18. aba Equipe: nunca mais "0 colaboradores" para quem só tem Plantão �
   assert.match(telaEquipe, /jornadaPublicadaApp && plantaoPublicadoApp && \(\s*<div className="segmented-control equipe-operacao-seletor"/u);
 });
 
-test('19. aba Trocas: sem Jornada 6x1, mostra a limitação contextual (não o alerta vermelho global) e menciona que Trocas de Plantão ficam para uma próxima fase', async () => {
+test('19. aba Trocas: sem Jornada 6x1, mostra a limitação contextual (não o alerta vermelho global); Trocas de Plantão tem bloco próprio e fluxo real, não mais "próxima fase" (FASE-TROCAS-PLANTAO-1)', async () => {
   const app = await ler('apps/app/src/EmployeeApp.tsx');
   const inicio = app.indexOf("{tela === 'trocas' && usuario && (");
   const fim = app.indexOf("{tela === 'plantao' && usuario && (");
   assert.ok(inicio > 0 && fim > inicio, 'a tela "trocas" precisa existir antes da tela "plantao"');
   const telaTrocas = app.slice(inicio, fim);
   assert.match(telaTrocas, /Trocas de Jornada 6x1 não estão disponíveis porque não há Jornada publicada para este período\./u);
-  assert.match(telaTrocas, /Trocas de Plantão serão tratadas em uma próxima fase\./u);
+  assert.doesNotMatch(
+    telaTrocas,
+    /Trocas de Plantão serão tratadas em uma próxima fase\./u,
+    'a frase que fazia a tela inteira parecer desabilitada não pode mais existir',
+  );
+  assert.match(telaTrocas, /Trocas de Jornada 6x1<\/h2>/u, 'bloco de Jornada precisa ter título próprio');
+  assert.match(telaTrocas, /Trocas de Plantão<\/h2>/u, 'bloco de Plantão precisa ter título próprio');
+  assert.match(telaTrocas, /TrocaPlantaoItemButton/u, 'a lista real de trocas de Plantão precisa ser renderizada na tela Trocas');
 });
 
 test('20. Messaging (Push em primeiro plano) nunca derruba o EmployeeApp — getMessaging()/onMessage() ficam dentro de um try/catch com console.warn', async () => {
