@@ -68,7 +68,7 @@ export function calcularDuracaoEntreMomentos(inicio: MomentoPlantao, fim: Moment
   }
 }
 
-interface MomentoInterpretado {
+export interface MomentoInterpretado {
   momento: MomentoPlantao;
   avisoDiaSemana?: string;
 }
@@ -80,8 +80,12 @@ interface MomentoInterpretado {
  * data — só gera um aviso quando diverge da data real, exatamente para
  * pegar erro de digitação sem deixar ele corromper o dado (ver seção
  * "Datas, horas e timezone" de `docs/spec/PLANTOES.md`).
+ *
+ * Exportada (Fase IMPORTADOR-PLANTAO-CODB-XLS-VISUAL-REFERENCIA-1) para
+ * `parserPlantaoMultiFonte.ts` reaproveitar a mesma interpretação de
+ * data/hora sem duplicar a regex nem a lógica de aviso de dia da semana.
  */
-function interpretarMomento(texto: string): MomentoInterpretado | undefined {
+export function interpretarMomento(texto: string): MomentoInterpretado | undefined {
   const bruto = texto.trim();
   const resultado = PADRAO_DATA_HORA.exec(bruto);
   if (resultado === null) {
