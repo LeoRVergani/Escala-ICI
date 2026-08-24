@@ -314,6 +314,14 @@ import {
 } from '@/lib/gradeMembros';
 import { mapaLogins, normalizarAliasesPlanilha, novoUsuario, validarEdicaoUsuario } from '@/lib/importUsers';
 import {
+  avisoCargoDivergenteDaEquipe,
+  montarCamposAcessoUsuario,
+  resumoAcessoUsuario,
+  tipoAcessoDoUsuario,
+  validarCoerenciaAcessoUsuario,
+  type TipoAcessoUsuario,
+} from '@/lib/perfilAcessoUsuario';
+import {
   areasParaExibicaoNoWizard,
   identificadorGrupoPlantaoDaEquipe,
   normalizarIdentificadorTecnico,
@@ -825,6 +833,19 @@ interface FormularioUsuario {
    * (contexto fixo), nunca deste campo.
    */
   equipeId?: string;
+
+  /**
+   * PATCH-ADMIN-SIMPLIFICAR-CADASTRO-PERFIS-1 — só UI, nunca persistido:
+   * decide qual bloco simples aparece em "Permissões" (`souAdmin`) e
+   * recalcula `perfil`/`escopo`/`equipeId`/`equipesPermitidas`/`unidadeId`/
+   * `unidadesPermitidas`/`nivelHierarquico` via `montarCamposAcessoUsuario()`
+   * a cada mudança. A área "Avançado" continua editando os mesmos campos
+   * técnicos diretamente — as duas UIs nunca divergem porque são o mesmo
+   * estado.
+   */
+  tipoAcesso: TipoAcessoUsuario;
+  /** Confirmação exigida só para Administrador do sistema — nunca persistida. */
+  confirmaAcessoGlobal: boolean;
 }
 
 const TIPOS_UNIDADE_ORGANIZACIONAL: TipoUnidadeOrganizacional[] = [
@@ -6023,6 +6044,8 @@ export function DashboardApp() {
       aliasesPlanilha: [],
       unidadesPermitidas: [],
       equipesPermitidas: [],
+      tipoAcesso: 'COLABORADOR',
+      confirmaAcessoGlobal: false,
     });
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
@@ -6048,6 +6071,8 @@ export function DashboardApp() {
       aliasesPlanilha: [participanteNomeOriginal],
       unidadesPermitidas: [],
       equipesPermitidas: [],
+      tipoAcesso: 'COLABORADOR',
+      confirmaAcessoGlobal: false,
     });
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
@@ -6089,6 +6114,8 @@ export function DashboardApp() {
       equipeId: equipeIdSugerida || undefined,
       unidadesPermitidas: [],
       equipesPermitidas: [],
+      tipoAcesso: 'COLABORADOR',
+      confirmaAcessoGlobal: false,
     });
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
@@ -6110,8 +6137,11 @@ export function DashboardApp() {
       perfil: item.perfil,
       escopo: item.escopo,
       unidadeId: item.unidadeId,
+      equipeId: item.equipeId,
       unidadesPermitidas: item.unidadesPermitidas ?? [],
       equipesPermitidas: item.equipesPermitidas ?? [],
+      tipoAcesso: tipoAcessoDoUsuario(item),
+      confirmaAcessoGlobal: item.perfil === 'ADMIN_SISTEMA',
     });
     setErrosFormularioUsuario([]);
     setNovoAliasDraft('');
@@ -6165,6 +6195,51 @@ export function DashboardApp() {
     });
   }
 
+  /**
+   * PATCH-ADMIN-SIMPLIFICAR-CADASTRO-PERFIS-1 — único ponto que aplica uma
+   * mudança no bloco simples "Tipo de acesso" (seletor, Equipe/Unidade
+   * escolhida ou confirmação do Administrador do sistema). Recalcula
+   * `perfil`/`escopo`/`equipeId`/`equipesPermitidas`/`unidadeId`/
+   * `unidadesPermitidas`/`nivelHierarquico` via `montarCamposAcessoUsuario()`
+   * puro e grava tudo de volta no MESMO estado que a área "Avançado" edita
+   * diretamente — as duas UIs nunca divergem. Para `GESTOR_UNIDADE`,
+   * `equipeId` é deliberadamente preservado (nunca zerado): esse perfil
+   * administra a unidade inteira, `equipeId` continua só metadado
+   * informativo (mesmo princípio do fallback de
+   * PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 em `salvarFormularioUsuario`).
+   */
+  function aplicarSelecaoAcessoUsuario(patch: {
+    tipo?: TipoAcessoUsuario;
+    equipeId?: string;
+    unidadeId?: string;
+    confirmaAcessoGlobal?: boolean;
+  }) {
+    if (formularioUsuario === null) {
+      return;
+    }
+    const selecao = {
+      tipo: patch.tipo ?? formularioUsuario.tipoAcesso,
+      equipeId: 'equipeId' in patch ? patch.equipeId : formularioUsuario.equipeId,
+      unidadeId: 'unidadeId' in patch ? patch.unidadeId : formularioUsuario.unidadeId,
+      confirmaAcessoGlobal: patch.confirmaAcessoGlobal ?? formularioUsuario.confirmaAcessoGlobal,
+    };
+    const campos = montarCamposAcessoUsuario(selecao, {
+      unidadeDaEquipe: (equipeId) => equipesAdmin.find((equipe) => equipe.id === equipeId)?.unidadeId,
+    });
+    setFormularioUsuario({
+      ...formularioUsuario,
+      tipoAcesso: selecao.tipo,
+      confirmaAcessoGlobal: selecao.confirmaAcessoGlobal,
+      perfil: campos.perfil,
+      escopo: campos.escopo,
+      equipeId: selecao.tipo === 'GESTOR_UNIDADE' ? formularioUsuario.equipeId : campos.equipeId,
+      equipesPermitidas: campos.equipesPermitidas,
+      unidadeId: campos.unidadeId,
+      unidadesPermitidas: campos.unidadesPermitidas,
+      nivelHierarquico: campos.nivelHierarquico,
+    });
+  }
+
   async function salvarFormularioUsuario() {
     if (formularioUsuario === null || usuarioEfetivo === null) {
       return;
@@ -6215,6 +6290,11 @@ export function DashboardApp() {
       ? {
         perfil: formularioUsuario.perfil,
         escopo: formularioUsuario.escopo,
+        // PATCH-ADMIN-SIMPLIFICAR-CADASTRO-PERFIS-1 — causa raiz do bug real
+        // (equipesPermitidas continha a equipe certa, mas equipeId nunca era
+        // sobrescrito aqui e ficava herdado da equipe de quem cadastrava):
+        // equipeId agora é sempre gravado a partir do formulário.
+        equipeId: formularioUsuario.equipeId,
         unidadeId: formularioUsuario.unidadeId,
         unidadesPermitidas: formularioUsuario.unidadesPermitidas,
         equipesPermitidas: formularioUsuario.equipesPermitidas,
@@ -6285,16 +6365,44 @@ export function DashboardApp() {
      * `unidadesPermitidas`, não deste campo. Sem equipe escolhida no select
      * livre, usa a primeira equipe ativa da unidade só como identidade
      * técnica — nunca como restrição de escopo — em vez de gravar `''`.
+     *
+     * PATCH-ADMIN-SIMPLIFICAR-CADASTRO-PERFIS-1 — estendido ao cadastro
+     * administrativo (`souAdmin`): o bloco simples "Gestor de unidade"
+     * nunca pede uma equipe (só a unidade), então `equipeId` pode chegar
+     * aqui `undefined` também para o admin, não só no cadastro livre de
+     * staging. `?? ''` evita `undefined.trim()`.
      */
     if (
-      usarCadastroLivreStaging
-      && cadastroNovo
+      (usarCadastroLivreStaging && cadastroNovo || (souAdmin && participanteVinculoCadastro === null))
       && candidato.perfil === 'GESTOR_UNIDADE'
-      && candidato.equipeId.trim() === ''
+      && (candidato.equipeId ?? '').trim() === ''
     ) {
       const equipeFallback = equipesAdmin.find((equipe) => equipe.ativa && equipe.unidadeId === candidato.unidadeId);
       if (equipeFallback !== undefined) {
         candidato = { ...candidato, equipeId: equipeFallback.id };
+      }
+    }
+
+    /**
+     * PATCH-ADMIN-SIMPLIFICAR-CADASTRO-PERFIS-1 — validações de coerência
+     * do bloco "Permissões", aplicadas ao candidato FINAL (funciona tanto
+     * para quem usou só o bloco simples quanto para quem editou "Avançado"
+     * manualmente, já que os dois escrevem os mesmos campos técnicos).
+     * Confirmação de acesso global é exigida sempre que o resultado final
+     * é ADMIN_SISTEMA/GLOBAL, não só quando escolhido pelo seletor simples
+     * — nunca enfraquece a trava por causa do caminho usado para chegar lá.
+     */
+    if (souAdmin && participanteVinculoCadastro === null) {
+      const exigeConfirmacaoGlobal = candidato.perfil === 'ADMIN_SISTEMA' || candidato.escopo === 'GLOBAL';
+      const errosAcesso = [
+        ...validarCoerenciaAcessoUsuario(candidato),
+        ...(exigeConfirmacaoGlobal && !formularioUsuario.confirmaAcessoGlobal
+          ? ['Confirme que este usuário deve ter acesso administrativo global.']
+          : []),
+      ];
+      if (errosAcesso.length > 0) {
+        setErrosFormularioUsuario(errosAcesso);
+        return;
       }
     }
 
@@ -10767,90 +10875,186 @@ export function DashboardApp() {
                   </div>
                 </div>
               </label>
-              {souAdmin && participanteVinculoCadastro === null && linhaConciliacaoVinculoCadastro === null && (
-                <fieldset className="user-form-full admin-only-fields">
-                  <legend>Administração (perfil/escopo/organização)</legend>
-                  <label>
-                    Perfil
-                    <select
-                      value={formularioUsuario.perfil ?? ''}
-                      onChange={(evento) => setFormularioUsuario({
-                        ...formularioUsuario,
-                        perfil: (evento.target.value || undefined) as FormularioUsuario['perfil'],
-                      })}
-                    >
-                      <option value="">(padrão pelo nível hierárquico)</option>
-                      {PERFIS_ADMINISTRAVEIS.map((perfil) => (
-                        <option key={perfil} value={perfil}>{perfil}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Escopo
-                    <select
-                      value={formularioUsuario.escopo ?? ''}
-                      onChange={(evento) => setFormularioUsuario({
-                        ...formularioUsuario,
-                        escopo: (evento.target.value || undefined) as FormularioUsuario['escopo'],
-                      })}
-                    >
-                      <option value="">(padrão EQUIPE)</option>
-                      <option value="GLOBAL">GLOBAL</option>
-                      <option value="EQUIPE">EQUIPE</option>
-                      <option value="UNIDADE">UNIDADE</option>
-                    </select>
-                  </label>
-                  <label>
-                    Unidade organizacional
-                    <select
-                      value={formularioUsuario.unidadeId ?? ''}
-                      onChange={(evento) => setFormularioUsuario({
-                        ...formularioUsuario,
-                        unidadeId: evento.target.value || undefined,
-                      })}
-                    >
-                      <option value="">(nenhuma)</option>
-                      {unidadesEmArvoreParaSelect.map((no) => (
-                        <option key={no.unidade.unidadeId} value={no.unidade.unidadeId}>
-                          {'  '.repeat(no.profundidade)}{rotuloOpcaoUnidade(no.unidade, unidadesAdmin)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <fieldset className="user-form-full">
-                    <legend>Unidades permitidas (GESTOR_UNIDADE)</legend>
-                    {unidadesAdmin.length === 0 && (
-                      <small className="empty-inline">Abra a tela Administração nesta sessão para carregar a lista de unidades.</small>
+              {souAdmin && participanteVinculoCadastro === null && linhaConciliacaoVinculoCadastro === null && (() => {
+                const equipeEscolhida = equipesAdmin.find((equipe) => equipe.id === formularioUsuario.equipeId);
+                const unidadeEscolhida = unidadesAdmin.find((unidade) => unidade.unidadeId === formularioUsuario.unidadeId);
+                const avisoCargo = avisoCargoDivergenteDaEquipe(formularioUsuario.cargo, formularioUsuario.equipeId, equipesAdmin);
+                const resumo = resumoAcessoUsuario(
+                  { perfil: formularioUsuario.perfil, escopo: formularioUsuario.escopo },
+                  {
+                    rotuloEquipe: equipeEscolhida ? rotuloTecnicoEquipe(equipeEscolhida) : undefined,
+                    rotuloUnidade: unidadeEscolhida ? rotuloTecnicoUnidade(unidadeEscolhida) : undefined,
+                  },
+                );
+                return (
+                  <fieldset className="user-form-full admin-only-fields">
+                    <legend>Permissões</legend>
+                    <p className="hint-text">
+                      Na maioria dos casos, escolha apenas o tipo de acesso e a equipe ou unidade. Os
+                      campos técnicos são preenchidos automaticamente.
+                    </p>
+                    <label>
+                      Tipo de acesso
+                      <select
+                        value={formularioUsuario.tipoAcesso}
+                        onChange={(evento) => aplicarSelecaoAcessoUsuario({ tipo: evento.target.value as TipoAcessoUsuario })}
+                      >
+                        <option value="COLABORADOR">Colaborador</option>
+                        <option value="SUPERVISOR_EQUIPE">Supervisor de equipe</option>
+                        <option value="GESTOR_EQUIPE">Gestor de equipe</option>
+                        <option value="GESTOR_UNIDADE">Gestor de unidade</option>
+                        <option value="ADMIN_SISTEMA">Administrador do sistema</option>
+                      </select>
+                    </label>
+                    {(formularioUsuario.tipoAcesso === 'COLABORADOR'
+                      || formularioUsuario.tipoAcesso === 'SUPERVISOR_EQUIPE'
+                      || formularioUsuario.tipoAcesso === 'GESTOR_EQUIPE') && (
+                      <label>
+                        {formularioUsuario.tipoAcesso === 'COLABORADOR'
+                          ? 'Equipe do colaborador'
+                          : formularioUsuario.tipoAcesso === 'SUPERVISOR_EQUIPE'
+                            ? 'Equipe supervisionada'
+                            : 'Equipe gerenciada'}
+                        <select
+                          value={formularioUsuario.equipeId ?? ''}
+                          onChange={(evento) => aplicarSelecaoAcessoUsuario({ equipeId: evento.target.value || undefined })}
+                        >
+                          <option value="">Selecione uma equipe</option>
+                          {equipesAdmin.map((equipe) => (
+                            <option key={equipe.id} value={equipe.id}>{rotuloTecnicoEquipe(equipe)}</option>
+                          ))}
+                        </select>
+                      </label>
                     )}
-                    {unidadesAdmin.map((unidade) => (
-                      <label key={unidade.unidadeId} className="checkbox-inline">
+                    {formularioUsuario.tipoAcesso === 'GESTOR_UNIDADE' && (
+                      <label>
+                        Unidade gerenciada
+                        <select
+                          value={formularioUsuario.unidadeId ?? ''}
+                          onChange={(evento) => aplicarSelecaoAcessoUsuario({ unidadeId: evento.target.value || undefined })}
+                        >
+                          <option value="">Selecione uma unidade</option>
+                          {unidadesAdmin.map((unidade) => (
+                            <option key={unidade.unidadeId} value={unidade.unidadeId}>{rotuloTecnicoUnidade(unidade)}</option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    {formularioUsuario.tipoAcesso === 'ADMIN_SISTEMA' && (
+                      <label className="checkbox-inline">
                         <input
                           type="checkbox"
-                          checked={formularioUsuario.unidadesPermitidas.includes(unidade.unidadeId)}
-                          onChange={() => alternarNaListaFormularioUsuario('unidadesPermitidas', unidade.unidadeId)}
+                          checked={formularioUsuario.confirmaAcessoGlobal}
+                          onChange={(evento) => aplicarSelecaoAcessoUsuario({ confirmaAcessoGlobal: evento.target.checked })}
                         />
-                        {unidade.nome}
+                        Administrador do sistema possui acesso global. Use somente para contas técnicas ou
+                        administradores reais.
                       </label>
-                    ))}
-                  </fieldset>
-                  <fieldset className="user-form-full">
-                    <legend>Equipes permitidas</legend>
-                    {equipesAdmin.length === 0 && (
-                      <small className="empty-inline">Abra a tela Administração nesta sessão para carregar a lista de equipes.</small>
                     )}
-                    {equipesAdmin.map((equipe) => (
-                      <label key={equipe.id} className="checkbox-inline">
-                        <input
-                          type="checkbox"
-                          checked={formularioUsuario.equipesPermitidas.includes(equipe.id)}
-                          onChange={() => alternarNaListaFormularioUsuario('equipesPermitidas', equipe.id)}
-                        />
-                        {equipe.nome}
+                    <div className="access-summary">
+                      {resumo.map((linha) => <p key={linha} className="hint-text">{linha}</p>)}
+                      {avisoCargo && <p className="hint-text warning-text">{avisoCargo}</p>}
+                    </div>
+                    <details className="advanced-fields">
+                      <summary>Avançado</summary>
+                      <label>
+                        Perfil
+                        <select
+                          value={formularioUsuario.perfil ?? ''}
+                          onChange={(evento) => setFormularioUsuario({
+                            ...formularioUsuario,
+                            perfil: (evento.target.value || undefined) as FormularioUsuario['perfil'],
+                          })}
+                        >
+                          <option value="">(padrão pelo nível hierárquico)</option>
+                          {PERFIS_ADMINISTRAVEIS.map((perfil) => (
+                            <option key={perfil} value={perfil}>{perfil}</option>
+                          ))}
+                        </select>
                       </label>
-                    ))}
+                      <label>
+                        Escopo
+                        <select
+                          value={formularioUsuario.escopo ?? ''}
+                          onChange={(evento) => setFormularioUsuario({
+                            ...formularioUsuario,
+                            escopo: (evento.target.value || undefined) as FormularioUsuario['escopo'],
+                          })}
+                        >
+                          <option value="">(padrão EQUIPE)</option>
+                          <option value="GLOBAL">GLOBAL</option>
+                          <option value="EQUIPE">EQUIPE</option>
+                          <option value="UNIDADE">UNIDADE</option>
+                        </select>
+                      </label>
+                      <label>
+                        Equipe (equipeId)
+                        <select
+                          value={formularioUsuario.equipeId ?? ''}
+                          onChange={(evento) => setFormularioUsuario({
+                            ...formularioUsuario,
+                            equipeId: evento.target.value || undefined,
+                          })}
+                        >
+                          <option value="">(nenhuma)</option>
+                          {equipesAdmin.map((equipe) => (
+                            <option key={equipe.id} value={equipe.id}>{rotuloTecnicoEquipe(equipe)}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Unidade organizacional
+                        <select
+                          value={formularioUsuario.unidadeId ?? ''}
+                          onChange={(evento) => setFormularioUsuario({
+                            ...formularioUsuario,
+                            unidadeId: evento.target.value || undefined,
+                          })}
+                        >
+                          <option value="">(nenhuma)</option>
+                          {unidadesEmArvoreParaSelect.map((no) => (
+                            <option key={no.unidade.unidadeId} value={no.unidade.unidadeId}>
+                              {'  '.repeat(no.profundidade)}{rotuloOpcaoUnidade(no.unidade, unidadesAdmin)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <fieldset className="user-form-full">
+                        <legend>Unidades permitidas (GESTOR_UNIDADE)</legend>
+                        {unidadesAdmin.length === 0 && (
+                          <small className="empty-inline">Abra a tela Administração nesta sessão para carregar a lista de unidades.</small>
+                        )}
+                        {unidadesAdmin.map((unidade) => (
+                          <label key={unidade.unidadeId} className="checkbox-inline">
+                            <input
+                              type="checkbox"
+                              checked={formularioUsuario.unidadesPermitidas.includes(unidade.unidadeId)}
+                              onChange={() => alternarNaListaFormularioUsuario('unidadesPermitidas', unidade.unidadeId)}
+                            />
+                            {unidade.nome}
+                          </label>
+                        ))}
+                      </fieldset>
+                      <fieldset className="user-form-full">
+                        <legend>Equipes permitidas</legend>
+                        {equipesAdmin.length === 0 && (
+                          <small className="empty-inline">Abra a tela Administração nesta sessão para carregar a lista de equipes.</small>
+                        )}
+                        {equipesAdmin.map((equipe) => (
+                          <label key={equipe.id} className="checkbox-inline">
+                            <input
+                              type="checkbox"
+                              checked={formularioUsuario.equipesPermitidas.includes(equipe.id)}
+                              onChange={() => alternarNaListaFormularioUsuario('equipesPermitidas', equipe.id)}
+                            />
+                            {equipe.nome}
+                          </label>
+                        ))}
+                      </fieldset>
+                    </details>
                   </fieldset>
-                </fieldset>
-              )}
+                );
+              })()}
             </div>
             {errosFormularioUsuario.length > 0 && (
               <div className="alert error">
