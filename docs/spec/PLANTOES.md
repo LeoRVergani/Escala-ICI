@@ -2592,3 +2592,111 @@ describes `trocasPlantao (FASE-TROCAS-PLANTAO-1)` e
 - Não estende push (FCM) para troca de Plantão — só notificação in-app.
 - Não altera trocas de Jornada 6x1 (`trocasEscala`/`notificacoesTroca`
   seguem intocadas nas Rules e no repositório).
+
+## 35. FASE-IMPORTADOR-PLANTAO-CODB-XLS-VISUAL-REFERENCIA-1 — parser de Plantão com múltiplas fontes + referência visual da consulta NOC
+
+Análise da planilha real `Relatorio-PlantaoCODB.xls` (nunca versionada) e
+de referências visuais de produto para a futura tela de "Plantões
+monitorados" consultada pelo NOC. Esta fase só entrega o **parser**; a
+tela nova (§ 35.3) fica para uma fase futura.
+
+### 35.1 A planilha real do Plantão CODB tem uma estrutura nova
+
+`localizarTabelaPlantao()`/`parsePlanilhaPlantao()` (§ 18) assumem UMA
+única coluna "Plantonista..." por tabela. A planilha real do Plantão CODB
+tem QUATRO colunas de fonte lado a lado — `Plantonista DBA`, `Plantonista
+Linux`, `Plantonista Telecom`, `Plantonista Windows` — compartilhando um
+único par `Data Inicio`/`Data Fim` por linha:
+
+```
+Plantonista DBA | Plantonista Linux | Plantonista Telecom | Plantonista Windows | Data Inicio | Data Fim
+Ana Costa        | Bruno Lima         | Carlos Nunes         | Diana Melo           | Sábado, 25/07/2026 - 00:00 | Domingo, 26/07/2026 - 19:00
+```
+
+Isso não é um caso especial do formato de fonte única — é uma tabela
+genuinamente diferente (N fontes por linha, não 1). Por isso esta fase
+implementa um domínio irmão, nunca uma modificação do existente:
+
+- `packages/contrato/src/detectorTabelaPlantaoMultiFonte.ts` —
+  `localizarTabelaPlantaoMultiFonte()`: mesma filosofia de
+  `localizarTabelaPlantao()` (estrutura, nunca nome de aba/arquivo), mas
+  aceita uma ou mais colunas contíguas iniciadas em "PLANTONISTA"
+  imediatamente seguidas de "Data Início"/"Data Fim". `fonte` de cada
+  coluna é o texto do cabeçalho após "Plantonista" (`"DBA"`, `"Linux"`...),
+  nunca inventado.
+- `packages/contrato/src/parserPlantaoMultiFonte.ts` —
+  `parsePlanilhaPlantaoMultiFonte()`: uma atribuição por combinação
+  (linha, fonte com nome preenchido). Uma coluna de fonte vazia numa linha
+  (ex.: Telecom sem plantonista numa janela) não é erro — só essa fonte não
+  gera atribuição naquela linha.
+- `AtribuicaoPlantaoBrutaMultiFonte`/`ResultadoParsePlantaoMultiFonte`
+  (`tiposPlantao.ts`) — tipos próprios, nunca reaproveitam
+  `AtribuicaoPlantaoBruta`/`ResultadoParsePlantao` do domínio de fonte
+  única, para as duas formas nunca se misturarem.
+- `interpretarMomento()`/`MomentoInterpretado` (`parserPlantao.ts`) foram
+  exportados (só isso mudou no arquivo existente) para o novo parser
+  reaproveitar a mesma interpretação de "Segunda-feira, 17/08/2026 -
+  19:00" e o mesmo aviso de dia da semana divergente (§ 18.3), sem duplicar
+  a regex.
+- A planilha real do Plantão CODB não tem seção de "Contabilidade dos
+  Plantões no mês" (§ 18.2) — `parsePlanilhaPlantaoMultiFonte()`
+  deliberadamente não implementa essa extração; se uma fonte futura de
+  múltiplas colunas vier a ter essa seção, será decisão de fase futura.
+
+### 35.2 Fixture sanitizada
+
+`packages/contrato/test/fixtures/Plantao-CODB-SANITIZADO.xls` (nomes
+fictícios) reproduz a estrutura de 4 colunas e os casos de borda
+observados na planilha real: uma janela atravessando mais de um dia (43h),
+uma linha com o dia da semana em texto divergindo da data numérica (aviso,
+data numérica preservada como fonte de verdade) e uma linha com uma fonte
+sem plantonista. Testes em
+`packages/contrato/test/parserPlantaoMultiFonte.test.ts`.
+
+### 35.3 Referência visual — "Plantões monitorados" pelo NOC (futuro, não implementado nesta fase)
+
+Cinco imagens de referência (fora do repositório, nunca versionadas)
+orientam a direção de produto para a futura tela de consulta do NOC:
+
+1. Menu real do sistema de origem: **Plantões CODB** (DBA/Linux/Telecom/
+   Windows) administrados pela CODB, **Plantões COSI** administrados pela
+   COSI, **Escala NOC** administrada pelo próprio NOC.
+2. Dashboard (desktop) — "Plantões": filtro por fonte, calendário mensal
+   com uma sigla de 2 letras por dia (DB/LN/TC/WD/NC), detalhe lateral do
+   dia selecionado com contato do plantonista.
+3. Dashboard (desktop) — "Plantões visíveis para consulta": tela de
+   ADMINISTRAÇÃO de quais fontes o NOC pode consultar (checkboxes por
+   fonte agrupadas por administradora — CODB/COSI/Escala NOC), com aviso
+   explícito "Consulta não concede administração".
+4. App (mobile) — "Plantões de hoje": chips horizontais de filtro por
+   fonte, card do próximo plantão, mesmo calendário mensal compacto,
+   detalhe do dia.
+5. App (mobile) — bottom sheet "Selecionar plantões para consultar",
+   equivalente mobile da tela 3, mesma regra (consulta ≠ administração).
+
+Direção de produto confirmada por essas referências, para a fase que
+implementar a tela usar como guia:
+
+- NOC pode consultar múltiplas fontes de Plantão ao mesmo tempo; consultar
+  nunca implica administrar.
+- CODB administra DBA/Linux/Telecom/Windows; COSI administra Plantão COSI;
+  NOC administra a própria Escala NOC — mesmo modelo de administração por
+  Grupo já usado em `escoposOperacionais.ts` (§ 20.9), nunca um esquema de
+  permissão novo.
+- Em mobile, filtros de fonte são chips horizontais; seleção avançada de
+  fontes abre em bottom sheet, nunca em modal de tela cheia.
+
+### 35.4 O que esta fase explicitamente NÃO faz
+
+- Não persiste nada — sem escrita em Firestore, sem novo `GrupoPlantao`
+  para CODB.
+- Não implementa a tela "Plantões monitorados"/"Plantões visíveis para
+  consulta" (dashboard ou app) — § 35.3 é só a referência para a fase que
+  vier a implementá-la.
+- Não concilia nome→login para as atribuições multi-fonte (§ 19.2 segue
+  exclusiva do domínio de fonte única, por ora).
+- Não altera `parsePlanilhaPlantao()`/`localizarTabelaPlantao()`/
+  `detectarTipoPlanilha()` existentes — nenhum teste do domínio de fonte
+  única foi tocado.
+- Não versiona `Relatorio-PlantaoCODB.xls` nem as imagens de referência
+  visual.
