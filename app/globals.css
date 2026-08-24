@@ -4488,6 +4488,42 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
   .troca-comparacao > svg { justify-self: center; transform: rotate(90deg); }
 }
 
+/* --- FASE-TROCAS-PLANTAO-1 — espaçamento entre os blocos da tela Trocas
+ * (Jornada 6x1 / Plantão / Aprovações de Plantão): sem isto, os 3 `<article
+ * className="panel">` ficavam colados um no outro logo abaixo do cabeçalho. --- */
+.troca-bloco-jornada,
+.troca-bloco-plantao,
+.troca-bloco-aprovacoes {
+  margin-top: var(--space-4);
+}
+
+/* --- Detalhe do dia de Plantão (clique no calendário): mesma base
+ * `.modal-backdrop`/`.edit-modal` de sempre, com uma variante de folha
+ * inferior (bottom sheet) no mobile — nunca um segundo sistema de modal. --- */
+.plantao-dia-modal { width: min(520px, 100%); }
+.plantao-dia-lista { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-3); }
+.plantao-dia-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.plantao-dia-item-header { display: flex; align-items: center; gap: 10px; }
+.plantao-dia-item-header > div { display: flex; flex-direction: column; gap: 2px; }
+
+@media (max-width: 720px) {
+  .modal-backdrop-sheet { place-items: end center; padding: 0; }
+  .modal-backdrop-sheet .plantao-dia-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: 82vh;
+    border-radius: var(--radius-modal) var(--radius-modal) 0 0;
+    border-bottom: none;
+  }
+}
+
 /* ================================================================
  * Correção UX/UI — Administração com Unidades Organizacionais.
  *
