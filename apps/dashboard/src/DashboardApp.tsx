@@ -156,6 +156,7 @@ import {
 import {
   atualizarEquipeConsultaPlantao,
   desativarParticipantePlantao,
+  excluirGrupoPlantao,
   salvarAtribuicoesPlantaoRascunho,
   salvarCompetenciaPlantaoRascunho,
   salvarGrupoPlantao,
@@ -3357,6 +3358,9 @@ export function DashboardApp() {
   const [carregandoEquipesPlantao, setCarregandoEquipesPlantao] = useState(true);
   const [erroEquipesPlantao, setErroEquipesPlantao] = useState('');
   const [modalGrupoPlantao, setModalGrupoPlantao] = useState<{ modo: 'criar' | 'editar'; inicial: GrupoPlantao } | null>(null);
+  const [grupoPlantaoParaExcluir, setGrupoPlantaoParaExcluir] = useState<GrupoPlantao | null>(null);
+  const [excluindoGrupoPlantao, setExcluindoGrupoPlantao] = useState(false);
+  const [erroExclusaoGrupoPlantao, setErroExclusaoGrupoPlantao] = useState('');
   const [buscaParticipanteNovo, setBuscaParticipanteNovo] = useState<Record<string, string>>({});
   const [modalContatosParticipante, setModalContatosParticipante] = useState<
     { grupoId: string; nomeExibicao: string; participante: ParticipantePlantao } | null
@@ -6843,6 +6847,31 @@ export function DashboardApp() {
   }
 
   /**
+   * HOTFIX-ESCALA-ALERTA-TROCAS-1 — corrigir um Grupo criado por engano
+   * (ex.: reimportação que duplicou em vez de atualizar). `excluirGrupoPlantao()`
+   * já recusa sozinha (com mensagem clara) quando existe competência
+   * publicada — aqui só propagamos essa mensagem, nunca escondemos.
+   */
+  async function confirmarExclusaoGrupoPlantao() {
+    if (grupoPlantaoParaExcluir === null) {
+      return;
+    }
+    setExcluindoGrupoPlantao(true);
+    setErroExclusaoGrupoPlantao('');
+    try {
+      if (!modoDemo) {
+        await excluirGrupoPlantao(grupoPlantaoParaExcluir.grupoId);
+      }
+      setGruposPlantaoAdmin((atuais) => atuais.filter((item) => item.grupoId !== grupoPlantaoParaExcluir.grupoId));
+      setGrupoPlantaoParaExcluir(null);
+    } catch (falha) {
+      setErroExclusaoGrupoPlantao(mensagemErroFirebase(falha, 'Não foi possível excluir o grupo de Plantão.', ambienteFirebaseAtual));
+    } finally {
+      setExcluindoGrupoPlantao(false);
+    }
+  }
+
+  /**
    * Fase ESCOPO-CONSULTA-PLANTAO-1 — "Plantões monitorados pela equipe":
    * autovínculo de CONSULTA, nunca administração. Só altera
    * `equipesConsulta` (via `atualizarEquipeConsultaPlantao()`, que nunca
@@ -9705,6 +9734,17 @@ export function DashboardApp() {
                         <Pencil size={15} />
                       </button>
                     )}
+                    {gerencio && (
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title="Excluir Plantão (corrige um grupo criado por engano)"
+                        aria-label={`Excluir grupo ${grupo.nome}`}
+                        onClick={() => { setErroExclusaoGrupoPlantao(''); setGrupoPlantaoParaExcluir(grupo); }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="import-summary plantao-resumo-grid">
@@ -10868,6 +10908,38 @@ export function DashboardApp() {
               <button className="secondary-button" type="button" onClick={() => setRemoverMembroPendente(null)}>Cancelar</button>
               <button className="primary-button danger-button" type="button" onClick={() => void confirmarRemocaoMembroGrade()}>
                 <UserMinus size={16} /> Remover da grade
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {grupoPlantaoParaExcluir && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => (excluindoGrupoPlantao ? null : setGrupoPlantaoParaExcluir(null))}>
+          <section
+            className="edit-modal rollback-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="excluir-grupo-plantao-title"
+            onMouseDown={(evento) => evento.stopPropagation()}
+          >
+            <div className="panel-title">
+              <div>
+                <p className="eyebrow">Ação irreversível</p>
+                <h2 id="excluir-grupo-plantao-title">Excluir {grupoPlantaoParaExcluir.nome}?</h2>
+                <p>
+                  Remove o grupo e seus participantes. Use para corrigir um grupo criado
+                  por engano (ex.: duplicado numa reimportação). Se este Plantão já tiver
+                  competência publicada, a exclusão será recusada — desative-o em vez disso.
+                </p>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setGrupoPlantaoParaExcluir(null)} aria-label="Fechar" disabled={excluindoGrupoPlantao}><X size={18} /></button>
+            </div>
+            {erroExclusaoGrupoPlantao && <div className="alert error" role="alert">{erroExclusaoGrupoPlantao}</div>}
+            <div className="rollback-actions">
+              <button className="secondary-button" type="button" onClick={() => setGrupoPlantaoParaExcluir(null)} disabled={excluindoGrupoPlantao}>Cancelar</button>
+              <button className="primary-button danger-button" type="button" disabled={excluindoGrupoPlantao} onClick={() => void confirmarExclusaoGrupoPlantao()}>
+                <Trash2 size={16} /> {excluindoGrupoPlantao ? 'Excluindo…' : 'Excluir Plantão'}
               </button>
             </div>
           </section>

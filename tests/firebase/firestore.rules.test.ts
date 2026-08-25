@@ -3949,17 +3949,18 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       ));
     });
 
-    it('desativar participante é sempre update (ativo:false) — delete é negado para grupo e participante, mesmo para o gestor autorizado e para o admin', async () => {
+    it('desativar participante continua possível via update (ativo:false); HOTFIX-ESCALA-ALERTA-TROCAS-1 — delete físico do Grupo/participante agora é permitido para quem administra (excluir um Grupo criado por erro de importação), mas nunca para quem não administra', async () => {
       const gestorDb = autenticarComo(usuarios.gestor);
       await assertSucceeds(updateDoc(
         doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
         { ativo: false },
       ));
-      await assertFails(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login)));
-      await assertFails(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+      const externoDb = autenticarComo(usuarios.externo);
+      await assertFails(deleteDoc(doc(externoDb, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login)));
+      await assertFails(deleteDoc(doc(externoDb, 'gruposPlantao', 'PLANTAO_TESTE')));
 
-      const adminDb = autenticarComo(usuarios.admin);
-      await assertFails(deleteDoc(doc(adminDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+      await assertSucceeds(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login)));
+      await assertSucceeds(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE')));
     });
 
     it('editar equipesConsulta pelo ModalGrupoPlantao passa a autorizar uma equipe nova imediatamente, e a remover o acesso de uma equipe tirada da lista', async () => {
@@ -3996,6 +3997,48 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       const documento = await assertSucceeds(getDoc(doc(foraDeEscopoDb, 'gruposPlantao', 'PLANTAO_TESTE')));
       expect(documento.data()?.equipesConsulta).toEqual(['EQ_COSI_SOC', 'EQ_GEDSI_ADM']);
       await assertFails(updateDoc(doc(foraDeEscopoDb, 'gruposPlantao', 'PLANTAO_TESTE'), { nome: 'Hackeado' }));
+    });
+
+    it('HOTFIX-ESCALA-ALERTA-TROCAS-1 — colaborador de OUTRA equipe da MESMA unidade lê os participantes mesmo com uma Matriz existente (e incompleta) para este Grupo — reproduz o caso real do Jean Carlo/Plantão COSI duplicado', async () => {
+      const colegaDeOutraEquipeNaMesmaUnidade = {
+        login: 'colega.mesma.unidade',
+        nome: 'Colega da Mesma Unidade',
+        email: 'colega.mesma.unidade@teste.local',
+        equipeId: 'EQ_COSI_OUTRA',
+        nivelHierarquico: 6,
+      };
+      const colegaDeUnidadeDiferente = {
+        login: 'colega.outra.unidade',
+        nome: 'Colega de Outra Unidade',
+        email: 'colega.outra.unidade@teste.local',
+        equipeId: 'EQ_UNIDADE_DIFERENTE',
+        nivelHierarquico: 6,
+      };
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        const db = contexto.firestore();
+        await Promise.all([
+          setDoc(doc(db, 'equipes', 'EQ_COSI_SOC'), { id: 'EQ_COSI_SOC', nome: 'SOC', unidadeId: 'COSI', ativo: true }),
+          setDoc(doc(db, 'equipes', 'EQ_COSI_OUTRA'), { id: 'EQ_COSI_OUTRA', nome: 'Outra equipe COSI', unidadeId: 'COSI', ativo: true }),
+          setDoc(doc(db, 'equipes', 'EQ_UNIDADE_DIFERENTE'), { id: 'EQ_UNIDADE_DIFERENTE', nome: 'Equipe de outra unidade', unidadeId: 'OUTRA_UNIDADE', ativo: true }),
+          setDoc(doc(db, 'usuarios', colegaDeOutraEquipeNaMesmaUnidade.login), colegaDeOutraEquipeNaMesmaUnidade),
+          setDoc(doc(db, 'usuarios', colegaDeUnidadeDiferente.login), colegaDeUnidadeDiferente),
+          // Matriz existente para PLANTAO_TESTE, mas cujo equipesConsulta
+          // (o padrão de escopoOperacional()) só lista EQ_COSI_SOC — nunca
+          // EQ_COSI_OUTRA. Reproduz o cenário real: um Grupo duplicado por
+          // erro de importação cuja Matriz não foi configurada direito.
+          // Sem o novo caminho de unidade, essa Matriz sozinha já bastaria
+          // para negar (ela é fonte de verdade e ignora equipesConsulta do
+          // Grupo — ver `podeLerEscalaPlantao()`).
+          setDoc(doc(db, 'escoposOperacionais', 'PLANTAO_PLANTAO_TESTE'), escopoOperacional()),
+        ]);
+      });
+      const mesmaUnidadeDb = autenticarComo(colegaDeOutraEquipeNaMesmaUnidade);
+      await assertSucceeds(getDocs(collection(mesmaUnidadeDb, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes')));
+      // nunca abre para uma unidade diferente
+      const outraUnidadeDb = autenticarComo(colegaDeUnidadeDiferente);
+      await assertFails(getDocs(collection(outraUnidadeDb, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes')));
+      // continua sem dar poder de administração
+      await assertFails(updateDoc(doc(mesmaUnidadeDb, 'gruposPlantao', 'PLANTAO_TESTE'), { nome: 'Hackeado pelo colega da mesma unidade' }));
     });
 
     it('marcar o grupo como inativo (ativo:false) não tira o poder de administração do gestor responsável — ele consegue reativar depois', async () => {
@@ -4212,11 +4255,11 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { nome: 'Hackeado' }));
     });
 
-    it('ADMIN_SISTEMA cria e edita o Grupo Plantão COSI livremente; delete físico continua negado', async () => {
+    it('ADMIN_SISTEMA cria e edita o Grupo Plantão COSI livremente; HOTFIX-ESCALA-ALERTA-TROCAS-1 — delete físico agora é permitido (corrigir Grupo duplicado por erro de importação)', async () => {
       const db = autenticarComo(usuarios.admin);
       await assertSucceeds(setDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoCosi({ criadoPorLogin: usuarios.admin.login })));
       await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { nome: 'Plantão COSI (admin)' }));
-      await assertFails(deleteDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI')));
+      await assertSucceeds(deleteDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI')));
     });
   });
 
@@ -4388,9 +4431,9 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       }));
     });
 
-    it('delete físico continua negado, mesmo para quem administra ou para quem só autovincula consulta', async () => {
+    it('HOTFIX-ESCALA-ALERTA-TROCAS-1 — delete físico é permitido para quem administra (PLANTAO_TESTE), mas continua negado para quem só autovincula consulta sem administrar (PLANTAO_COSI)', async () => {
       const gestorDb = autenticarComo(usuarios.gestor);
-      await assertFails(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+      await assertSucceeds(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE')));
       const wanessaDb = autenticarComo(wanessaSupervisoraNoc);
       await assertFails(deleteDoc(doc(wanessaDb, 'gruposPlantao', 'PLANTAO_COSI')));
     });

@@ -205,6 +205,46 @@ service cloud.firestore {
      * fallback em tempo de leitura porque Plantão é domínio novo, sem
      * documento legado a preservar.
      */
+    /**
+     * Unidade "efetiva" de um Grupo — explícita (`unidadeResponsavelId`)
+     * quando presente, senão a da própria equipe responsável
+     * (`equipes/{equipeResponsavelId}.unidadeId`). `exists()` sempre antes
+     * de `get()` sobre `equipes/{equipeId}` (mesma regra do resto do
+     * arquivo — documento legado/inexistente nunca vira erro de avaliação).
+     */
+    function unidadeEfetivaDoGrupo(grupoDoc) {
+      return grupoDoc.get('unidadeResponsavelId', null) != null
+        ? grupoDoc.unidadeResponsavelId
+        : (
+          exists(/databases/$(database)/documents/equipes/$(grupoDoc.equipeResponsavelId))
+            ? equipePorId(grupoDoc.equipeResponsavelId).get('unidadeId', null)
+            : null
+        );
+    }
+
+    /**
+     * HOTFIX-ESCALA-ALERTA-TROCAS-1 — decisão de produto: qualquer membro
+     * de uma equipe operacional (plantonista ou não) enxerga os DETALHES
+     * (participantes/contatos/atribuições) de qualquer Grupo de Plantão da
+     * MESMA unidade da própria equipe — mesmo sem `equipesConsulta`
+     * explícito e sem ser participante DAQUELE Grupo específico. A unidade
+     * de quem pergunta vem sempre da PRÓPRIA equipe (`equipes/{equipeId}.
+     * unidadeId`), nunca de `usuarios.unidadeId`/`unidadesPermitidas`
+     * (campo específico de GESTOR_UNIDADE, ausente num colaborador comum).
+     * Nunca abre entre unidades diferentes; nunca concede administração —
+     * é um caminho (OR) independente em `podeLerEscalaPlantao()`, NUNCA
+     * dentro do ramo `!existeMatrizOperacional(...) && podeConsultarGrupoPlantao(...)`
+     * — uma Matriz existente para este Grupo (mesmo incompleta, ex.: um
+     * Grupo duplicado por erro de importação cuja Matriz não lista a
+     * equipe certa) não pode silenciar esta concessão de unidade.
+     */
+    function souDaMesmaUnidadeDoGrupo(grupoDoc) {
+      return autenticado()
+        && exists(/databases/$(database)/documents/equipes/$(minhaEquipe()))
+        && unidadeEfetivaDoGrupo(grupoDoc) != null
+        && unidadeEfetivaDoGrupo(grupoDoc) == equipePorId(minhaEquipe()).get('unidadeId', null);
+    }
+
     function podeConsultarGrupoPlantao(grupoDoc) {
       return autenticado()
         && (souAdminSistema() || minhaEquipe() in grupoDoc.equipesConsulta);
@@ -667,7 +707,12 @@ service cloud.firestore {
         // A ACL histórica só é fallback enquanto o alvo não foi migrado.
         // Uma matriz existente, mesmo inativa, é a fonte de verdade e não
         // pode ser contornada por `gruposPlantao.equipesConsulta`.
-        || (!existeMatrizOperacional('PLANTAO', grupoId) && podeConsultarGrupoPlantao(grupoPlantaoPorId(grupoId)));
+        || (!existeMatrizOperacional('PLANTAO', grupoId) && podeConsultarGrupoPlantao(grupoPlantaoPorId(grupoId)))
+        // HOTFIX-ESCALA-ALERTA-TROCAS-1 — visibilidade por UNIDADE nunca é
+        // uma ACL de consulta comum: é incondicional (sempre um OR
+        // independente), justamente para não poder ser silenciada por uma
+        // Matriz existente e incompleta para este Grupo específico.
+        || souDaMesmaUnidadeDoGrupo(grupoPlantaoPorId(grupoId));
     }
 
     /**
@@ -1632,7 +1677,20 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if false;
+      /**
+       * HOTFIX-ESCALA-ALERTA-TROCAS-1 — antes era `if false` (nenhuma
+       * exclusão física de Grupo, nunca). Um erro de importação pode criar
+       * um Grupo duplicado/errado (mesmo `equipeResponsavelId`, nome
+       * repetido) sem nenhuma forma de corrigir além de deixá-lo ativo para
+       * sempre. Quem administra o Grupo agora pode excluí-lo — mas
+       * `competenciasPlantao` (PUBLICADA) continua com `allow delete: if
+       * false` MAIS ABAIXO, inalterado: um Grupo com histórico publicado
+       * de verdade não é removível por este caminho (o cliente,
+       * `excluirGrupoPlantao()`, recusa a operação antes de chegar aqui
+       * quando detecta competência publicada — nunca confie só nisso aqui
+       * porque o objetivo já está garantido pela Rule da competência).
+       */
+      allow delete: if podeGerenciarGrupoPlantao(resource.data);
     }
 
     /**
@@ -1695,7 +1753,10 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if false;
+      // HOTFIX-ESCALA-ALERTA-TROCAS-1 — mesmo raciocínio do `allow delete`
+      // do Grupo (acima): precisa poder esvaziar participantes de um
+      // Grupo errado antes de excluí-lo. Mesma checagem de `create`/`update`.
+      allow delete: if autenticado() && podeAdministrarEscalaPlantao(grupoId);
     }
 
     /**

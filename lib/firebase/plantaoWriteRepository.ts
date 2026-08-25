@@ -40,6 +40,53 @@ export async function salvarGrupoPlantao(grupo: GrupoPlantao): Promise<void> {
 }
 
 /**
+ * HOTFIX-ESCALA-ALERTA-TROCAS-1 — corrige um Grupo criado por erro (ex.:
+ * reimportação que criou um duplicado em vez de atualizar o existente).
+ * Recusa ANTES de qualquer escrita se houver competência PUBLICADA para
+ * este Grupo — `competenciasPlantao` nunca é fisicamente excluível
+ * (`firestore.rules`, princípio de histórico imutável, inalterado por
+ * esta fase) e não há como corrigir isso removendo o Grupo por baixo.
+ * Rascunho de competência (nunca publicado) e participantes SÃO
+ * removidos — só há dado descartável ali quando o Grupo é mesmo um
+ * engano recente.
+ */
+export async function excluirGrupoPlantao(grupoId: string): Promise<void> {
+  exigirEscritaAdministrativaHabilitada();
+  const { db } = exigirFirebase();
+
+  const competenciasPublicadas = await getDocs(query(collection(db, 'competenciasPlantao'), where('grupoId', '==', grupoId)));
+  if (!competenciasPublicadas.empty) {
+    throw new Error('Este Plantão já tem competência publicada e não pode ser excluído. Desative-o em vez de excluir.');
+  }
+
+  const rascunhos = await getDocs(query(collection(db, 'rascunhosCompetenciasPlantao'), where('grupoId', '==', grupoId)));
+  for (const rascunho of rascunhos.docs) {
+    const atribuicoes = await getDocs(collection(db, 'rascunhosCompetenciasPlantao', rascunho.id, 'atribuicoes'));
+    for (const lote of fatiarEmLotes(atribuicoes.docs, 499)) {
+      const batch = writeBatch(db);
+      for (const snapshot of lote) batch.delete(snapshot.ref);
+      await batch.commit();
+    }
+  }
+  for (const lote of fatiarEmLotes(rascunhos.docs, 499)) {
+    const batch = writeBatch(db);
+    for (const snapshot of lote) batch.delete(snapshot.ref);
+    await batch.commit();
+  }
+
+  const participantes = await getDocs(collection(db, 'gruposPlantao', grupoId, 'participantes'));
+  for (const lote of fatiarEmLotes(participantes.docs, 499)) {
+    const batch = writeBatch(db);
+    for (const snapshot of lote) batch.delete(snapshot.ref);
+    await batch.commit();
+  }
+
+  const batchFinal = writeBatch(db);
+  batchFinal.delete(doc(db, 'gruposPlantao', grupoId));
+  await batchFinal.commit();
+}
+
+/**
  * Fase ESCOPO-CONSULTA-PLANTAO-1
  * (`docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`, seção "Plantões
  * monitorados por equipe") — autovínculo de CONSULTA: adiciona/remove
