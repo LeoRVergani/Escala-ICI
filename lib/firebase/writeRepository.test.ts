@@ -1,4 +1,4 @@
-import type { TurnosMes } from '@escala-ici/contrato';
+import type { ErroImportacao, ResultadoParse, TurnosMes } from '@escala-ici/contrato';
 import { idDocumento } from '@escala-ici/contrato';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -66,7 +66,7 @@ vi.mock('firebase/firestore', () => ({
   }),
 }));
 
-const { publicarEscalas, salvarUsuario } = await import('./writeRepository');
+const { publicarEscalas, salvarRascunho, salvarUsuario } = await import('./writeRepository');
 
 const EQUIPE = 'EQ_COSI_SOC';
 const COMPETENCIA = '2026-08';
@@ -131,6 +131,71 @@ describe('publicarEscalas', () => {
     expect(turnosMesCriado?.id).toBe(idPorLogin);
     expect(turnosMesCriado?.id).not.toBe(idPorUidAntigo);
     expect(turnosMesCriado?.dados?.login).toBe('lvergani');
+  });
+});
+
+const GESTORA: Usuario = {
+  login: 'gestora',
+  uid: 'gestora-uid',
+  nome: 'Gestora',
+  email: 'gestora@empresa.com',
+  cargo: 'SUPERVISOR_EQUIPE',
+  equipeId: EQUIPE,
+  gestorUid: null,
+  nivelHierarquico: 3,
+  turnoPadrao: 'M',
+  ativo: true,
+};
+
+function erro(severidade: ErroImportacao['severidade']): ErroImportacao {
+  return {
+    linha: 2,
+    coluna: 'D',
+    login: 'colab-1',
+    valorEncontrado: '7',
+    motivo: severidade === 'ALERTA' ? 'Sequência de trabalho fora do padrão 1-6.' : 'Turno não reconhecido.',
+    severidade,
+  };
+}
+
+function resultadoParse(erros: ErroImportacao[]): ResultadoParse {
+  return {
+    ok: erros.length === 0,
+    equipeNome: 'COSI SOC',
+    periodoInicio: '2026-07-26',
+    periodoFim: '2026-08-25',
+    totalDias: 31,
+    documentos: [documento('colab-1')],
+    erros,
+    avisos: [],
+  };
+}
+
+/**
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — regressão do hotfix:
+ * `salvarRascunho()` bloqueava por `!resultado.ok` (== `erros.length > 0`),
+ * o que impedia salvar um rascunho com só ALERTA (nunca deveria travar,
+ * só um erro BLOQUEANTE de verdade deveria). Ver `temErroBloqueante()` em
+ * `packages/contrato/src/tipos.ts`.
+ */
+describe('salvarRascunho', () => {
+  it('persiste normalmente quando só existe ALERTA (nenhum BLOQUEANTE)', async () => {
+    const resultado = resultadoParse([erro('ALERTA')]);
+
+    await expect(salvarRascunho(resultado, GESTORA, 'Escala.xls')).resolves.toEqual(expect.any(String));
+
+    const gravado = estado.operacoes.find((operacao) => operacao.colecao === 'rascunhosTurnosMes');
+    expect(gravado).toBeDefined();
+  });
+
+  it('continua recusando persistir quando existe erro BLOQUEANTE', async () => {
+    const resultado = resultadoParse([erro('BLOQUEANTE')]);
+
+    await expect(salvarRascunho(resultado, GESTORA, 'Escala.xls'))
+      .rejects.toThrow('Não é permitido persistir uma importação com erros bloqueantes.');
+
+    const gravado = estado.operacoes.find((operacao) => operacao.colecao === 'rascunhosTurnosMes');
+    expect(gravado).toBeUndefined();
   });
 });
 

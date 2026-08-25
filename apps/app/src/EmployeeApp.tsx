@@ -2422,20 +2422,6 @@ export function EmployeeApp() {
 
   const grupoIdPlantaoApp = grupoPlantaoApp?.grupoId ?? null;
 
-  useEffect(() => {
-    if (!listenersLiberados || loginUsuario === null || grupoIdPlantaoApp === null || competenciaPlantaoApp === null) {
-      return undefined;
-    }
-    const cancelarTrocasPlantao = observarTrocasPlantaoDoUsuario(
-      grupoIdPlantaoApp,
-      competenciaPlantaoApp,
-      loginUsuario,
-      setTrocasPlantaoApp,
-      (falha) => setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de plantão.', ambienteFirebaseAtual)),
-    );
-    return cancelarTrocasPlantao;
-  }, [competenciaPlantaoApp, grupoIdPlantaoApp, listenersLiberados, loginUsuario]);
-
   /**
    * FASE-TROCAS-PLANTAO-1 — fila de "Aprovações de Plantão" (todas as trocas
    * do grupo, não só as minhas) só é assinada para quem pode administrar o
@@ -2455,6 +2441,42 @@ export function EmployeeApp() {
       'PLANTAO',
       grupoPlantaoApp.grupoId,
     );
+
+  /**
+   * HOTFIX-TROCAS-PLANTAO-ESCOPO-CONSULTA-1 — `grupoPlantaoApp` pode ser um
+   * Grupo que o usuário só CONSULTA (`equipesConsulta`, ex.: NOC vendo
+   * COSI+DBA+Linux — `escolherGrupoPlantaoPadrao()` em `plantaoApp.ts` cai
+   * de volta no primeiro Grupo permitido quando nenhum tem o usuário como
+   * participante ativo). A Rule de `trocasPlantao` (`firestore.rules`) só
+   * libera `list`/`get` para quem é participante ATIVO do Grupo ou quem
+   * administra o Grupo — nunca para quem só consulta. Sem este gate, o
+   * listener abaixo disparava com um `grupoId` fora do alcance de Troca da
+   * pessoa e o Firestore recusava a consulta inteira com `permission-denied`
+   * (exposto cru na tela "Trocas" via `mensagemErroFirebase`).
+   */
+  const souParticipanteAtivoPlantaoApp = loginUsuario !== null
+    && participantesPlantaoApp.some((participante) => participante.login === loginUsuario && participante.ativo);
+  const podeAcompanharTrocasPlantaoDoGrupoApp = souParticipanteAtivoPlantaoApp || podeAprovarTrocaPlantaoApp;
+
+  useEffect(() => {
+    if (
+      !listenersLiberados
+      || loginUsuario === null
+      || grupoIdPlantaoApp === null
+      || competenciaPlantaoApp === null
+      || !podeAcompanharTrocasPlantaoDoGrupoApp
+    ) {
+      return undefined;
+    }
+    const cancelarTrocasPlantao = observarTrocasPlantaoDoUsuario(
+      grupoIdPlantaoApp,
+      competenciaPlantaoApp,
+      loginUsuario,
+      setTrocasPlantaoApp,
+      (falha) => setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de plantão.', ambienteFirebaseAtual)),
+    );
+    return cancelarTrocasPlantao;
+  }, [competenciaPlantaoApp, grupoIdPlantaoApp, listenersLiberados, loginUsuario, podeAcompanharTrocasPlantaoDoGrupoApp]);
 
   useEffect(() => {
     if (!listenersLiberados || grupoIdPlantaoApp === null || competenciaPlantaoApp === null || !podeAprovarTrocaPlantaoApp) {
