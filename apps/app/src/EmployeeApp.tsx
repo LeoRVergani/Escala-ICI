@@ -127,6 +127,7 @@ import {
   nomeExibicaoPlantonista,
   obterIniciaisParticipantePlantao,
   plataformaContatoPlantao,
+  podeAcompanharTrocasPlantaoDoGrupo,
   proximosPlantoesDoUsuario,
   resolverDestaquePlantaoHoje,
   resolverPlantaoAgora,
@@ -2454,9 +2455,8 @@ export function EmployeeApp() {
    * pessoa e o Firestore recusava a consulta inteira com `permission-denied`
    * (exposto cru na tela "Trocas" via `mensagemErroFirebase`).
    */
-  const souParticipanteAtivoPlantaoApp = loginUsuario !== null
-    && participantesPlantaoApp.some((participante) => participante.login === loginUsuario && participante.ativo);
-  const podeAcompanharTrocasPlantaoDoGrupoApp = souParticipanteAtivoPlantaoApp || podeAprovarTrocaPlantaoApp;
+  const podeAcompanharTrocasPlantaoDoGrupoApp = loginUsuario !== null
+    && podeAcompanharTrocasPlantaoDoGrupo(participantesPlantaoApp, loginUsuario, podeAprovarTrocaPlantaoApp);
 
   useEffect(() => {
     if (
@@ -2466,7 +2466,10 @@ export function EmployeeApp() {
       || competenciaPlantaoApp === null
       || !podeAcompanharTrocasPlantaoDoGrupoApp
     ) {
-      return undefined;
+      return () => {
+        setTrocasPlantaoApp([]);
+        setTrocaPlantaoAbertaId(null);
+      };
     }
     const cancelarTrocasPlantao = observarTrocasPlantaoDoUsuario(
       grupoIdPlantaoApp,
@@ -2475,7 +2478,11 @@ export function EmployeeApp() {
       setTrocasPlantaoApp,
       (falha) => setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de plantão.', ambienteFirebaseAtual)),
     );
-    return cancelarTrocasPlantao;
+    return () => {
+      cancelarTrocasPlantao();
+      setTrocasPlantaoApp([]);
+      setTrocaPlantaoAbertaId(null);
+    };
   }, [competenciaPlantaoApp, grupoIdPlantaoApp, listenersLiberados, loginUsuario, podeAcompanharTrocasPlantaoDoGrupoApp]);
 
   useEffect(() => {

@@ -14,6 +14,7 @@ import {
   nomeExibicaoPlantonista,
   obterIniciaisParticipantePlantao,
   plataformaContatoPlantao,
+  podeAcompanharTrocasPlantaoDoGrupo,
   proximosPlantoesDoUsuario,
   resolverDestaquePlantaoHoje,
   resolverPlantaoAgora,
@@ -403,6 +404,28 @@ describe('escolherGrupoPlantaoPadrao', () => {
 
   it('lista vazia -> null', () => {
     expect(escolherGrupoPlantaoPadrao([], {}, 'clis')).toBeNull();
+  });
+});
+
+describe('podeAcompanharTrocasPlantaoDoGrupo', () => {
+  it('usuário só CONSULTA o Grupo (não é participante ativo, nem aprova) — não acompanha', () => {
+    const participantes = [participante({ login: 'outro', ativo: true })];
+    expect(podeAcompanharTrocasPlantaoDoGrupo(participantes, 'clis', false)).toBe(false);
+  });
+
+  it('participação INATIVA também não conta como acompanhar', () => {
+    const participantes = [participante({ login: 'clis', ativo: false })];
+    expect(podeAcompanharTrocasPlantaoDoGrupo(participantes, 'clis', false)).toBe(false);
+  });
+
+  it('participante ativo do Grupo — acompanha', () => {
+    const participantes = [participante({ login: 'clis', ativo: true })];
+    expect(podeAcompanharTrocasPlantaoDoGrupo(participantes, 'clis', false)).toBe(true);
+  });
+
+  it('gestor autorizado a aprovar trocas — acompanha mesmo sem ser participante do Grupo', () => {
+    const participantes = [participante({ login: 'outro', ativo: true })];
+    expect(podeAcompanharTrocasPlantaoDoGrupo(participantes, 'clis', true)).toBe(true);
   });
 });
 

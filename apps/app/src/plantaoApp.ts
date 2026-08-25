@@ -293,6 +293,26 @@ export function escolherGrupoPlantaoPadrao(
 }
 
 /**
+ * HOTFIX-TROCAS-PLANTAO-ESCOPO-CONSULTA-1 — decide se o usuário deve
+ * acompanhar as trocas de plantão do Grupo selecionado. Espelha o que a
+ * Rule de `trocasPlantao` (`firestore.rules`) libera para `list`/`get`:
+ * participante ATIVO do Grupo, ou quem administra o Grupo (aprova trocas).
+ * Quem só CONSULTA o Grupo (ex.: NOC vendo COSI+DBA+Linux) não é
+ * participante ativo nem administra — não deve acompanhar, sob pena de
+ * `permission-denied`.
+ */
+export function podeAcompanharTrocasPlantaoDoGrupo(
+  participantes: readonly ParticipantePlantao[],
+  loginUsuario: string,
+  podeAprovarTrocaPlantao: boolean,
+): boolean {
+  const souParticipanteAtivo = participantes.some(
+    (participante) => participante.login === loginUsuario && participante.ativo,
+  );
+  return souParticipanteAtivo || podeAprovarTrocaPlantao;
+}
+
+/**
  * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — `ContatoPlantonista.rotulo`
  * é texto livre (ex.: "WhatsApp", "E-mail", "Slack", "Ramal") — nunca um
  * enum fechado no modelo. Esta função só decide qual ícone mostrar ao
