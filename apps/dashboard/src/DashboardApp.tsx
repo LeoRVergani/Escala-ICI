@@ -8544,7 +8544,7 @@ export function DashboardApp() {
       )}
     >
       {mensagem && (
-        <div className={`toast ${resultado?.ok === false ? 'error' : ''}`}>
+        <div className={`toast ${resultado !== null && temErroBloqueante(resultado.erros) ? 'error' : ''}`}>
           <span>{mensagem}</span>
           <button type="button" onClick={() => setMensagem('')} aria-label="Fechar">
             <X size={16} />
