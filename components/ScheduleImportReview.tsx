@@ -24,7 +24,7 @@ import {
   UsersRound,
   X,
 } from 'lucide-react';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 
 import {
   chaveIndicadorCelula,
@@ -152,6 +152,16 @@ export function ScheduleImportReview({
   const indiceDataSelecionada = Math.max(0, datas.indexOf(dataSelecionada));
   const pendenciasSecaoRef = useRef<HTMLElement>(null);
   const [chavePendenciaSelecionada, setChavePendenciaSelecionada] = useState<string | null>(null);
+  /**
+   * HOTFIX-ESCALA-ALERTA-TROCAS-1 — "Ajustar"/"Revisar" numa pendência
+   * precisa focar a linha/dia exatos AQUI, dentro desta mesma tela (Grade
+   * da equipe). O antigo `onAjustarErro` (prop) mirava uma tabela "Corrigir
+   * inconsistências" que só existe na tela de importação (`tela ===
+   * 'importar'`) — quando este componente está montado (`tela === 'grade'`),
+   * aquela tabela não existe no DOM, então o clique não fazia nada.
+   */
+  const [linhaErroDestacadaLogin, setLinhaErroDestacadaLogin] = useState<string | null>(null);
+  const linhaGradeRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
 
   const documentosPorTurno = useMemo(() => {
     const grupos = new Map<string, TurnosMes[]>();
@@ -245,6 +255,39 @@ export function ScheduleImportReview({
 
   function rolarParaPendencias() {
     pendenciasSecaoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function ajustarErro(indice: number) {
+    const erro = resultado.erros[indice];
+    if (erro?.data && datas.includes(erro.data)) {
+      setDataSelecionadaEstado(erro.data);
+    }
+    const documento = erro?.login ? documentos.find((item) => item.login === erro.login) : undefined;
+    setLinhaErroDestacadaLogin(documento ? documento.login : null);
+    if (documento) {
+      linhaGradeRefs.current[documento.usuarioUid]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      rolarParaPendencias();
+    }
+    onAjustarErro?.(indice);
+  }
+
+  /**
+   * Handler estável (não recriado dentro do `.map()` de linhas de alerta) —
+   * o React Compiler recusa uma função que lê `ref.current` quando ela é
+   * definida a cada iteração do `.map()`, mesmo só sendo chamada num
+   * clique real. Os dados da linha viajam por `data-*`, não por closure.
+   */
+  function aoClicarLinhaDeAlerta(evento: MouseEvent<HTMLElement>) {
+    const nomePlanilha = evento.currentTarget.dataset.nomePlanilha;
+    if (nomePlanilha) {
+      setChavePendenciaSelecionada(nomePlanilha);
+      return;
+    }
+    const indiceErro = evento.currentTarget.dataset.indiceErro;
+    if (indiceErro !== undefined) {
+      ajustarErro(Number(indiceErro));
+    }
   }
 
   function turnosImportadosDaLinha(linha: LinhaConciliacao): string[] {
@@ -387,7 +430,11 @@ export function ScheduleImportReview({
                   <tr className="soc-import-review-group-row"><th colSpan={datas.length + 1}><span className="shift-chip" data-code={codigoTurno}>{codigoTurno}</span>{descricaoTurno(grupo[0]!, catalogo)}</th></tr>
                   {grupo.map((documento) => {
                     const nome = nomes.get(documento.login) ?? documento.login;
-                    return <tr key={documento.usuarioUid}>
+                    return <tr
+                      key={documento.usuarioUid}
+                      ref={(elemento) => { linhaGradeRefs.current[documento.usuarioUid] = elemento; }}
+                      className={linhaErroDestacadaLogin === documento.login ? 'linha-destacada' : undefined}
+                    >
                       <th className="soc-import-review-name"><span>{nomeCurto(nome)}</span><strong>{documento.login}</strong></th>
                       {datas.map((data) => {
                         const dia = documento.dias[data];
@@ -537,7 +584,8 @@ export function ScheduleImportReview({
             const linhaRelacionada = alerta.nomePlanilha
               ? linhasConciliacao.find((linha) => linha.nomePlanilha === alerta.nomePlanilha) ?? null
               : null;
-            const podeAjustarErro = alerta.indiceErro !== null && onAjustarErro !== undefined;
+            const indiceErroDaLinha = alerta.indiceErro;
+            const podeAjustarErro = indiceErroDaLinha !== null;
             const acionavel = linhaRelacionada !== null || podeAjustarErro;
             const Wrapper = acionavel ? 'button' : 'div';
             const severidadeErro = alerta.indiceErro !== null ? resultado.erros[alerta.indiceErro]?.severidade : undefined;
@@ -547,9 +595,9 @@ export function ScheduleImportReview({
                 key={`${alerta.referencia}-${indice}`}
                 type={acionavel ? 'button' : undefined}
                 className={`soc-import-review-alert-row ${acionavel ? 'is-actionable' : ''}`}
-                onClick={linhaRelacionada
-                  ? () => setChavePendenciaSelecionada(linhaRelacionada.nomePlanilha)
-                  : podeAjustarErro ? () => onAjustarErro?.(alerta.indiceErro!) : undefined}
+                data-nome-planilha={linhaRelacionada ? linhaRelacionada.nomePlanilha : undefined}
+                data-indice-erro={indiceErroDaLinha !== null ? indiceErroDaLinha : undefined}
+                onClick={acionavel ? aoClicarLinhaDeAlerta : undefined}
               >
                 <span className={`soc-import-review-alert-icon ${alerta.tipo}`}><AlertTriangle size={14} /></span>
                 <div><strong>{alerta.titulo}</strong><small>{alerta.detalhe}</small></div>
