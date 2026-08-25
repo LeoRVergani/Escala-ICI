@@ -18,6 +18,10 @@ const estado = vi.hoisted(() => ({
   operacoes: [] as Array<{ tipo: 'set' | 'delete' | 'update'; colecao: string; id: string; dados?: Record<string, unknown>; lote: number }>,
   commits: [] as number[][],
   proximoLote: 0,
+  // Controla em qual índice global de commit (0-based, na ordem em que
+  // `writeBatch()` é chamado) o `.commit()` deve rejeitar — usado só para
+  // testar propagação de falha, nunca reproduz as Rules reais.
+  falharNoCommit: null as number | null,
 }));
 
 vi.mock('./shared', () => ({
@@ -67,6 +71,11 @@ vi.mock('firebase/firestore', () => ({
         estado.operacoes.push({ tipo: 'update', colecao: ref.__colecao, id: ref.__id, dados, lote });
       },
       commit: async () => {
+        if (estado.falharNoCommit === lote) {
+          const erro = new Error('permission-denied (mock)') as Error & { code?: string };
+          erro.code = 'permission-denied';
+          throw erro;
+        }
         estado.commits.push([lote]);
       },
     };
@@ -102,6 +111,7 @@ beforeEach(() => {
   estado.operacoes = [];
   estado.commits = [];
   estado.proximoLote = 0;
+  estado.falharNoCommit = null;
 });
 
 describe('publicarEscalas', () => {
@@ -180,6 +190,84 @@ describe('publicarEscalas', () => {
     // O estado/histórico da publicação só pode existir no primeiro commit.
     expect(publicacoesEscalaGravadas[0]?.lote).toBe(0);
     expect(historicoGravado[0]?.lote).toBe(0);
+  });
+
+  /**
+   * DIAGNOSTICO-PUBLICAR-ESCALAS-FASE-1 — regressão do diagnóstico de
+   * commits: múltiplos lotes do commit principal continuam sendo
+   * executados em sequência quando nenhum falha (o instrumento não altera
+   * o fluxo funcional já coberto pelo teste de divisão em lotes acima).
+   */
+  it('executa todos os lotes do commit principal quando nenhum falha', async () => {
+    const logins = Array.from({ length: 7 }, (_, indice) => `colab-${indice + 1}`);
+    const documentos = logins.map((login) => documento(login));
+
+    await publicarEscalas(documentos, 'gestora-uid');
+
+    expect(estado.commits).toHaveLength(3);
+  });
+
+  /**
+   * DIAGNOSTICO-PUBLICAR-ESCALAS-FASE-1 — uma falha em qualquer commit
+   * intermediário deve propagar o erro original (`code`/`message`
+   * preservados) e nunca ser convertido/engolido pelo instrumento de
+   * diagnóstico.
+   */
+  it('propaga o erro original quando um commit intermediário falha', async () => {
+    const logins = Array.from({ length: 7 }, (_, indice) => `colab-${indice + 1}`);
+    const documentos = logins.map((login) => documento(login));
+    estado.falharNoCommit = 1;
+
+    await expect(publicarEscalas(documentos, 'gestora-uid')).rejects.toMatchObject({
+      code: 'permission-denied',
+      message: 'permission-denied (mock)',
+    });
+  });
+
+  /**
+   * DIAGNOSTICO-PUBLICAR-ESCALAS-FASE-1 — quando o commit principal falha,
+   * as fases posteriores (exclusão de turnos obsoletos e limpeza de
+   * rascunhos) não devem ser executadas: o `for` que fatia e comita cada
+   * fase é sequencial, dentro do mesmo `try`, então uma falha já interrompe
+   * o restante da função.
+   */
+  it('não executa fases posteriores quando o commit principal falha', async () => {
+    const logins = Array.from({ length: 7 }, (_, indice) => `colab-${indice + 1}`);
+    const documentos = logins.map((login) => documento(login));
+    estado.rascunhos = logins.map((login) => ({
+      id: idDocumento(EQUIPE, login, COMPETENCIA),
+      data: { equipeId: EQUIPE, competencia: COMPETENCIA, usuarioUid: login },
+    }));
+    estado.falharNoCommit = 0;
+
+    await expect(publicarEscalas(documentos, 'gestora-uid')).rejects.toThrow();
+
+    expect(estado.commits).toHaveLength(0);
+    const deletesDeRascunho = estado.operacoes.filter((operacao) =>
+      operacao.colecao === 'rascunhosTurnosMes' && operacao.tipo === 'delete');
+    expect(deletesDeRascunho).toHaveLength(0);
+  });
+
+  /**
+   * DIAGNOSTICO-PUBLICAR-ESCALAS-FASE-1 — o console precisa preservar
+   * `code`/`message` do erro original do Firestore, mesmo que o catch
+   * externo converta a mensagem para a UI.
+   */
+  it('registra code e message originais no console ao falhar um commit', async () => {
+    const erroSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    estado.falharNoCommit = 0;
+
+    await expect(publicarEscalas([documento('colab-1')], 'gestora-uid')).rejects.toThrow();
+
+    const chamadaDeCommitFalhou = erroSpy.mock.calls.find(([mensagem]) =>
+      mensagem === '[publicarEscalas] commit-falhou');
+    expect(chamadaDeCommitFalhou?.[1]).toMatchObject({
+      fase: 'publicacao-lote-principal',
+      code: 'permission-denied',
+      message: 'permission-denied (mock)',
+    });
+
+    erroSpy.mockRestore();
   });
 
   it('continua apagando todos os rascunhos da competência ao publicar vários colaboradores', async () => {

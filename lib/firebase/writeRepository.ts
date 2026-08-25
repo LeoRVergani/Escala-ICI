@@ -16,6 +16,7 @@ import {
   updateDoc,
   where,
   writeBatch,
+  type WriteBatch,
 } from 'firebase/firestore';
 
 import type {
@@ -143,6 +144,53 @@ function motivoPublicacao(
     throw new Error('Informe o motivo da alteração antes de publicar.');
   }
   return motivo.trim();
+}
+
+/**
+ * DIAGNOSTICO-PUBLICAR-ESCALAS-FASE-1 — o hotfix que reduziu
+ * `COLABORADORES_POR_LOTE_PUBLICACAO` para 3 não resolveu o
+ * `permission-denied` observado em staging. Este helper isola o
+ * `batch.commit()` de cada fase de `publicarEscalas()` para descobrir qual
+ * delas está sendo recusada pelas Rules, sem esconder `erro.code`/
+ * `erro.message` (o catch externo de `publicarEscalas()` continua livre
+ * para converter a mensagem para a UI). Nunca loga login, nome, e-mail,
+ * conteúdo de turno, token ou credencial — só metadados de fase/lote.
+ */
+async function commitComDiagnostico(parametros: {
+  batch: WriteBatch;
+  fase: string;
+  lote: number;
+  quantidadeOperacoes: number;
+  equipeId: string;
+  competencia: string;
+}): Promise<void> {
+  const { batch, fase, lote, quantidadeOperacoes, equipeId, competencia } = parametros;
+  console.info('[publicarEscalas] commit-inicio', {
+    fase,
+    lote,
+    quantidadeOperacoes,
+    equipeId,
+    competencia,
+  });
+  try {
+    await batch.commit();
+  } catch (erro) {
+    console.error('[publicarEscalas] commit-falhou', {
+      fase,
+      lote,
+      quantidadeOperacoes,
+      equipeId,
+      competencia,
+      code: (erro as { code?: string } | null)?.code,
+      message: (erro as { message?: string } | null)?.message,
+    });
+    throw erro;
+  }
+  console.info('[publicarEscalas] commit-ok', {
+    fase,
+    lote,
+    quantidadeOperacoes,
+  });
 }
 
 export async function salvarRascunho(
@@ -273,6 +321,7 @@ export async function publicarEscalas(
   try {
     for (const [indice, lote] of fatiarEmLotes(documentos, COLABORADORES_POR_LOTE_PUBLICACAO).entries()) {
       const batch = writeBatch(db);
+      let quantidadeOperacoes = 0;
       for (const documento of lote) {
         const publicado: TurnosMes = {
           ...documento,
@@ -285,18 +334,22 @@ export async function publicarEscalas(
           doc(db, 'turnosMes', idDocumento(equipeId, documento.login, competencia)),
           removerUndefined(publicado),
         );
+        quantidadeOperacoes += 1;
         batch.set(
           doc(db, 'versoesEscala', idDocumentoVersao(chavePublicacao, revisao, documento.login)),
           removerUndefined({ ...publicado, chavePublicacao, revisao }),
         );
+        quantidadeOperacoes += 1;
         const alteracoesDoUsuario = alteracoesPorUsuario.get(documento.login);
         if (alteracoesDoUsuario !== undefined) {
           const evento = criarEventoEscala(publicacao, documento.login, alteracoesDoUsuario);
           batch.set(doc(db, 'eventosEscala', evento.id), removerUndefined(evento));
+          quantidadeOperacoes += 1;
         }
       }
       if (indice === 0) {
         batch.set(doc(db, 'historicoPublicacoes', publicacao.id), removerUndefined(publicacao));
+        quantidadeOperacoes += 1;
         batch.set(estadoRef, removerUndefined({
           id: chavePublicacao,
           equipeId,
@@ -306,22 +359,40 @@ export async function publicarEscalas(
           atualizadoPor: publicadoPor,
           atualizadoEm: publicadoEm,
         }));
+        quantidadeOperacoes += 1;
       }
-      await batch.commit();
+      await commitComDiagnostico({
+        batch,
+        fase: 'publicacao-lote-principal',
+        lote: indice,
+        quantidadeOperacoes,
+        equipeId,
+        competencia,
+      });
     }
 
-    for (const lote of fatiarEmLotes(documentosRemovidos, 150)) {
+    for (const [indice, lote] of fatiarEmLotes(documentosRemovidos, 150).entries()) {
       const batch = writeBatch(db);
+      let quantidadeOperacoes = 0;
       for (const snapshot of lote) {
         const login = String(snapshot.data().login ?? '');
         batch.delete(snapshot.ref);
+        quantidadeOperacoes += 1;
         const alteracoesDoUsuario = alteracoesPorUsuario.get(login);
         if (alteracoesDoUsuario !== undefined) {
           const evento = criarEventoEscala(publicacao, login, alteracoesDoUsuario);
           batch.set(doc(db, 'eventosEscala', evento.id), removerUndefined(evento));
+          quantidadeOperacoes += 1;
         }
       }
-      await batch.commit();
+      await commitComDiagnostico({
+        batch,
+        fase: 'exclusao-turnos-obsoletos',
+        lote: indice,
+        quantidadeOperacoes,
+        equipeId,
+        competencia,
+      });
     }
 
     // A publicação substitui o rascunho da competência inteira: limpa todos
@@ -329,17 +400,25 @@ export async function publicarEscalas(
     // falhava (permission-denied) sempre que algum colaborador publicado ou
     // removido não tinha rascunho persistido — `resource` inexistente faz a
     // regra de delete negar o batch inteiro.
-    for (const lote of fatiarEmLotes(rascunhosAtuais.docs, 450)) {
+    for (const [indice, lote] of fatiarEmLotes(rascunhosAtuais.docs, 450).entries()) {
       const batch = writeBatch(db);
       for (const snapshot of lote) {
         batch.delete(snapshot.ref);
       }
-      await batch.commit();
+      await commitComDiagnostico({
+        batch,
+        fase: 'limpeza-rascunhos',
+        lote: indice,
+        quantidadeOperacoes: lote.length,
+        equipeId,
+        competencia,
+      });
     }
   } catch (erro) {
     if (ambienteFirebaseAtual !== 'producao') {
       console.error('[publicarEscalas] falha ao publicar', {
         codigo: (erro as { code?: string } | null)?.code,
+        mensagem: (erro as { message?: string } | null)?.message,
         equipeId,
         competencia,
         totalDocumentos: documentos.length,
