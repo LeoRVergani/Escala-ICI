@@ -62,6 +62,39 @@ function validarConjuntoPublicacao(documentos: readonly TurnosMes[]): {
   };
 }
 
+/**
+ * HOTFIX-PUBLICAR-ESCALAS-RULES-BUDGET-1 — cada write de `turnosMes`/
+ * `versoesEscala`/`eventosEscala` avalia `podeAdministrarJornada()`, que por
+ * sua vez encadeia `matrizConcedeAdministracao()` (múltiplos `get()` sobre
+ * `escoposOperacionais/{id}`, cada um reavaliando toda a função, mesmo com o
+ * documento em cache) mais `eu()`/`minhasEquipesPermitidas()` (outro `get()`
+ * sobre `usuarios/{login}`). Isso custa dezenas de "expressões" por write —
+ * e o orçamento de avaliação de Rules é por COMMIT, não por documento.
+ *
+ * Com o limite antigo (100 colaboradores/lote) e até 3 writes por
+ * colaborador (`turnosMes` + `versoesEscala` + `eventosEscala`), o primeiro
+ * commit de uma publicação de equipe média já soma centenas de writes —
+ * cada um reavaliando a cadeia acima — e estoura "maximum of 1000
+ * expressions to evaluate" bem antes de qualquer verificação de posse falhar
+ * de verdade (por isso o erro chega como `permission-denied` mesmo com a
+ * matriz/hierarquia corretas). `salvarRascunho()` não sofre o mesmo estouro
+ * porque grava só 1 write por colaborador.
+ *
+ * 3 colaboradores/lote × até 3 writes cada = até 9 writes, + os 2 writes
+ * extras do primeiro lote (`historicoPublicacoes` + `publicacoesEscala`) =
+ * no máximo 11 writes por commit — bem abaixo do que já estourava com ~40
+ * colaboradores num único lote de 100. Não é ciência exata (o custo exato
+ * por write não é documentado), mas dá margem generosa sem fatiar demais a
+ * publicação em commits desnecessários.
+ *
+ * Isso NÃO piora a atomicidade da função: `publicarEscalas()` já não é uma
+ * única transação — documentos acima de 100 (agora 3) já viravam múltiplos
+ * commits, e as remoções/exclusão de rascunhos já rodam em lotes próprios
+ * depois do loop principal. Reduzir o tamanho do lote só reduz quantos
+ * colaboradores cada commit intermediário cobre.
+ */
+const COLABORADORES_POR_LOTE_PUBLICACAO = 3;
+
 function idRevisao(chavePublicacao: string, revisao: number): string {
   return `${chavePublicacao}_${String(revisao).padStart(6, '0')}`;
 }
@@ -238,7 +271,7 @@ export async function publicarEscalas(
   }
 
   try {
-    for (const [indice, lote] of fatiarEmLotes(documentos, 100).entries()) {
+    for (const [indice, lote] of fatiarEmLotes(documentos, COLABORADORES_POR_LOTE_PUBLICACAO).entries()) {
       const batch = writeBatch(db);
       for (const documento of lote) {
         const publicado: TurnosMes = {

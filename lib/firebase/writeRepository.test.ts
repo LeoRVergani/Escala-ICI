@@ -15,7 +15,9 @@ import type { Usuario } from '../modelos';
 const estado = vi.hoisted(() => ({
   rascunhos: [] as Array<{ id: string; data: Record<string, unknown> }>,
   turnosMesAtivos: [] as Array<{ id: string; data: Record<string, unknown> }>,
-  operacoes: [] as Array<{ tipo: 'set' | 'delete' | 'update'; colecao: string; id: string; dados?: Record<string, unknown> }>,
+  operacoes: [] as Array<{ tipo: 'set' | 'delete' | 'update'; colecao: string; id: string; dados?: Record<string, unknown>; lote: number }>,
+  commits: [] as number[][],
+  proximoLote: 0,
 }));
 
 vi.mock('./shared', () => ({
@@ -33,7 +35,7 @@ vi.mock('firebase/firestore', () => ({
   doc: (_db: unknown, colecao: string, id: string) => ({ __colecao: colecao, __id: id }),
   serverTimestamp: () => 'SERVER_TIMESTAMP',
   setDoc: async (ref: { __colecao: string; __id: string }, dados: Record<string, unknown>) => {
-    estado.operacoes.push({ tipo: 'set', colecao: ref.__colecao, id: ref.__id, dados });
+    estado.operacoes.push({ tipo: 'set', colecao: ref.__colecao, id: ref.__id, dados, lote: -1 });
   },
   updateDoc: async () => {},
   deleteDoc: async () => {},
@@ -52,18 +54,23 @@ vi.mock('firebase/firestore', () => ({
       })),
     };
   },
-  writeBatch: () => ({
-    set: (ref: { __colecao: string; __id: string }, dados: Record<string, unknown>) => {
-      estado.operacoes.push({ tipo: 'set', colecao: ref.__colecao, id: ref.__id, dados });
-    },
-    delete: (ref: { __colecao: string; __id: string }) => {
-      estado.operacoes.push({ tipo: 'delete', colecao: ref.__colecao, id: ref.__id });
-    },
-    update: (ref: { __colecao: string; __id: string }, dados: Record<string, unknown>) => {
-      estado.operacoes.push({ tipo: 'update', colecao: ref.__colecao, id: ref.__id, dados });
-    },
-    commit: async () => {},
-  }),
+  writeBatch: () => {
+    const lote = estado.proximoLote++;
+    return {
+      set: (ref: { __colecao: string; __id: string }, dados: Record<string, unknown>) => {
+        estado.operacoes.push({ tipo: 'set', colecao: ref.__colecao, id: ref.__id, dados, lote });
+      },
+      delete: (ref: { __colecao: string; __id: string }) => {
+        estado.operacoes.push({ tipo: 'delete', colecao: ref.__colecao, id: ref.__id, lote });
+      },
+      update: (ref: { __colecao: string; __id: string }, dados: Record<string, unknown>) => {
+        estado.operacoes.push({ tipo: 'update', colecao: ref.__colecao, id: ref.__id, dados, lote });
+      },
+      commit: async () => {
+        estado.commits.push([lote]);
+      },
+    };
+  },
 }));
 
 const { publicarEscalas, salvarRascunho, salvarUsuario } = await import('./writeRepository');
@@ -93,6 +100,8 @@ beforeEach(() => {
   estado.rascunhos = [];
   estado.turnosMesAtivos = [];
   estado.operacoes = [];
+  estado.commits = [];
+  estado.proximoLote = 0;
 });
 
 describe('publicarEscalas', () => {
@@ -118,6 +127,81 @@ describe('publicarEscalas', () => {
       .filter((operacao) => operacao.colecao === 'rascunhosTurnosMes' && operacao.tipo === 'delete')
       .map((operacao) => operacao.id);
     expect(idsDeletados.sort()).toEqual([idExistente, idOrfao].sort());
+  });
+
+  /**
+   * HOTFIX-PUBLICAR-ESCALAS-RULES-BUDGET-1 — regressão do estouro de
+   * "maximum of 1000 expressions to evaluate" das Firestore Rules: cada
+   * commit de `publicarEscalas()` soma poucos colaboradores (no máximo
+   * `COLABORADORES_POR_LOTE_PUBLICACAO`), nunca centenas, mesmo quando a
+   * escala publicada tem muitos colaboradores.
+   */
+  it('divide a publicação de vários colaboradores em múltiplos commits pequenos', async () => {
+    const MAX_WRITES_POR_COLABORADOR = 3; // turnosMes + versoesEscala + eventosEscala
+    const WRITES_EXTRAS_DO_PRIMEIRO_LOTE = 2; // historicoPublicacoes + publicacoesEscala
+    const COLABORADORES_POR_LOTE_PUBLICACAO = 3;
+    const MAX_WRITES_POR_COMMIT =
+      COLABORADORES_POR_LOTE_PUBLICACAO * MAX_WRITES_POR_COLABORADOR + WRITES_EXTRAS_DO_PRIMEIRO_LOTE;
+
+    const logins = Array.from({ length: 7 }, (_, indice) => `colab-${indice + 1}`);
+    const documentos = logins.map((login) => documento(login));
+
+    await publicarEscalas(documentos, 'gestora-uid');
+
+    // 7 colaboradores / 3 por lote => 3 commits (ceil(7/3)).
+    expect(estado.commits).toHaveLength(3);
+
+    const porLote = new Map<number, typeof estado.operacoes>();
+    for (const operacao of estado.operacoes) {
+      const grupo = porLote.get(operacao.lote) ?? [];
+      grupo.push(operacao);
+      porLote.set(operacao.lote, grupo);
+    }
+
+    expect(porLote.size).toBe(3);
+    for (const operacoesDoLote of porLote.values()) {
+      expect(operacoesDoLote.length).toBeLessThanOrEqual(MAX_WRITES_POR_COMMIT);
+    }
+
+    const turnosMesGravados = estado.operacoes.filter((operacao) =>
+      operacao.colecao === 'turnosMes' && operacao.tipo === 'set');
+    const versoesGravadas = estado.operacoes.filter((operacao) =>
+      operacao.colecao === 'versoesEscala' && operacao.tipo === 'set');
+    expect(turnosMesGravados).toHaveLength(logins.length);
+    expect(versoesGravadas).toHaveLength(logins.length);
+    expect(turnosMesGravados.map((operacao) => operacao.dados?.login).sort()).toEqual([...logins].sort());
+
+    const publicacoesEscalaGravadas = estado.operacoes.filter((operacao) =>
+      operacao.colecao === 'publicacoesEscala' && operacao.tipo === 'set');
+    const historicoGravado = estado.operacoes.filter((operacao) =>
+      operacao.colecao === 'historicoPublicacoes' && operacao.tipo === 'set');
+    expect(publicacoesEscalaGravadas).toHaveLength(1);
+    expect(historicoGravado).toHaveLength(1);
+    // O estado/histórico da publicação só pode existir no primeiro commit.
+    expect(publicacoesEscalaGravadas[0]?.lote).toBe(0);
+    expect(historicoGravado[0]?.lote).toBe(0);
+  });
+
+  it('continua apagando todos os rascunhos da competência ao publicar vários colaboradores', async () => {
+    const logins = Array.from({ length: 5 }, (_, indice) => `colab-${indice + 1}`);
+    const documentos = logins.map((login) => documento(login));
+    estado.rascunhos = [
+      ...logins.map((login) => ({
+        id: idDocumento(EQUIPE, login, COMPETENCIA),
+        data: { equipeId: EQUIPE, competencia: COMPETENCIA, usuarioUid: login },
+      })),
+      {
+        id: idDocumento(EQUIPE, 'colab-orfao', COMPETENCIA),
+        data: { equipeId: EQUIPE, competencia: COMPETENCIA, usuarioUid: 'colab-orfao' },
+      },
+    ];
+
+    await publicarEscalas(documentos, 'gestora-uid');
+
+    const idsDeletados = estado.operacoes
+      .filter((operacao) => operacao.colecao === 'rascunhosTurnosMes' && operacao.tipo === 'delete')
+      .map((operacao) => operacao.id);
+    expect(idsDeletados.sort()).toEqual(estado.rascunhos.map((rascunho) => rascunho.id).sort());
   });
 
   it('usa o login — não o usuarioUid legado — para montar o ID do documento publicado', async () => {
