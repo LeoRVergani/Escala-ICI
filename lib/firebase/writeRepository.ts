@@ -1,5 +1,6 @@
 import {
   idDocumento,
+  temErroBloqueante,
   type ResultadoParse,
   type TurnosMes,
 } from '@escala-ici/contrato';
@@ -117,8 +118,8 @@ export async function salvarRascunho(
   nomeArquivo: string,
 ): Promise<string> {
   exigirEscritaAdministrativaHabilitada();
-  if (!resultado.ok) {
-    throw new Error('Não é permitido persistir uma importação com erros.');
+  if (temErroBloqueante(resultado.erros)) {
+    throw new Error('Não é permitido persistir uma importação com erros bloqueantes.');
   }
   const primeiro = resultado.documentos[0];
   if (primeiro === undefined) {

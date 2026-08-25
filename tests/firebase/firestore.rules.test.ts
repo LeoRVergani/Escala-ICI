@@ -1359,6 +1359,16 @@ describe('regras Firestore do Escala ICI', () => {
       await assertSucceeds(getDoc(doc(db, 'trocasEscala', 'troca-pendente-supervisora')));
     });
 
+    it('HOTFIX-ESCALA-ALERTA-TROCAS-1 — lista (list/query) as trocas da própria equipe, sem Matriz, sem filtro de status (tela "Trocas" do Dashboard)', async () => {
+      const db = autenticarComo(supervisoraCosiSoc);
+      const resultado = await assertSucceeds(getDocs(query(
+        collection(db, 'trocasEscala'),
+        where('equipeId', '==', 'EQ_COSI_SOC'),
+        where('competencia', '==', '2026-08'),
+      )));
+      expect(resultado.docs.map((documento) => documento.id).sort()).toEqual(['troca-1', 'troca-pendente-supervisora']);
+    });
+
     it('aprova e publica a partir de PENDENTE_GESTOR', async () => {
       const db = autenticarComo(supervisoraCosiSoc);
       await assertSucceeds(updateDoc(doc(db, 'trocasEscala', 'troca-pendente-supervisora'), {
