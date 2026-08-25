@@ -27,6 +27,8 @@ import {
   it,
 } from 'vitest';
 
+import { montarCamposAcessoUsuario } from '../../lib/perfilAcessoUsuario';
+
 const PROJECT_ID = 'demo-escala-ici-fase3i';
 let ambiente: RulesTestEnvironment;
 
@@ -2396,6 +2398,384 @@ describe('unidadesOrganizacionais e equipes — escopo GESTOR_UNIDADE', () => {
     const gestor = autenticarComo(usuarios.gestor);
     await assertSucceeds(getDoc(doc(gestor, 'turnosMes', 'publicada-soc')));
     await assertSucceeds(updateDoc(doc(gestor, 'usuarios', usuarios.colaborador.login), { cargo: 'ANALISTA_SOC_SR' }));
+  });
+});
+
+/**
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE
+ * administra Jornada de uma equipe da própria unidade (ou descendente) sem
+ * depender de Matriz manual, espelhando o caminho que Plantão já tinha via
+ * `podeGerenciarGrupoPlantao()`. Reusa `usuarios.gestorUnidade`
+ * (`unidadesPermitidas: ['GEDSI']`, ver bloco acima).
+ */
+describe('Jornada 6x1 — escopo GESTOR_UNIDADE (podeAdministrarJornada)', () => {
+  async function semearEquipeGedsi(equipeId: string, ajustes: Record<string, unknown> = {}) {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'equipes', equipeId), {
+        id: equipeId,
+        nome: equipeId,
+        sigla: equipeId,
+        ativa: true,
+        unidadeId: 'GEDSI',
+        caminhoUnidade: ['GEDSI'],
+        ...ajustes,
+      });
+    });
+  }
+
+  async function habilitarStaging() {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'config', 'ambiente'), { staging: true });
+    });
+  }
+
+  it('administra rascunhosTurnosMes/turnosMes/publicacoesEscala de uma equipe da própria unidade, sem Matriz', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(setDoc(doc(db, 'rascunhosTurnosMes', 'EQ_GEDSI_SOC_alguem_2026-08'), escala('alguem', 'EQ_GEDSI_SOC', 'RASCUNHO')));
+    await assertSucceeds(setDoc(doc(db, 'turnosMes', 'EQ_GEDSI_SOC_alguem_2026-08'), escala('alguem', 'EQ_GEDSI_SOC', 'PUBLICADA')));
+    await assertSucceeds(setDoc(doc(db, 'publicacoesEscala', 'EQ_GEDSI_SOC_2026-08'), {
+      id: 'EQ_GEDSI_SOC_2026-08', equipeId: 'EQ_GEDSI_SOC', competencia: '2026-08', revisaoAtual: 1,
+    }));
+  });
+
+  it('aprova/recusa trocasEscala de uma equipe da própria unidade, sem Matriz', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(
+        doc(contexto.firestore(), 'trocasEscala', 'troca-gedsi'),
+        troca({ trocaId: 'troca-gedsi', equipeId: 'EQ_GEDSI_SOC', status: 'PENDENTE_GESTOR' }),
+      );
+    });
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(updateDoc(doc(db, 'trocasEscala', 'troca-gedsi'), {
+      status: 'RECUSADA_GESTOR',
+      gestorLogin: usuarios.gestorUnidade.login,
+      gestorNome: usuarios.gestorUnidade.nome,
+      historico: [
+        ...troca({ equipeId: 'EQ_GEDSI_SOC' }).historico,
+        { tipo: 'RECUSADA_GESTOR', porLogin: usuarios.gestorUnidade.login, porNome: usuarios.gestorUnidade.nome, porPerfil: 'GESTOR', em: '2026-08-07T15:00:00.000Z', descricao: 'Recusada' },
+      ],
+    }));
+  });
+
+  it('administra via unidade ANCESTRAL, usando caminhoUnidade materializado (sem travessia de parentId)', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SUL_SOC', { unidadeId: 'GEDSI_SUL', caminhoUnidade: ['GEDSI', 'GEDSI_SUL'] });
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(setDoc(doc(db, 'turnosMes', 'EQ_GEDSI_SUL_SOC_alguem_2026-08'), escala('alguem', 'EQ_GEDSI_SUL_SOC', 'PUBLICADA')));
+  });
+
+  it('nega fora da unidade', async () => {
+    await semearEquipeGedsi('EQ_OUTRA_UNIDADE', { unidadeId: 'OUTRA_UNIDADE', caminhoUnidade: ['OUTRA_UNIDADE'] });
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(setDoc(doc(db, 'turnosMes', 'EQ_OUTRA_UNIDADE_alguem_2026-08'), escala('alguem', 'EQ_OUTRA_UNIDADE', 'PUBLICADA')));
+  });
+
+  it('nega para equipe SEM unidadeId (legada) — regressão de acesso direto por campo em vez de .get(chave, null)', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'equipes', 'EQ_LEGADA'), {
+        id: 'EQ_LEGADA', nome: 'Legada', sigla: 'LEG', ativa: true,
+      });
+    });
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(setDoc(doc(db, 'turnosMes', 'EQ_LEGADA_alguem_2026-08'), escala('alguem', 'EQ_LEGADA', 'PUBLICADA')));
+  });
+
+  it('GESTOR_EQUIPE/ANALISTA_SOC comuns não ganham poder de unidade', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    const gestorComum = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(doc(gestorComum, 'turnosMes', 'EQ_GEDSI_SOC_alguem_2026-08'), escala('alguem', 'EQ_GEDSI_SOC', 'PUBLICADA')));
+    const colaboradorComum = autenticarComo(usuarios.colaborador);
+    await assertFails(setDoc(doc(colaboradorComum, 'turnosMes', 'EQ_GEDSI_SOC_alguem_2026-08'), escala('alguem', 'EQ_GEDSI_SOC', 'PUBLICADA')));
+  });
+
+  it('Matriz JORNADA existente (só lista outro responsável) bloqueia o fallback de unidade fora de staging', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'escoposOperacionais', 'JORNADA_EQ_GEDSI_SOC'), escopoOperacional({
+        tipo: 'JORNADA', alvoId: 'EQ_GEDSI_SOC', responsaveisLogin: [usuarios.admin.login], equipesConsulta: [],
+      }));
+    });
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(setDoc(doc(db, 'turnosMes', 'EQ_GEDSI_SOC_alguem_2026-08'), escala('alguem', 'EQ_GEDSI_SOC', 'PUBLICADA')));
+  });
+
+  it('com staging habilitado, GESTOR_UNIDADE administra mesmo com essa Matriz existente (espelha PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1)', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'escoposOperacionais', 'JORNADA_EQ_GEDSI_SOC'), escopoOperacional({
+        tipo: 'JORNADA', alvoId: 'EQ_GEDSI_SOC', responsaveisLogin: [usuarios.admin.login], equipesConsulta: [],
+      }));
+    });
+    await habilitarStaging();
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(setDoc(doc(db, 'turnosMes', 'EQ_GEDSI_SOC_alguem_2026-08'), escala('alguem', 'EQ_GEDSI_SOC', 'PUBLICADA')));
+  });
+
+  it('um equipeId fantasma em outro documento da mesma coleção não derruba uma list legítima (regressão da classe "Hotfix 2")', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(
+        doc(contexto.firestore(), 'trocasEscala', 'troca-legitima'),
+        troca({ trocaId: 'troca-legitima', equipeId: 'EQ_GEDSI_SOC', status: 'PENDENTE_GESTOR' }),
+      );
+      await setDoc(
+        doc(contexto.firestore(), 'trocasEscala', 'troca-fantasma'),
+        troca({ trocaId: 'troca-fantasma', equipeId: 'EQ_FANTASMA_SEM_DOC', status: 'PENDENTE_GESTOR' }),
+      );
+    });
+    const db = autenticarComo(usuarios.gestorUnidade);
+    const resultado = await assertSucceeds(getDocs(query(
+      collection(db, 'trocasEscala'),
+      where('equipeId', '==', 'EQ_GEDSI_SOC'),
+    )));
+    expect(resultado.docs.map((item) => item.id)).toEqual(['troca-legitima']);
+  });
+});
+
+/**
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE
+ * cria/edita/ativa/inativa/promove usuarios de uma equipe da própria
+ * unidade, sem depender de Matriz manual. Cobre create (variante ESTRITA
+ * do validador, payload canônico exato de `montarCamposAcessoUsuario()`),
+ * update (variante coerente, checada nos dois estados) e read.
+ */
+describe('usuarios — escopo GESTOR_UNIDADE (criar/editar/ler dentro da própria unidade)', () => {
+  async function semearEquipeGedsi(equipeId: string, ajustes: Record<string, unknown> = {}) {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'equipes', equipeId), {
+        id: equipeId,
+        nome: equipeId,
+        sigla: equipeId,
+        ativa: true,
+        unidadeId: 'GEDSI',
+        caminhoUnidade: ['GEDSI'],
+        ...ajustes,
+      });
+    });
+  }
+
+  function colaboradorGedsi(login: string, equipeId = 'EQ_GEDSI_SOC') {
+    return {
+      login,
+      nome: login,
+      email: `${login}@teste.local`,
+      cargo: 'ANALISTA_SOC',
+      equipeId,
+      nivelHierarquico: 6,
+      ativo: true,
+    };
+  }
+
+  it('cria colaborador comum dentro da unidade', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(setDoc(doc(db, 'usuarios', 'novo.colaborador'), colaboradorGedsi('novo.colaborador')));
+  });
+
+  it('cria GESTOR_EQUIPE/SUPERVISOR_EQUIPE dentro da unidade — payload canônico exato (equipesPermitidas=[equipeId], unidadeId=unidade real)', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(setDoc(doc(db, 'usuarios', 'novo.supervisor'), {
+      ...colaboradorGedsi('novo.supervisor'),
+      perfil: 'SUPERVISOR_EQUIPE',
+      escopo: 'EQUIPE',
+      equipesPermitidas: ['EQ_GEDSI_SOC'],
+      unidadeId: 'GEDSI',
+      nivelHierarquico: 5,
+    }));
+    await assertSucceeds(setDoc(doc(db, 'usuarios', 'novo.gestor'), {
+      ...colaboradorGedsi('novo.gestor'),
+      perfil: 'GESTOR_EQUIPE',
+      escopo: 'EQUIPE',
+      equipesPermitidas: ['EQ_GEDSI_SOC'],
+      unidadeId: 'GEDSI',
+      nivelHierarquico: 5,
+    }));
+  });
+
+  it('nega criar GESTOR_UNIDADE ou ADMIN_SISTEMA dentro da unidade — enum fechado do validador', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(setDoc(doc(db, 'usuarios', 'tentativa.gestor.unidade'), {
+      ...colaboradorGedsi('tentativa.gestor.unidade'),
+      perfil: 'GESTOR_UNIDADE', escopo: 'UNIDADE', unidadeId: 'GEDSI', unidadesPermitidas: ['GEDSI'], nivelHierarquico: 4,
+    }));
+    await assertFails(setDoc(doc(db, 'usuarios', 'tentativa.admin'), {
+      ...colaboradorGedsi('tentativa.admin'),
+      perfil: 'ADMIN_SISTEMA', escopo: 'GLOBAL', nivelHierarquico: 0,
+    }));
+  });
+
+  it('nega criar fora da unidade', async () => {
+    await semearEquipeGedsi('EQ_OUTRA_UNIDADE', { unidadeId: 'OUTRA_UNIDADE', caminhoUnidade: ['OUTRA_UNIDADE'] });
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(setDoc(doc(db, 'usuarios', 'fora.unidade'), colaboradorGedsi('fora.unidade', 'EQ_OUTRA_UNIDADE')));
+  });
+
+  it('nega equipesPermitidas contendo equipe diferente de equipeId, mesmo dentro da unidade — coerência trava a lista, não só a presença', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    await semearEquipeGedsi('EQ_GEDSI_CODB');
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(setDoc(doc(db, 'usuarios', 'supervisor.forjado'), {
+      ...colaboradorGedsi('supervisor.forjado'),
+      perfil: 'SUPERVISOR_EQUIPE', escopo: 'EQUIPE',
+      equipesPermitidas: ['EQ_GEDSI_SOC', 'EQ_GEDSI_CODB'],
+      unidadeId: 'GEDSI', nivelHierarquico: 5,
+    }));
+  });
+
+  it('nega criar novo SUPERVISOR_EQUIPE com equipesPermitidas=[] ou unidadeId ausente — formato legado não é válido para cadastro novo', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(setDoc(doc(db, 'usuarios', 'supervisor.incompleto'), {
+      ...colaboradorGedsi('supervisor.incompleto'),
+      perfil: 'SUPERVISOR_EQUIPE', escopo: 'EQUIPE', nivelHierarquico: 5,
+    }));
+  });
+
+  it('atualiza ativo/nome e promove null<->GESTOR_EQUIPE dentro da unidade', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'usuarios', 'colaborador.gedsi'), colaboradorGedsi('colaborador.gedsi'));
+    });
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(updateDoc(doc(db, 'usuarios', 'colaborador.gedsi'), { ativo: false }));
+    await assertSucceeds(updateDoc(doc(db, 'usuarios', 'colaborador.gedsi'), {
+      perfil: 'GESTOR_EQUIPE', escopo: 'EQUIPE', equipesPermitidas: ['EQ_GEDSI_SOC'], unidadeId: 'GEDSI', nivelHierarquico: 5,
+    }));
+    await assertSucceeds(updateDoc(doc(db, 'usuarios', 'colaborador.gedsi'), {
+      perfil: null, escopo: null, equipesPermitidas: [], unidadeId: null, nivelHierarquico: 6,
+    }));
+  });
+
+  it('nega tocar qualquer campo de um alvo cujo perfil ATUAL já é GESTOR_UNIDADE/ADMIN_SISTEMA, mesmo dentro da unidade', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'usuarios', 'outro.gestor.unidade'), {
+        ...colaboradorGedsi('outro.gestor.unidade'),
+        perfil: 'GESTOR_UNIDADE', escopo: 'UNIDADE', unidadeId: 'GEDSI', unidadesPermitidas: ['GEDSI'], nivelHierarquico: 4,
+      });
+    });
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(updateDoc(doc(db, 'usuarios', 'outro.gestor.unidade'), { ativo: false }));
+  });
+
+  it('nega mudar equipeId via update', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    await semearEquipeGedsi('EQ_GEDSI_CODB');
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'usuarios', 'colaborador.migrando'), colaboradorGedsi('colaborador.migrando'));
+    });
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(updateDoc(doc(db, 'usuarios', 'colaborador.migrando'), { equipeId: 'EQ_GEDSI_CODB' }));
+  });
+
+  it('lê (get e list) usuarios de uma equipe da própria unidade; nega fora da unidade', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    await semearEquipeGedsi('EQ_OUTRA_UNIDADE', { unidadeId: 'OUTRA_UNIDADE', caminhoUnidade: ['OUTRA_UNIDADE'] });
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await Promise.all([
+        setDoc(doc(contexto.firestore(), 'usuarios', 'colaborador.gedsi.leitura'), colaboradorGedsi('colaborador.gedsi.leitura')),
+        setDoc(doc(contexto.firestore(), 'usuarios', 'colaborador.outra.unidade'), colaboradorGedsi('colaborador.outra.unidade', 'EQ_OUTRA_UNIDADE')),
+      ]);
+    });
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(getDoc(doc(db, 'usuarios', 'colaborador.gedsi.leitura')));
+    await assertFails(getDoc(doc(db, 'usuarios', 'colaborador.outra.unidade')));
+    const resultado = await assertSucceeds(getDocs(query(collection(db, 'usuarios'), where('equipeId', '==', 'EQ_GEDSI_SOC'))));
+    expect(resultado.docs.map((item) => item.id)).toContain('colaborador.gedsi.leitura');
+  });
+
+  it('usuário legado sem equipeId — não concede acesso indevido e não derruba a list', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await Promise.all([
+        setDoc(doc(contexto.firestore(), 'usuarios', 'colaborador.gedsi.legado.ok'), colaboradorGedsi('colaborador.gedsi.legado.ok')),
+        setDoc(doc(contexto.firestore(), 'usuarios', 'legado.sem.equipe'), {
+          login: 'legado.sem.equipe', nome: 'Legado', email: 'legado.sem.equipe@teste.local', cargo: 'ANALISTA', nivelHierarquico: 6, ativo: true,
+        }),
+      ]);
+    });
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(getDoc(doc(db, 'usuarios', 'legado.sem.equipe')));
+    await assertFails(updateDoc(doc(db, 'usuarios', 'legado.sem.equipe'), { ativo: false }));
+    const resultado = await assertSucceeds(getDocs(query(collection(db, 'usuarios'), where('equipeId', '==', 'EQ_GEDSI_SOC'))));
+    expect(resultado.docs.map((item) => item.id)).toEqual(['colaborador.gedsi.legado.ok']);
+  });
+
+  it('TESTE OBRIGATÓRIO DE INTEGRAÇÃO — payload real de montarCamposAcessoUsuario(SUPERVISOR_EQUIPE, GEDSI_CODB_NOC) é aceito pela Rule quando criado por GESTOR_UNIDADE da CODB', async () => {
+    await semearEquipeGedsi('GEDSI_CODB_NOC', { unidadeId: 'GEDSI', caminhoUnidade: ['GEDSI'] });
+    const campos = montarCamposAcessoUsuario(
+      { tipo: 'SUPERVISOR_EQUIPE', equipeId: 'GEDSI_CODB_NOC' },
+      { unidadeDaEquipe: () => 'GEDSI' },
+    );
+    const payload = {
+      login: 'nova.supervisora.noc',
+      nome: 'Nova Supervisora NOC',
+      email: 'nova.supervisora.noc@teste.local',
+      cargo: 'SUPERVISOR_EQUIPE',
+      ativo: true,
+      ...campos,
+    };
+    expect(payload.equipesPermitidas).toEqual(['GEDSI_CODB_NOC']);
+    expect(payload.unidadeId).toBe('GEDSI');
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(setDoc(doc(db, 'usuarios', payload.login), payload));
+  });
+});
+
+/**
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE
+ * vincula/desvincula qualquer equipe da própria unidade a um Grupo de
+ * Plantão externo (autovínculo de consulta, mesmo mecanismo self-service
+ * de GESTOR_EQUIPE/SUPERVISOR_EQUIPE — ver Fase ESCOPO-CONSULTA-PLANTAO-1).
+ */
+describe('gruposPlantao.equipesConsulta — autovínculo por GESTOR_UNIDADE', () => {
+  async function semearEquipeGedsi(equipeId: string, ajustes: Record<string, unknown> = {}) {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'equipes', equipeId), {
+        id: equipeId, nome: equipeId, sigla: equipeId, ativa: true,
+        unidadeId: 'GEDSI', caminhoUnidade: ['GEDSI'], ...ajustes,
+      });
+    });
+  }
+
+  async function semearGrupoExterno() {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_EXTERNO'), grupoPlantaoMatriz('PLANTAO_EXTERNO'));
+    });
+  }
+
+  it('vincula equipe da própria unidade a um Grupo externo', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_NOC');
+    await semearGrupoExterno();
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_EXTERNO'), {
+      equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_GEDSI_NOC'],
+      atualizadoEm: '2026-08-08T00:00:00.000Z',
+    }));
+  });
+
+  it('nega equipe de outra unidade', async () => {
+    await semearEquipeGedsi('EQ_FORA_GEDSI', { unidadeId: 'OUTRA_UNIDADE', caminhoUnidade: ['OUTRA_UNIDADE'] });
+    await semearGrupoExterno();
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_EXTERNO'), {
+      equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_FORA_GEDSI'],
+      atualizadoEm: '2026-08-08T00:00:00.000Z',
+    }));
+  });
+
+  it('nega duas equipes mudando ao mesmo tempo, mesmo as duas dentro da unidade — invariante ==1 mantida', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_NOC');
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    await semearGrupoExterno();
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_EXTERNO'), {
+      equipesConsulta: ['EQ_PLANTAO_COSI', 'EQ_GEDSI_NOC', 'EQ_GEDSI_SOC'],
+      atualizadoEm: '2026-08-08T00:00:00.000Z',
+    }));
   });
 });
 

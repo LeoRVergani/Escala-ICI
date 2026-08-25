@@ -173,6 +173,7 @@ function criarErroEstrutural(
     coluna: 'A',
     valorEncontrado,
     motivo,
+    severidade: 'BLOQUEANTE',
     ...(sugestao === undefined ? {} : { sugestao }),
   };
 }
@@ -218,6 +219,7 @@ function resolverColunasDia(
         coluna: XLSX.utils.encode_col(coluna),
         valorEncontrado: texto,
         motivo: 'Cabeçalho de dia inválido; esperado DD/MM.',
+        severidade: 'BLOQUEANTE',
       });
       coluna += 1;
       continue;
@@ -242,6 +244,7 @@ function resolverColunasDia(
         coluna: XLSX.utils.encode_col(coluna),
         valorEncontrado: texto,
         motivo: 'Data inexistente no cabeçalho.',
+        severidade: 'BLOQUEANTE',
       });
     } else {
       colunas.push({ coluna, data: montarChaveDia(data) });
@@ -480,6 +483,7 @@ function construirIndiceTurnosPorDia(
             data: dataISO,
             valorEncontrado: texto,
             motivo: 'Duplicidade de turno no dia: o login aparece em mais de um turno na aba Escala.',
+            severidade: 'BLOQUEANTE',
           });
           continue;
         }
@@ -620,6 +624,7 @@ export function parsePlanilhaEscala(
           login,
           valorEncontrado: textoTurno,
           motivo: 'Turno de trabalho não reconhecido pelo catálogo.',
+          severidade: 'BLOQUEANTE',
         });
       }
     }
@@ -633,6 +638,7 @@ export function parsePlanilhaEscala(
         valorEncontrado: login,
         motivo: 'Login não encontrado em opts.loginParaUid.',
         sugestao: 'Cadastre ou associe o login antes de publicar.',
+        severidade: 'BLOQUEANTE',
       });
     }
 
@@ -678,6 +684,15 @@ export function parsePlanilhaEscala(
             motivo: !seqValida
               ? 'Sequência de trabalho inválida; esperado número inteiro entre 1 e 6.'
               : 'O turno não possui horário e duração válidos no catálogo.',
+            /**
+             * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — só o dígito
+             * fora de 1-6 é ALERTA (pode ser uma exceção operacional
+             * legítima: curso, treinamento, ausência — exemplo dado pelo
+             * dono do produto). Dígito válido mas catálogo quebrado
+             * (`dia === undefined` com `seqValida` verdadeiro) continua
+             * BLOQUEANTE — é um problema de dado, não uma exceção.
+             */
+            severidade: !seqValida ? 'ALERTA' : 'BLOQUEANTE',
           });
         } else {
           dias[colunaDia.data] = dia;
@@ -697,6 +712,7 @@ export function parsePlanilhaEscala(
           motivo: tipo === undefined
             ? 'Valor não reconhecido pelos aliasesXLS do catálogo.'
             : 'Tipo de trabalho sem horário ou duração válidos no catálogo.',
+          severidade: 'BLOQUEANTE',
         });
       } else {
         avisarCorDivergente(

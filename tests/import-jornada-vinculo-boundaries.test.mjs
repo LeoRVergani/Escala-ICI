@@ -131,7 +131,10 @@ test('1. "Criar usuário" da pendência usa o modo livre (select técnico), nunc
   const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
   // usarCadastroLivreStaging não exclui mais o fluxo de conciliação de
   // Jornada — só o vínculo de Plantão (alvo fixo pelo Grupo) continua fora.
-  assert.ok(dashboard.includes("const usarCadastroLivreStaging = PERMITIR_AMPLO_STAGING\n    && !souAdmin\n    && participanteVinculoCadastro === null;"));
+  // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — também exclui
+  // GESTOR_UNIDADE, que agora tem um caminho permanente e não-staging
+  // (o mesmo bloco "Permissões" do admin), sem duplicar a UI de perfil.
+  assert.ok(dashboard.includes("const usarCadastroLivreStaging = PERMITIR_AMPLO_STAGING\n    && !souAdmin\n    && !souGestorUnidade\n    && participanteVinculoCadastro === null;"));
   assert.ok(!dashboard.includes('usarCadastroLivreStaging = PERMITIR_AMPLO_STAGING\n    && !souAdmin\n    && participanteVinculoCadastro === null\n    && linhaConciliacaoVinculoCadastro === null'));
   // Quando o modo livre está desligado, o input travado mostra o código
   // técnico (rotuloTecnicoEquipe), nunca mais o nome amigável cru ("SOC").

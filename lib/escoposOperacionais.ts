@@ -70,7 +70,7 @@ const PERFIS_GESTOR_DE_EQUIPE: ReadonlySet<PerfilUsuario> = new Set(['GESTOR_EQU
  * autorizar um `GESTOR_UNIDADE` sobre toda a subárvore da sua unidade, não
  * só o nó exato.
  */
-function dentroDoEscopoPermitido(
+export function dentroDoEscopoPermitido(
   unidadeId: string | undefined,
   caminho: readonly string[] | undefined,
   permitidas: readonly string[],

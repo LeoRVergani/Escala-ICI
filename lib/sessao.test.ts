@@ -415,4 +415,48 @@ describe('podeAutoVincularConsultaPlantao — Fase ESCOPO-CONSULTA-PLANTAO-1 (Pl
     // por podeGerenciarGrupoPlantao(), então nada fica bloqueado de fato.
     expect(podeAutoVincularConsultaPlantao(admin, ['EQ_PLANTAO_COSI'], ['EQ_PLANTAO_COSI', 'EQ_NOC'], 'EQ_PLANTAO_COSI')).toBe(false);
   });
+
+  /**
+   * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE
+   * vincula/desvincula qualquer equipe da própria unidade (ou descendente),
+   * mesmo sem equipesPermitidas explícito sobre ela — diferente de
+   * GESTOR_EQUIPE/SUPERVISOR_EQUIPE, precisa da lista de equipes carregada
+   * (dado que não está em Usuario).
+   */
+  it('GESTOR_UNIDADE vincula equipe da própria unidade a um Grupo externo, mesmo sem equipesPermitidas', () => {
+    const coordenador = usuarioBase({ perfil: 'GESTOR_UNIDADE', equipeId: 'EQ_CODB', unidadesPermitidas: ['GEDSI'] });
+    const equipes = [
+      { id: 'EQ_NOC', unidadeId: 'GEDSI', caminhoUnidade: ['GEDSI'] },
+    ];
+    expect(podeAutoVincularConsultaPlantao(
+      coordenador, ['EQ_PLANTAO_COSI'], ['EQ_PLANTAO_COSI', 'EQ_NOC'], 'EQ_PLANTAO_COSI', equipes,
+    )).toBe(true);
+  });
+
+  it('GESTOR_UNIDADE vincula via unidade ANCESTRAL, usando caminhoUnidade materializado', () => {
+    const coordenador = usuarioBase({ perfil: 'GESTOR_UNIDADE', equipeId: 'EQ_CODB', unidadesPermitidas: ['GEDSI'] });
+    const equipes = [
+      { id: 'EQ_NOC', unidadeId: 'GEDSI_SUL', caminhoUnidade: ['GEDSI', 'GEDSI_SUL'] },
+    ];
+    expect(podeAutoVincularConsultaPlantao(
+      coordenador, ['EQ_PLANTAO_COSI'], ['EQ_PLANTAO_COSI', 'EQ_NOC'], 'EQ_PLANTAO_COSI', equipes,
+    )).toBe(true);
+  });
+
+  it('GESTOR_UNIDADE não vincula equipe de outra unidade', () => {
+    const coordenador = usuarioBase({ perfil: 'GESTOR_UNIDADE', equipeId: 'EQ_CODB', unidadesPermitidas: ['GEDSI'] });
+    const equipes = [
+      { id: 'EQ_NOC', unidadeId: 'OUTRA_UNIDADE', caminhoUnidade: ['OUTRA_UNIDADE'] },
+    ];
+    expect(podeAutoVincularConsultaPlantao(
+      coordenador, ['EQ_PLANTAO_COSI'], ['EQ_PLANTAO_COSI', 'EQ_NOC'], 'EQ_PLANTAO_COSI', equipes,
+    )).toBe(false);
+  });
+
+  it('GESTOR_UNIDADE nega quando a equipe alterada não está na lista carregada — nunca assume presença', () => {
+    const coordenador = usuarioBase({ perfil: 'GESTOR_UNIDADE', equipeId: 'EQ_CODB', unidadesPermitidas: ['GEDSI'] });
+    expect(podeAutoVincularConsultaPlantao(
+      coordenador, ['EQ_PLANTAO_COSI'], ['EQ_PLANTAO_COSI', 'EQ_NOC'], 'EQ_PLANTAO_COSI', [],
+    )).toBe(false);
+  });
 });

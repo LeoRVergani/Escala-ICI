@@ -49,6 +49,13 @@ interface ScheduleImportReviewProps {
   onEditar?: (documento: TurnosMes, data: string, dia: Dia) => void;
   onRemover?: (documento: TurnosMes) => void;
   onVoltar?: () => void;
+  /**
+   * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — "Ajustar" num erro
+   * (`resultado.erros[indice]`) chama isto para levar até a linha exata na
+   * tabela "Corrigir inconsistências" — nunca fica inerte, mesmo quando o
+   * erro é estrutural (sem célula física específica, ex.: aba ausente).
+   */
+  onAjustarErro?: (indice: number) => void;
   headerActions?: ReactNode;
 }
 
@@ -126,6 +133,7 @@ export function ScheduleImportReview({
   onEditar,
   onRemover,
   onVoltar,
+  onAjustarErro,
   headerActions,
 }: ScheduleImportReviewProps) {
   const documentos = resultado.documentos;
@@ -185,16 +193,27 @@ export function ScheduleImportReview({
     : null;
 
   const alertasOperacionais = useMemo(() => {
-    const alertas: Array<{ tipo: 'warning' | 'error' | 'info'; titulo: string; detalhe: string; referencia: string; nomePlanilha: string | null }> = [];
-    for (const erro of resultado.erros) {
+    const alertas: Array<{
+      tipo: 'warning' | 'error' | 'info';
+      titulo: string;
+      detalhe: string;
+      referencia: string;
+      nomePlanilha: string | null;
+      /** FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — índice em `resultado.erros`, para "Ajustar" levar à linha exata na tabela "Corrigir inconsistências" (nunca ficar inerte). */
+      indiceErro: number | null;
+    }> = [];
+    resultado.erros.forEach((erro, indiceErro) => {
       alertas.push({
         tipo: 'error',
         titulo: erro.motivo,
-        detalhe: erro.sugestao ?? 'Revise o valor encontrado na fonte antes de continuar.',
+        detalhe: erro.sugestao ?? (erro.severidade === 'ALERTA'
+          ? 'Pode ser uma exceção operacional legítima — confira antes de decidir.'
+          : 'Revise o valor encontrado na fonte antes de continuar.'),
         referencia: erro.login ?? (erro.data ? formatarDia(erro.data) : `${erro.coluna}${erro.linha}`),
         nomePlanilha: null,
+        indiceErro,
       });
-    }
+    });
     for (const aviso of resultado.avisos) {
       alertas.push({
         tipo: 'warning',
@@ -202,6 +221,7 @@ export function ScheduleImportReview({
         detalhe: 'Aviso importado da validação da planilha.',
         referencia: 'Fonte',
         nomePlanilha: null,
+        indiceErro: null,
       });
     }
     for (const linha of linhasConciliacao) {
@@ -212,6 +232,7 @@ export function ScheduleImportReview({
         detalhe: STATUS_CONCILIACAO_LABEL[linha.status],
         referencia: linha.nomePlanilha,
         nomePlanilha: linha.nomePlanilha,
+        indiceErro: null,
       });
     }
     return alertas;
@@ -516,18 +537,24 @@ export function ScheduleImportReview({
             const linhaRelacionada = alerta.nomePlanilha
               ? linhasConciliacao.find((linha) => linha.nomePlanilha === alerta.nomePlanilha) ?? null
               : null;
-            const Wrapper = linhaRelacionada ? 'button' : 'div';
+            const podeAjustarErro = alerta.indiceErro !== null && onAjustarErro !== undefined;
+            const acionavel = linhaRelacionada !== null || podeAjustarErro;
+            const Wrapper = acionavel ? 'button' : 'div';
+            const severidadeErro = alerta.indiceErro !== null ? resultado.erros[alerta.indiceErro]?.severidade : undefined;
+            const rotuloAcao = severidadeErro === 'BLOQUEANTE' ? 'Ajustar' : severidadeErro === 'ALERTA' ? 'Revisar' : (alerta.tipo === 'error' ? 'Ajustar' : 'Revisar');
             return (
               <Wrapper
                 key={`${alerta.referencia}-${indice}`}
-                type={linhaRelacionada ? 'button' : undefined}
-                className={`soc-import-review-alert-row ${linhaRelacionada ? 'is-actionable' : ''}`}
-                onClick={linhaRelacionada ? () => setChavePendenciaSelecionada(linhaRelacionada.nomePlanilha) : undefined}
+                type={acionavel ? 'button' : undefined}
+                className={`soc-import-review-alert-row ${acionavel ? 'is-actionable' : ''}`}
+                onClick={linhaRelacionada
+                  ? () => setChavePendenciaSelecionada(linhaRelacionada.nomePlanilha)
+                  : podeAjustarErro ? () => onAjustarErro?.(alerta.indiceErro!) : undefined}
               >
                 <span className={`soc-import-review-alert-icon ${alerta.tipo}`}><AlertTriangle size={14} /></span>
                 <div><strong>{alerta.titulo}</strong><small>{alerta.detalhe}</small></div>
                 <span className="soc-import-review-alert-reference">{alerta.referencia}</span>
-                <span className={`status-badge ${alerta.tipo === 'error' ? 'danger' : 'warning'}`}>{alerta.tipo === 'error' ? 'Ajustar' : 'Revisar'}</span>
+                <span className={`status-badge ${severidadeErro === 'ALERTA' ? 'warning' : alerta.tipo === 'error' ? 'danger' : 'warning'}`}>{rotuloAcao}</span>
               </Wrapper>
             );
           })}

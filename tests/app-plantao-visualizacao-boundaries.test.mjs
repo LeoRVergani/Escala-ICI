@@ -152,9 +152,14 @@ test('12. Rules: o próprio plantonista pode alterar corPreferida, mas o campo �
 
 test('13. a visão "Plantão" não mostra mais o texto genérico de permissão de gestor quando a Matriz nega a consulta — mensagem específica e honesta', async () => {
   const app = await ler('apps/app/src/EmployeeApp.tsx');
-  const inicio = app.indexOf('async function carregarPlantaoApp()');
-  const fim = app.indexOf('\n  async function salvarMeusContatosApp', inicio);
-  assert.ok(inicio > 0 && fim > inicio, 'carregarPlantaoApp precisa existir');
+  // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — o carregamento de
+  // detalhe por Grupo (participantes/competência/atribuições) saiu de
+  // carregarPlantaoApp() para carregarDetalheGrupoPlantao(), reaproveitada
+  // para CADA Grupo monitorado (antes, só o primeiro grupo era carregado).
+  // A checagem de "permission-denied" mora nessa função agora.
+  const inicio = app.indexOf('async function carregarDetalheGrupoPlantao(');
+  const fim = app.indexOf('\n  async function carregarPlantaoApp()', inicio);
+  assert.ok(inicio > 0 && fim > inicio, 'carregarDetalheGrupoPlantao precisa existir');
   const corpo = semComentarios(app.slice(inicio, fim));
   assert.match(corpo, /permission-denied/u, 'precisa distinguir especificamente o erro de permissão');
   assert.doesNotMatch(corpo, /permissão de gestor/u, 'nunca sugerir "permissão de gestor" (fora de comentários) para uma ação de CONSULTA do App');

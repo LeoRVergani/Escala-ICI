@@ -794,6 +794,8 @@ textarea:focus-visible,
 .data-table th { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; padding-block: 16px; }
 .data-table td small { display: block; color: var(--muted); margin-top: 3px; }
 .data-table code { background: var(--surface-muted); padding: 4px 6px; border-radius: 5px; color: var(--primary-bright); }
+/* FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — linha alvo de "Ajustar" (ScheduleImportReview), reaproveitando o token de destaque já usado em seleção. */
+.data-table tr.linha-destacada { background: var(--primary-soft); box-shadow: inset 0 0 0 2px var(--primary-bright); }
 .inline-edit { display: flex; gap: 6px; }
 .inline-edit input { width: 96px; min-height: 34px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); padding: 0 8px; }
 .inline-edit button { border: 0; border-radius: 6px; padding: 0 10px; background: var(--primary); color: white; cursor: pointer; }
@@ -1434,40 +1436,109 @@ button.shift-chip:disabled { cursor: default; }
  * uma pílula com "Rótulo: Número" corrido numa linha só — mais fácil de ler
  * rápido e não faz o texto competir por espaço num chip estreito.
  */
-.plantao-contatos-lista { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
-.plantao-contato-chip {
+/*
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — alternador de
+ * Plantões monitorados (Hoje/Agenda/Plantão). `.shift-chip` é um selo
+ * minúsculo de código de turno (min-width 38px, 9px) feito para uma
+ * célula de calendário — não serve para um rótulo de texto legível como
+ * "Plantão COSI". `.segmented-control` já resolve o toggle Jornada/
+ * Plantão, mas assume um grupo pequeno e fixo, sem rolagem — aqui o
+ * número de Plantões monitorados não tem teto (ex.: NOC vendo
+ * COSI+DBA+Linux+Telecom+Windows), por isso classe própria com rolagem
+ * horizontal. Cada fonte ganha uma pequena etiqueta de iniciais colorida
+ * (reaproveitando a MESMA paleta categórica de identidade já usada no
+ * calendário de Plantão, `[data-identidade]` — nunca uma paleta nova),
+ * com divisórias finas entre itens em vez de fundo de pílula.
+ */
+.plantao-grupo-chips {
+  display: flex;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  scrollbar-width: thin;
+}
+.plantao-grupo-chip {
+  flex: 0 0 auto;
+  min-height: 40px;
+  min-width: 0;
+  padding: 0 14px;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 14px 9px 9px;
-  border-radius: 12px;
-  background: var(--surface-muted);
-  border: 1px solid var(--border);
-  color: var(--text);
+  gap: 8px;
+  background: transparent;
+  border-right: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
 }
-.plantao-contato-chip-icone {
+.plantao-grupo-chip:last-child { border-right: none; }
+.plantao-grupo-chip.active {
+  color: var(--text);
+  background: var(--primary-soft);
+}
+.plantao-grupo-chip-badge {
   flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  font-size: 9.5px;
+  font-weight: 800;
+  background: var(--plantao-id-bg, var(--surface-muted));
+  color: var(--plantao-id-text, var(--muted));
+}
+/*
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — lista de contatos em
+ * linhas (ícone à esquerda por plataforma, rótulo+número no meio, ícone
+ * da plataforma repetido à direita como indicador de ação), substituindo
+ * os chips soltos/quebrando linha de antes — mais parecido com uma lista
+ * de contato real (telefone/e-mail/app de mensagem), reaproveitado nos 5
+ * pontos do App que mostram contato de plantão e no cabeçalho do cartão
+ * editável do Perfil.
+ */
+.plantao-contatos-lista { display: flex; flex-direction: column; margin-top: 14px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.plantao-contato-linha {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface);
+}
+.plantao-contato-linha + .plantao-contato-linha { border-top: 1px solid var(--border); }
+.plantao-contato-linha-icone,
+.plantao-contato-linha-plataforma {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   background: var(--primary-soft);
   color: var(--primary-bright);
 }
-.plantao-contato-chip-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.plantao-contato-chip-info small {
+.plantao-contato-linha-info { flex: 1 1 auto; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.plantao-contato-linha-info small {
   color: var(--muted);
   font-size: 10.5px;
   font-weight: 650;
   letter-spacing: 0.01em;
   overflow-wrap: anywhere;
 }
-.plantao-contato-chip-info strong {
+.plantao-contato-linha-info strong {
   font-size: 13px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+/* Tingimento por plataforma — mesmos tokens de status já usados no resto do produto, nunca uma paleta nova. */
+.plantao-contato-linha-whatsapp .plantao-contato-linha-icone,
+.plantao-contato-linha-whatsapp .plantao-contato-linha-plataforma { background: var(--success-soft); color: var(--success); }
+.plantao-contato-linha-email .plantao-contato-linha-icone,
+.plantao-contato-linha-email .plantao-contato-linha-plataforma { background: var(--primary-soft); color: var(--primary-bright); }
+.plantao-contato-linha-chat .plantao-contato-linha-icone,
+.plantao-contato-linha-chat .plantao-contato-linha-plataforma { background: var(--warning-soft); color: var(--warning); }
 
 /*
  * FASE-APP-UX-OPERACOES-MOBILE-1 — no mobile, contatos de Plantão (Hoje,
@@ -4166,6 +4237,77 @@ tr[data-status="USUARIO_INATIVO"] { background: color-mix(in srgb, var(--warning
 }
 .checkbox-inline input { width: 14px; height: 14px; accent-color: var(--primary); }
 
+/*
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — rótulo de busca
+ * autônomo (fora de `.admin-form-grid`/`.user-form-grid`), usado no modal
+ * "Plantões visíveis" (GrupoPlantaoVisibilidadeModal) e na listagem de
+ * Grupos de Plantão. Precisa da mesma disciplina de empilhar texto+campo
+ * de `.admin-form-grid label` (`display:grid; gap:6px`) — sem isso,
+ * label e input de texto ficam colados na mesma linha (comportamento
+ * inline padrão do navegador para <label>, e sem um contêiner de bloco
+ * antes/depois para forçar quebra, o texto "flutua" ao lado do que vier
+ * antes — foi isso que grudou a busca ao lado da subnav de Administração
+ * na listagem de Grupos de Plantão até este ajuste).
+ */
+.busca-simples {
+  display: grid;
+  gap: 6px;
+  max-width: 360px;
+  font-size: 11px;
+  font-weight: 750;
+  color: var(--text);
+}
+.busca-simples input {
+  height: var(--control-height);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.plantao-visibilidade-lista {
+  display: grid;
+  gap: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.plantao-visibilidade-grupo {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.plantao-visibilidade-grupo > legend {
+  padding: 0 0 2px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+/*
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — cada Plantão vira
+ * uma linha (etiqueta colorida de iniciais + nome + checkbox à direita,
+ * como uma confirmação), em vez de um `<label>` inline simples — mais
+ * parecido com a lista de fontes selecionadas da referência.
+ */
+.plantao-visibilidade-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+}
+.plantao-visibilidade-item-nome { flex: 1 1 auto; min-width: 0; }
+.plantao-visibilidade-item input[type="checkbox"] { flex: 0 0 auto; width: 16px; height: 16px; accent-color: var(--success); }
+
 @media (max-width: 780px) {
   .user-form-grid,
   .admin-form-grid { grid-template-columns: 1fr; }
@@ -5378,8 +5520,11 @@ fieldset.checkbox-card-list > legend {
   border-radius: var(--radius-control);
   background: var(--surface);
 }
-.app-contact-card-header { display: flex; align-items: center; justify-content: space-between; }
+.app-contact-card-header { display: flex; align-items: center; gap: 10px; }
 .app-contact-card-header strong { font-size: 12.5px; color: var(--text); }
+/* FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — ícone de plataforma + rótulo agrupados à esquerda; o botão de remover vai para a ponta via margin-left:auto (troca de space-between, que espalharia os 3 filhos igualmente em vez de agrupar ícone+rótulo). */
+.app-contact-card-header .plantao-contato-linha-icone { width: 24px; height: 24px; }
+.app-contact-card-header button { margin-left: auto; }
 .app-contact-card-fields { display: flex; flex-direction: column; gap: 10px; }
 .app-contact-field { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; font-weight: 600; color: var(--muted); min-width: 0; }
 .app-contact-field input {
