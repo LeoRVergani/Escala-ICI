@@ -42,6 +42,7 @@ import {
   LoaderCircle,
   LogOut,
   Mail,
+  MessageCircle,
   Moon,
   Phone,
   Plus,
@@ -102,9 +103,11 @@ import {
   carregarMinhaEscala,
   listarCatalogo,
   listarUsuarios,
+  obterEquipe,
   observarEscalasEquipe,
   observarEventosEscala,
 } from '@/lib/firebase/readRepository';
+import { descreverNivelHierarquico } from '@/lib/organizacao';
 import {
   listarAtribuicoesPlantaoPublicada,
   listarGruposPlantaoPermitidos,
@@ -116,12 +119,14 @@ import {
   atribuicoesPorDiaCivil,
   contatosAtivosDoPlantonista,
   diasCivisNoPeriodo,
+  escolherGrupoPlantaoPadrao,
   formatarIntervaloPlantaoCivil,
   formatarIntervaloPlantaoRelativoAHoje,
   indiceCorPlantonista,
   intervaloPlantaoCivil,
   nomeExibicaoPlantonista,
   obterIniciaisParticipantePlantao,
+  plataformaContatoPlantao,
   proximosPlantoesDoUsuario,
   resolverDestaquePlantaoHoje,
   resolverPlantaoAgora,
@@ -149,7 +154,7 @@ import {
 import { obterEscopoOperacional } from '@/lib/firebase/escoposOperacionaisRepository';
 import { usuarioPodeAdministrarAlvoOperacional } from '@/lib/escoposOperacionaisMatriz';
 import { GESTOR_DEMO, USUARIOS_DEMO } from '@/lib/demoIdentidades';
-import type { EscopoOperacional, EventoEscala, Usuario } from '@/lib/modelos';
+import type { Equipe, EscopoOperacional, EventoEscala, Usuario } from '@/lib/modelos';
 import { deveExibirRestauracao, podeIniciarListeners } from '@/lib/sessao';
 import {
   classificarDiaSemana,
@@ -194,6 +199,25 @@ import {
 
 type Tela = 'hoje' | 'minha' | 'trocas' | 'plantao' | 'equipe' | 'perfil';
 type ModoEscala = 'calendario' | 'agenda' | 'lembretes';
+
+/**
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — detalhe carregado de
+ * UM Grupo de Plantão monitorado, guardado em cache por `grupoId`
+ * (`detalhesPlantaoPorGrupoApp`) para trocar de chip sem nova leitura de
+ * rede. `erro` é o erro de PERMISSÃO específico deste grupo (ex.: Matriz
+ * não libera consulta) — nunca confundido com falha de rede/sessão, que
+ * continua abortando o carregamento inteiro (`catch` externo de
+ * `carregarPlantaoApp()`).
+ */
+interface DetalhePlantaoGrupo {
+  escopoOperacional: EscopoOperacional | null;
+  competencia: string | null;
+  periodo: { inicio: string; fim: string } | null;
+  atribuicoes: AtribuicaoPlantaoPersistida[];
+  participantes: ParticipantePlantao[];
+  contatos: ContatoPlantonista[] | null;
+  erro: string;
+}
 
 /**
  * FASE-APP-UX-OPERACOES-MOBILE-1 — estado tipado do feedback do editor de
@@ -439,24 +463,24 @@ function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso
               <i /> {rotuloFimPlantao(intervaloAtual, dataHoje)}
             </span>
           </div>
-          {contatosAtual.length > 0 && (
-            <div className="plantao-contatos-lista">
-              {contatosAtual.map((contato) => (
-                <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
-                  <span className="plantao-contato-chip-icone"><Phone size={13} /></span>
-                  <span className="plantao-contato-chip-info">
-                    <small>{contato.rotulo}</small>
-                    <strong>{contato.numero}</strong>
-                  </span>
-                </span>
-              ))}
-            </div>
-          )}
+          {contatosAtual.length > 0 && <ContatosPlantaoLista contatos={contatosAtual} />}
         </article>
       );
     }
   }
 
+  /**
+   * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — se chegamos aqui com
+   * `resumo.atual !== null`, é porque o `if` acima já teria retornado no
+   * caso normal — ou seja, existe uma atribuição "atual" cujo intervalo é
+   * inválido (dado corrompido), não uma ausência real de plantão. Nunca
+   * afirmar "ninguém está de plantão" nesse caso — seria uma informação
+   * falsa, não um estado vazio de verdade.
+   */
+  const dadoAtualCorrompido = resumo.atual !== null;
+  const mensagemSemPlantaoAgora = dadoAtualCorrompido
+    ? 'Não foi possível calcular o horário do plantão atual.'
+    : 'Ninguém está de plantão neste momento.';
   const destaque = resolverDestaquePlantaoHoje(resumo, grupo.timezone, dataHoje);
   if (destaque.estado === 'VAZIO') {
     return (
@@ -464,7 +488,7 @@ function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso
         <header className="today-card-heading">
           <span>Plantão de hoje</span>
         </header>
-        <p className="today-rest-copy">Ninguém está de plantão neste momento.</p>
+        <p className="today-rest-copy">{mensagemSemPlantaoAgora}</p>
       </article>
     );
   }
@@ -478,7 +502,7 @@ function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso
       <header className="today-card-heading">
         <span>Plantão de hoje</span>
       </header>
-      <p className="today-rest-copy">Ninguém está de plantão neste momento.</p>
+      <p className="today-rest-copy">{mensagemSemPlantaoAgora}</p>
       <p className="today-rest-copy today-next-shift-label">
         {destaque.estado === 'PROXIMO_HOJE' ? 'Próximo plantão de hoje:' : 'Próximo plantão:'}
       </p>
@@ -498,20 +522,80 @@ function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso
           </div>
         </div>
       </div>
-      {contatosProximo.length > 0 && (
-        <div className="plantao-contatos-lista">
-          {contatosProximo.map((contato) => (
-            <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
-              <span className="plantao-contato-chip-icone"><Phone size={13} /></span>
-              <span className="plantao-contato-chip-info">
-                <small>{contato.rotulo}</small>
-                <strong>{contato.numero}</strong>
-              </span>
-            </span>
-          ))}
-        </div>
-      )}
+      {contatosProximo.length > 0 && <ContatosPlantaoLista contatos={contatosProximo} />}
     </article>
+  );
+}
+
+/**
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — alternador entre os
+ * Plantões que a equipe do usuário consulta (ex.: NOC vendo
+ * COSI+DBA+Linux). Nunca mostra `grupoId` cru — sempre `grupo.nome`. Só
+ * renderiza quando há mais de um Grupo monitorado (zero mudança visual
+ * para o caso comum de um Grupo só).
+ */
+function PlantaoGrupoChips({
+  grupos,
+  grupoSelecionadoId,
+  onSelecionar,
+}: {
+  grupos: GrupoPlantao[];
+  grupoSelecionadoId: string | null;
+  onSelecionar: (grupoId: string) => void;
+}) {
+  if (grupos.length <= 1) {
+    return null;
+  }
+  return (
+    <div className="plantao-grupo-chips" role="tablist" aria-label="Plantões monitorados">
+      {grupos.map((grupo, indice) => (
+        <button
+          key={grupo.grupoId}
+          type="button"
+          role="tab"
+          aria-selected={grupo.grupoId === grupoSelecionadoId}
+          className={`plantao-grupo-chip ${grupo.grupoId === grupoSelecionadoId ? 'active' : ''}`}
+          onClick={() => onSelecionar(grupo.grupoId)}
+        >
+          <span className="plantao-grupo-chip-badge" data-identidade={indice % 8}>
+            {grupo.nome.replace(/^Plantão\s+/i, '').trim().slice(0, 2).toUpperCase() || grupo.nome.slice(0, 2).toUpperCase()}
+          </span>
+          {grupo.nome}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — linha de contato com
+ * ícone por plataforma nos dois lados (à esquerda o tipo, à direita a
+ * ação), substituindo o chip antigo (ícone de telefone genérico sempre,
+ * número em destaque solto) nos 5 pontos do App que mostram contatos de
+ * plantão — inclusive Perfil. `rotulo`/`numero` continuam os únicos dados
+ * reais; a plataforma é só inferida para escolher o ícone (visual).
+ */
+function ContatosPlantaoLista({ contatos }: { contatos: ContatoPlantonista[] }) {
+  if (contatos.length === 0) {
+    return null;
+  }
+  return (
+    <div className="plantao-contatos-lista">
+      {contatos.map((contato) => {
+        const plataforma = plataformaContatoPlantao(contato.rotulo);
+        const Icone = plataforma === 'email' ? Mail : plataforma === 'chat' ? MessageCircle : Phone;
+        return (
+          <div className={`plantao-contato-linha plantao-contato-linha-${plataforma}`} key={`${contato.rotulo}-${contato.numero}`}>
+            <span className="plantao-contato-linha-icone"><Icone size={15} /></span>
+            <span className="plantao-contato-linha-info">
+              <small>{contato.rotulo}</small>
+              <strong>{contato.numero}</strong>
+            </span>
+            <span className="plantao-contato-linha-plataforma" aria-hidden="true"><Icone size={15} /></span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -682,19 +766,7 @@ function DetalheDiaPlantao({
                     </div>
                   </div>
                   <span>{formatarIntervaloPlantaoCivil(intervalo)}</span>
-                  {contatosAtivos.length > 0 && (
-                    <div className="plantao-contatos-lista">
-                      {contatosAtivos.map((contato) => (
-                        <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
-                          <span className="plantao-contato-chip-icone"><Phone size={13} /></span>
-                          <span className="plantao-contato-chip-info">
-                            <small>{contato.rotulo}</small>
-                            <strong>{contato.numero}</strong>
-                          </span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                  {contatosAtivos.length > 0 && <ContatosPlantaoLista contatos={contatosAtivos} />}
                   {souEu && futuro && onSolicitarTroca && (
                     <button
                       className="secondary-button"
@@ -2125,7 +2197,30 @@ export function EmployeeApp() {
    * nunca a cada troca de aba — a fonte da escala é sempre a competência
    * PUBLICADA (nunca localStorage, ver `docs/spec/APP_PLANTAO_VISUALIZACAO.md`).
    */
+  /**
+   * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — TODOS os Grupos de
+   * Plantão que a equipe do usuário consulta (antes, só o primeiro era
+   * guardado e os demais eram descartados em silêncio). `grupoPlantaoApp`/
+   * `participantesPlantaoApp`/`atribuicoesPlantaoApp`/`competenciaPlantaoApp`/
+   * `periodoPlantaoApp`/`escopoOperacionalPlantaoApp` continuam existindo
+   * exatamente como antes (mesmo nome, mesmo formato, nenhum consumidor
+   * muda) — passam a representar "o Grupo atualmente selecionado" e são
+   * realimentados a partir de `detalhesPlantaoPorGrupoApp` (carregado uma
+   * vez para TODOS os grupos) sempre que `grupoPlantaoSelecionadoId` muda,
+   * por `aplicarDetalhePlantaoSelecionado()`.
+   */
+  const [gruposPlantaoApp, setGruposPlantaoApp] = useState<GrupoPlantao[]>([]);
+  const [grupoPlantaoSelecionadoId, setGrupoPlantaoSelecionadoId] = useState<string | null>(null);
+  const [detalhesPlantaoPorGrupoApp, setDetalhesPlantaoPorGrupoApp] = useState<Record<string, DetalhePlantaoGrupo>>({});
   const [grupoPlantaoApp, setGrupoPlantaoApp] = useState<GrupoPlantao | null | undefined>(undefined);
+  /**
+   * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — nome amigável da
+   * equipe do usuário, para o Perfil nunca mostrar `equipeId` cru
+   * (ex.: `GEDSI_COSI_PLANTAO`). `undefined` = ainda não carregado; `null`
+   * = carregado e não encontrado (equipe legada/removida) — nesse caso o
+   * Perfil cai de volta para o próprio `equipeId`, nunca um erro.
+   */
+  const [equipeUsuarioApp, setEquipeUsuarioApp] = useState<Equipe | null | undefined>(undefined);
   const [competenciaPlantaoApp, setCompetenciaPlantaoApp] = useState<string | null>(null);
   /**
    * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — período REAL da
@@ -2153,6 +2248,23 @@ export function EmployeeApp() {
   const [trocas, setTrocas] = useState<SolicitacaoTrocaReal[]>([]);
   const [notificacoesTroca, setNotificacoesTroca] = useState<NotificacaoTroca[]>([]);
   const [centralTrocasAberta, setCentralTrocasAberta] = useState(false);
+
+  useEffect(() => {
+    if (!centralAberta && !centralTrocasAberta) {
+      return undefined;
+    }
+    function aoClicarFora(evento: MouseEvent) {
+      const alvo = evento.target;
+      if (alvo instanceof Element && alvo.closest('.notification-center')) {
+        return;
+      }
+      setCentralAberta(false);
+      setCentralTrocasAberta(false);
+    }
+    document.addEventListener('mousedown', aoClicarFora);
+    return () => document.removeEventListener('mousedown', aoClicarFora);
+  }, [centralAberta, centralTrocasAberta]);
+
   const [abaTrocas, setAbaTrocas] = useState<AbaTrocas>('minhas');
   /**
    * FASE-TROCAS-PLANTAO-1 — mesmo padrão de estado das trocas de Jornada
@@ -2586,6 +2698,9 @@ export function EmployeeApp() {
     // trocar entre demo/real no mesmo dispositivo) nunca pode reaproveitar
     // o Plantão da sessão anterior.
     carregouPlantaoAppRef.current = false;
+    setGruposPlantaoApp([]);
+    setGrupoPlantaoSelecionadoId(null);
+    setDetalhesPlantaoPorGrupoApp({});
     setGrupoPlantaoApp(undefined);
     setCompetenciaPlantaoApp(null);
     setPeriodoPlantaoApp(null);
@@ -2676,6 +2791,90 @@ export function EmployeeApp() {
    * (`listarGruposPlantaoPermitidos` vazio), marca `null` e mostra um
    * estado vazio — nunca um erro.
    */
+  /**
+   * Copia o detalhe já carregado (cache `detalhesPlantaoPorGrupoApp`) de UM
+   * Grupo para os estados "em exibição" — mesmos nomes/formato de antes
+   * desta fase, para nenhum consumidor existente precisar mudar. Chamada
+   * tanto pela carga inicial quanto por `selecionarGrupoPlantaoApp()`
+   * (troca de chip), sempre a MESMA lógica de aplicação.
+   */
+  function aplicarDetalhePlantaoSelecionado(grupo: GrupoPlantao, detalhe: DetalhePlantaoGrupo) {
+    setGrupoPlantaoSelecionadoId(grupo.grupoId);
+    setGrupoPlantaoApp(grupo);
+    setEscopoOperacionalPlantaoApp(detalhe.escopoOperacional);
+    setParticipantesPlantaoApp(detalhe.participantes);
+    setContatosEdicaoApp(detalhe.contatos);
+    setCompetenciaPlantaoApp(detalhe.competencia);
+    setPeriodoPlantaoApp(detalhe.periodo);
+    setAtribuicoesPlantaoApp(detalhe.atribuicoes);
+    setErroPlantaoApp(detalhe.erro);
+  }
+
+  /**
+   * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — carrega o detalhe de
+   * UM Grupo (participantes/competência/atribuições/escopo operacional),
+   * sempre resolvendo (nunca rejeita) — um "permission-denied" específico
+   * deste Grupo (Matriz não libera consulta) vira `erro` no resultado, não
+   * uma falha que aborta o carregamento dos OUTROS grupos monitorados.
+   */
+  async function carregarDetalheGrupoPlantao(grupo: GrupoPlantao, loginUsuario: string): Promise<DetalhePlantaoGrupo> {
+    let escopoOperacional: EscopoOperacional | null = null;
+    try {
+      escopoOperacional = await obterEscopoOperacional('PLANTAO', grupo.grupoId);
+    } catch {
+      escopoOperacional = null;
+    }
+    const competencia = competenciaOperacional(dataHoje);
+    /**
+     * A leitura do Grupo e a leitura dos detalhes passam por regras
+     * diferentes no Firestore: a Matriz de Responsáveis tem sua PRÓPRIA
+     * lista de "equipes que consultam" por Grupo (`escoposOperacionais`,
+     * distinta de `GrupoPlantao.equipesConsulta`) e, quando existe, ela
+     * manda — uma equipe pode aparecer na lista do Grupo (por isso o Grupo
+     * é encontrado) e ainda assim não estar na lista da Matriz (por isso os
+     * detalhes abaixo podem ser negados). Isolado num try/catch próprio
+     * para nunca confundir esse "permission-denied" específico com uma
+     * falha de rede/sessão, e para nunca sugerir que o próprio usuário
+     * precisa de "permissão de gestor" (ver `docs/spec/APP_PLANTAO_VISUALIZACAO.md` § 2).
+     */
+    try {
+      const [competenciaPublicada, participantes] = await Promise.all([
+        obterCompetenciaPlantaoPublicada(grupo.grupoId, competencia),
+        listarParticipantesPlantao(grupo.grupoId),
+      ]);
+      const contatos = participantes.find((participante) => participante.login === loginUsuario)?.contatos ?? [];
+      if (competenciaPublicada === null) {
+        return { escopoOperacional, competencia: null, periodo: null, atribuicoes: [], participantes, contatos, erro: '' };
+      }
+      const atribuicoes = await listarAtribuicoesPlantaoPublicada(grupo.grupoId, competencia);
+      return {
+        escopoOperacional,
+        competencia,
+        periodo: { inicio: competenciaPublicada.periodoInicio, fim: competenciaPublicada.periodoFim },
+        atribuicoes,
+        participantes,
+        contatos,
+        erro: '',
+      };
+    } catch (falhaDetalhe) {
+      const codigoDetalhe = typeof falhaDetalhe === 'object' && falhaDetalhe !== null && 'code' in falhaDetalhe
+        ? String(falhaDetalhe.code)
+        : '';
+      if (codigoDetalhe.includes('permission-denied')) {
+        return {
+          escopoOperacional,
+          competencia: null,
+          periodo: null,
+          atribuicoes: [],
+          participantes: [],
+          contatos: null,
+          erro: 'Sua equipe ainda não tem permissão para consultar os detalhes deste Plantão (quem está de plantão, contatos). Peça ao coordenador para liberar a consulta em Administração > Responsáveis por escala.',
+        };
+      }
+      throw falhaDetalhe;
+    }
+  }
+
   async function carregarPlantaoApp() {
     if (usuario === null || modoDemonstracao || carregouPlantaoAppRef.current) {
       return;
@@ -2685,72 +2884,42 @@ export function EmployeeApp() {
     setErroPlantaoApp('');
     try {
       const grupos = await listarGruposPlantaoPermitidos(usuario.equipeId);
+      setGruposPlantaoApp(grupos);
       const grupo = grupos[0] ?? null;
       setGrupoPlantaoApp(grupo);
       if (grupo === null) {
         return;
       }
-      // FASE-TROCAS-PLANTAO-1 — quem administra o Grupo, para notificar ao
-      // aceitar uma troca e para liberar "Aprovações de Plantão" no App.
-      // Nunca falha o carregamento do Plantão: sem Matriz configurada, a
-      // troca de plantão segue seu fluxo normal, só sem notificação dirigida
-      // a um gestor (ver `destinatariosNotificacaoGestorPlantao()`).
-      try {
-        setEscopoOperacionalPlantaoApp(await obterEscopoOperacional('PLANTAO', grupo.grupoId));
-      } catch {
-        setEscopoOperacionalPlantaoApp(null);
-      }
-      const competencia = competenciaOperacional(dataHoje);
-      /**
-       * A leitura do Grupo (acima) e a leitura dos detalhes (participantes/
-       * competência/atribuições) passam por regras diferentes no Firestore:
-       * a Matriz de Responsáveis tem sua PRÓPRIA lista de "equipes que
-       * consultam" por Grupo (`escoposOperacionais`, distinta de
-       * `GrupoPlantao.equipesConsulta`) e, quando existe, ela manda — uma
-       * equipe pode aparecer na lista do Grupo (por isso o Grupo é
-       * encontrado aqui) e ainda assim não estar na lista da Matriz (por
-       * isso os detalhes abaixo podem ser negados). Isolado num try/catch
-       * próprio para nunca confundir esse "permission-denied" específico
-       * com uma falha de rede/sessão, e para nunca sugerir que o próprio
-       * usuário precisa de "permissão de gestor" (mensagem padrão de
-       * `mensagemErroFirebase`, pensada para ações administrativas — aqui é
-       * consulta, ver `docs/spec/APP_PLANTAO_VISUALIZACAO.md` § 2).
-       */
-      try {
-        const [competenciaPublicada, participantes] = await Promise.all([
-          obterCompetenciaPlantaoPublicada(grupo.grupoId, competencia),
-          listarParticipantesPlantao(grupo.grupoId),
-        ]);
-        setParticipantesPlantaoApp(participantes);
-        setContatosEdicaoApp(
-          participantes.find((participante) => participante.login === usuario.login)?.contatos ?? [],
-        );
-        if (competenciaPublicada === null) {
-          setCompetenciaPlantaoApp(null);
-          setPeriodoPlantaoApp(null);
-          setAtribuicoesPlantaoApp([]);
-          return;
-        }
-        setCompetenciaPlantaoApp(competencia);
-        setPeriodoPlantaoApp({ inicio: competenciaPublicada.periodoInicio, fim: competenciaPublicada.periodoFim });
-        const atribuicoes = await listarAtribuicoesPlantaoPublicada(grupo.grupoId, competencia);
-        setAtribuicoesPlantaoApp(atribuicoes);
-      } catch (falhaDetalhe) {
-        const codigoDetalhe = typeof falhaDetalhe === 'object' && falhaDetalhe !== null && 'code' in falhaDetalhe
-          ? String(falhaDetalhe.code)
-          : '';
-        if (codigoDetalhe.includes('permission-denied')) {
-          setErroPlantaoApp('Sua equipe ainda não tem permissão para consultar os detalhes deste Plantão (quem está de plantão, contatos). Peça ao coordenador para liberar a consulta em Administração > Responsáveis por escala.');
-          return;
-        }
-        throw falhaDetalhe;
-      }
+      const detalhes = await Promise.all(grupos.map((item) => carregarDetalheGrupoPlantao(item, usuario.login)));
+      const mapa: Record<string, DetalhePlantaoGrupo> = {};
+      const participantesPorGrupo: Record<string, ParticipantePlantao[]> = {};
+      grupos.forEach((item, indice) => {
+        mapa[item.grupoId] = detalhes[indice]!;
+        participantesPorGrupo[item.grupoId] = detalhes[indice]!.participantes;
+      });
+      setDetalhesPlantaoPorGrupoApp(mapa);
+      const grupoIdPadrao = escolherGrupoPlantaoPadrao(grupos, participantesPorGrupo, usuario.login) ?? grupo.grupoId;
+      const grupoPadrao = grupos.find((item) => item.grupoId === grupoIdPadrao) ?? grupo;
+      aplicarDetalhePlantaoSelecionado(grupoPadrao, mapa[grupoPadrao.grupoId]!);
     } catch (falha) {
       carregouPlantaoAppRef.current = false;
       setErroPlantaoApp(mensagemErroFirebase(falha, 'Não foi possível carregar o Plantão.', ambienteFirebaseAtual, 'autoatendimento'));
     } finally {
       setCarregandoPlantaoApp(false);
     }
+  }
+
+  /** Chip de troca de Plantão monitorado — instantâneo, sem nova leitura de rede (dado já em cache). */
+  function selecionarGrupoPlantaoApp(grupoId: string) {
+    if (usuario === null || grupoId === grupoPlantaoSelecionadoId) {
+      return;
+    }
+    const grupo = gruposPlantaoApp.find((item) => item.grupoId === grupoId);
+    const detalhe = detalhesPlantaoPorGrupoApp[grupoId];
+    if (grupo === undefined || detalhe === undefined) {
+      return;
+    }
+    aplicarDetalhePlantaoSelecionado(grupo, detalhe);
   }
 
   /** Sempre os próprios contatos, no próprio Grupo — nunca outro login, nunca outro campo (ver `firestore.rules`). */
@@ -2778,7 +2947,7 @@ export function EmployeeApp() {
     } catch (falha) {
       setFeedbackContatosApp({
         tipo: 'erro',
-        mensagem: mensagemErroFirebase(falha, 'Não foi possível salvar seus contatos.', ambienteFirebaseAtual),
+        mensagem: mensagemErroFirebase(falha, 'Não foi possível salvar seus contatos.', ambienteFirebaseAtual, 'autoatendimento'),
       });
     } finally {
       setSalvandoContatosApp(false);
@@ -2811,7 +2980,7 @@ export function EmployeeApp() {
           : participante));
       });
     } catch (falha) {
-      setMensagemCorPlantaoApp(mensagemErroFirebase(falha, 'Não foi possível salvar sua cor.', ambienteFirebaseAtual));
+      setMensagemCorPlantaoApp(mensagemErroFirebase(falha, 'Não foi possível salvar sua cor.', ambienteFirebaseAtual, 'autoatendimento'));
     } finally {
       setSalvandoCorPlantaoApp(false);
     }
@@ -2822,6 +2991,27 @@ export function EmployeeApp() {
       void Promise.resolve().then(() => carregarPlantaoApp());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuario, modoDemonstracao]);
+
+  useEffect(() => {
+    if (usuario === null || modoDemonstracao) {
+      return;
+    }
+    let cancelado = false;
+    obterEquipe(usuario.equipeId)
+      .then((equipe) => {
+        if (!cancelado) {
+          setEquipeUsuarioApp(equipe);
+        }
+      })
+      .catch(() => {
+        if (!cancelado) {
+          setEquipeUsuarioApp(null);
+        }
+      });
+    return () => {
+      cancelado = true;
+    };
   }, [usuario, modoDemonstracao]);
 
   async function encerrarSessao() {
@@ -2844,6 +3034,9 @@ export function EmployeeApp() {
     setNotificacoesTrocaPlantaoApp([]);
     setTrocaPlantaoAbertaId(null);
     setEscopoOperacionalPlantaoApp(null);
+    setGruposPlantaoApp([]);
+    setGrupoPlantaoSelecionadoId(null);
+    setDetalhesPlantaoPorGrupoApp({});
     setDadosCarregados(false);
     setCentralAberta(false);
     setCentralTrocasAberta(false);
@@ -2857,6 +3050,9 @@ export function EmployeeApp() {
   function alternarCentral() {
     const abrir = !centralAberta;
     setCentralAberta(abrir);
+    if (abrir) {
+      setCentralTrocasAberta(false);
+    }
     if (!abrir || usuario === null) {
       return;
     }
@@ -3161,7 +3357,13 @@ export function EmployeeApp() {
   }, [usuario, modoDemonstracao, dadosCarregados]);
 
   function alternarCentralTrocas() {
-    setCentralTrocasAberta((atual) => !atual);
+    setCentralTrocasAberta((atual) => {
+      const abrir = !atual;
+      if (abrir) {
+        setCentralAberta(false);
+      }
+      return abrir;
+    });
   }
 
   function abrirNotificacaoTrocaApp(notificacao: ItemNotificacaoTrocaApp) {
@@ -3221,7 +3423,7 @@ export function EmployeeApp() {
       setAssistenteTroca(null);
       setAbaTrocas('minhas');
     } catch (falha) {
-      setErroTroca(mensagemErroFirebase(falha, 'Não foi possível enviar a solicitação de troca.', ambienteFirebaseAtual));
+      setErroTroca(mensagemErroFirebase(falha, 'Não foi possível enviar a solicitação de troca.', ambienteFirebaseAtual, 'autoatendimento'));
     } finally {
       setProcessandoTroca(false);
     }
@@ -3237,7 +3439,7 @@ export function EmployeeApp() {
       await responderSolicitacaoTrocaFirebase(trocaId, { login: usuario.login, nome: usuario.nome }, aceitar);
       setTrocaAbertaId(null);
     } catch (falha) {
-      setErroTroca(mensagemErroFirebase(falha, 'Não foi possível responder a solicitação de troca.', ambienteFirebaseAtual));
+      setErroTroca(mensagemErroFirebase(falha, 'Não foi possível responder a solicitação de troca.', ambienteFirebaseAtual, 'autoatendimento'));
     } finally {
       setProcessandoTroca(false);
     }
@@ -3253,7 +3455,7 @@ export function EmployeeApp() {
       await cancelarSolicitacaoTrocaFirebase(trocaId, { login: usuario.login, nome: usuario.nome });
       setTrocaAbertaId(null);
     } catch (falha) {
-      setErroTroca(mensagemErroFirebase(falha, 'Não foi possível cancelar a solicitação de troca.', ambienteFirebaseAtual));
+      setErroTroca(mensagemErroFirebase(falha, 'Não foi possível cancelar a solicitação de troca.', ambienteFirebaseAtual, 'autoatendimento'));
     } finally {
       setProcessandoTroca(false);
     }
@@ -3334,7 +3536,7 @@ export function EmployeeApp() {
       setAssistenteTrocaPlantao(null);
       setAbaTrocasPlantao('minhas');
     } catch (falha) {
-      setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível enviar a solicitação de troca de plantão.', ambienteFirebaseAtual));
+      setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível enviar a solicitação de troca de plantão.', ambienteFirebaseAtual, 'autoatendimento'));
     } finally {
       setProcessandoTrocaPlantao(false);
     }
@@ -3359,7 +3561,7 @@ export function EmployeeApp() {
       );
       setTrocaPlantaoAbertaId(null);
     } catch (falha) {
-      setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível responder a solicitação de troca de plantão.', ambienteFirebaseAtual));
+      setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível responder a solicitação de troca de plantão.', ambienteFirebaseAtual, 'autoatendimento'));
     } finally {
       setProcessandoTrocaPlantao(false);
     }
@@ -3375,7 +3577,7 @@ export function EmployeeApp() {
       await cancelarSolicitacaoTrocaPlantaoFirebase(trocaId, { login: usuario.login, nome: usuario.nome });
       setTrocaPlantaoAbertaId(null);
     } catch (falha) {
-      setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível cancelar a solicitação de troca de plantão.', ambienteFirebaseAtual));
+      setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível cancelar a solicitação de troca de plantão.', ambienteFirebaseAtual, 'autoatendimento'));
     } finally {
       setProcessandoTrocaPlantao(false);
     }
@@ -3542,7 +3744,7 @@ export function EmployeeApp() {
                 <CalendarDays size={15} /> {formatarCompetencia(competenciaAtiva)}
               </span>
               <span className="read-only-badge">
-                <ShieldCheck size={16} /> Escala publicada
+                <ShieldCheck size={16} /> Somente leitura
               </span>
             </div>
           </header>
@@ -3582,14 +3784,21 @@ export function EmployeeApp() {
                 </>
               )}
               {plantaoPublicadoApp && grupoPlantaoApp != null && (
-                <PlantaoHojeCard
-                  grupo={grupoPlantaoApp}
-                  atribuicoes={atribuicoesPlantaoApp}
-                  participantes={participantesPlantaoApp}
-                  usuarios={usuarios}
-                  agoraIso={agora.toISOString()}
-                  loginUsuarioAtual={usuario.login}
-                />
+                <>
+                  <PlantaoGrupoChips
+                    grupos={gruposPlantaoApp}
+                    grupoSelecionadoId={grupoPlantaoSelecionadoId}
+                    onSelecionar={selecionarGrupoPlantaoApp}
+                  />
+                  <PlantaoHojeCard
+                    grupo={grupoPlantaoApp}
+                    atribuicoes={atribuicoesPlantaoApp}
+                    participantes={participantesPlantaoApp}
+                    usuarios={usuarios}
+                    agoraIso={agora.toISOString()}
+                    loginUsuarioAtual={usuario.login}
+                  />
+                </>
               )}
             </div>
           )}
@@ -3736,25 +3945,32 @@ export function EmployeeApp() {
           )}
 
           {agendaOperacaoEfetiva === 'PLANTAO' && plantaoPublicadoApp && grupoPlantaoApp != null && periodoPlantaoApp != null ? (
-            <article className="panel">
-              <div className="panel-title">
-                <div>
-                  <h2>Calendário do mês</h2>
-                  <p>Competência {formatarCompetencia(competenciaPlantaoApp ?? competenciaAtiva)}</p>
-                </div>
-              </div>
-              <CalendarioPlantaoApp
-                periodoInicio={periodoPlantaoApp.inicio}
-                periodoFim={periodoPlantaoApp.fim}
-                dataHoje={dataHoje}
-                atribuicoes={atribuicoesPlantaoApp}
-                participantes={participantesPlantaoApp}
-                usuarios={usuarios}
-                timezone={grupoPlantaoApp.timezone}
-                loginUsuarioAtual={usuario.login}
-                onSelecionarDia={setDiaPlantaoSelecionado}
+            <>
+              <PlantaoGrupoChips
+                grupos={gruposPlantaoApp}
+                grupoSelecionadoId={grupoPlantaoSelecionadoId}
+                onSelecionar={selecionarGrupoPlantaoApp}
               />
-            </article>
+              <article className="panel">
+                <div className="panel-title">
+                  <div>
+                    <h2>Calendário do mês</h2>
+                    <p>Competência {formatarCompetencia(competenciaPlantaoApp ?? competenciaAtiva)}</p>
+                  </div>
+                </div>
+                <CalendarioPlantaoApp
+                  periodoInicio={periodoPlantaoApp.inicio}
+                  periodoFim={periodoPlantaoApp.fim}
+                  dataHoje={dataHoje}
+                  atribuicoes={atribuicoesPlantaoApp}
+                  participantes={participantesPlantaoApp}
+                  usuarios={usuarios}
+                  timezone={grupoPlantaoApp.timezone}
+                  loginUsuarioAtual={usuario.login}
+                  onSelecionarDia={setDiaPlantaoSelecionado}
+                />
+              </article>
+            </>
           ) : (
             <>
               <div className="agenda-mobile-week">
@@ -4091,7 +4307,16 @@ export function EmployeeApp() {
               <h1>{grupoPlantaoApp ? grupoPlantaoApp.nome : 'Plantão'}</h1>
               <p>Quem está de plantão agora, o próximo e — se você é plantonista — seus próprios plantões.</p>
             </div>
+            <span className="read-only-badge">
+              <ShieldCheck size={16} /> Somente leitura
+            </span>
           </header>
+
+          <PlantaoGrupoChips
+            grupos={gruposPlantaoApp}
+            grupoSelecionadoId={grupoPlantaoSelecionadoId}
+            onSelecionar={selecionarGrupoPlantaoApp}
+          />
 
           {carregandoPlantaoApp && (
             <article className="panel organization-empty-state" role="status">
@@ -4156,19 +4381,7 @@ export function EmployeeApp() {
                             <i /> {rotuloFimPlantao(intervaloAtual, dataHojeGrupo)}
                           </span>
                         </div>
-                        {contatosAtual.length > 0 && (
-                          <div className="plantao-contatos-lista">
-                            {contatosAtual.map((contato) => (
-                              <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
-                                <span className="plantao-contato-chip-icone"><Phone size={13} /></span>
-                                <span className="plantao-contato-chip-info">
-                                  <small>{contato.rotulo}</small>
-                                  <strong>{contato.numero}</strong>
-                                </span>
-                              </span>
-                            ))}
-                          </div>
-                        )}
+                        {contatosAtual.length > 0 && <ContatosPlantaoLista contatos={contatosAtual} />}
                       </>
                     )}
                   </article>
@@ -4268,7 +4481,7 @@ export function EmployeeApp() {
               </p>
             </div>
             <span className="read-only-badge">
-              <ShieldCheck size={16} /> Publicada
+              <ShieldCheck size={16} /> Somente leitura
             </span>
           </header>
 
@@ -4321,17 +4534,7 @@ export function EmployeeApp() {
                         {souEu && <span className="app-participant-badge">Você</span>}
                       </header>
                       {contatosAtivos.length > 0 ? (
-                        <div className="plantao-contatos-lista">
-                          {contatosAtivos.map((contato) => (
-                            <span className="plantao-contato-chip" key={`${contato.rotulo}-${contato.numero}`}>
-                              <span className="plantao-contato-chip-icone"><Phone size={13} /></span>
-                              <span className="plantao-contato-chip-info">
-                                <small>{contato.rotulo}</small>
-                                <strong>{contato.numero}</strong>
-                              </span>
-                            </span>
-                          ))}
-                        </div>
+                        <ContatosPlantaoLista contatos={contatosAtivos} />
                       ) : (
                         <p className="app-participant-contato-vazio">Contato não informado.</p>
                       )}
@@ -4404,8 +4607,8 @@ export function EmployeeApp() {
             <article className="panel profile-details">
               <div><Mail /><span>E-mail</span><strong>{usuario.email}</strong></div>
               <div><BriefcaseBusiness /><span>Cargo</span><strong>{usuario.cargo}</strong></div>
-              <div><Building2 /><span>Equipe</span><strong>{usuario.equipeId}</strong></div>
-              <div><UserRound /><span>Nível</span><strong>{usuario.nivelHierarquico}</strong></div>
+              <div><Building2 /><span>Equipe</span><strong>{equipeUsuarioApp?.nome ?? usuario.equipeId}</strong></div>
+              <div><UserRound /><span>Nível</span><strong>{descreverNivelHierarquico(usuario.nivelHierarquico)}</strong></div>
             </article>
             {grupoPlantaoApp != null
               && participantesPlantaoApp.some((participante) => participante.login === usuario.login && participante.ativo)
@@ -4421,9 +4624,13 @@ export function EmployeeApp() {
                   {contatosEdicaoApp.length === 0 && (
                     <p className="empty-inline">Contato não informado.</p>
                   )}
-                  {contatosEdicaoApp.map((contato, indice) => (
+                  {contatosEdicaoApp.map((contato, indice) => {
+                    const plataforma = plataformaContatoPlantao(contato.rotulo);
+                    const IconePlataforma = plataforma === 'email' ? Mail : plataforma === 'chat' ? MessageCircle : Phone;
+                    return (
                     <article className="app-contact-card" key={indice}>
                       <header className="app-contact-card-header">
+                        <span className={`plantao-contato-linha-icone plantao-contato-linha-${plataforma}`}><IconePlataforma size={15} /></span>
                         <strong>Contato {indice + 1}</strong>
                         <button
                           className="icon-button"
@@ -4462,7 +4669,8 @@ export function EmployeeApp() {
                         <span>Contato ativo</span>
                       </label>
                     </article>
-                  ))}
+                    );
+                  })}
                 </div>
                 <button
                   className="secondary-button compact-button app-contact-add-button"

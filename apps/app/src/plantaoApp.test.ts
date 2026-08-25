@@ -1,4 +1,4 @@
-import type { AtribuicaoPlantaoPersistida, ParticipantePlantao } from '@escala-ici/contrato';
+import type { AtribuicaoPlantaoPersistida, GrupoPlantao, ParticipantePlantao } from '@escala-ici/contrato';
 import { describe, expect, it } from 'vitest';
 
 import type { Usuario } from '@/lib/modelos';
@@ -6,12 +6,14 @@ import {
   atribuicoesPorDiaCivil,
   contatosAtivosDoPlantonista,
   diasCivisNoPeriodo,
+  escolherGrupoPlantaoPadrao,
   formatarIntervaloPlantaoCivil,
   formatarIntervaloPlantaoRelativoAHoje,
   indiceCorPlantonista,
   intervaloPlantaoCivil,
   nomeExibicaoPlantonista,
   obterIniciaisParticipantePlantao,
+  plataformaContatoPlantao,
   proximosPlantoesDoUsuario,
   resolverDestaquePlantaoHoje,
   resolverPlantaoAgora,
@@ -373,5 +375,55 @@ describe('indiceCorPlantonista', () => {
     const semPreferencia = [participante({ login: 'clis', corPreferida: undefined })];
     const limpa = [participante({ login: 'clis', corPreferida: null })];
     expect(indiceCorPlantonista('clis', limpa)).toBe(indiceCorPlantonista('clis', semPreferencia));
+  });
+});
+
+describe('escolherGrupoPlantaoPadrao', () => {
+  const cosi = { grupoId: 'PLANTAO_COSI' } as GrupoPlantao;
+  const noc = { grupoId: 'PLANTAO_NOC' } as GrupoPlantao;
+  const dba = { grupoId: 'PLANTAO_DBA' } as GrupoPlantao;
+
+  it('só um grupo — comportamento de antes desta fase, sempre o primeiro', () => {
+    expect(escolherGrupoPlantaoPadrao([cosi], {}, 'clis')).toBe('PLANTAO_COSI');
+  });
+
+  it('vários grupos, sem participação em nenhum — cai no primeiro retornado', () => {
+    expect(escolherGrupoPlantaoPadrao([cosi, noc, dba], {}, 'clis')).toBe('PLANTAO_COSI');
+  });
+
+  it('vários grupos, participante ativo num deles que não é o primeiro — prefere onde participa', () => {
+    const porGrupo = { PLANTAO_NOC: [participante({ login: 'clis', grupoId: 'PLANTAO_NOC', ativo: true })] };
+    expect(escolherGrupoPlantaoPadrao([cosi, noc, dba], porGrupo, 'clis')).toBe('PLANTAO_NOC');
+  });
+
+  it('participação INATIVA não conta — continua caindo no primeiro', () => {
+    const porGrupo = { PLANTAO_NOC: [participante({ login: 'clis', grupoId: 'PLANTAO_NOC', ativo: false })] };
+    expect(escolherGrupoPlantaoPadrao([cosi, noc, dba], porGrupo, 'clis')).toBe('PLANTAO_COSI');
+  });
+
+  it('lista vazia -> null', () => {
+    expect(escolherGrupoPlantaoPadrao([], {}, 'clis')).toBeNull();
+  });
+});
+
+describe('plataformaContatoPlantao', () => {
+  it('reconhece WhatsApp (com ou sem acento/caixa)', () => {
+    expect(plataformaContatoPlantao('WhatsApp')).toBe('whatsapp');
+    expect(plataformaContatoPlantao('zap')).toBe('whatsapp');
+  });
+
+  it('reconhece e-mail', () => {
+    expect(plataformaContatoPlantao('E-mail')).toBe('email');
+    expect(plataformaContatoPlantao('Gmail pessoal')).toBe('email');
+  });
+
+  it('reconhece chat corporativo (Slack/Teams)', () => {
+    expect(plataformaContatoPlantao('Slack')).toBe('chat');
+    expect(plataformaContatoPlantao('Teams')).toBe('chat');
+  });
+
+  it('rótulo não reconhecido (ex.: Ramal) cai em telefone, o padrão seguro', () => {
+    expect(plataformaContatoPlantao('Ramal')).toBe('telefone');
+    expect(plataformaContatoPlantao('Celular pessoal')).toBe('telefone');
   });
 });

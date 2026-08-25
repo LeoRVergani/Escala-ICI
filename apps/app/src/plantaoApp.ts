@@ -4,6 +4,7 @@ import {
   TAMANHO_PALETA_IDENTIDADE_PLANTAO,
   type AtribuicaoPlantaoPersistida,
   type ContatoPlantonista,
+  type GrupoPlantao,
   type ParticipantePlantao,
 } from '@escala-ici/contrato';
 
@@ -272,6 +273,49 @@ export function atribuicoesPorDiaCivil(
  * por `lib/editorPlantao.ts` — por isso um hash próprio aqui, não o mesmo
  * cálculo). A mesma pessoa nunca muda de cor entre sessões sem escolher.
  */
+/**
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — quando uma equipe
+ * consulta vários Grupos de Plantão (ex.: NOC vendo COSI+DBA+Linux), qual
+ * deles aparece selecionado por padrão ao abrir o App. Prefere um Grupo
+ * onde o usuário é participante ATIVO (mais relevante para quem também é
+ * plantonista); sem nenhum, cai no primeiro retornado — mesmo
+ * comportamento de antes desta fase para quem só tem um Grupo (nunca
+ * regride o caso comum). `null` só quando `grupos` está vazio.
+ */
+export function escolherGrupoPlantaoPadrao(
+  grupos: readonly GrupoPlantao[],
+  participantesPorGrupo: Readonly<Record<string, readonly ParticipantePlantao[]>>,
+  loginUsuario: string,
+): string | null {
+  const comParticipacaoAtiva = grupos.find((grupo) =>
+    (participantesPorGrupo[grupo.grupoId] ?? []).some((participante) => participante.login === loginUsuario && participante.ativo));
+  return comParticipacaoAtiva?.grupoId ?? grupos[0]?.grupoId ?? null;
+}
+
+/**
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — `ContatoPlantonista.rotulo`
+ * é texto livre (ex.: "WhatsApp", "E-mail", "Slack", "Ramal") — nunca um
+ * enum fechado no modelo. Esta função só decide qual ícone mostrar ao
+ * lado do contato (visual, nunca autorização); um rótulo não reconhecido
+ * sempre cai em `'telefone'`, o padrão mais seguro (é o que a maioria dos
+ * contatos de plantão realmente é).
+ */
+export type PlataformaContatoPlantao = 'whatsapp' | 'email' | 'chat' | 'telefone';
+
+export function plataformaContatoPlantao(rotulo: string): PlataformaContatoPlantao {
+  const normalizado = rotulo.trim().toLowerCase();
+  if (normalizado.includes('whatsapp') || normalizado.includes('zap')) {
+    return 'whatsapp';
+  }
+  if (normalizado.includes('mail')) {
+    return 'email';
+  }
+  if (normalizado.includes('slack') || normalizado.includes('teams') || normalizado.includes('chat')) {
+    return 'chat';
+  }
+  return 'telefone';
+}
+
 export function indiceCorPlantonista(
   login: string,
   participantes: readonly ParticipantePlantao[],
