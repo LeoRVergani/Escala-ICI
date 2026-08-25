@@ -60,7 +60,11 @@ test('6. resumo visual antes de salvar usa resumoAcessoUsuario() — nunca um te
 
 test('7. Administrador do sistema exige confirmação antes de salvar, mesmo vindo do Avançado (perfil final decide, não só o seletor simples)', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  assert.match(dashboard, /exigeConfirmacaoGlobal = candidato\.perfil === 'ADMIN_SISTEMA' \|\| candidato\.escopo === 'GLOBAL';/u);
+  // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — a checagem agora só
+  // se aplica a souAdmin: GESTOR_UNIDADE nunca alcança perfil ADMIN_SISTEMA/
+  // escopo GLOBAL (a Rule já fecha esse enum), então nunca precisa desta
+  // confirmação — mas a exigência para souAdmin continua intacta.
+  assert.match(dashboard, /exigeConfirmacaoGlobal = souAdmin && \(candidato\.perfil === 'ADMIN_SISTEMA' \|\| candidato\.escopo === 'GLOBAL'\);/u);
   assert.match(dashboard, /validarCoerenciaAcessoUsuario\(candidato\)/u);
 });
 

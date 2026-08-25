@@ -61,6 +61,62 @@ function adulterarPrimeiraCelulaDeAleilima(): ArrayBuffer {
   return bytes as ArrayBuffer;
 }
 
+/**
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — mesma célula-alvo de
+ * `adulterarPrimeiraCelulaDeAleilima()` (primeiro dia de aleilima), mas
+ * escrevendo um NÚMERO fora de 1-6 em vez de texto — para exercitar o ramo
+ * `!seqValida` de `parsePlanilhaEscala()`, classificado como ALERTA (nunca
+ * BLOQUEANTE, ao contrário de um valor de texto não reconhecido).
+ */
+function adulterarSequenciaForaDeAlcance(): ArrayBuffer {
+  const workbook = XLSX.read(carregarFixture(), { type: 'array' });
+  const planilha = workbook.Sheets.Escalistas;
+  if (planilha === undefined || planilha['!ref'] === undefined) {
+    throw new Error('Fixture sem a aba Escalistas.');
+  }
+
+  const intervalo = XLSX.utils.decode_range(planilha['!ref']);
+  let linhaLogin: number | undefined;
+  let colunaLogin: number | undefined;
+  let colunaDiaMes: number | undefined;
+  let linhaDiaMes: number | undefined;
+
+  for (let linha = intervalo.s.r; linha <= intervalo.e.r; linha += 1) {
+    for (let coluna = intervalo.s.c; coluna <= intervalo.e.c; coluna += 1) {
+      const referencia = XLSX.utils.encode_cell({ r: linha, c: coluna });
+      const valor = String(planilha[referencia]?.v ?? '').trim();
+      if (valor === 'aleilima') {
+        linhaLogin ??= linha;
+        colunaLogin ??= coluna;
+      }
+      if (valor === 'DIA/MÊS') {
+        linhaDiaMes ??= linha;
+        colunaDiaMes ??= coluna;
+      }
+    }
+  }
+
+  if (
+    linhaLogin === undefined
+    || colunaLogin === undefined
+    || linhaDiaMes === undefined
+    || colunaDiaMes === undefined
+    || colunaLogin !== colunaDiaMes
+  ) {
+    throw new Error('Estrutura da fixture inesperada.');
+  }
+
+  const segundaColunaDia = colunaDiaMes + 2;
+  const referenciaAlvo = XLSX.utils.encode_cell({
+    r: linhaLogin,
+    c: segundaColunaDia,
+  });
+  planilha[referenciaAlvo] = { t: 'n', v: 9 };
+
+  const bytes = XLSX.write(workbook, { type: 'array', bookType: 'xls' });
+  return bytes as ArrayBuffer;
+}
+
 describe('parsePlanilhaEscala com a planilha real', () => {
   it('1. extrai o nome canônico da equipe', () => {
     expect(resultadoOriginal().equipeNome).toBe('SOC - Escala 6');
@@ -259,6 +315,46 @@ describe('parsePlanilhaEscala com a planilha real', () => {
       }),
     ]);
     expect(documento?.usuarioUid).toBe('');
+  });
+});
+
+/**
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — classificação de
+ * severidade (`ErroImportacao.severidade`): só a sequência de trabalho
+ * fora de 1-6 é ALERTA (pode ser uma exceção operacional legítima); todo
+ * o resto continua BLOQUEANTE (erro estrutural, sem interpretação
+ * possível). Ver tabela de classificação no relatório da fase.
+ */
+describe('severidade de erros (BLOQUEANTE vs ALERTA)', () => {
+  it('sequência de trabalho fora de 1-6 é ALERTA — pode ser uma exceção operacional legítima', () => {
+    const resultado = parsePlanilhaEscala(adulterarSequenciaForaDeAlcance(), OPCOES_SOC);
+    expect(resultado.ok).toBe(false);
+    expect(resultado.erros).toHaveLength(1);
+    expect(resultado.erros[0]).toMatchObject({
+      login: 'aleilima',
+      valorEncontrado: '9',
+      motivo: 'Sequência de trabalho inválida; esperado número inteiro entre 1 e 6.',
+      severidade: 'ALERTA',
+    });
+  });
+
+  it('valor de texto não reconhecido pelo catálogo continua BLOQUEANTE — problema de dado, não exceção', () => {
+    const resultado = parsePlanilhaEscala(adulterarPrimeiraCelulaDeAleilima(), OPCOES_SOC);
+    expect(resultado.erros).toHaveLength(1);
+    expect(resultado.erros[0]).toMatchObject({ severidade: 'BLOQUEANTE' });
+  });
+
+  it('login não encontrado em opts.loginParaUid continua BLOQUEANTE', () => {
+    const { ivcarvalho: loginRemovido, ...demaisLogins } = LOGINS_SOC;
+    expect(loginRemovido).toBe('u2');
+    const resultado = parsePlanilhaEscala(carregarFixture(), { ...OPCOES_SOC, loginParaUid: demaisLogins });
+    expect(resultado.erros).toEqual([expect.objectContaining({ severidade: 'BLOQUEANTE' })]);
+  });
+
+  it('todo erro real da planilha original tem uma severidade válida (BLOQUEANTE ou ALERTA), nunca ausente', () => {
+    for (const erro of resultadoOriginal().erros) {
+      expect(['BLOQUEANTE', 'ALERTA']).toContain(erro.severidade);
+    }
   });
 });
 

@@ -29,6 +29,7 @@ import {
   type ParticipantePlantao,
   type ResultadoParse,
   type ResultadoParsePlantao,
+  temErroBloqueante,
   type TurnosMes,
 } from '@escala-ici/contrato';
 import {
@@ -279,6 +280,7 @@ import {
   rotuloTecnicoUnidade,
   trechoFinalCaminho,
 } from '@/lib/organizacao';
+import { GrupoPlantaoVisibilidadeModal } from '@/components/organizacao/GrupoPlantaoVisibilidadeModal';
 import { OrganizationBreadcrumb } from '@/components/organizacao/OrganizationBreadcrumb';
 import { OrganizationTeamPicker } from '@/components/organizacao/OrganizationTeamPicker';
 import { OrganizationTree } from '@/components/organizacao/OrganizationTree';
@@ -335,7 +337,7 @@ import {
   validarCadastroInline,
 } from '@/lib/inicioEscala';
 import {
-  plantoesDisponiveisParaMonitoramento,
+  dentroDoEscopoPermitido,
   plantoesMonitoradosPelaEquipe,
   resolverEscoposOperacionais,
   type EscoposOperacionais,
@@ -1519,6 +1521,11 @@ function ModalGrupoPlantao({
               onChange={(evento) => setForm((atual) => ({ ...atual, nome: evento.target.value }))}
             />
           </label>
+          {form.nome.trim() !== '' && gruposExistentes.some((item) => item.grupoId !== form.grupoId && normalizarNome(item.nome) === normalizarNome(form.nome)) && (
+            <p className="admin-form-full hint-text warning-text">
+              Já existe outro Plantão com esse nome. Confira se não é duplicidade antes de salvar.
+            </p>
+          )}
           <label className="admin-form-full" htmlFor="grupo-plantao-descricao">
             Descrição (opcional)
             <input
@@ -1585,7 +1592,7 @@ function ModalGrupoPlantao({
               Só quem gerencia a equipe responsável (sempre incluída abaixo) administra este grupo.
             </p>
             <p className="admin-form-preview">
-              Para liberar consulta da sua própria equipe a um Plantão de outra área, use Plantões monitorados pela equipe, na página da sua equipe em Administração.
+              Para liberar consulta da sua própria equipe a um Plantão de outra área, use o botão &ldquo;Configurar plantões visíveis&rdquo; na página da sua equipe, em Administração &gt; Organização.
             </p>
             <button
               ref={botaoEquipesConsultaRef}
@@ -2016,6 +2023,7 @@ function ModalDetalheTrocaGestor({
   motivoRecusa,
   processando,
   erro,
+  podeAprovarNoEscopo,
   onMudarMotivoRecusa,
   onFechar,
   onRecusar,
@@ -2026,12 +2034,19 @@ function ModalDetalheTrocaGestor({
   motivoRecusa: string;
   processando: boolean;
   erro: string;
+  /**
+   * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — calculado por quem
+   * chama, a partir de `escoposOperacionais.jornadasAdministraveis`: se
+   * `false`, os botões Aprovar/Recusar nem aparecem, em vez de deixar a
+   * escrita ser recusada pela Rule (mesmo padrão de Grupos de Plantão).
+   */
+  podeAprovarNoEscopo: boolean;
   onMudarMotivoRecusa: (valor: string) => void;
   onFechar: () => void;
   onRecusar: () => void;
   onAprovarEPublicar: () => void;
 }) {
-  const podeDecidir = troca.status === 'PENDENTE_GESTOR';
+  const podeDecidir = troca.status === 'PENDENTE_GESTOR' && podeAprovarNoEscopo;
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
@@ -2123,6 +2138,10 @@ function ModalDetalheTrocaGestor({
               maxLength={280}
             />
           </label>
+        )}
+
+        {troca.status === 'PENDENTE_GESTOR' && !podeAprovarNoEscopo && (
+          <p className="hint-text">Esta troca é de uma equipe que você não administra.</p>
         )}
 
         {erro && <div className="alert error" role="alert">{erro}</div>}
@@ -3136,6 +3155,26 @@ export function DashboardApp() {
   const [usuarios, setUsuarios] = useState<Usuario[]>(USUARIOS_DEMO);
   const [catalogo, setCatalogo] = useState(CATALOGO_SOC);
   const [resultado, setResultado] = useState<ResultadoParse | null>(null);
+  /**
+   * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — `true` só quando há
+   * erro BLOQUEANTE de verdade (nunca por causa de um ALERTA, que permite
+   * salvar rascunho e só exige justificativa para publicar). Substitui
+   * `!resultado?.ok` em todo gate de "Salvar rascunho"/"Publicar".
+   */
+  const resultadoTemBloqueio = resultado === null || temErroBloqueante(resultado.erros);
+  const resultadoTemAlertaSemBloqueio = resultado !== null && !resultadoTemBloqueio && resultado.erros.length > 0;
+  /**
+   * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — "Ajustar"
+   * (`ScheduleImportReview`) leva até a linha exata na tabela "Corrigir
+   * inconsistências", mesmo para um erro estrutural sem célula física
+   * específica (todo erro tem uma linha nesta tabela, por índice).
+   */
+  const correcaoLinhaRefs = useRef<Record<number, HTMLTableRowElement | null>>({});
+  const [indiceErroDestacado, setIndiceErroDestacado] = useState<number | null>(null);
+  function focarErroNaTabela(indice: number) {
+    setIndiceErroDestacado(indice);
+    correcaoLinhaRefs.current[indice]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
   const [arquivo, setArquivo] = useState<ArrayBuffer | null>(null);
   const [nomeArquivo, setNomeArquivo] = useState('Escala-Controle.xls');
   const [processando, setProcessando] = useState(false);
@@ -3284,10 +3323,12 @@ export function DashboardApp() {
   const [participantesPorGrupoPlantao, setParticipantesPorGrupoPlantao] = useState<Record<string, ParticipantePlantao[]>>({});
   const [grupoPlantaoExpandido, setGrupoPlantaoExpandido] = useState<string | null>(null);
   const [erroPlantaoAdmin, setErroPlantaoAdmin] = useState('');
-  /** Fase ESCOPO-CONSULTA-PLANTAO-1 — grupoId em processamento ao marcar/desmarcar um Plantão monitorado pela equipe (nunca dois ao mesmo tempo). */
-  const [processandoConsultaPlantao, setProcessandoConsultaPlantao] = useState<string | null>(null);
-  /** PATCH-NOC-SUPERVISAO-CONSULTA-PLANTAO-UX-1 — filtro de busca por equipe, em "Plantões monitorados pela equipe" (chave = equipeId). */
-  const [filtroPlantaoMonitorado, setFiltroPlantaoMonitorado] = useState<Record<string, string>>({});
+  /** FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — busca por nome/sigla na listagem de Grupos de Plantão (Administração). */
+  const [filtroGrupoPlantaoLista, setFiltroGrupoPlantaoLista] = useState('');
+  /** FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — equipeId cujo modal "Plantões visíveis" está aberto (`null` = fechado). */
+  const [modalVisibilidadePlantaoEquipeId, setModalVisibilidadePlantaoEquipeId] = useState<string | null>(null);
+  const [salvandoVisibilidadePlantao, setSalvandoVisibilidadePlantao] = useState(false);
+  const [erroVisibilidadePlantao, setErroVisibilidadePlantao] = useState<string | null>(null);
   // --- Reabrir rascunho (Fase ESCALAS-UX-1B.1) ---
   const [rascunhosPlantaoPorGrupo, setRascunhosPlantaoPorGrupo] = useState<Record<string, CompetenciaPlantao[]>>({});
   const [resumosJornadaDashboard, setResumosJornadaDashboard] = useState<Record<string, ResumoJornadaDashboard>>({});
@@ -3562,8 +3603,17 @@ export function DashboardApp() {
    * unidade/equipe da escala em importação nesse select; fora do modo
    * amplo, cai no ramo de baixo (equipe fixa, exibida com o código técnico).
    */
+  // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE nunca
+  // usa mais este modo de escape (era o único jeito de cadastrar/promover
+  // gente na própria unidade antes desta fase, sem suporte real de Rules).
+  // Agora tem um caminho permanente, não-staging, via o mesmo bloco
+  // "Permissões" do admin (`souGestorUnidade` abaixo, ver JSX) — mantendo os
+  // dois ativos ao mesmo tempo duplicaria a UI de seleção de perfil no
+  // mesmo formulário. GESTOR_EQUIPE/SUPERVISOR_EQUIPE sem contexto
+  // operacional continuam usando este modo normalmente.
   const usarCadastroLivreStaging = PERMITIR_AMPLO_STAGING
     && !souAdmin
+    && !souGestorUnidade
     && participanteVinculoCadastro === null;
   const equipeIdCadastroUsuario = usarCadastroLivreStaging
     ? formularioUsuario?.equipeId?.trim() ?? ''
@@ -4497,12 +4547,12 @@ export function DashboardApp() {
     }
     const cancelar = observarTrocasDoGestor(
       usuarioEfetivo.equipeId,
-      '2026-08',
+      contextoEscalaAtivo?.competencia ?? '2026-08',
       setTrocas,
       (falha) => setErroTroca(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de escala.', ambienteFirebaseAtual)),
     );
     return cancelar;
-  }, [modoDemo, usuarioEfetivo]);
+  }, [modoDemo, usuarioEfetivo, contextoEscalaAtivo]);
 
   function reparsear(
     buffer: ArrayBuffer,
@@ -5717,7 +5767,11 @@ export function DashboardApp() {
   }
 
   async function salvar() {
-    if (resultado === null || usuarioEfetivo === null || !resultado.ok) {
+    // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — salvar rascunho só
+    // trava por erro BLOQUEANTE (estrutural). Um ALERTA (ex.: sequência de
+    // trabalho fora do padrão) pode ser uma exceção operacional legítima —
+    // ver tabela de severidade em ErroImportacao/temErroBloqueante().
+    if (resultado === null || usuarioEfetivo === null || temErroBloqueante(resultado.erros)) {
       return;
     }
     if (escritaBloqueada) {
@@ -5764,7 +5818,11 @@ export function DashboardApp() {
 
   async function publicar() {
     setErroPublicacao('');
-    if (resultado === null || usuarioEfetivo === null || !resultado.ok) {
+    // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — publicar também só
+    // trava por erro BLOQUEANTE. Com ALERTA presente e nenhum BLOQUEANTE,
+    // a publicação segue, mas exige justificativa (ver checagem de
+    // motivoPublicacao abaixo, agora também disparada por ALERTA).
+    if (resultado === null || usuarioEfetivo === null || temErroBloqueante(resultado.erros)) {
       setErroPublicacao('Corrija todos os logins e inconsistências antes de publicar.');
       return;
     }
@@ -5776,8 +5834,11 @@ export function DashboardApp() {
       setErroPublicacao('Resolva as pendências de conciliação de nomes antes de publicar.');
       return;
     }
-    if (revisaoAtual > 0 && motivoPublicacao.trim().length < 3) {
-      setErroPublicacao('Informe um motivo curto para explicar o que mudou nesta publicação.');
+    const publicandoComAlerta = resultado.erros.length > 0;
+    if ((revisaoAtual > 0 || publicandoComAlerta) && motivoPublicacao.trim().length < 3) {
+      setErroPublicacao(publicandoComAlerta
+        ? 'Explique a justificativa da exceção antes de publicar com alerta.'
+        : 'Informe um motivo curto para explicar o que mudou nesta publicação.');
       return;
     }
     const equipeAlvoId = contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : null;
@@ -6286,6 +6347,26 @@ export function DashboardApp() {
           equipesPermitidas: equipeIdCadastroUsuario ? [equipeIdCadastroUsuario] : [],
         }
         : {};
+    /**
+     * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE usa
+     * o mesmo formulário "Tipo de acesso" do admin (ver JSX acima), então
+     * `formularioUsuario.perfil/escopo/equipeId/equipesPermitidas/unidadeId`
+     * já chegam aqui com o payload canônico de `montarCamposAcessoUsuario()`
+     * — tanto criando (valores fixados por `aplicarSelecaoAcessoUsuario`)
+     * quanto editando (copiados do usuário carregado por
+     * `abrirEdicaoUsuario()`, sem alteração se só `ativo`/`nome` mudou).
+     * Nunca inclui `cadastroOperacional`: a Rule nova exige esse campo
+     * ausente neste caminho (não é delegação via Matriz).
+     */
+    const camposGestorUnidade: Partial<Usuario> = souGestorUnidade && !souAdmin && participanteVinculoCadastro === null
+      ? {
+        perfil: formularioUsuario.perfil,
+        escopo: formularioUsuario.escopo,
+        equipeId: formularioUsuario.equipeId,
+        equipesPermitidas: formularioUsuario.equipesPermitidas,
+        unidadeId: formularioUsuario.unidadeId,
+      }
+      : {};
     const camposAdministrativos: Partial<Usuario> = souAdmin && participanteVinculoCadastro === null
       ? {
         perfil: formularioUsuario.perfil,
@@ -6299,16 +6380,26 @@ export function DashboardApp() {
         unidadesPermitidas: formularioUsuario.unidadesPermitidas,
         equipesPermitidas: formularioUsuario.equipesPermitidas,
       }
-      : usarCadastroLivreStaging && cadastroNovo
-        ? camposCadastroLivreStaging
-        : !souAdmin && cadastroNovo ? {
-          perfil: perfilDelegado,
-          escopo: perfilDelegado === undefined ? undefined : 'EQUIPE',
-        } : {};
+      : souGestorUnidade
+        ? camposGestorUnidade
+        : usarCadastroLivreStaging && cadastroNovo
+          ? camposCadastroLivreStaging
+          : !souAdmin && cadastroNovo ? {
+            perfil: perfilDelegado,
+            escopo: perfilDelegado === undefined ? undefined : 'EQUIPE',
+          } : {};
     // O cadastro livre de staging nunca carrega `cadastroOperacional`: a
     // autorização vem de `souCoordenadorOperacionalStaging()`, não da
     // delegação via Matriz — as Rules exigem esse campo ausente nesse ramo.
-    const metadadosCadastro: Partial<Usuario> = !souAdmin && cadastroNovo && !usarCadastroLivreStaging
+    // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE
+    // também nunca carrega `cadastroOperacional`: a autorização vem de
+    // `equipeDentroDoEscopoDeUnidade()`, não da Matriz — a Rule nova exige
+    // esse campo ausente. Sem essa exclusão, `contextoCadastroOperacionalUsuario`
+    // poderia resolver não-nulo (quando a equipe também aparece em
+    // `escoposOperacionais.jornadasAdministraveis`) e derrubar as duas Rules
+    // ao mesmo tempo: a antiga (por causa de equipesPermitidas/unidadeId
+    // preenchidos) e a nova (por causa do cadastroOperacional preenchido).
+    const metadadosCadastro: Partial<Usuario> = !souAdmin && !souGestorUnidade && cadastroNovo && !usarCadastroLivreStaging
       ? { cadastroOperacional: contextoCadastroOperacionalUsuario }
       : {};
 
@@ -6392,8 +6483,8 @@ export function DashboardApp() {
      * é ADMIN_SISTEMA/GLOBAL, não só quando escolhido pelo seletor simples
      * — nunca enfraquece a trava por causa do caminho usado para chegar lá.
      */
-    if (souAdmin && participanteVinculoCadastro === null) {
-      const exigeConfirmacaoGlobal = candidato.perfil === 'ADMIN_SISTEMA' || candidato.escopo === 'GLOBAL';
+    if ((souAdmin || souGestorUnidade) && participanteVinculoCadastro === null) {
+      const exigeConfirmacaoGlobal = souAdmin && (candidato.perfil === 'ADMIN_SISTEMA' || candidato.escopo === 'GLOBAL');
       const errosAcesso = [
         ...validarCoerenciaAcessoUsuario(candidato),
         ...(exigeConfirmacaoGlobal && !formularioUsuario.confirmaAcessoGlobal
@@ -6434,6 +6525,7 @@ export function DashboardApp() {
     if (
       cadastroNovo
       && !souAdmin
+      && !souGestorUnidade
       && !usarCadastroLivreStaging
       && contextoCadastroOperacionalUsuario === undefined
     ) {
@@ -6443,10 +6535,51 @@ export function DashboardApp() {
       return;
     }
 
+    // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE não
+    // depende de `contextoCadastroOperacionalUsuario` (Matriz/Plantão): a
+    // checagem equivalente aqui é simplesmente ter escolhido uma equipe do
+    // próprio escopo de unidade.
+    if (cadastroNovo && souGestorUnidade && !souAdmin && (candidato.equipeId ?? '').trim() === '') {
+      setErrosFormularioUsuario(['Selecione uma equipe da sua unidade.']);
+      return;
+    }
+
     const erros = validarEdicaoUsuario(candidato, usuarios, formularioUsuario.loginOriginal);
     if (erros.length > 0) {
       setErrosFormularioUsuario(erros);
       return;
+    }
+
+    /**
+     * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — `validarEdicaoUsuario()`
+     * acima só compara contra a lista de UMA equipe (`usuarios`); um login
+     * colidindo com outro cadastro ativo de OUTRA equipe passa despercebido
+     * e o `setDoc({merge:true})` mescla silenciosamente no documento errado.
+     * Só `souAdmin` tem `todosUsuariosAdmin` (leitura global) para detectar
+     * isso — sem essa leitura, um `GESTOR_EQUIPE`/`GESTOR_UNIDADE` não
+     * consegue provar a colisão sem violar o próprio escopo das Rules.
+     */
+    if (souAdmin && todosUsuariosAdmin.length > 0) {
+      const colisaoLogin = todosUsuariosAdmin.find((item) =>
+        item.login === candidato.login && item.login !== formularioUsuario.loginOriginal && item.ativo);
+      const colisaoEmail = todosUsuariosAdmin.find((item) =>
+        item.login !== candidato.login && item.email.trim().toLowerCase() === candidato.email.trim().toLowerCase() && item.ativo);
+      const aliasesCandidato = new Set((candidato.aliasesPlanilha ?? []).map((alias) => normalizarNome(alias)));
+      const colisaoAlias = aliasesCandidato.size === 0 ? undefined : todosUsuariosAdmin.find((item) =>
+        item.login !== candidato.login && item.ativo
+        && (item.aliasesPlanilha ?? []).some((alias) => aliasesCandidato.has(normalizarNome(alias))));
+      if (colisaoLogin !== undefined) {
+        setErrosFormularioUsuario([`O login ${candidato.login} já pertence a ${colisaoLogin.nome} (equipe ${colisaoLogin.equipeId}). Escolha outro login.`]);
+        return;
+      }
+      if (colisaoEmail !== undefined) {
+        setErrosFormularioUsuario([`O e-mail ${candidato.email} já está em uso por ${colisaoEmail.nome} (login ${colisaoEmail.login}).`]);
+        return;
+      }
+      if (colisaoAlias !== undefined) {
+        setErrosFormularioUsuario([`Um dos aliases já está em uso por ${colisaoAlias.nome} (login ${colisaoAlias.login}). Confira antes de salvar.`]);
+        return;
+      }
     }
 
     try {
@@ -6717,8 +6850,16 @@ export function DashboardApp() {
    * (`podeAutoVincularConsultaPlantao()` em `firestore.rules`) garante que
    * só a própria equipe administrada pode ser adicionada/removida.
    */
-  async function alternarPlantaoMonitoradoPelaEquipe(grupoId: string, equipeId: string, acao: 'ADICIONAR' | 'REMOVER') {
-    setProcessandoConsultaPlantao(grupoId);
+  /**
+   * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — devolve a mensagem de
+   * erro (ou `null` em caso de sucesso) além de continuar preenchendo
+   * `erroPlantaoAdmin` (usado por outros handlers desta tela). O modal
+   * "Plantões visíveis" (`GrupoPlantaoVisibilidadeModal`) usa o retorno
+   * diretamente para nunca mais engolir uma falha em silêncio — o bug real
+   * encontrado era `erroPlantaoAdmin` nunca ser renderizado na aba
+   * Organização, só em "Grupos de Plantão".
+   */
+  async function alternarPlantaoMonitoradoPelaEquipe(grupoId: string, equipeId: string, acao: 'ADICIONAR' | 'REMOVER'): Promise<string | null> {
     setErroPlantaoAdmin('');
     try {
       if (!modoDemo) {
@@ -6733,10 +6874,46 @@ export function DashboardApp() {
           : grupo.equipesConsulta.filter((item) => item !== equipeId);
         return { ...grupo, equipesConsulta, atualizadoEm: new Date().toISOString() };
       }));
+      return null;
     } catch (falha) {
-      setErroPlantaoAdmin(mensagemErroFirebase(falha, 'Não foi possível atualizar os Plantões monitorados.', ambienteFirebaseAtual));
+      const mensagem = mensagemErroFirebase(falha, 'Não foi possível atualizar os Plantões monitorados.', ambienteFirebaseAtual);
+      setErroPlantaoAdmin(mensagem);
+      return mensagem;
+    }
+  }
+
+  /**
+   * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — salva o rascunho do
+   * modal "Plantões visíveis": calcula o diff contra o que já está
+   * monitorado e aplica uma mudança de cada vez (a Rule só aceita alterar
+   * UMA equipe de `equipesConsulta` por escrita). Para no primeiro erro e
+   * mostra dentro do próprio modal — nunca mais silencioso.
+   */
+  async function salvarVisibilidadePlantaoDaEquipe(equipeId: string, grupoIdsSelecionados: string[]) {
+    setSalvandoVisibilidadePlantao(true);
+    setErroVisibilidadePlantao(null);
+    const monitoradosAtuais = new Set(plantoesMonitoradosPelaEquipe(gruposPlantaoAdmin, equipeId).map((grupo) => grupo.grupoId));
+    const selecionados = new Set(grupoIdsSelecionados);
+    const adicionar = [...selecionados].filter((grupoId) => !monitoradosAtuais.has(grupoId));
+    const remover = [...monitoradosAtuais].filter((grupoId) => !selecionados.has(grupoId));
+    try {
+      for (const grupoId of adicionar) {
+        const erro = await alternarPlantaoMonitoradoPelaEquipe(grupoId, equipeId, 'ADICIONAR');
+        if (erro !== null) {
+          setErroVisibilidadePlantao(erro);
+          return;
+        }
+      }
+      for (const grupoId of remover) {
+        const erro = await alternarPlantaoMonitoradoPelaEquipe(grupoId, equipeId, 'REMOVER');
+        if (erro !== null) {
+          setErroVisibilidadePlantao(erro);
+          return;
+        }
+      }
+      setModalVisibilidadePlantaoEquipeId(null);
     } finally {
-      setProcessandoConsultaPlantao(null);
+      setSalvandoVisibilidadePlantao(false);
     }
   }
 
@@ -8713,12 +8890,19 @@ export function DashboardApp() {
                   </div>
                   <div className="file-row">
                     <FileSpreadsheet size={20} />
-                    <div><strong>{nomeArquivo}</strong><span>{resultado?.ok ? 'Pronto para salvar' : 'Aguardando correções'}</span></div>
+                    <div>
+                      <strong>{nomeArquivo}</strong>
+                      <span>
+                        {resultadoTemBloqueio
+                          ? 'Aguardando correções'
+                          : resultadoTemAlertaSemBloqueio ? 'Pronto para salvar (com alerta)' : 'Pronto para salvar'}
+                      </span>
+                    </div>
                     {processando
                       ? <LoaderCircle className="spin" />
-                      : resultado?.ok
-                        ? <CheckCircle2 className="success-icon" />
-                        : <AlertTriangle className="warning-icon" />}
+                      : resultadoTemBloqueio
+                        ? <AlertTriangle className="warning-icon" />
+                        : <CheckCircle2 className="success-icon" />}
                   </div>
                   <div className="import-actions">
                     <button className="secondary-button" type="button" onClick={() => void carregarDemo()}>
@@ -8727,7 +8911,7 @@ export function DashboardApp() {
                     <button
                       className="primary-button"
                       type="button"
-                      disabled={!resultado?.ok || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
+                      disabled={resultadoTemBloqueio || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
                       onClick={() => void salvar()}
                     >
                       <Save size={17} /> Salvar rascunho
@@ -8814,7 +8998,14 @@ export function DashboardApp() {
             {resultado && resultado.erros.length > 0 && (
               <article className="panel error-panel">
                 <div className="panel-title">
-                  <div><h2>Corrigir inconsistências</h2><p>Nada será gravado enquanto houver erros.</p></div>
+                  <div>
+                    <h2>Corrigir inconsistências</h2>
+                    <p>
+                      {resultadoTemBloqueio
+                        ? 'Nada será gravado enquanto houver erros bloqueantes.'
+                        : 'Sem erros bloqueantes — dá para salvar rascunho. Publicar vai pedir confirmação e justificativa.'}
+                    </p>
+                  </div>
                   {resultado.erros.some((erro) => erro.motivo.includes('loginParaUid')) && (
                     <button
                       className="secondary-button"
@@ -8828,10 +9019,19 @@ export function DashboardApp() {
                 </div>
                 <div className="table-scroll">
                   <table className="data-table">
-                    <thead><tr><th>Local</th><th>Login</th><th>Valor</th><th>Motivo</th><th>Correção</th></tr></thead>
+                    <thead><tr><th>Severidade</th><th>Local</th><th>Login</th><th>Valor</th><th>Motivo</th><th>Correção</th></tr></thead>
                     <tbody>
                       {resultado.erros.map((erro, indice) => (
-                        <tr key={`${erro.linha}-${erro.coluna}-${indice}`}>
+                        <tr
+                          key={`${erro.linha}-${erro.coluna}-${indice}`}
+                          ref={(elemento) => { correcaoLinhaRefs.current[indice] = elemento; }}
+                          className={indiceErroDestacado === indice ? 'linha-destacada' : undefined}
+                        >
+                          <td>
+                            <span className={`status-badge ${erro.severidade === 'BLOQUEANTE' ? 'danger' : 'warning'}`}>
+                              {erro.severidade === 'BLOQUEANTE' ? 'Bloqueante' : 'Alerta'}
+                            </span>
+                          </td>
                           <td>{erro.coluna}{erro.linha}</td>
                           <td>{erro.login ?? '—'}</td>
                           <td><code>{erro.valorEncontrado}</code></td>
@@ -8887,6 +9087,7 @@ export function DashboardApp() {
                 onSalvarAlias={(linha) => void salvarAliasConciliacao(linha)}
                 onMarcarPendente={marcarConciliacaoPendente}
                 onIgnorar={ignorarConciliacao}
+                onAjustarErro={focarErroNaTabela}
               />
             )}
             </>
@@ -8973,7 +9174,7 @@ export function DashboardApp() {
                 {contextoEhJornada(contextoEscalaAtivo) && <button
                   className="primary-button"
                   type="button"
-                  disabled={!documentos.length || !resultado?.ok || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
+                  disabled={!documentos.length || resultadoTemBloqueio || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
                   onClick={() => {
                     setErroPublicacao('');
                     setPublicacaoPendente(true);
@@ -9162,6 +9363,7 @@ export function DashboardApp() {
               onSalvarAlias={(linha) => void salvarAliasConciliacao(linha)}
               onMarcarPendente={marcarConciliacaoPendente}
               onIgnorar={ignorarConciliacao}
+              onAjustarErro={focarErroNaTabela}
               onVoltar={() => setTela('escalas')}
               onEditar={abrirCelulaParaEdicao}
               onRemover={(documento) => setRemoverMembroPendente(documento)}
@@ -9454,7 +9656,21 @@ export function DashboardApp() {
               <p>Crie um grupo para organizar participantes, contatos e o rascunho da competência — use o botão &ldquo;Novo grupo&rdquo; acima.</p>
             </article>
           )}
-          {gruposPlantaoAdmin.map((grupo) => {
+          {gruposPlantaoAdmin.length > 0 && (
+            <label className="busca-simples" htmlFor="grupos-plantao-busca">
+              Buscar Plantão
+              <input
+                id="grupos-plantao-busca"
+                type="text"
+                placeholder="Buscar por nome (ex.: COSI, NOC, DBA)"
+                value={filtroGrupoPlantaoLista}
+                onChange={(evento) => setFiltroGrupoPlantaoLista(evento.target.value)}
+              />
+            </label>
+          )}
+          {gruposPlantaoAdmin
+            .filter((grupo) => filtroGrupoPlantaoLista.trim() === '' || normalizarNome(grupo.nome).includes(normalizarNome(filtroGrupoPlantaoLista)))
+            .map((grupo) => {
             const gerencio = podeGerenciarEsteGrupoPlantao(grupo);
             const participantesDoGrupo = participantesPorGrupoPlantao[grupo.grupoId] ?? [];
             const expandido = grupoPlantaoExpandido === grupo.grupoId;
@@ -9829,15 +10045,22 @@ export function DashboardApp() {
                        * `podeEditar`, que é o poder mais estrito de editar
                        * a própria Equipe, restrito a ADMIN/GESTOR_UNIDADE).
                        */}
-                      {(souAdmin || minhasEquipesPermitidas.includes(item.id)) && (() => {
+                      {/*
+                       * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 —
+                       * visível para quem administra esta equipe
+                       * (`minhasEquipesPermitidas`) e agora também para
+                       * GESTOR_UNIDADE sobre qualquer equipe da própria
+                       * unidade (a escrita real já é autorizada pela Rule
+                       * de `podeAutoVincularConsultaPlantao`, estendida na
+                       * mesma fase).
+                       */}
+                      {(souAdmin
+                        || minhasEquipesPermitidas.includes(item.id)
+                        || (souGestorUnidade && dentroDoEscopoPermitido(item.unidadeId, item.caminhoUnidade, minhasUnidadesPermitidas))) && (() => {
                         const monitorados = plantoesMonitoradosPelaEquipe(gruposPlantaoAdmin, item.id);
-                        const termoFiltro = filtroPlantaoMonitorado[item.id] ?? '';
-                        const disponiveis = plantoesDisponiveisParaMonitoramento(gruposPlantaoAdmin, item.id)
-                          .filter((grupo) => grupo.equipeResponsavelId !== item.id)
-                          .filter((grupo) => termoFiltro.trim() === '' || normalizarNome(grupo.nome).includes(normalizarNome(termoFiltro)));
                         return (
                           <div className="organization-plantoes-monitorados">
-                            <h4>Plantões monitorados pela equipe</h4>
+                            <h4>Plantões visíveis para esta equipe</h4>
                             <p className="admin-form-preview">
                               Esta equipe poderá consultar quem está de plantão. Isso não permite editar participantes, contatos, rascunhos ou publicações.
                             </p>
@@ -9848,58 +10071,20 @@ export function DashboardApp() {
                                 {monitorados.map((grupo) => (
                                   <li key={grupo.grupoId}>
                                     <div><strong>{grupo.nome}</strong></div>
-                                    {grupo.equipeResponsavelId === item.id ? (
+                                    {grupo.equipeResponsavelId === item.id && (
                                       <span className="status-badge neutral">responsável — sempre monitorado</span>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        className="icon-button"
-                                        title="Parar de monitorar"
-                                        aria-label={`Parar de monitorar ${grupo.nome}`}
-                                        disabled={processandoConsultaPlantao === grupo.grupoId}
-                                        onClick={() => void alternarPlantaoMonitoradoPelaEquipe(grupo.grupoId, item.id, 'REMOVER')}
-                                      >
-                                        <X size={14} />
-                                      </button>
                                     )}
                                   </li>
                                 ))}
                               </ul>
                             )}
-                            {plantoesDisponiveisParaMonitoramento(gruposPlantaoAdmin, item.id)
-                              .filter((grupo) => grupo.equipeResponsavelId !== item.id).length > 0 && (
-                              <div className="wizard-inline-fields">
-                                <label htmlFor={`plantoes-filtro-${item.id}`}>
-                                  Buscar Plantão
-                                  <input
-                                    id={`plantoes-filtro-${item.id}`}
-                                    type="text"
-                                    value={termoFiltro}
-                                    placeholder="Buscar Plantão (ex.: COSI)"
-                                    onChange={(evento) => setFiltroPlantaoMonitorado((atual) => ({ ...atual, [item.id]: evento.target.value }))}
-                                  />
-                                </label>
-                                <label htmlFor={`plantoes-disponiveis-${item.id}`}>
-                                  Adicionar Plantão monitorado
-                                  <select
-                                    id={`plantoes-disponiveis-${item.id}`}
-                                    value=""
-                                    disabled={processandoConsultaPlantao !== null}
-                                    onChange={(evento) => {
-                                      const grupoId = evento.target.value;
-                                      if (grupoId !== '') {
-                                        void alternarPlantaoMonitoradoPelaEquipe(grupoId, item.id, 'ADICIONAR');
-                                      }
-                                    }}
-                                  >
-                                    <option value="">
-                                      {disponiveis.length === 0 ? 'Nenhum Plantão encontrado para esse termo' : 'Selecione um Plantão para monitorar'}
-                                    </option>
-                                    {disponiveis.map((grupo) => <option key={grupo.grupoId} value={grupo.grupoId}>{grupo.nome}</option>)}
-                                  </select>
-                                </label>
-                              </div>
-                            )}
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => { setErroVisibilidadePlantao(null); setModalVisibilidadePlantaoEquipeId(item.id); }}
+                            >
+                              Configurar plantões visíveis
+                            </button>
                           </div>
                         );
                       })()}
@@ -10286,6 +10471,25 @@ export function DashboardApp() {
         />
       )}
 
+      {modalVisibilidadePlantaoEquipeId && (() => {
+        const equipeAlvo = equipesAdmin.find((item) => item.id === modalVisibilidadePlantaoEquipeId);
+        const grupoResponsavel = gruposPlantaoAdmin.find((grupo) => grupo.ativo && grupo.equipeResponsavelId === modalVisibilidadePlantaoEquipeId);
+        return (
+          <GrupoPlantaoVisibilidadeModal
+            equipeNome={equipeAlvo?.nome ?? 'esta equipe'}
+            equipeTravadaId={grupoResponsavel?.grupoId ?? ''}
+            grupos={gruposPlantaoAdmin.filter((grupo) => grupo.ativo)}
+            equipes={equipesAdmin}
+            unidades={unidadesAdmin}
+            valoresIniciais={plantoesMonitoradosPelaEquipe(gruposPlantaoAdmin, modalVisibilidadePlantaoEquipeId).map((grupo) => grupo.grupoId)}
+            salvando={salvandoVisibilidadePlantao}
+            erro={erroVisibilidadePlantao}
+            onFechar={() => setModalVisibilidadePlantaoEquipeId(null)}
+            onSalvar={(selecionados) => void salvarVisibilidadePlantaoDaEquipe(modalVisibilidadePlantaoEquipeId, selecionados)}
+          />
+        );
+      })()}
+
       {modalContatosParticipante && (
         <ModalContatosParticipante
           nomeExibicao={modalContatosParticipante.nomeExibicao}
@@ -10352,7 +10556,11 @@ export function DashboardApp() {
             <div className="panel-title">
               <div>
                 <p className="eyebrow">Comunicação da mudança</p>
-                <h2 id="publication-title">Publicar nova versão da escala?</h2>
+                <h2 id="publication-title">
+                  {resultadoTemAlertaSemBloqueio
+                    ? `Esta escala possui ${resultado?.erros.length ?? 0} alerta(s). Deseja publicar mesmo assim?`
+                    : 'Publicar nova versão da escala?'}
+                </h2>
                 <p>Os colaboradores afetados receberão esta informação no sino do App.</p>
               </div>
               <button
@@ -10364,12 +10572,21 @@ export function DashboardApp() {
                 <X size={18} />
               </button>
             </div>
+            {resultadoTemAlertaSemBloqueio && (
+              <ul className="admin-form-preview">
+                {resultado?.erros.map((erro, indice) => (
+                  <li key={indice}>{erro.login ? `${erro.login}: ` : ''}{erro.motivo}</li>
+                ))}
+              </ul>
+            )}
             <label className="publication-reason">
-              Motivo da publicação
+              {resultadoTemAlertaSemBloqueio ? 'Justificativa da exceção' : 'Motivo da publicação'}
               <textarea
                 value={motivoPublicacao}
                 onChange={(evento) => setMotivoPublicacao(evento.target.value)}
-                placeholder="Ex.: Ajuste da cobertura da madrugada"
+                placeholder={resultadoTemAlertaSemBloqueio
+                  ? 'Ex.: Colaborador estará em curso no período da tarde.'
+                  : 'Ex.: Ajuste da cobertura da madrugada'}
                 maxLength={180}
                 autoFocus
               />
@@ -10383,7 +10600,7 @@ export function DashboardApp() {
               <button
                 className="primary-button"
                 type="button"
-                disabled={processando || (revisaoAtual > 0 && motivoPublicacao.trim().length < 3)}
+                disabled={processando || ((revisaoAtual > 0 || resultadoTemAlertaSemBloqueio) && motivoPublicacao.trim().length < 3)}
                 onClick={() => void publicar()}
               >
                 {processando ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
@@ -10401,6 +10618,11 @@ export function DashboardApp() {
           motivoRecusa={motivoRecusaTroca}
           processando={processandoTroca}
           erro={erroTroca}
+          // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — mesmo padrão
+          // já usado em Grupos de Plantão (podeGerenciarEsteGrupoPlantao):
+          // esconder Aprovar/Recusar quando o ator não administra esta
+          // Jornada, em vez de deixar a Rule recusar a escrita depois.
+          podeAprovarNoEscopo={souAdmin || escoposOperacionais.jornadasAdministraveis.some((equipe) => equipe.id === trocaSelecionada.equipeId)}
           onMudarMotivoRecusa={setMotivoRecusaTroca}
           onFechar={() => { setTrocaSelecionadaId(null); setMotivoRecusaTroca(''); setErroTroca(''); }}
           onRecusar={() => void recusarTroca(trocaSelecionada.trocaId, motivoRecusaTroca)}
@@ -10875,10 +11097,19 @@ export function DashboardApp() {
                   </div>
                 </div>
               </label>
-              {souAdmin && participanteVinculoCadastro === null && linhaConciliacaoVinculoCadastro === null && (() => {
-                const equipeEscolhida = equipesAdmin.find((equipe) => equipe.id === formularioUsuario.equipeId);
+              {(souAdmin || souGestorUnidade) && participanteVinculoCadastro === null && linhaConciliacaoVinculoCadastro === null && (() => {
+                // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE
+                // usa o mesmo formulário simplificado que ADMIN_SISTEMA, restrito a
+                // Colaborador/Supervisor/Gestor de equipe (nunca Gestor de
+                // unidade/Administrador — a Rule também fecha esse enum, isto é só
+                // a UI não oferecer uma opção que seria negada) e só às equipes do
+                // próprio escopo de unidade — nunca a lista completa.
+                const equipesVisiveis = souAdmin
+                  ? equipesAdmin
+                  : equipesAdmin.filter((equipe) => dentroDoEscopoPermitido(equipe.unidadeId, equipe.caminhoUnidade, minhasUnidadesPermitidas));
+                const equipeEscolhida = equipesVisiveis.find((equipe) => equipe.id === formularioUsuario.equipeId);
                 const unidadeEscolhida = unidadesAdmin.find((unidade) => unidade.unidadeId === formularioUsuario.unidadeId);
-                const avisoCargo = avisoCargoDivergenteDaEquipe(formularioUsuario.cargo, formularioUsuario.equipeId, equipesAdmin);
+                const avisoCargo = avisoCargoDivergenteDaEquipe(formularioUsuario.cargo, formularioUsuario.equipeId, equipesVisiveis);
                 const resumo = resumoAcessoUsuario(
                   { perfil: formularioUsuario.perfil, escopo: formularioUsuario.escopo },
                   {
@@ -10902,8 +11133,8 @@ export function DashboardApp() {
                         <option value="COLABORADOR">Colaborador</option>
                         <option value="SUPERVISOR_EQUIPE">Supervisor de equipe</option>
                         <option value="GESTOR_EQUIPE">Gestor de equipe</option>
-                        <option value="GESTOR_UNIDADE">Gestor de unidade</option>
-                        <option value="ADMIN_SISTEMA">Administrador do sistema</option>
+                        {souAdmin && <option value="GESTOR_UNIDADE">Gestor de unidade</option>}
+                        {souAdmin && <option value="ADMIN_SISTEMA">Administrador do sistema</option>}
                       </select>
                     </label>
                     {(formularioUsuario.tipoAcesso === 'COLABORADOR'
@@ -10920,13 +11151,15 @@ export function DashboardApp() {
                           onChange={(evento) => aplicarSelecaoAcessoUsuario({ equipeId: evento.target.value || undefined })}
                         >
                           <option value="">Selecione uma equipe</option>
-                          {equipesAdmin.map((equipe) => (
-                            <option key={equipe.id} value={equipe.id}>{rotuloTecnicoEquipe(equipe)}</option>
+                          {equipesVisiveis.map((equipe) => (
+                            <option key={equipe.id} value={equipe.id}>
+                              {rotuloTecnicoEquipe(equipe)}{!equipe.ativa && ' (inativa)'}
+                            </option>
                           ))}
                         </select>
                       </label>
                     )}
-                    {formularioUsuario.tipoAcesso === 'GESTOR_UNIDADE' && (
+                    {souAdmin && formularioUsuario.tipoAcesso === 'GESTOR_UNIDADE' && (
                       <label>
                         Unidade gerenciada
                         <select
@@ -10935,12 +11168,14 @@ export function DashboardApp() {
                         >
                           <option value="">Selecione uma unidade</option>
                           {unidadesAdmin.map((unidade) => (
-                            <option key={unidade.unidadeId} value={unidade.unidadeId}>{rotuloTecnicoUnidade(unidade)}</option>
+                            <option key={unidade.unidadeId} value={unidade.unidadeId}>
+                              {rotuloTecnicoUnidade(unidade)}{!unidade.ativa && ' (inativa)'}
+                            </option>
                           ))}
                         </select>
                       </label>
                     )}
-                    {formularioUsuario.tipoAcesso === 'ADMIN_SISTEMA' && (
+                    {souAdmin && formularioUsuario.tipoAcesso === 'ADMIN_SISTEMA' && (
                       <label className="checkbox-inline">
                         <input
                           type="checkbox"
@@ -10955,6 +11190,14 @@ export function DashboardApp() {
                       {resumo.map((linha) => <p key={linha} className="hint-text">{linha}</p>)}
                       {avisoCargo && <p className="hint-text warning-text">{avisoCargo}</p>}
                     </div>
+                    {/*
+                      FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — o painel
+                      "Avançado" expõe perfil/escopo/unidadeId/unidadesPermitidas/
+                      equipesPermitidas crus, sem a validação de coerência do
+                      seletor simples: fica reservado a ADMIN_SISTEMA. GESTOR_UNIDADE
+                      já tem tudo que precisa no seletor simples acima.
+                    */}
+                    {souAdmin && (
                     <details className="advanced-fields">
                       <summary>Avançado</summary>
                       <label>
@@ -11052,6 +11295,7 @@ export function DashboardApp() {
                         ))}
                       </fieldset>
                     </details>
+                    )}
                   </fieldset>
                 );
               })()}

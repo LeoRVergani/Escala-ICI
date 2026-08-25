@@ -289,13 +289,26 @@ service cloud.firestore {
      * via `podeGerenciarGrupoPlantao()`.
      */
     function podeAutoVincularConsultaPlantao(antigo, novo, equipeResponsavelId) {
+      let adicionadas = novo.removeAll(antigo);
+      let removidas = antigo.removeAll(novo);
+      let equipeAlterada = adicionadas.size() == 1 ? adicionadas[0] : (removidas.size() == 1 ? removidas[0] : null);
       return autenticado()
-        && meuPerfil() in ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE']
         && equipeResponsavelId in novo
-        && (novo.removeAll(antigo).size() + antigo.removeAll(novo).size()) == 1
+        && (adicionadas.size() + removidas.size()) == 1
+        && equipeAlterada != null
         && (
-          (novo.removeAll(antigo).size() == 1 && novo.removeAll(antigo)[0] in minhasEquipesPermitidas())
-          || (antigo.removeAll(novo).size() == 1 && antigo.removeAll(novo)[0] in minhasEquipesPermitidas())
+          (meuPerfil() in ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'] && equipeAlterada in minhasEquipesPermitidas())
+          // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE
+          // vincula/desvincula qualquer equipe da própria unidade a um Grupo
+          // externo, mesmo sem equipesPermitidas explícito sobre ela (mesma
+          // filosofia de equipeDentroDoEscopoDeUnidade(), abaixo). exists()
+          // antes do helper: get() sobre documento inexistente é erro de
+          // avaliação em Rules, nunca confiar em equipeAlterada sem checar.
+          || (
+            souGestorUnidade()
+            && exists(/databases/$(database)/documents/equipes/$(equipeAlterada))
+            && equipeDentroDoEscopoDeUnidade(equipeAlterada)
+          )
         );
     }
 
@@ -428,12 +441,57 @@ service cloud.firestore {
         && matrizOperacional('PLANTAO', grupoId).equipesConsulta.hasAny(minhasEquipesPermitidas());
     }
 
+    /**
+     * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — par de helpers que
+     * dá a GESTOR_UNIDADE acesso automático a uma equipe da própria unidade
+     * (ou de uma unidade descendente, via caminhoUnidade materializado), sem
+     * depender de Matriz de Responsáveis manual. Reusado por
+     * podeAdministrarJornada() (abaixo), pelo match /usuarios/{login} e por
+     * podeAutoVincularConsultaPlantao() (acima).
+     *
+     * Regra não-negociável em toda chamada: get() sobre documento
+     * inexistente é ERRO DE AVALIAÇÃO em Rules, não `null` (já causou dois
+     * incidentes reais neste arquivo — "Hotfix 2" e
+     * PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1). Por isso: sempre
+     * souGestorUnidade() como primeiro operando do `&&` de quem chama (custo
+     * do get() só paga quem é gestor de unidade) e sempre exists(.../equipes/
+     * $(equipeId)) antes de equipeDentroDoEscopoDeUnidade() — nenhuma regra
+     * de Jornada/usuários garante que um equipeId referenciado corresponde a
+     * um documento real.
+     */
+    function equipePorId(equipeId) {
+      return get(/databases/$(database)/documents/equipes/$(equipeId)).data;
+    }
+
+    /**
+     * unidadeId é OPCIONAL em Equipe (equipe legada sem unidade
+     * organizacional) — nunca acesso direto por ponto, sempre a variável
+     * derivada de .get(chave, null), mesmo depois de confirmada não-nula.
+     */
+    function equipeDentroDoEscopoDeUnidade(equipeId) {
+      let equipe = equipePorId(equipeId);
+      let unidadeId = equipe.get('unidadeId', null);
+      return unidadeId != null
+        && podeOperarNaUnidadeOuDescendente(unidadeId, equipe.get('caminhoUnidade', null));
+    }
+
     function podeAdministrarJornada(equipeId) {
       return souAdminSistema()
         || matrizConcedeAdministracao('JORNADA', equipeId)
         // Transição: alvos ainda sem documento de matriz conservam a ACL
         // histórica. Assim que a matriz existe (mesmo inativa), ela manda.
         || (!existeMatrizOperacional('JORNADA', equipeId) && souGestor() && podeOperarNaEquipe(equipeId))
+        // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE
+        // administra Jornada de uma equipe da própria unidade (ou
+        // descendente) sem depender de Matriz manual, espelhando o mesmo
+        // caminho que Plantão já tinha via podeGerenciarGrupoPlantao().
+        || (
+          souGestorUnidade()
+          && equipeId != null
+          && (!existeMatrizOperacional('JORNADA', equipeId) || souCoordenadorOperacionalStaging())
+          && exists(/databases/$(database)/documents/equipes/$(equipeId))
+          && equipeDentroDoEscopoDeUnidade(equipeId)
+        )
         // STAGING-RESET-HIERARQUIA-ICI-1 — em staging, a Matriz ajuda a
         // navegação mas NUNCA trava um coordenador/supervisor dentro do
         // próprio escopo, mesmo que exista (e não o liste) ou esteja
@@ -493,6 +551,79 @@ service cloud.firestore {
           dados.get('cadastroOperacional', null) != null
           && dados.get('perfil', null) in ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE']
           && dados.get('escopo', null) == 'EQUIPE'
+          && dados.nivelHierarquico >= 1
+          && dados.nivelHierarquico <= 5
+        );
+    }
+
+    /**
+     * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — versão para
+     * GESTOR_UNIDADE administrando usuarios da própria unidade, sem
+     * acoplamento a `cadastroOperacional` (esse metadado é do mecanismo de
+     * delegação via Matriz — reaproveitar `perfilCadastroPorResponsavelValido()`
+     * aqui tornava a criação de GESTOR_EQUIPE/SUPERVISOR_EQUIPE por unidade
+     * inalcançável). Usada em UPDATE (tolera formato legado/incompleto de
+     * documentos já existentes) — CREATE usa a variante estrita abaixo.
+     * Precondição do chamador: `dados.get('equipeId', null) != null` e já
+     * confirmado `exists()`/`equipeDentroDoEscopoDeUnidade(dados.equipeId)`
+     * — esta função não repete essas duas checagens, só valida COERÊNCIA do
+     * resto do payload com o `equipeId` já autorizado.
+     */
+    function perfilCadastroPorGestorUnidadeValido(dados) {
+      let equipesPermitidas = dados.get('equipesPermitidas', []);
+      let unidadeId = dados.get('unidadeId', null);
+      return (
+          equipesPermitidas.size() == 0
+          || (equipesPermitidas.size() == 1 && equipesPermitidas[0] == dados.equipeId)
+        )
+        && (
+          unidadeId == null
+          || unidadeId == equipePorId(dados.equipeId).get('unidadeId', null)
+        )
+        && dados.get('unidadesPermitidas', []).size() == 0
+        && (
+          (
+            dados.get('perfil', null) == null
+            && dados.get('escopo', null) == null
+            && dados.nivelHierarquico > 5
+          )
+          || (
+            dados.get('perfil', null) in ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE']
+            && dados.get('escopo', null) == 'EQUIPE'
+            && dados.nivelHierarquico >= 1
+            && dados.nivelHierarquico <= 5
+          )
+        );
+    }
+
+    /**
+     * Variante ESTRITA de `perfilCadastroPorGestorUnidadeValido()`, usada só
+     * em CREATE: exige o payload CANÔNICO EXATO produzido por
+     * `montarCamposAcessoUsuario()` (`lib/perfilAcessoUsuario.ts`) —
+     * `equipesPermitidas` EXATAMENTE `[equipeId]` e `unidadeId` EXATAMENTE a
+     * unidade real da equipe para GESTOR_EQUIPE/SUPERVISOR_EQUIPE, nunca
+     * ausente. Formato "coerente mas incompleto" só é tolerado editando um
+     * documento já existente (função acima) — nunca na criação de um
+     * documento novo, para nunca nascer um cadastro num formato que nenhuma
+     * tela real produz. Mesma precondição de chamador da função acima.
+     */
+    function perfilCadastroPorGestorUnidadeValidoParaCriacao(dados) {
+      return (
+          dados.get('perfil', null) == null
+          && dados.get('escopo', null) == null
+          && dados.get('equipesPermitidas', []).size() == 0
+          && dados.get('unidadeId', null) == null
+          && dados.get('unidadesPermitidas', []).size() == 0
+          && dados.nivelHierarquico > 5
+        )
+        || (
+          dados.get('perfil', null) in ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE']
+          && dados.get('escopo', null) == 'EQUIPE'
+          && dados.get('equipesPermitidas', []).size() == 1
+          && dados.get('equipesPermitidas', [])[0] == dados.equipeId
+          && dados.get('unidadeId', null) == equipePorId(dados.equipeId).get('unidadeId', null)
+          && dados.get('unidadeId', null) != null
+          && dados.get('unidadesPermitidas', []).size() == 0
           && dados.nivelHierarquico >= 1
           && dados.nivelHierarquico <= 5
         );
@@ -586,6 +717,18 @@ service cloud.firestore {
           // nem outra unidade fora do que `minhasUnidadesPermitidas()` já
           // autoriza em todo o restante do arquivo.
           || (souGestorUnidade() && resource.data.get('unidadeId', null) != null && resource.data.unidadeId in minhasUnidadesPermitidas())
+          // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE
+          // lê/lista usuarios de uma equipe da própria unidade (derivado de
+          // equipes/{equipeId}.unidadeId, não do campo unidadeId do próprio
+          // usuario — diferente do branch acima). Seguro para `list`: chaveia
+          // em resource.data.equipeId, o mesmo campo que o where() do
+          // cliente já fixa.
+          || (
+            souGestorUnidade()
+            && resource.data.get('equipeId', null) != null
+            && exists(/databases/$(database)/documents/equipes/$(resource.data.equipeId))
+            && equipeDentroDoEscopoDeUnidade(resource.data.equipeId)
+          )
         );
 
       allow update: if autenticado()
@@ -638,6 +781,30 @@ service cloud.firestore {
             && request.resource.data.get('equipesPermitidas', null) == resource.data.get('equipesPermitidas', null)
             && request.resource.data.get('cadastroOperacional', null) == resource.data.get('cadastroOperacional', null)
           )
+
+          // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE
+          // cria/edita/ativa/inativa/promove usuarios de uma equipe da
+          // própria unidade sem depender de Matriz manual. Checa o
+          // validador NOS DOIS ESTADOS (mesmo padrão já usado em
+          // gruposPlantao para o mesmo problema — checar só o destino
+          // deixava o escopo migrar livremente): bloqueia estruturalmente
+          // qualquer toque numa conta cujo perfil ATUAL já seja
+          // GESTOR_UNIDADE/ADMIN_SISTEMA, e permite promover/rebaixar
+          // colaborador<->GESTOR_EQUIPE/SUPERVISOR_EQUIPE dentro da unidade.
+          // equipeId fica travado (nunca muda); equipesPermitidas/unidadeId
+          // não são congelados campo-a-campo — são revalidados por
+          // coerência com esse equipeId travado a cada chamada.
+          || (
+            souGestorUnidade()
+            && resource.data.get('equipeId', null) != null
+            && exists(/databases/$(database)/documents/equipes/$(resource.data.equipeId))
+            && equipeDentroDoEscopoDeUnidade(resource.data.equipeId)
+            && perfilCadastroPorGestorUnidadeValido(resource.data)
+            && perfilCadastroPorGestorUnidadeValido(request.resource.data)
+            && request.resource.data.login == resource.data.login
+            && request.resource.data.equipeId == resource.data.equipeId
+            && request.resource.data.get('cadastroOperacional', null) == resource.data.get('cadastroOperacional', null)
+          )
         );
 
       allow create: if autenticado()
@@ -665,6 +832,23 @@ service cloud.firestore {
             && request.resource.data.get('unidadeId', null) == null
             && request.resource.data.get('unidadesPermitidas', null) == null
             && request.resource.data.get('equipesPermitidas', null) == null
+          )
+
+          // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE
+          // cria colaborador ou GESTOR_EQUIPE/SUPERVISOR_EQUIPE para uma
+          // equipe da própria unidade, sem depender de Matriz manual. Usa a
+          // variante ESTRITA do validador (nunca a coerente/tolerante usada
+          // em update): só aceita o payload CANÔNICO exato que
+          // montarCamposAcessoUsuario() já produz — nunca um formato
+          // "incompleto" novo. Nunca GESTOR_UNIDADE/ADMIN_SISTEMA/GLOBAL
+          // (bloqueado pelo enum fechado do validador).
+          || (
+            souGestorUnidade()
+            && request.resource.data.get('cadastroOperacional', null) == null
+            && request.resource.data.get('equipeId', null) != null
+            && exists(/databases/$(database)/documents/equipes/$(request.resource.data.equipeId))
+            && equipeDentroDoEscopoDeUnidade(request.resource.data.equipeId)
+            && perfilCadastroPorGestorUnidadeValidoParaCriacao(request.resource.data)
           )
 
           // STAGING-RESET-HIERARQUIA-ICI-2 — cadastro livre de unidade/equipe:

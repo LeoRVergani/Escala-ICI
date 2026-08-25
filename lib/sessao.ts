@@ -1,4 +1,4 @@
-import type { PerfilUsuario, EscopoUsuario, Usuario } from './modelos';
+import type { Equipe, PerfilUsuario, EscopoUsuario, Usuario } from './modelos';
 
 export type TipoProduto = 'dashboard' | 'app';
 
@@ -332,15 +332,27 @@ export function escopoDoGrupoPlantaoNoMeuAlcance(
  * exatamente a mesma invariante das Rules: exatamente UMA equipe muda
  * (nunca duas ao mesmo tempo), essa equipe está entre as que o usuário
  * administra, e `equipeResponsavelId` nunca sai da lista nova.
+ *
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — `GESTOR_UNIDADE`
+ * também vincula/desvincula qualquer equipe da própria unidade (ou de uma
+ * unidade descendente), mesmo sem `equipesPermitidas` explícito sobre ela.
+ * Diferente de `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE` (checagem client-side
+ * pura, `equipesPermitidasEfetivas`), este caminho precisa de
+ * `unidadeId`/`caminhoUnidade` da equipe alterada — dado que não está no
+ * `Usuario`, por isso o parâmetro `equipes` (já carregado no Dashboard).
+ * Sem `Rules`-style `get()` disponível no cliente, a equipe precisa já
+ * estar na lista recebida — se não estiver, nega (mesmo efeito de
+ * `exists()` antes de `get()` nas Rules: nunca assume presença).
  */
 export function podeAutoVincularConsultaPlantao(
   usuario: Usuario,
   equipesConsultaAntigo: readonly string[],
   equipesConsultaNovo: readonly string[],
   equipeResponsavelId: string,
+  equipes: readonly Pick<Equipe, 'id' | 'unidadeId' | 'caminhoUnidade'>[] = [],
 ): boolean {
   const perfil = perfilEfetivo(usuario);
-  if (perfil !== 'GESTOR_EQUIPE' && perfil !== 'SUPERVISOR_EQUIPE') {
+  if (perfil !== 'GESTOR_EQUIPE' && perfil !== 'SUPERVISOR_EQUIPE' && perfil !== 'GESTOR_UNIDADE') {
     return false;
   }
   if (!equipesConsultaNovo.includes(equipeResponsavelId)) {
@@ -351,6 +363,16 @@ export function podeAutoVincularConsultaPlantao(
   if (adicionadas.length + removidas.length !== 1) {
     return false;
   }
-  const equipeAlterada = adicionadas[0] ?? removidas[0];
-  return equipesPermitidasEfetivas(usuario).includes(equipeAlterada as string);
+  const equipeAlterada = (adicionadas[0] ?? removidas[0]) as string;
+
+  if (perfil === 'GESTOR_UNIDADE') {
+    const equipe = equipes.find((item) => item.id === equipeAlterada);
+    if (equipe === undefined || equipe.unidadeId === undefined) {
+      return false;
+    }
+    const permitidas = unidadesPermitidasEfetivas(usuario);
+    return permitidas.includes(equipe.unidadeId) || (equipe.caminhoUnidade?.some((id) => permitidas.includes(id)) ?? false);
+  }
+
+  return equipesPermitidasEfetivas(usuario).includes(equipeAlterada);
 }

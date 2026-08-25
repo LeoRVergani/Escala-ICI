@@ -15,12 +15,26 @@ import {
 } from 'firebase/firestore';
 
 import type {
+  Equipe,
   EstadoPublicacaoEscala,
   EventoEscala,
   PublicacaoEscala,
   Usuario,
 } from '../modelos';
 import { exigirFirebase, lerUsuario } from './shared';
+
+/**
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — leitura de uma única
+ * equipe por ID, para o App resolver `usuario.equipeId` num nome amigável
+ * (Perfil) sem precisar carregar a coleção inteira. Leitura de `equipes` é
+ * livre para qualquer autenticado (`firestore.rules`), então não há
+ * restrição de escopo a considerar aqui.
+ */
+export async function obterEquipe(equipeId: string): Promise<Equipe | null> {
+  const { db } = exigirFirebase();
+  const snapshot = await getDoc(doc(db, 'equipes', equipeId));
+  return snapshot.exists() ? (snapshot.data() as Equipe) : null;
+}
 
 export async function listarUsuarios(equipeId: string): Promise<Usuario[]> {
   const { db } = exigirFirebase();
@@ -29,6 +43,39 @@ export async function listarUsuarios(equipeId: string): Promise<Usuario[]> {
   );
   return resultado.docs.map((snapshot) =>
     lerUsuario(snapshot.id, snapshot.data()));
+}
+
+/**
+ * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — usuarios de todas as
+ * equipes de uma unidade, para GESTOR_UNIDADE administrar sem depender de
+ * ADMIN_SISTEMA. A Rule nova de leitura (`firestore.rules`, match
+ * usuarios/{login}) chaveia em `resource.data.equipeId` — o mesmo campo do
+ * `where()` — por isso a consulta precisa ser uma por `equipeId` (nunca um
+ * único `where('equipeId','in',...)`), mesmo padrão já usado em
+ * `listarUsuariosElegiveisPlantao()`, acima. Cada sub-consulta é isolada:
+ * se as Rules recusarem uma equipe específica (ex.: fora do escopo real),
+ * as demais ainda contribuem candidatos.
+ */
+export async function listarUsuariosDaUnidade(equipeIds: readonly string[]): Promise<Usuario[]> {
+  const { db } = exigirFirebase();
+
+  async function buscarPorEquipeId(valor: string): Promise<Usuario[]> {
+    try {
+      const resultado = await getDocs(query(collection(db, 'usuarios'), where('equipeId', '==', valor)));
+      return resultado.docs.map((snapshot) => lerUsuario(snapshot.id, snapshot.data()));
+    } catch {
+      return [];
+    }
+  }
+
+  const listas = await Promise.all([...new Set(equipeIds)].map((equipeId) => buscarPorEquipeId(equipeId)));
+  const porLogin = new Map<string, Usuario>();
+  for (const lista of listas) {
+    for (const usuario of lista) {
+      porLogin.set(usuario.login, usuario);
+    }
+  }
+  return [...porLogin.values()];
 }
 
 /**
