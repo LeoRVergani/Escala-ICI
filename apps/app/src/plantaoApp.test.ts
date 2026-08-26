@@ -7,6 +7,7 @@ import {
   contatosAtivosDoPlantonista,
   diasCivisNoPeriodo,
   escolherGrupoPlantaoPadrao,
+  estatisticasPlantaoApp,
   formatarIntervaloPlantaoCivil,
   formatarIntervaloPlantaoRelativoAHoje,
   indiceCorPlantonista,
@@ -448,5 +449,50 @@ describe('plataformaContatoPlantao', () => {
   it('rótulo não reconhecido (ex.: Ramal) cai em telefone, o padrão seguro', () => {
     expect(plataformaContatoPlantao('Ramal')).toBe('telefone');
     expect(plataformaContatoPlantao('Celular pessoal')).toBe('telefone');
+  });
+});
+
+describe('estatisticasPlantaoApp', () => {
+  it('mês normal: soma horas, conta plantões e finais de semana do usuário', () => {
+    const atribuicoes = [
+      // Segunda 2026-08-10, 12h — dia de semana.
+      atribuicao({ atribuicaoId: 'a', plantonistaLogin: 'clis', inicio: '2026-08-10T10:00:00.000Z', fim: '2026-08-10T22:00:00.000Z', duracaoMinutos: 720 }),
+      // Sábado 2026-08-15, 12h — final de semana.
+      atribuicao({ atribuicaoId: 'b', plantonistaLogin: 'clis', inicio: '2026-08-15T10:00:00.000Z', fim: '2026-08-15T22:00:00.000Z', duracaoMinutos: 720 }),
+      // Plantão de outra pessoa no mesmo período — não deve contar.
+      atribuicao({ atribuicaoId: 'c', plantonistaLogin: 'jean', inicio: '2026-08-16T10:00:00.000Z', fim: '2026-08-16T22:00:00.000Z', duracaoMinutos: 720 }),
+    ];
+    const estatisticas = estatisticasPlantaoApp('clis', atribuicoes, 'America/Sao_Paulo');
+    expect(estatisticas.totalPlantoes).toBe(2);
+    expect(estatisticas.horasTotais).toBe(24);
+    expect(estatisticas.finaisDeSemana).toBe(1);
+  });
+
+  it('plantão que começa sábado e termina domingo conta como UM plantão de final de semana (classificado pelo dia civil de início)', () => {
+    const atravessaMeiaNoite = atribuicao({
+      plantonistaLogin: 'clis',
+      // 22:00 UTC = 19:00 em America/Sao_Paulo (UTC-3) no sábado 2026-08-08;
+      // termina 07:00 local no domingo 2026-08-09.
+      inicio: '2026-08-08T22:00:00.000Z',
+      fim: '2026-08-09T10:00:00.000Z',
+      duracaoMinutos: 720,
+    });
+    const estatisticas = estatisticasPlantaoApp('clis', [atravessaMeiaNoite], 'America/Sao_Paulo');
+    expect(estatisticas.totalPlantoes).toBe(1);
+    expect(estatisticas.finaisDeSemana).toBe(1);
+  });
+
+  it('zero plantões do usuário -> tudo zerado, sem lançar', () => {
+    const deOutraPessoa = atribuicao({ plantonistaLogin: 'jean' });
+    const estatisticas = estatisticasPlantaoApp('clis', [deOutraPessoa], 'America/Sao_Paulo');
+    expect(estatisticas).toEqual({ horasTotais: 0, totalPlantoes: 0, finaisDeSemana: 0 });
+  });
+
+  it('lista de atribuições vazia -> tudo zerado', () => {
+    expect(estatisticasPlantaoApp('clis', [], 'America/Sao_Paulo')).toEqual({
+      horasTotais: 0,
+      totalPlantoes: 0,
+      finaisDeSemana: 0,
+    });
   });
 });

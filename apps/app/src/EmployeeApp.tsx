@@ -120,6 +120,7 @@ import {
   contatosAtivosDoPlantonista,
   diasCivisNoPeriodo,
   escolherGrupoPlantaoPadrao,
+  estatisticasPlantaoApp,
   formatarIntervaloPlantaoCivil,
   formatarIntervaloPlantaoRelativoAHoje,
   indiceCorPlantonista,
@@ -132,6 +133,7 @@ import {
   resolverDestaquePlantaoHoje,
   resolverPlantaoAgora,
   rotuloFimPlantao,
+  type EstatisticasPlantaoApp,
 } from './plantaoApp';
 import {
   cancelarSolicitacaoTroca as cancelarSolicitacaoTrocaFirebase,
@@ -272,15 +274,6 @@ function tituloCalendario(datas: string[]): string {
   return titulo.charAt(0).toUpperCase() + titulo.slice(1);
 }
 
-function tituloProximoTurno(turno: IntervaloTurno): string {
-  const data = formatarData(turno.data, {
-    weekday: 'long',
-    day: '2-digit',
-    month: 'short',
-  }).replace('.', '');
-  return data.charAt(0).toUpperCase() + data.slice(1);
-}
-
 function capitalizar(texto: string): string {
   return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
@@ -295,6 +288,40 @@ function datasDaSemana(datas: string[], dataHoje: string): string[] {
   }
   const inicio = Math.max(0, Math.min(indiceHoje - 3, datas.length - 7));
   return datas.slice(inicio, inicio + 7);
+}
+
+/**
+ * FASE-APP-REDESIGN-HOJE-1 — substitui `ContextoJornada.proximoTurno`
+ * (`resolverContextoJornada`, `packages/contrato/src/jornada.ts`), que só
+ * enxerga UM próximo turno e fica permanentemente `null` assim que o último
+ * turno do documento da competência carregada já passou. Em vez de mudar a
+ * camada de dados (exigiria buscar um segundo documento de competência),
+ * varremos os dias já carregados em `escala.dias` — os mesmos usados por
+ * `ResumoSemana`/`CalendarioEscala` — filtrando aos dias FUTUROS (após
+ * `dataHoje`) em que o usuário realmente trabalha, na ordem cronológica.
+ * `limite` controla quantos itens vêm de volta (1 para o metric tile da
+ * Agenda, 3 para o card "Próximos dias" da aba Hoje).
+ */
+function proximosDiasTrabalhados(
+  escala: TurnosMes | null,
+  catalogo: typeof CATALOGO_SOC,
+  dataHoje: string,
+  limite: number,
+): IntervaloTurno[] {
+  const resultado: IntervaloTurno[] = [];
+  const proximasDatas = Object.keys(escala?.dias ?? {})
+    .filter((data) => data > dataHoje)
+    .sort();
+  for (const data of proximasDatas) {
+    if (resultado.length >= limite) {
+      break;
+    }
+    const dia = resolverJornadaDia(escala, catalogo, data);
+    if (dia.trabalha && dia.inicio !== undefined && dia.fim !== undefined) {
+      resultado.push(dia as IntervaloTurno);
+    }
+  }
+  return resultado;
 }
 
 function textoEstado(contexto: ContextoJornada): string {
@@ -388,29 +415,42 @@ function TurnoHoje({ contexto }: { contexto: ContextoJornada }) {
   );
 }
 
-function ProximoTurno({ turno }: { turno: IntervaloTurno | null }) {
+/**
+ * FASE-APP-REDESIGN-HOJE-1 — substitui o antigo `ProximoTurno` (card
+ * "Próximo turno" que ficava permanentemente vazio assim que o último turno
+ * do mês carregado já tinha passado — ver `proximosDiasTrabalhados` acima).
+ * Mostra até 3 próximos dias em que o usuário trabalha, com data, dia da
+ * semana, descrição do turno e horário — mesmos dados/ícone que
+ * `TurnoHoje` já usa para o turno de hoje.
+ */
+function ProximosDias({ turnos }: { turnos: IntervaloTurno[] }) {
   return (
-    <article className="panel next-shift-card" data-code={turno?.codigo ?? ''}>
+    <article className="panel next-shift-card proximos-dias-card">
       <header className="today-card-heading">
-        <span>Próximo turno</span>
+        <span>Próximos dias</span>
         <CalendarCheck2 size={17} />
       </header>
-      {turno && (
-        <>
-          <div className="next-shift-title">
-            <span className="next-shift-icon" data-code={turno.codigo}>
-              <IconeTurno codigo={turno.codigo} />
-            </span>
-            <div>
-              <strong>{turno.descricao}</strong>
-              <span>{turno.inicio}–{turno.fim}</span>
-              <small>{tituloProximoTurno(turno)}</small>
+      {turnos.length === 0 ? (
+        <p className="empty-inline">Nenhum próximo turno publicado nesta competência.</p>
+      ) : (
+        <div className="proximos-dias-lista">
+          {turnos.map((turno) => (
+            <div className="proximos-dias-item" key={turno.data}>
+              <span className="proximos-dias-data">
+                <strong>{formatarData(turno.data, { day: '2-digit' })}</strong>
+                <small>{capitalizar(formatarData(turno.data, { weekday: 'short' }).replace('.', ''))}</small>
+              </span>
+              <span className="proximos-dias-icone" data-code={turno.codigo}>
+                <IconeTurno codigo={turno.codigo} />
+              </span>
+              <span className="proximos-dias-info">
+                <strong>{turno.descricao}</strong>
+                <small>{turno.inicio}–{turno.fim}</small>
+              </span>
             </div>
-          </div>
-          <p>{formatarMinutos(turno.duracaoMinutos)} de jornada prevista</p>
-        </>
+          ))}
+        </div>
       )}
-      {!turno && <p>Não encontrado neste período.</p>}
     </article>
   );
 }
@@ -525,6 +565,130 @@ function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso
       </div>
       {contatosProximo.length > 0 && <ContatosPlantaoLista contatos={contatosProximo} />}
     </article>
+  );
+}
+
+interface PlantaoResumoCompactoProps {
+  grupo: GrupoPlantao;
+  atribuicoes: AtribuicaoPlantaoPersistida[];
+  usuarios: Usuario[];
+  agoraIso: string;
+  onAbrir: () => void;
+}
+
+/**
+ * FASE-APP-REDESIGN-HOJE-1 — versão de UMA LINHA do Plantão para a aba
+ * "Hoje" quando ele NÃO é a operação principal do usuário nesta competência
+ * (ver `operacaoPrincipalHoje`, `operacoesApp.ts`) — ou seja, quando Jornada
+ * 6x1 E Plantão estão publicados ao mesmo tempo e a Jornada vem primeiro
+ * (regra 4 do App universal). Antes disso, `PlantaoHojeCard` (card cheio)
+ * sempre aparecia ao lado da Jornada mesmo sendo secundário, competindo
+ * visualmente pela atenção; esta linha resume o essencial (quem, até
+ * quando) e leva para a aba Plantão completa ao tocar.
+ */
+function PlantaoResumoCompacto({ grupo, atribuicoes, usuarios, agoraIso, onAbrir }: PlantaoResumoCompactoProps) {
+  const resumo = resolverPlantaoAgora(atribuicoes, agoraIso);
+  const dataHojeGrupo = converterInstanteUtcParaMomento(agoraIso, grupo.timezone).data;
+  const primeiroNome = (login: string) => nomeExibicaoPlantonista(login, usuarios).split(' ')[0];
+
+  if (resumo.atual !== null) {
+    const intervalo = intervaloPlantaoCivil(resumo.atual, grupo.timezone);
+    return (
+      <button type="button" className="today-secondary-row" onClick={onAbrir}>
+        <span className="today-secondary-row-icon"><Radio size={18} /></span>
+        <span className="today-secondary-row-text">
+          <small>Plantão {grupo.nome} agora</small>
+          <strong>{primeiroNome(resumo.atual.plantonistaLogin)}</strong>
+          <span>{intervalo.valido ? rotuloFimPlantao(intervalo, dataHojeGrupo) : 'Horário indisponível'}</span>
+        </span>
+        <ChevronRight size={18} />
+      </button>
+    );
+  }
+
+  const destaque = resolverDestaquePlantaoHoje(resumo, grupo.timezone, dataHojeGrupo);
+  if (destaque.estado === 'VAZIO') {
+    return (
+      <button type="button" className="today-secondary-row" onClick={onAbrir}>
+        <span className="today-secondary-row-icon"><Radio size={18} /></span>
+        <span className="today-secondary-row-text">
+          <small>Plantão {grupo.nome}</small>
+          <strong>Ninguém de plantão agora</strong>
+        </span>
+        <ChevronRight size={18} />
+      </button>
+    );
+  }
+
+  const intervalo = intervaloPlantaoCivil(destaque.atribuicao, grupo.timezone);
+  return (
+    <button type="button" className="today-secondary-row" onClick={onAbrir}>
+      <span className="today-secondary-row-icon"><Radio size={18} /></span>
+      <span className="today-secondary-row-text">
+        <small>{destaque.estado === 'PROXIMO_HOJE' ? `Próximo em ${grupo.nome}` : `Próximo plantão · ${grupo.nome}`}</small>
+        <strong>{primeiroNome(destaque.atribuicao.plantonistaLogin)}</strong>
+        <span>{intervalo.valido ? formatarIntervaloPlantaoRelativoAHoje(intervalo, dataHojeGrupo) : 'Horário indisponível'}</span>
+      </span>
+      <ChevronRight size={18} />
+    </button>
+  );
+}
+
+/**
+ * FASE-APP-REDESIGN-HOJE-1 — espelho de `PlantaoResumoCompacto` para o
+ * outro sentido: quando o usuário é primariamente plantonista (Plantão é a
+ * operação principal), a Jornada 6x1 vira a linha secundária compacta.
+ */
+function JornadaResumoCompacta({ contexto, onAbrir }: { contexto: ContextoJornada; onAbrir: () => void }) {
+  const turnoDestaque = contexto.turnoAtual ?? (
+    contexto.hoje.trabalha
+      && contexto.hoje.inicio !== undefined
+      && contexto.hoje.fim !== undefined
+      ? contexto.hoje as IntervaloTurno
+      : null
+  );
+  return (
+    <button type="button" className="today-secondary-row" onClick={onAbrir}>
+      <span className="today-secondary-row-icon">
+        {turnoDestaque ? <IconeTurno codigo={turnoDestaque.codigo} /> : <Coffee size={18} />}
+      </span>
+      <span className="today-secondary-row-text">
+        <small>Jornada 6x1 hoje</small>
+        <strong>{turnoDestaque?.descricao ?? 'Sem turno hoje'}</strong>
+        {turnoDestaque && <span>{turnoDestaque.inicio}–{turnoDestaque.fim}</span>}
+      </span>
+      <ChevronRight size={18} />
+    </button>
+  );
+}
+
+/**
+ * FASE-APP-REDESIGN-HOJE-1 — estatísticas do Plantão do próprio usuário
+ * nesta competência (ver `estatisticasPlantaoApp`, `plantaoApp.ts`):
+ * horas totais, quantidade de plantões e quantos caem em final de semana.
+ * Reaproveita a grade `.metric-grid` já usada em outras telas do App (aba
+ * Agenda) com um modificador `.plantao-stats-grid` para o layout de 3
+ * colunas, sem alterar a regra compartilhada `.metric-grid`.
+ */
+function PlantaoStatsRow({ estatisticas }: { estatisticas: EstatisticasPlantaoApp }) {
+  return (
+    <div className="metric-grid plantao-stats-grid">
+      <article data-tone="primary">
+        <span>Horas em plantão</span>
+        <strong>{formatarMinutos(Math.round(estatisticas.horasTotais * 60))}</strong>
+        <small>nesta competência</small>
+      </article>
+      <article data-tone="neutral">
+        <span>Plantões</span>
+        <strong>{estatisticas.totalPlantoes}</strong>
+        <small>no período</small>
+      </article>
+      <article data-tone="success">
+        <span>Finais de semana</span>
+        <strong>{estatisticas.finaisDeSemana}</strong>
+        <small>sábado ou domingo</small>
+      </article>
+    </div>
   );
 }
 
@@ -2666,6 +2830,14 @@ export function EmployeeApp() {
     catalogo,
     referencia,
   );
+  /**
+   * FASE-APP-REDESIGN-HOJE-1 — substitui `contextoHoje.proximoTurno` (ver
+   * `proximosDiasTrabalhados` acima) no metric tile "Próximo turno" da aba
+   * Agenda, que tinha o mesmo problema do card "Próximo turno" removido de
+   * "Hoje": ficava permanentemente vazio assim que o último turno do
+   * documento da competência carregada já tinha passado.
+   */
+  const proximoTurnoTrabalho = proximosDiasTrabalhados(minhaEscala, catalogo, dataHoje, 1)[0] ?? null;
 
   const escaladosNoDiaConsultado = documentos
     .map((documento) => ({
@@ -3798,21 +3970,16 @@ export function EmployeeApp() {
             </article>
           ) : (
             <div className="today-summary-grid today-dashboard-grid" data-operacao-principal={operacaoPrincipalHojeApp?.tipo ?? ''}>
-              {jornadaPublicadaApp && (
-                <>
-                  <TurnoHoje contexto={contextoHoje} />
-                  <ProximoTurno turno={contextoHoje.proximoTurno} />
-                  <ResumoSemana
-                    datas={datas}
-                    dataHoje={dataHoje}
-                    dataSelecionada={dataConsultaEquipe}
-                    escala={minhaEscala}
-                    catalogo={catalogo}
-                    onSelecionar={consultarEquipeNoDia}
-                  />
-                </>
-              )}
-              {plantaoPublicadoApp && grupoPlantaoApp != null && (
+              {/*
+                FASE-APP-REDESIGN-HOJE-1 — quando Jornada 6x1 E Plantão
+                convivem em "Hoje", só a operação PRINCIPAL do usuário
+                (`operacaoPrincipalHojeApp`, `operacoesApp.ts`) ganha o card
+                cheio (hero) — a outra vira uma linha compacta no fim,
+                nunca dois heroes competindo lado a lado pela atenção.
+                Quando só uma das duas existe, ela continua sozinha, sem
+                nenhuma mudança de comportamento.
+              */}
+              {jornadaPublicadaApp && plantaoPublicadoApp && grupoPlantaoApp != null && operacaoPrincipalHojeApp?.tipo === 'PLANTAO' ? (
                 <>
                   <PlantaoGrupoChips
                     grupos={gruposPlantaoApp}
@@ -3827,6 +3994,57 @@ export function EmployeeApp() {
                     agoraIso={agora.toISOString()}
                     loginUsuarioAtual={usuario.login}
                   />
+                  {souPlantonistaAtivoApp && (
+                    <PlantaoStatsRow estatisticas={estatisticasPlantaoApp(usuario.login, atribuicoesPlantaoApp, grupoPlantaoApp.timezone)} />
+                  )}
+                  <JornadaResumoCompacta contexto={contextoHoje} onAbrir={() => setTela('minha')} />
+                </>
+              ) : (
+                <>
+                  {jornadaPublicadaApp && (
+                    <>
+                      <TurnoHoje contexto={contextoHoje} />
+                      <ProximosDias turnos={proximosDiasTrabalhados(minhaEscala, catalogo, dataHoje, 3)} />
+                      <ResumoSemana
+                        datas={datas}
+                        dataHoje={dataHoje}
+                        dataSelecionada={dataConsultaEquipe}
+                        escala={minhaEscala}
+                        catalogo={catalogo}
+                        onSelecionar={consultarEquipeNoDia}
+                      />
+                    </>
+                  )}
+                  {plantaoPublicadoApp && grupoPlantaoApp != null && (
+                    jornadaPublicadaApp ? (
+                      <PlantaoResumoCompacto
+                        grupo={grupoPlantaoApp}
+                        atribuicoes={atribuicoesPlantaoApp}
+                        usuarios={usuarios}
+                        agoraIso={agora.toISOString()}
+                        onAbrir={() => setTela('plantao')}
+                      />
+                    ) : (
+                      <>
+                        <PlantaoGrupoChips
+                          grupos={gruposPlantaoApp}
+                          grupoSelecionadoId={grupoPlantaoSelecionadoId}
+                          onSelecionar={selecionarGrupoPlantaoApp}
+                        />
+                        <PlantaoHojeCard
+                          grupo={grupoPlantaoApp}
+                          atribuicoes={atribuicoesPlantaoApp}
+                          participantes={participantesPlantaoApp}
+                          usuarios={usuarios}
+                          agoraIso={agora.toISOString()}
+                          loginUsuarioAtual={usuario.login}
+                        />
+                        {souPlantonistaAtivoApp && (
+                          <PlantaoStatsRow estatisticas={estatisticasPlantaoApp(usuario.login, atribuicoesPlantaoApp, grupoPlantaoApp.timezone)} />
+                        )}
+                      </>
+                    )
+                  )}
                 </>
               )}
             </div>
@@ -4028,15 +4246,15 @@ export function EmployeeApp() {
                   <strong>{(totais?.df ?? 0) + (totais?.du ?? 0)}</strong>
                   <small>{totais?.df ?? 0} DF · {totais?.du ?? 0} DU</small>
                 </article>
-                <article className="metric-next-shift" data-tone="shift" data-code={contextoHoje.proximoTurno?.codigo ?? ''}>
+                <article className="metric-next-shift" data-tone="shift" data-code={proximoTurnoTrabalho?.codigo ?? ''}>
                   <span>Próximo turno</span>
                   <div>
-                    <i><IconeTurno codigo={contextoHoje.proximoTurno?.codigo ?? ''} /></i>
+                    <i><IconeTurno codigo={proximoTurnoTrabalho?.codigo ?? ''} /></i>
                     <p>
-                      <strong>{contextoHoje.proximoTurno?.descricao ?? 'Não encontrado'}</strong>
+                      <strong>{proximoTurnoTrabalho?.descricao ?? 'Não encontrado'}</strong>
                       <small>
-                        {contextoHoje.proximoTurno
-                          ? `${contextoHoje.proximoTurno.inicio}–${contextoHoje.proximoTurno.fim}`
+                        {proximoTurnoTrabalho
+                          ? `${proximoTurnoTrabalho.inicio}–${proximoTurnoTrabalho.fim}`
                           : 'Neste período'}
                       </small>
                     </p>
@@ -4386,6 +4604,7 @@ export function EmployeeApp() {
             const intervaloProximo = resumo.proximo ? intervaloPlantaoCivil(resumo.proximo, grupo.timezone) : null;
             const souPlantonista = participantesPlantaoApp.some((participante) => participante.login === usuario.login && participante.ativo);
             const meusPlantoes = souPlantonista ? proximosPlantoesDoUsuario(usuario.login, atribuicoesPlantaoApp, agoraIso, 6) : [];
+            const estatisticas = souPlantonista ? estatisticasPlantaoApp(usuario.login, atribuicoesPlantaoApp, grupo.timezone) : null;
 
             return (
               <>
@@ -4434,6 +4653,8 @@ export function EmployeeApp() {
                     )}
                   </article>
                 </div>
+
+                {estatisticas && <PlantaoStatsRow estatisticas={estatisticas} />}
 
                 {periodoPlantaoApp && (
                   <article className="panel">

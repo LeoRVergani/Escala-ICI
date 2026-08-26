@@ -1632,7 +1632,21 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if false;
+      /**
+       * HOTFIX-ESCALA-ALERTA-TROCAS-1 — antes era `if false` (nenhuma
+       * exclusão física de Grupo, nunca). Um erro de importação pode criar
+       * um Grupo duplicado/errado (mesmo `equipeResponsavelId`, nome
+       * repetido) sem nenhuma forma de corrigir além de deixá-lo ativo para
+       * sempre. Quem administra o Grupo (`podeGerenciarGrupoPlantao()`,
+       * igual `update` acima) agora pode excluí-lo — mas
+       * `competenciasPlantao` (PUBLICADA) continua com `allow delete: if
+       * false` mais abaixo, inalterado: um Grupo com histórico publicado
+       * de verdade não é removível por este caminho (o cliente,
+       * `excluirGrupoPlantao()`, recusa a operação antes de chegar aqui
+       * quando detecta competência publicada — nunca confie só nisso aqui,
+       * porque o objetivo já está garantido pela Rule da competência).
+       */
+      allow delete: if podeGerenciarGrupoPlantao(resource.data);
     }
 
     /**
@@ -1695,7 +1709,10 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if false;
+      // HOTFIX-ESCALA-ALERTA-TROCAS-1 — mesmo raciocínio do `allow delete`
+      // do Grupo (acima): precisa poder esvaziar participantes de um
+      // Grupo errado antes de excluí-lo. Mesma checagem de `create`/`update`.
+      allow delete: if autenticado() && podeAdministrarEscalaPlantao(grupoId);
     }
 
     /**

@@ -350,3 +350,47 @@ export function indiceCorPlantonista(
   }
   return hash % TAMANHO_PALETA_IDENTIDADE_PLANTAO;
 }
+
+export interface EstatisticasPlantaoApp {
+  /** Soma de `duracaoMinutos` de todos os plantões do usuário, em HORAS (fracionário — ex.: 12.5 = 12h30). */
+  horasTotais: number;
+  /** Quantidade de plantões do usuário nas atribuições recebidas. */
+  totalPlantoes: number;
+  /** Quantos desses plantões caem em final de semana (sábado ou domingo). */
+  finaisDeSemana: number;
+}
+
+/**
+ * FASE-APP-REDESIGN-HOJE-1 — estatísticas do PRÓPRIO usuário no Plantão:
+ * horas totais, quantidade de plantões e quantos caem em final de semana.
+ * `atribuicoes` já deve vir filtrada pela competência de interesse (mesmo
+ * padrão de `proximosPlantoesDoUsuario` — este módulo nunca decide qual
+ * competência é "a atual", isso é responsabilidade de quem carrega os
+ * dados). Classifica cada plantão pelo dia CIVIL de início (mesmo critério
+ * de `atribuicoesPorDiaCivil`) via `Date#getUTCDay()` (0 = domingo, 6 =
+ * sábado, mesma convenção de `NOMES_DIA_SEMANA` em
+ * `modeloPlantaoPersistente.ts`) — um plantão que começa sábado à noite e
+ * termina domingo de manhã conta como UM plantão de final de semana, nunca
+ * dois, porque é um único plantão com um único dia de início.
+ */
+export function estatisticasPlantaoApp(
+  login: string,
+  atribuicoes: readonly AtribuicaoPlantaoPersistida[],
+  timezone: string,
+): EstatisticasPlantaoApp {
+  const doUsuario = atribuicoes.filter((atribuicao) => atribuicao.plantonistaLogin === login);
+  const minutosTotais = doUsuario.reduce((soma, atribuicao) => soma + atribuicao.duracaoMinutos, 0);
+  const finaisDeSemana = doUsuario.filter((atribuicao) => {
+    const intervalo = intervaloPlantaoCivil(atribuicao, timezone);
+    if (!intervalo.valido) {
+      return false;
+    }
+    const diaSemana = new Date(`${intervalo.dataInicio}T12:00:00Z`).getUTCDay();
+    return diaSemana === 0 || diaSemana === 6;
+  }).length;
+  return {
+    horasTotais: minutosTotais / 60,
+    totalPlantoes: doUsuario.length,
+    finaisDeSemana,
+  };
+}

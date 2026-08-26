@@ -156,6 +156,7 @@ import {
 import {
   atualizarEquipeConsultaPlantao,
   desativarParticipantePlantao,
+  excluirGrupoPlantao,
   salvarAtribuicoesPlantaoRascunho,
   salvarCompetenciaPlantaoRascunho,
   salvarGrupoPlantao,
@@ -3357,6 +3358,9 @@ export function DashboardApp() {
   const [carregandoEquipesPlantao, setCarregandoEquipesPlantao] = useState(true);
   const [erroEquipesPlantao, setErroEquipesPlantao] = useState('');
   const [modalGrupoPlantao, setModalGrupoPlantao] = useState<{ modo: 'criar' | 'editar'; inicial: GrupoPlantao } | null>(null);
+  const [grupoPlantaoParaExcluir, setGrupoPlantaoParaExcluir] = useState<GrupoPlantao | null>(null);
+  const [excluindoGrupoPlantao, setExcluindoGrupoPlantao] = useState(false);
+  const [erroExclusaoGrupoPlantao, setErroExclusaoGrupoPlantao] = useState('');
   const [buscaParticipanteNovo, setBuscaParticipanteNovo] = useState<Record<string, string>>({});
   const [modalContatosParticipante, setModalContatosParticipante] = useState<
     { grupoId: string; nomeExibicao: string; participante: ParticipantePlantao } | null
@@ -6796,9 +6800,31 @@ export function DashboardApp() {
 
   // --- Administração de Plantão (Fase PLANTÃO-3B) ---
 
+  /**
+   * HOTFIX-ESCALA-ALERTA-TROCAS-1 — `plantoesAdministraveis` (via
+   * `resolverMatrizOperacional()`) só é populado a partir de documentos
+   * `escoposOperacionais` explícitos; um Grupo recém-criado ou duplicado
+   * (ex.: por uma reimportação, o caso real que motivou esta correção)
+   * NUNCA é registrado ali automaticamente (`salvarGrupoPlantao()` só
+   * grava o próprio Grupo). Sem este segundo caminho, o botão de
+   * Editar/Excluir ficava permanentemente invisível para exatamente o
+   * Grupo problemático que o usuário precisa corrigir — mesmo já
+   * administrando-o de fato. `podeGerenciarGrupoPlantao()` (`lib/sessao.ts`)
+   * é o mirror client-side EXATO de `podeGerenciarGrupoPlantao()` em
+   * `firestore.rules` (mesma função usada pelo wizard em
+   * `criarGrupoWizard()` acima) — reconcilia aqui o gate de UX com a Rule
+   * real, em vez de manter dois sistemas de autorização divergentes.
+   */
   function podeGerenciarEsteGrupoPlantao(grupo: GrupoPlantao): boolean {
     return usuarioReal !== null
-      && escoposOperacionais.plantoesAdministraveis.some((item) => item.grupoId === grupo.grupoId);
+      && (
+        escoposOperacionais.plantoesAdministraveis.some((item) => item.grupoId === grupo.grupoId)
+        || podeGerenciarGrupoPlantao(usuarioReal, {
+          equipeResponsavelId: grupo.equipeResponsavelId,
+          unidadeResponsavelId: grupo.unidadeResponsavelId,
+          caminhoUnidadeResponsavel: grupo.caminhoUnidadeResponsavel,
+        })
+      );
   }
 
   function abrirNovoGrupoPlantao() {
@@ -6839,6 +6865,32 @@ export function DashboardApp() {
       setModalGrupoPlantao(null);
     } catch (falha) {
       throw new Error(mensagemErroFirebase(falha, 'Não foi possível salvar o grupo de Plantão.', ambienteFirebaseAtual));
+    }
+  }
+
+  /**
+   * HOTFIX-ESCALA-ALERTA-TROCAS-1 — corrigir um Grupo criado por engano
+   * (ex.: reimportação que duplicou em vez de atualizar o existente).
+   * `excluirGrupoPlantao()` já recusa sozinha (com mensagem clara) quando
+   * existe competência publicada — aqui só propagamos essa mensagem,
+   * nunca escondemos.
+   */
+  async function confirmarExclusaoGrupoPlantao() {
+    if (grupoPlantaoParaExcluir === null) {
+      return;
+    }
+    setExcluindoGrupoPlantao(true);
+    setErroExclusaoGrupoPlantao('');
+    try {
+      if (!modoDemo) {
+        await excluirGrupoPlantao(grupoPlantaoParaExcluir.grupoId);
+      }
+      setGruposPlantaoAdmin((atuais) => atuais.filter((item) => item.grupoId !== grupoPlantaoParaExcluir.grupoId));
+      setGrupoPlantaoParaExcluir(null);
+    } catch (falha) {
+      setErroExclusaoGrupoPlantao(mensagemErroFirebase(falha, 'Não foi possível excluir o grupo de Plantão.', ambienteFirebaseAtual));
+    } finally {
+      setExcluindoGrupoPlantao(false);
     }
   }
 
@@ -9705,6 +9757,17 @@ export function DashboardApp() {
                         <Pencil size={15} />
                       </button>
                     )}
+                    {gerencio && (
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title="Excluir grupo (corrige um duplicado criado por engano)"
+                        aria-label={`Excluir grupo ${grupo.nome}`}
+                        onClick={() => { setErroExclusaoGrupoPlantao(''); setGrupoPlantaoParaExcluir(grupo); }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="import-summary plantao-resumo-grid">
@@ -10471,6 +10534,33 @@ export function DashboardApp() {
         />
       )}
 
+      {grupoPlantaoParaExcluir && (
+        <ModalConfirmarComTexto
+          titulo={`Excluir ${grupoPlantaoParaExcluir.nome}`}
+          mensagem={(
+            <>
+              <p>
+                Remove permanentemente o grupo <strong>{grupoPlantaoParaExcluir.nome}</strong> (
+                <code>{grupoPlantaoParaExcluir.grupoId}</code>) e{' '}
+                {(participantesPorGrupoPlantao[grupoPlantaoParaExcluir.grupoId] ?? []).length} participante(s)
+                cadastrado(s) nele. Use para corrigir um grupo criado por engano (ex.: duplicado numa
+                reimportação).
+              </p>
+              <p>
+                Esta ação é irreversível. Se este Plantão já tiver competência publicada, a exclusão será
+                recusada — desative o grupo em vez disso.
+              </p>
+              {erroExclusaoGrupoPlantao && <div className="alert error" role="alert">{erroExclusaoGrupoPlantao}</div>}
+            </>
+          )}
+          fraseEsperada={grupoPlantaoParaExcluir.grupoId}
+          rotuloBotaoConfirmar={excluindoGrupoPlantao ? 'Excluindo…' : 'Excluir grupo'}
+          processando={excluindoGrupoPlantao}
+          onFechar={() => setGrupoPlantaoParaExcluir(null)}
+          onConfirmar={() => void confirmarExclusaoGrupoPlantao()}
+        />
+      )}
+
       {modalVisibilidadePlantaoEquipeId && (() => {
         const equipeAlvo = equipesAdmin.find((item) => item.id === modalVisibilidadePlantaoEquipeId);
         const grupoResponsavel = gruposPlantaoAdmin.find((grupo) => grupo.ativo && grupo.equipeResponsavelId === modalVisibilidadePlantaoEquipeId);
@@ -11157,6 +11247,13 @@ export function DashboardApp() {
                             </option>
                           ))}
                         </select>
+                        {(formularioUsuario.tipoAcesso === 'SUPERVISOR_EQUIPE'
+                          || formularioUsuario.tipoAcesso === 'GESTOR_EQUIPE') && (
+                          <small className="empty-inline">
+                            Alcance restrito: administra somente a equipe escolhida acima — nenhuma outra
+                            equipe da unidade é afetada.
+                          </small>
+                        )}
                       </label>
                     )}
                     {souAdmin && formularioUsuario.tipoAcesso === 'GESTOR_UNIDADE' && (
@@ -11173,6 +11270,10 @@ export function DashboardApp() {
                             </option>
                           ))}
                         </select>
+                        <div className="alert warning" role="status">
+                          <strong>Alcance amplo:</strong> administra TODAS as equipes desta unidade — inclusive
+                          equipes criadas depois, sem precisar de nenhuma nova permissão.
+                        </div>
                       </label>
                     )}
                     {souAdmin && formularioUsuario.tipoAcesso === 'ADMIN_SISTEMA' && (

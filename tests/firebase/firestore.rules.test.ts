@@ -3623,6 +3623,53 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
         doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_TESTE_2026-08', 'atribuicoes', '0001'),
       ));
     });
+
+    /**
+     * HOTFIX-ESCALA-ALERTA-TROCAS-1 — corrigir um Grupo criado por engano
+     * (ex.: reimportação que duplicou em vez de atualizar o existente).
+     * `usuarios.gestor` (GESTOR_EQUIPE de `EQ_COSI_SOC`, a mesma
+     * `equipeResponsavelId` de `PLANTAO_TESTE`) exclui o Grupo — mesmo
+     * escopo já usado por `podeGerenciarGrupoPlantao()` para create/update.
+     */
+    it('GESTOR_EQUIPE exclui o Grupo via equipeResponsavelId dentro do próprio escopo; um gestor de outra equipe não consegue', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(deleteDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE')));
+
+      const foraDeEscopoDb = autenticarComo(gestorForaEscopo);
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_TESTE'), grupoPlantao());
+      });
+      await assertFails(deleteDoc(doc(foraDeEscopoDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+    });
+
+    /**
+     * HOTFIX-ESCALA-ALERTA-TROCAS-1 — a subcoleção `participantes` segue
+     * exatamente o mesmo padrão de autorização do Grupo (`podeAdministrarEscalaPlantao()`,
+     * mesma checagem de `create`/`update`): quem administra exclui um
+     * participante fisicamente (nunca só quem consulta ou o próprio
+     * participante).
+     */
+    it('exclusão física de participante segue o mesmo padrão: quem administra consegue, quem só consulta ou o próprio participante não', async () => {
+      const db = autenticarComo(usuarios.gestor);
+      await assertSucceeds(deleteDoc(
+        doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+      ));
+
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(
+          doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+          participantePlantao(usuarios.colaborador.login),
+        );
+      });
+      const consultaDb = autenticarComo(usuarios.externo);
+      await assertFails(deleteDoc(
+        doc(consultaDb, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+      ));
+      const proprioParticipanteDb = autenticarComo(usuarios.colaborador);
+      await assertFails(deleteDoc(
+        doc(proprioParticipanteDb, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
+      ));
+    });
   });
 
   describe('gestor fora do escopo (gestor de uma equipe que só consulta, não administra)', () => {
@@ -3949,17 +3996,18 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       ));
     });
 
-    it('desativar participante é sempre update (ativo:false) — delete é negado para grupo e participante, mesmo para o gestor autorizado e para o admin', async () => {
+    it('desativar participante continua possível via update (ativo:false); HOTFIX-ESCALA-ALERTA-TROCAS-1 — delete físico do Grupo/participante agora é permitido para quem administra (excluir um Grupo criado por erro de importação), mas nunca para quem não administra', async () => {
       const gestorDb = autenticarComo(usuarios.gestor);
       await assertSucceeds(updateDoc(
         doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login),
         { ativo: false },
       ));
-      await assertFails(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login)));
-      await assertFails(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+      const externoDb = autenticarComo(usuarios.externo);
+      await assertFails(deleteDoc(doc(externoDb, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login)));
+      await assertFails(deleteDoc(doc(externoDb, 'gruposPlantao', 'PLANTAO_TESTE')));
 
-      const adminDb = autenticarComo(usuarios.admin);
-      await assertFails(deleteDoc(doc(adminDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+      await assertSucceeds(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.colaborador.login)));
+      await assertSucceeds(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE')));
     });
 
     it('editar equipesConsulta pelo ModalGrupoPlantao passa a autorizar uma equipe nova imediatamente, e a remover o acesso de uma equipe tirada da lista', async () => {
@@ -4212,11 +4260,22 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       await assertFails(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { nome: 'Hackeado' }));
     });
 
-    it('ADMIN_SISTEMA cria e edita o Grupo Plantão COSI livremente; delete físico continua negado', async () => {
+    it('ADMIN_SISTEMA cria e edita o Grupo Plantão COSI livremente; HOTFIX-ESCALA-ALERTA-TROCAS-1 — delete físico agora é permitido (corrigir Grupo duplicado por erro de importação)', async () => {
       const db = autenticarComo(usuarios.admin);
       await assertSucceeds(setDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoCosi({ criadoPorLogin: usuarios.admin.login })));
       await assertSucceeds(updateDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), { nome: 'Plantão COSI (admin)' }));
-      await assertFails(deleteDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI')));
+      await assertSucceeds(deleteDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI')));
+    });
+
+    it('HOTFIX-ESCALA-ALERTA-TROCAS-1 — GESTOR_UNIDADE de COSI exclui o Grupo Plantão COSI (unidadeResponsavelId dentro do escopo); GESTOR_UNIDADE de outra unidade não consegue', async () => {
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await setDoc(doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_COSI'), grupoPlantaoCosi());
+      });
+      const foraDeEscopoDb = autenticarComo(gestorUnidadeOutra);
+      await assertFails(deleteDoc(doc(foraDeEscopoDb, 'gruposPlantao', 'PLANTAO_COSI')));
+
+      const db = autenticarComo(gestorUnidadeCosi);
+      await assertSucceeds(deleteDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI')));
     });
   });
 
@@ -4388,9 +4447,9 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
       }));
     });
 
-    it('delete físico continua negado, mesmo para quem administra ou para quem só autovincula consulta', async () => {
+    it('HOTFIX-ESCALA-ALERTA-TROCAS-1 — delete físico é permitido para quem administra (PLANTAO_TESTE), mas continua negado para quem só autovincula consulta sem administrar (PLANTAO_COSI)', async () => {
       const gestorDb = autenticarComo(usuarios.gestor);
-      await assertFails(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE')));
+      await assertSucceeds(deleteDoc(doc(gestorDb, 'gruposPlantao', 'PLANTAO_TESTE')));
       const wanessaDb = autenticarComo(wanessaSupervisoraNoc);
       await assertFails(deleteDoc(doc(wanessaDb, 'gruposPlantao', 'PLANTAO_COSI')));
     });
