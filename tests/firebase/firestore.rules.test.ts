@@ -2544,6 +2544,64 @@ describe('Jornada 6x1 — escopo GESTOR_UNIDADE (podeAdministrarJornada)', () =>
 });
 
 /**
+ * HOTFIX-PUBLICAR-ESCALAS-GESTOR-UNIDADE-STATUS-1 — reproduz o
+ * permission-denied real de `publicarEscalas()`/`reverterPublicacao()` para
+ * `GESTOR_UNIDADE`: a Rule de leitura de `turnosMes` é
+ * `(podeOperarNaEquipe(...) || podeAdministrarJornada(...)) && (resource.data.status
+ * == 'PUBLICADA' || souGestor())`. `GESTOR_UNIDADE` nunca é `souGestor()`
+ * (só `GESTOR_EQUIPE`/`SUPERVISOR_EQUIPE`/`ADMIN_SISTEMA`), então o branch
+ * `status == 'PUBLICADA'` é o único caminho possível para ele — e o motor de
+ * Rules do Firestore só consegue PROVAR esse branch quando a própria query
+ * já inclui `where('status', '==', 'PUBLICADA')` como filtro de igualdade;
+ * sem isso, a query inteira é recusada antes de qualquer avaliação
+ * documento-a-documento, mesmo que todo `turnosMes` real já seja sempre
+ * `PUBLICADA` (create/update da coleção exigem esse status). Isso reproduz
+ * exatamente a consulta `where('equipeId', ...).where('competencia', ...)`
+ * que `publicarEscalas()`/`reverterPublicacao()` faziam antes do primeiro
+ * batch, sem qualquer filtro de status.
+ */
+describe('turnosMes — list por equipeId+competencia sem where(status) nega GESTOR_UNIDADE (bug real de publicarEscalas/reverterPublicacao)', () => {
+  async function semearEquipeGedsiComEscalaPublicada(equipeId: string) {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'equipes', equipeId), {
+        id: equipeId,
+        nome: equipeId,
+        sigla: equipeId,
+        ativa: true,
+        unidadeId: 'GEDSI',
+        caminhoUnidade: ['GEDSI'],
+      });
+      await setDoc(
+        doc(contexto.firestore(), 'turnosMes', `${equipeId}_alguem_2026-08`),
+        escala('alguem', equipeId, 'PUBLICADA'),
+      );
+    });
+  }
+
+  it('nega a query sem where(status) — a mesma consulta usada hoje por publicarEscalas()/reverterPublicacao() antes do fix', async () => {
+    await semearEquipeGedsiComEscalaPublicada('EQ_GEDSI_PUB');
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertFails(getDocs(query(
+      collection(db, 'turnosMes'),
+      where('equipeId', '==', 'EQ_GEDSI_PUB'),
+      where('competencia', '==', '2026-08'),
+    )));
+  });
+
+  it('sucede com where(status, ==, PUBLICADA) — a correção aplicada em publicarEscalas()/reverterPublicacao()', async () => {
+    await semearEquipeGedsiComEscalaPublicada('EQ_GEDSI_PUB');
+    const db = autenticarComo(usuarios.gestorUnidade);
+    const resultado = await assertSucceeds(getDocs(query(
+      collection(db, 'turnosMes'),
+      where('equipeId', '==', 'EQ_GEDSI_PUB'),
+      where('competencia', '==', '2026-08'),
+      where('status', '==', 'PUBLICADA'),
+    )));
+    expect(resultado.docs).toHaveLength(1);
+  });
+});
+
+/**
  * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE
  * cria/edita/ativa/inativa/promove usuarios de uma equipe da própria
  * unidade, sem depender de Matriz manual. Cobre create (variante ESTRITA

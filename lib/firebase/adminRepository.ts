@@ -125,7 +125,22 @@ export async function excluirEscalaPublicada(
   const { db } = exigirFirebase();
 
   const restricoes = [where('equipeId', '==', equipeId), where('competencia', '==', competencia)];
-  await excluirPorConsultaEmLotes(db, query(collection(db, 'turnosMes'), ...restricoes));
+  /**
+   * HOTFIX-PUBLICAR-ESCALAS-GESTOR-UNIDADE-STATUS-1 — mesmo motivo do fix em
+   * `publicarEscalas()`/`reverterPublicacao()` (`writeRepository.ts`): a
+   * Rule de leitura de `turnosMes` só prova o branch `status == 'PUBLICADA'`
+   * (o único disponível para `GESTOR_UNIDADE`, que acessa esta tela via
+   * `podeAcessarAdministracao`) quando a própria query já filtra por
+   * `status`. Todo documento de `turnosMes` já é sempre `PUBLICADA` (nunca
+   * um rascunho), então o filtro não muda o resultado, só o que a Rule
+   * consegue provar. `rascunhosTurnosMes` não tem essa condição na Rule
+   * (`podeAdministrarJornada()` sozinho já basta), então não precisa do
+   * mesmo filtro.
+   */
+  await excluirPorConsultaEmLotes(
+    db,
+    query(collection(db, 'turnosMes'), ...restricoes, where('status', '==', 'PUBLICADA')),
+  );
   await excluirPorConsultaEmLotes(db, query(collection(db, 'rascunhosTurnosMes'), ...restricoes));
 }
 

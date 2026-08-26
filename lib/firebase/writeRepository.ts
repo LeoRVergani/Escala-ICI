@@ -263,10 +263,25 @@ export async function publicarEscalas(
   const estadoRef = doc(db, 'publicacoesEscala', chavePublicacao);
   const estadoAtual = await getDoc(estadoRef);
   const revisaoAtual = Number(estadoAtual.data()?.revisaoAtual ?? 0);
+  /**
+   * HOTFIX-PUBLICAR-ESCALAS-GESTOR-UNIDADE-STATUS-1 — a Rule de leitura de
+   * `turnosMes` só libera para quem não é `souGestor()` (caso de
+   * `GESTOR_UNIDADE`, que administra Jornada via `podeAdministrarJornada()`
+   * mas nunca é "gestor" no sentido de `souGestor()`) quando
+   * `resource.data.status == 'PUBLICADA'`. O motor de Rules do Firestore só
+   * PROVA esse branch — e libera a query inteira — quando a própria consulta
+   * já inclui `where('status', '==', 'PUBLICADA')` como filtro de igualdade;
+   * sem isso, a Rule reprova o `list` inteiro com permission-denied antes de
+   * avaliar documento a documento, mesmo que todo `turnosMes` real já seja
+   * sempre `PUBLICADA` (create/update da coleção exigem esse status). Ver
+   * teste em `tests/firebase/firestore.rules.test.ts` que reproduz a query
+   * sem esse filtro falhando no Emulator.
+   */
   const ativos = await getDocs(query(
     collection(db, 'turnosMes'),
     where('equipeId', '==', equipeId),
     where('competencia', '==', competencia),
+    where('status', '==', 'PUBLICADA'),
   ));
   const documentosAtivos = ativos.docs.map((snapshot) => snapshot.data() as TurnosMes);
   const rascunhosAtuais = await getDocs(query(
@@ -464,10 +479,14 @@ export async function reverterPublicacao(
     throw new Error(`A revisão ${revisaoOrigem} não possui documentos restauráveis.`);
   }
 
+  // HOTFIX-PUBLICAR-ESCALAS-GESTOR-UNIDADE-STATUS-1 — mesmo raciocínio do
+  // `ativos` de `publicarEscalas()` acima: o filtro `status` é o que prova a
+  // Rule de leitura de `turnosMes` para `GESTOR_UNIDADE`.
   const ativos = await getDocs(query(
     collection(db, 'turnosMes'),
     where('equipeId', '==', equipeId),
     where('competencia', '==', competencia),
+    where('status', '==', 'PUBLICADA'),
   ));
   const documentosAtivos = ativos.docs.map((snapshot) => snapshot.data() as TurnosMes);
   const alteracoes = calcularAlteracoesEscala(documentosAtivos, documentos);
