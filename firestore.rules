@@ -1857,7 +1857,7 @@ service cloud.firestore {
           !exists(/databases/$(database)/documents/competenciasPlantao/$(id))
           || podeLerEscalaPlantao(resource.data.grupoId)
         );
-      allow create, update: if podeAdministrarEscalaPlantao(request.resource.data.grupoId)
+      allow create: if podeAdministrarEscalaPlantao(request.resource.data.grupoId)
         && request.resource.data.id == id
         && request.resource.data.status == 'PUBLICADA'
         && request.resource.data.revisao > 0
@@ -1871,15 +1871,58 @@ service cloud.firestore {
           'id', 'grupoId', 'competencia', 'periodoInicio', 'periodoFim', 'status',
           'revisao', 'origem', 'totaisInformadosOrigem', 'totalBruto', 'schemaVersion',
           'criadoPorLogin', 'criadoEm', 'atualizadoEm',
-        ])
+        ]);
+
+      /**
+       * FASE-ESCOPO-HIERARQUICO-CODB-E-ADMIN-PLANTAO-1 — dois caminhos de
+       * `update`, nunca fundidos:
+       *
+       * 1) republicação (PUBLICADA -> PUBLICADA, revisão maior) — mesmas
+       *    invariantes de sempre desta fase, inalteradas.
+       * 2) cancelamento (PUBLICADA -> CANCELADA) — NUNCA delete físico
+       *    (`allow delete` continua `if false` abaixo; histórico e
+       *    atribuições publicadas continuam intactos). `diff().affectedKeys()`
+       *    trava exatamente os campos da transição: identidade estrutural
+       *    (grupoId/competencia/período/origem/revisão/totais/criadoPor/
+       *    criadoEm/schemaVersion) precisa continuar byte-a-byte igual — só
+       *    `status` + os três metadados de cancelamento + `atualizadoEm`
+       *    podem mudar. Uma competência já `CANCELADA` é terminal: nenhuma
+       *    das duas branches aceita `resource.data.status == 'CANCELADA'`.
+       */
+      allow update: if podeAdministrarEscalaPlantao(request.resource.data.grupoId)
+        && request.resource.data.id == id
         && (
-          !exists(/databases/$(database)/documents/competenciasPlantao/$(id))
-          || (
-            request.resource.data.grupoId == resource.data.grupoId
+          (
+            resource.data.status == 'PUBLICADA'
+            && request.resource.data.status == 'PUBLICADA'
+            && request.resource.data.revisao > 0
+            && request.resource.data.competencia is string && request.resource.data.competencia.size() > 0
+            && request.resource.data.periodoInicio is string
+            && request.resource.data.periodoFim is string
+            && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']
+            && request.resource.data.schemaVersion in [1]
+            && request.resource.data.totalBruto.keys().hasOnly(['quantidade', 'minutos'])
+            && request.resource.data.keys().hasOnly([
+              'id', 'grupoId', 'competencia', 'periodoInicio', 'periodoFim', 'status',
+              'revisao', 'origem', 'totaisInformadosOrigem', 'totalBruto', 'schemaVersion',
+              'criadoPorLogin', 'criadoEm', 'atualizadoEm',
+            ])
+            && request.resource.data.grupoId == resource.data.grupoId
             && request.resource.data.competencia == resource.data.competencia
             && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
             && request.resource.data.criadoEm == resource.data.criadoEm
             && request.resource.data.revisao > resource.data.revisao
+          )
+          || (
+            resource.data.status == 'PUBLICADA'
+            && request.resource.data.status == 'CANCELADA'
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'canceladaEm', 'canceladaPorLogin', 'motivoCancelamento', 'atualizadoEm'])
+            && request.resource.data.get('motivoCancelamento', '') is string
+            && request.resource.data.motivoCancelamento.size() > 0
+            && request.resource.data.motivoCancelamento.size() <= 500
+            && request.resource.data.get('canceladaPorLogin', '') == loginDoAuth()
+            && request.resource.data.get('canceladaEm', null) is string
           )
         );
       allow delete: if false;

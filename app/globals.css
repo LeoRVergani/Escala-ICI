@@ -1045,6 +1045,7 @@ button.shift-chip:disabled { cursor: default; }
 .revision-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 0 4px color-mix(in srgb, var(--cyan) 13%, transparent); }
 .revision-dot.rollback { background: var(--warning); box-shadow: 0 0 0 4px color-mix(in srgb, var(--warning) 14%, transparent); }
 .revision-dot.seed { background: var(--primary-bright); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-bright) 14%, transparent); }
+.revision-dot.cancelada { background: var(--muted); box-shadow: 0 0 0 4px color-mix(in srgb, var(--muted) 14%, transparent); }
 .compact-button { min-height: var(--control-height-compact); padding: 0 11px; border-radius: var(--radius-control); }
 .history-empty { min-height: 92px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 12px; }
 .history-empty svg { color: var(--primary-bright); }

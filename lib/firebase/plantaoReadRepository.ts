@@ -96,7 +96,15 @@ export async function obterCompetenciaPlantaoRascunho(
   return resultado.docs[0]?.data() as CompetenciaPlantao | undefined ?? null;
 }
 
-export async function obterCompetenciaPlantaoPublicada(
+/**
+ * FASE-ESCOPO-HIERARQUICO-CODB-E-ADMIN-PLANTAO-1 — devolve a publicação
+ * regardless de status (`PUBLICADA` ou `CANCELADA`). Usada só pela tela
+ * administrativa (precisa mostrar/rotular uma competência cancelada, com
+ * motivo/autor/data) — nunca por um caminho operacional (App, "Plantão
+ * agora", trocas, agenda), que sempre deve usar `obterCompetenciaPlantaoPublicada()`
+ * abaixo.
+ */
+export async function obterCompetenciaPlantaoAtual(
   grupoId: string,
   competencia: string,
 ): Promise<CompetenciaPlantao | null> {
@@ -107,6 +115,24 @@ export async function obterCompetenciaPlantaoPublicada(
     where('competencia', '==', competencia),
   ));
   return resultado.docs[0]?.data() as CompetenciaPlantao | undefined ?? null;
+}
+
+/**
+ * Única fonte de "existe publicação VIGENTE?" para qualquer consumo
+ * operacional (App: Hoje/Agenda/Plantão agora/trocas; Dashboard: card de
+ * revisão publicada). Uma competência `CANCELADA` (FASE-ESCOPO-HIERARQUICO-
+ * CODB-E-ADMIN-PLANTAO-1 — ver `docs/spec/PLANTOES.md` § 20) continua
+ * fisicamente presente no Firestore, mas nunca deve ser tratada como escala
+ * ativa: devolve `null` para ela, exatamente como se não houvesse nenhuma
+ * publicação. Centralizado aqui de propósito — nenhum outro lugar do
+ * sistema deve checar `status` manualmente para decidir isso.
+ */
+export async function obterCompetenciaPlantaoPublicada(
+  grupoId: string,
+  competencia: string,
+): Promise<CompetenciaPlantao | null> {
+  const atual = await obterCompetenciaPlantaoAtual(grupoId, competencia);
+  return atual !== null && atual.status === 'PUBLICADA' ? atual : null;
 }
 
 /**

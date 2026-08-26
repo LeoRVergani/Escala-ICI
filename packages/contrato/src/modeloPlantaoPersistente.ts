@@ -31,7 +31,18 @@ import type { MomentoPlantao } from './tiposPlantao.js';
  */
 export type OrigemPlantao = 'IMPORTADO' | 'MANUAL' | 'GERADO' | 'COPIADO';
 export type PapelPlantonista = 'PRIMARIO' | 'SECUNDARIO';
-export type StatusCompetenciaPlantao = 'RASCUNHO' | 'PUBLICADA';
+/**
+ * FASE-ESCOPO-HIERARQUICO-CODB-E-ADMIN-PLANTAO-1 — `'CANCELADA'` é uma
+ * transição terminal a partir de `'PUBLICADA'` (nunca de `'RASCUNHO'`, que
+ * já tem exclusão física própria via `rascunhosCompetenciasPlantao`).
+ * Cancelar NÃO é excluir: a competência e suas atribuições continuam
+ * fisicamente presentes (`firestore.rules` mantém `allow delete: if false`
+ * inalterado) — só deixam de contar como publicação vigente para qualquer
+ * leitura operacional (`obterCompetenciaPlantaoPublicada()`). Existe para
+ * corrigir uma publicação feita no Grupo/competência errado sem apagar
+ * histórico/auditoria (docs/spec/PLANTOES.md § 20).
+ */
+export type StatusCompetenciaPlantao = 'RASCUNHO' | 'PUBLICADA' | 'CANCELADA';
 
 export const MAXIMO_CONTATOS_PLANTONISTA = 3;
 
@@ -227,6 +238,15 @@ export interface CompetenciaPlantao {
   criadoPorLogin: string;
   criadoEm: string;
   atualizadoEm: string;
+  /**
+   * Presentes SOMENTE quando `status === 'CANCELADA'` — nunca escritos na
+   * publicação/republicação normal (`firestore.rules` trava isso pelo
+   * `diff().affectedKeys()` da transição de cancelamento). `motivoCancelamento`
+   * é obrigatório e sempre não-vazio nesse caso (`validarCancelamentoCompetenciaPlantao`).
+   */
+  canceladaEm?: string;
+  canceladaPorLogin?: string;
+  motivoCancelamento?: string;
 }
 
 /**
@@ -711,13 +731,32 @@ export function validarCompetenciaPlantao(competencia: {
   if (!PADRAO_DATA_ISO.test(competencia.periodoFim)) {
     erros.push('Período de fim inválido (use o formato AAAA-MM-DD).');
   }
-  if (competencia.status !== 'RASCUNHO' && competencia.status !== 'PUBLICADA') {
+  if (competencia.status !== 'RASCUNHO' && competencia.status !== 'PUBLICADA' && competencia.status !== 'CANCELADA') {
     erros.push(`Status desconhecido: "${competencia.status}".`);
   }
   if (!ORIGENS_PLANTAO_VALIDAS.includes(competencia.origem as OrigemPlantao)) {
     erros.push(`Origem desconhecida: "${competencia.origem}".`);
   }
 
+  return erros;
+}
+
+const TAMANHO_MAXIMO_MOTIVO_CANCELAMENTO_PLANTAO = 500;
+
+/**
+ * Único validador do texto de motivo exigido para cancelar uma competência
+ * PUBLICADA (`docs/spec/PLANTOES.md` § 20) — reaproveitado pelo Dashboard
+ * (antes de chamar `cancelarCompetenciaPlantaoPublicada()`) e pelo próprio
+ * repository (segunda barreira, nunca confia só na UI).
+ */
+export function validarCancelamentoCompetenciaPlantao(motivo: string): string[] {
+  const erros: string[] = [];
+  const motivoNormalizado = motivo.trim();
+  if (motivoNormalizado === '') {
+    erros.push('Informe o motivo do cancelamento.');
+  } else if (motivoNormalizado.length > TAMANHO_MAXIMO_MOTIVO_CANCELAMENTO_PLANTAO) {
+    erros.push(`O motivo não pode ultrapassar ${TAMANHO_MAXIMO_MOTIVO_CANCELAMENTO_PLANTAO} caracteres.`);
+  }
   return erros;
 }
 

@@ -149,12 +149,14 @@ import {
   listarGruposPlantaoPorUnidadeResponsavel,
   listarParticipantesPlantao,
   listarTodosGruposPlantao,
+  obterCompetenciaPlantaoAtual,
   obterCompetenciaPlantaoPublicada,
   obterCompetenciaPlantaoRascunho,
   obterGrupoPlantao,
 } from '@/lib/firebase/plantaoReadRepository';
 import {
   atualizarEquipeConsultaPlantao,
+  cancelarCompetenciaPlantaoPublicada,
   desativarParticipantePlantao,
   excluirGrupoPlantao,
   salvarAtribuicoesPlantaoRascunho,
@@ -248,6 +250,8 @@ import { UnsavedChangesDialog } from '@/components/escalas/UnsavedChangesDialog'
 import { ScheduleStartWizard, type ScheduleStartWizardProps } from '@/components/escalas/ScheduleStartWizard';
 import { ResponsaveisEscalaTable } from '@/components/admin/ResponsaveisEscalaTable';
 import { ResponsavelEscalaModal } from '@/components/admin/ResponsavelEscalaModal';
+import { CancelarPublicacaoPlantaoModal } from '@/components/admin/CancelarPublicacaoPlantaoModal';
+import { AtribuirCoordenadorModal } from '@/components/admin/AtribuirCoordenadorModal';
 import {
   COMPETENCIA_ATUAL,
   ehAdminSistema,
@@ -605,7 +609,10 @@ function statusJornadaResumo(resumo: ResumoJornadaDashboard | null): { temRascun
 function statusPlantaoResumo(resumo: ResumoPlantaoDashboard | null): { temRascunho: boolean; temPublicada: boolean } {
   return {
     temRascunho: resumo?.competenciaRascunho != null,
-    temPublicada: resumo?.competenciaPublicada != null,
+    // `competenciaPublicada` agora pode carregar uma competência CANCELADA
+    // (ver `obterCompetenciaPlantaoAtual()`) — só status 'PUBLICADA' conta
+    // como publicação vigente para o indicador de status operacional.
+    temPublicada: resumo?.competenciaPublicada?.status === 'PUBLICADA',
   };
 }
 
@@ -3362,6 +3369,16 @@ export function DashboardApp() {
   const [grupoPlantaoParaExcluir, setGrupoPlantaoParaExcluir] = useState<GrupoPlantao | null>(null);
   const [excluindoGrupoPlantao, setExcluindoGrupoPlantao] = useState(false);
   const [erroExclusaoGrupoPlantao, setErroExclusaoGrupoPlantao] = useState('');
+  /**
+   * FASE-ESCOPO-HIERARQUICO-CODB-E-ADMIN-PLANTAO-1 — cancelamento de
+   * publicação (PUBLICADA -> CANCELADA), nunca exclusão física. Mesmo
+   * padrão de estado de `grupoPlantaoParaExcluir` acima.
+   */
+  const [publicacaoPlantaoParaCancelar, setPublicacaoPlantaoParaCancelar] = useState<
+    { grupo: GrupoPlantao; competencia: CompetenciaPlantao } | null
+  >(null);
+  const [cancelandoPublicacaoPlantao, setCancelandoPublicacaoPlantao] = useState(false);
+  const [erroCancelamentoPublicacaoPlantao, setErroCancelamentoPublicacaoPlantao] = useState('');
   const [buscaParticipanteNovo, setBuscaParticipanteNovo] = useState<Record<string, string>>({});
   const [modalContatosParticipante, setModalContatosParticipante] = useState<
     { grupoId: string; nomeExibicao: string; participante: ParticipantePlantao } | null
@@ -3416,6 +3433,15 @@ export function DashboardApp() {
   const [unidadesAdmin, setUnidadesAdmin] = useState<UnidadeOrganizacional[]>([]);
   const [escoposOperacionaisAdmin, setEscoposOperacionaisAdmin] = useState<EscopoOperacional[]>([]);
   const [modalResponsavelEscala, setModalResponsavelEscala] = useState<EscopoOperacional | null | 'novo'>(null);
+  /**
+   * FASE-ESCOPO-HIERARQUICO-CODB-E-ADMIN-PLANTAO-1 — "Atribuir coordenador
+   * de unidade", entrada simples e separada da Matriz de Responsáveis
+   * (`modalResponsavelEscala` acima, que continua existindo para exceções
+   * específicas por escala).
+   */
+  const [modalAtribuirCoordenador, setModalAtribuirCoordenador] = useState(false);
+  const [processandoAtribuicaoCoordenador, setProcessandoAtribuicaoCoordenador] = useState(false);
+  const [erroAtribuicaoCoordenador, setErroAtribuicaoCoordenador] = useState('');
   const [processandoEscopoOperacional, setProcessandoEscopoOperacional] = useState(false);
   const [erroAdmin, setErroAdmin] = useState('');
   const [formSetor, setFormSetor] = useState<Setor>({ id: '', nome: '', sigla: '', ativo: true });
@@ -4043,7 +4069,10 @@ export function DashboardApp() {
     void Promise.all(grupoIds.map(async (grupoId): Promise<{ resumo: ResumoPlantaoDashboard; falhaParcial: unknown | null }> => {
       const resultados = await executarComLimiteDeTempo(Promise.allSettled([
         obterCompetenciaPlantaoRascunho(grupoId, competenciaDashboard),
-        obterCompetenciaPlantaoPublicada(grupoId, competenciaDashboard),
+        // Tela administrativa: precisa mostrar também uma competência
+        // CANCELADA (badge + motivo), nunca só PUBLICADA — ver
+        // `obterCompetenciaPlantaoAtual()` em `plantaoReadRepository.ts`.
+        obterCompetenciaPlantaoAtual(grupoId, competenciaDashboard),
         listarParticipantesPlantao(grupoId),
       ]));
       const [resultadoRascunho, resultadoPublicada, resultadoParticipantes] = resultados;
@@ -6726,6 +6755,38 @@ export function DashboardApp() {
     }
   }
 
+  /**
+   * FASE-ESCOPO-HIERARQUICO-CODB-E-ADMIN-PLANTAO-1 — grava a atribuição
+   * "Responsável / Responsável por" do `AtribuirCoordenadorModal`: reusa
+   * `salvarUsuario()` (mesma escrita de sempre em `usuarios/{login}`) —
+   * nenhum mecanismo de autorização novo, só a UI simples por cima do
+   * `perfil: 'GESTOR_UNIDADE'` que já existe.
+   */
+  async function salvarAtribuicaoCoordenador(usuario: Usuario) {
+    if (escritaBloqueada) {
+      setErroAtribuicaoCoordenador('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
+      return;
+    }
+    setProcessandoAtribuicaoCoordenador(true);
+    setErroAtribuicaoCoordenador('');
+    try {
+      if (!modoDemo) {
+        await salvarUsuario(usuario);
+        await registrarAuditoriaOperacional('ATRIBUIR_COORDENADOR_UNIDADE', usuario.equipeId, {
+          unidadeId: usuario.unidadeId ?? null,
+        });
+      }
+      setUsuarios((atuais) => atuais.map((existente) => (existente.login === usuario.login ? usuario : existente)));
+      setTodosUsuariosAdmin((atuais) => atuais.map((existente) => (existente.login === usuario.login ? usuario : existente)));
+      setModalAtribuirCoordenador(false);
+      setMensagem(`${usuario.nome} agora administra ${usuario.unidadeId ?? 'a unidade escolhida'} e suas equipes.`);
+    } catch (falha) {
+      setErroAtribuicaoCoordenador(mensagemErroFirebase(falha, 'Não foi possível atribuir o coordenador.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoAtribuicaoCoordenador(false);
+    }
+  }
+
   function abrirAdicionarMembroGrade() {
     setMembroGradeDraft({ login: '', turnoPadrao: 'M' });
   }
@@ -6918,6 +6979,43 @@ export function DashboardApp() {
       setErroExclusaoGrupoPlantao(mensagemErroFirebase(falha, 'Não foi possível excluir o grupo de Plantão.', ambienteFirebaseAtual));
     } finally {
       setExcluindoGrupoPlantao(false);
+    }
+  }
+
+  /**
+   * FASE-ESCOPO-HIERARQUICO-CODB-E-ADMIN-PLANTAO-1 — corrige uma publicação
+   * de Plantão feita no Grupo/competência errado sem apagar histórico:
+   * `cancelarCompetenciaPlantaoPublicada()` grava a transição PUBLICADA ->
+   * CANCELADA (nunca delete físico); aqui só refletimos o resultado no
+   * cache local (`resumosPlantaoDashboard`) para a tela atualizar sem
+   * precisar recarregar.
+   */
+  async function confirmarCancelamentoPublicacaoPlantao(motivo: string) {
+    if (publicacaoPlantaoParaCancelar === null || usuarioReal === null) {
+      return;
+    }
+    const { grupo, competencia } = publicacaoPlantaoParaCancelar;
+    setCancelandoPublicacaoPlantao(true);
+    setErroCancelamentoPublicacaoPlantao('');
+    try {
+      const cancelada = modoDemo
+        ? { ...competencia, status: 'CANCELADA' as const, canceladaEm: new Date().toISOString(), canceladaPorLogin: usuarioReal.login, motivoCancelamento: motivo.trim() }
+        : await cancelarCompetenciaPlantaoPublicada(grupo.grupoId, competencia.competencia, motivo, usuarioReal.login);
+      setResumosPlantaoDashboard((atuais) => {
+        const chave = `${grupo.grupoId}:${competencia.competencia}`;
+        const atual = atuais[chave];
+        return atual === undefined ? atuais : { ...atuais, [chave]: { ...atual, competenciaPublicada: cancelada } };
+      });
+      await registrarAuditoriaOperacional('CANCELAR_PUBLICACAO_PLANTAO', grupo.equipeResponsavelId, {
+        unidadeId: grupo.unidadeResponsavelId ?? null,
+        competencia: competencia.competencia,
+        origem: motivo.trim(),
+      });
+      setPublicacaoPlantaoParaCancelar(null);
+    } catch (falha) {
+      setErroCancelamentoPublicacaoPlantao(mensagemErroFirebase(falha, 'Não foi possível cancelar a publicação de Plantão.', ambienteFirebaseAtual));
+    } finally {
+      setCancelandoPublicacaoPlantao(false);
     }
   }
 
@@ -9404,11 +9502,22 @@ export function DashboardApp() {
               <div className="publication-history-list">
                 <div className="publication-history-entry">
                   <div className="publication-history-item">
-                    <span className="revision-dot publicacao" />
+                    <span className={`revision-dot ${resumoPlantaoDashboard.competenciaPublicada.status === 'CANCELADA' ? 'cancelada' : 'publicacao'}`} />
                     <div>
-                      <strong>Revisão {resumoPlantaoDashboard.competenciaPublicada.revisao}</strong>
+                      <strong>
+                        Revisão {resumoPlantaoDashboard.competenciaPublicada.revisao}
+                        {resumoPlantaoDashboard.competenciaPublicada.status === 'CANCELADA' && (
+                          <span className="status-badge warning" style={{ marginLeft: 8 }}>Cancelada</span>
+                        )}
+                      </strong>
                       <span>Publicada por {resumoPlantaoDashboard.competenciaPublicada.criadoPorLogin}</span>
                       <small>{participantesPlantaoDashboard} participante(s) ativo(s)</small>
+                      {resumoPlantaoDashboard.competenciaPublicada.status === 'CANCELADA' && (
+                        <small>
+                          Cancelada por {resumoPlantaoDashboard.competenciaPublicada.canceladaPorLogin} —{' '}
+                          {resumoPlantaoDashboard.competenciaPublicada.motivoCancelamento}
+                        </small>
+                      )}
                     </div>
                     <time dateTime={resumoPlantaoDashboard.competenciaPublicada.atualizadoEm}>
                       {new Intl.DateTimeFormat('pt-BR', {
@@ -9418,6 +9527,26 @@ export function DashboardApp() {
                     </time>
                   </div>
                 </div>
+                {resumoPlantaoDashboard.competenciaPublicada.status === 'PUBLICADA'
+                  && grupoPlantaoDashboard !== null
+                  && usuarioReal !== null
+                  && podeGerenciarGrupoPlantao(usuarioReal, grupoPlantaoDashboard) && (
+                  <div className="wizard-actions">
+                    <button
+                      className="secondary-button danger-button"
+                      type="button"
+                      onClick={() => {
+                        setErroCancelamentoPublicacaoPlantao('');
+                        setPublicacaoPlantaoParaCancelar({
+                          grupo: grupoPlantaoDashboard,
+                          competencia: resumoPlantaoDashboard.competenciaPublicada as CompetenciaPlantao,
+                        });
+                      }}
+                    >
+                      Cancelar publicação
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </article>
@@ -9997,6 +10126,15 @@ export function DashboardApp() {
                 <p>Você está como <strong>GESTOR_UNIDADE</strong> — acesso restrito às unidades e equipes permitidas.</p>
               )}
             </div>
+            {souAdmin && (
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => { setErroAtribuicaoCoordenador(''); setModalAtribuirCoordenador(true); }}
+              >
+                Atribuir coordenador de unidade
+              </button>
+            )}
           </header>
           {/* Fase ESCALAS-UX-2A — § 11 do redesign: "Organização" (conteúdo abaixo, inalterado) e "Grupos de Plantão" (antiga tela "Plantões") como abas da mesma área, nunca uma segunda sidebar. */}
           <AdministracaoSubnav
@@ -10510,6 +10648,17 @@ export function DashboardApp() {
         />
       )}
 
+      {modalAtribuirCoordenador && (
+        <AtribuirCoordenadorModal
+          usuarios={todosUsuariosAdmin.length > 0 ? todosUsuariosAdmin : usuarios}
+          unidades={unidadesAdmin}
+          erro={erroAtribuicaoCoordenador || undefined}
+          processando={processandoAtribuicaoCoordenador}
+          onFechar={() => setModalAtribuirCoordenador(false)}
+          onSalvar={(usuario) => void salvarAtribuicaoCoordenador(usuario)}
+        />
+      )}
+
       {wizardInicio !== null && (
         <ScheduleStartWizard
           modo={wizardInicio}
@@ -10574,8 +10723,9 @@ export function DashboardApp() {
                 reimportação).
               </p>
               <p>
-                Esta ação é irreversível. Se este Plantão já tiver competência publicada, a exclusão será
-                recusada — desative o grupo em vez disso.
+                Esta ação é irreversível. Se este Plantão já tiver competência publicada ou cancelada, a
+                exclusão será recusada — desative o grupo em vez disso. Para corrigir uma publicação
+                errada, cancele a publicação (painel &ldquo;Revisão publicada&rdquo;) antes de desativar o grupo.
               </p>
               {erroExclusaoGrupoPlantao && <div className="alert error" role="alert">{erroExclusaoGrupoPlantao}</div>}
             </>
@@ -10585,6 +10735,17 @@ export function DashboardApp() {
           processando={excluindoGrupoPlantao}
           onFechar={() => setGrupoPlantaoParaExcluir(null)}
           onConfirmar={() => void confirmarExclusaoGrupoPlantao()}
+        />
+      )}
+
+      {publicacaoPlantaoParaCancelar && (
+        <CancelarPublicacaoPlantaoModal
+          grupo={publicacaoPlantaoParaCancelar.grupo}
+          competencia={publicacaoPlantaoParaCancelar.competencia}
+          erro={erroCancelamentoPublicacaoPlantao || undefined}
+          processando={cancelandoPublicacaoPlantao}
+          onFechar={() => setPublicacaoPlantaoParaCancelar(null)}
+          onConfirmar={(motivo) => void confirmarCancelamentoPublicacaoPlantao(motivo)}
         />
       )}
 

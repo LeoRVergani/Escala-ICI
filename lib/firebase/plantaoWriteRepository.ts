@@ -1,6 +1,8 @@
 import {
   corPlantonistaPreferidaValida,
+  idCompetenciaPlantao,
   validarAtribuicaoPlantaoPersistida,
+  validarCancelamentoCompetenciaPlantao,
   validarCompetenciaPlantao,
   validarContatosPlantonista,
   validarGrupoPlantao,
@@ -56,7 +58,7 @@ export async function excluirGrupoPlantao(grupoId: string): Promise<void> {
 
   const competenciasPublicadas = await getDocs(query(collection(db, 'competenciasPlantao'), where('grupoId', '==', grupoId)));
   if (!competenciasPublicadas.empty) {
-    throw new Error('Este Plantão já tem competência publicada e não pode ser excluído. Desative-o em vez de excluir.');
+    throw new Error('Este Plantão já tem competência publicada ou cancelada e não pode ser excluído. Desative-o em vez de excluir.');
   }
 
   const rascunhos = await getDocs(query(collection(db, 'rascunhosCompetenciasPlantao'), where('grupoId', '==', grupoId)));
@@ -371,4 +373,53 @@ export async function publicarCompetenciaPlantao(
   batchFinal.delete(doc(db, 'rascunhosCompetenciasPlantao', competenciaRascunho.id));
   await batchFinal.commit();
   return publicada;
+}
+
+/**
+ * FASE-ESCOPO-HIERARQUICO-CODB-E-ADMIN-PLANTAO-1 — corrige uma publicação
+ * de Plantão feita no Grupo/competência errado SEM apagar histórico:
+ * transição PUBLICADA -> CANCELADA (`firestore.rules` trava exatamente essa
+ * transição e nenhum outro campo). Nunca `deleteDoc()` — a competência e
+ * suas atribuições publicadas continuam legíveis para auditoria/histórico;
+ * só deixam de ser a publicação vigente (`obterCompetenciaPlantaoPublicada()`
+ * em `plantaoReadRepository.ts` passa a devolver `null` para ela).
+ *
+ * Único ponto que escreve esta transição — nunca replicar esta lógica
+ * diretamente numa tela.
+ */
+export async function cancelarCompetenciaPlantaoPublicada(
+  grupoId: string,
+  competencia: string,
+  motivoCancelamento: string,
+  canceladaPorLogin: string,
+): Promise<CompetenciaPlantao> {
+  exigirEscritaAdministrativaHabilitada();
+  const errosMotivo = validarCancelamentoCompetenciaPlantao(motivoCancelamento);
+  if (errosMotivo.length > 0) {
+    throw new Error(errosMotivo.join(' '));
+  }
+
+  const { db } = exigirFirebase();
+  const id = idCompetenciaPlantao(grupoId, competencia);
+  const ref = doc(db, 'competenciasPlantao', id);
+  const atual = await getDoc(ref);
+  if (!atual.exists()) {
+    throw new Error('Competência publicada não encontrada.');
+  }
+  const dadosAtuais = atual.data() as CompetenciaPlantao;
+  if (dadosAtuais.status !== 'PUBLICADA') {
+    throw new Error('Somente uma competência publicada pode ser cancelada.');
+  }
+
+  const agora = new Date().toISOString();
+  const cancelada: CompetenciaPlantao = {
+    ...dadosAtuais,
+    status: 'CANCELADA',
+    canceladaEm: agora,
+    canceladaPorLogin,
+    motivoCancelamento: motivoCancelamento.trim(),
+    atualizadoEm: agora,
+  };
+  await setDoc(ref, removerUndefined(cancelada));
+  return cancelada;
 }
