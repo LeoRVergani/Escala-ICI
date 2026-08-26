@@ -7,6 +7,7 @@ import type { Equipe, Usuario } from './modelos';
 import {
   classeSaudeOperacaoDashboard,
   derivarStatusOperacaoDashboard,
+  documentosParaAlertasJornada,
   resolverOperacoesDashboard,
   rotuloStatusOperacaoDashboard,
 } from './operacoesDashboard';
@@ -235,5 +236,22 @@ describe('resolverOperacoesDashboard', () => {
       statusPlantao: semRascunhoNemPublicada,
     };
     expect(resolverOperacoesDashboard(admin, null, dados)).toEqual([]);
+  });
+});
+
+describe('documentosParaAlertasJornada', () => {
+  const documentoEmContexto = [{ login: 'em-contexto' }] as unknown as ReturnType<typeof documentosParaAlertasJornada>;
+  const documentoPersistido = [{ login: 'persistido' }] as unknown as ReturnType<typeof documentosParaAlertasJornada>;
+
+  it('em contexto, usa sempre os documentos do editor ao vivo', () => {
+    expect(documentosParaAlertasJornada(true, documentoEmContexto, documentoPersistido)).toBe(documentoEmContexto);
+  });
+
+  it('HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — fora de contexto, usa o snapshot persistido, NUNCA lista vazia por causa da seleção do header', () => {
+    expect(documentosParaAlertasJornada(false, documentoEmContexto, documentoPersistido)).toBe(documentoPersistido);
+  });
+
+  it('fora de contexto, sem snapshot persistido ainda carregado, devolve lista vazia (nunca lança)', () => {
+    expect(documentosParaAlertasJornada(false, documentoEmContexto, undefined)).toEqual([]);
   });
 });

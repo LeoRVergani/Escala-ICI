@@ -16,7 +16,7 @@ const semComentarios = (fonte) => fonte.replace(/\/\*[\s\S]*?\*\//g, '');
 
 test('1. o Dashboard importa e usa resolverOperacoesDashboard como a lista única de operações', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  assert.match(dashboard, /import \{\s*classeSaudeOperacaoDashboard,\s*derivarStatusOperacaoDashboard,\s*resolverOperacoesDashboard,\s*rotuloStatusOperacaoDashboard,\s*type OperacaoDashboard,\s*type StatusOperacaoDashboard,\s*\} from '@\/lib\/operacoesDashboard';/u);
+  assert.match(dashboard, /import \{\s*classeSaudeOperacaoDashboard,\s*derivarStatusOperacaoDashboard,\s*documentosParaAlertasJornada,\s*resolverOperacoesDashboard,\s*rotuloStatusOperacaoDashboard,\s*type OperacaoDashboard,\s*type StatusOperacaoDashboard,\s*\} from '@\/lib\/operacoesDashboard';/u);
   assert.match(dashboard, /const operacoesDashboard: OperacaoDashboard\[\] = usuarioReal !== null\s*\? resolverOperacoesDashboard\(usuarioReal, contextoEscalaAtivo, \{/u);
 });
 

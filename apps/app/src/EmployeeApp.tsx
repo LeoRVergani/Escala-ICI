@@ -132,6 +132,7 @@ import {
   proximosPlantoesDoUsuario,
   resolverDestaquePlantaoHoje,
   resolverPlantaoAgora,
+  rotuloDesambiguadoGrupoPlantao,
   rotuloFimPlantao,
   type EstatisticasPlantaoApp,
 } from './plantaoApp';
@@ -695,7 +696,8 @@ function PlantaoStatsRow({ estatisticas }: { estatisticas: EstatisticasPlantaoAp
 /**
  * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — alternador entre os
  * Plantões que a equipe do usuário consulta (ex.: NOC vendo
- * COSI+DBA+Linux). Nunca mostra `grupoId` cru — sempre `grupo.nome`. Só
+ * COSI+DBA+Linux). Nunca mostra `grupoId` cru — sempre `grupo.nome` (ou o
+ * rótulo desambiguado acima, quando dois Grupos colidem no mesmo nome). Só
  * renderiza quando há mais de um Grupo monitorado (zero mudança visual
  * para o caso comum de um Grupo só).
  */
@@ -725,7 +727,7 @@ function PlantaoGrupoChips({
           <span className="plantao-grupo-chip-badge" data-identidade={indice % 8}>
             {grupo.nome.replace(/^Plantão\s+/i, '').trim().slice(0, 2).toUpperCase() || grupo.nome.slice(0, 2).toUpperCase()}
           </span>
-          {grupo.nome}
+          {rotuloDesambiguadoGrupoPlantao(grupo, grupos)}
         </button>
       ))}
     </div>
@@ -3099,7 +3101,20 @@ export function EmployeeApp() {
         participantesPorGrupo[item.grupoId] = detalhes[indice]!.participantes;
       });
       setDetalhesPlantaoPorGrupoApp(mapa);
-      const grupoIdPadrao = escolherGrupoPlantaoPadrao(grupos, participantesPorGrupo, usuario.login) ?? grupo.grupoId;
+      /**
+       * HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — `detalhes` (já
+       * carregado acima para TODOS os grupos, cache reaproveitado, nenhuma
+       * leitura nova) já sabe qual Grupo tem a competência do mês
+       * PUBLICADA (`detalhe.competencia !== null`). Repassar isso decide o
+       * Grupo padrão corretamente quando dois Grupos com o mesmo nome
+       * existem (migração de IDs incompleta) e o usuário participa dos
+       * dois — nunca mais escolhe "o primeiro onde participa" cegamente.
+       */
+      const temPublicacaoAtualPorGrupo: Record<string, boolean> = {};
+      grupos.forEach((item) => {
+        temPublicacaoAtualPorGrupo[item.grupoId] = mapa[item.grupoId]?.competencia !== null;
+      });
+      const grupoIdPadrao = escolherGrupoPlantaoPadrao(grupos, participantesPorGrupo, usuario.login, temPublicacaoAtualPorGrupo) ?? grupo.grupoId;
       const grupoPadrao = grupos.find((item) => item.grupoId === grupoIdPadrao) ?? grupo;
       aplicarDetalhePlantaoSelecionado(grupoPadrao, mapa[grupoPadrao.grupoId]!);
     } catch (falha) {

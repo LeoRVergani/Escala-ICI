@@ -1,3 +1,5 @@
+import type { TurnosMes } from '@escala-ici/contrato';
+
 import type { ContextoEscalaAtivo } from './contextoEscala';
 import type { EscoposOperacionais } from './escoposOperacionais';
 import type { Usuario } from './modelos';
@@ -149,4 +151,27 @@ export function resolverOperacoesDashboard(
     };
   });
   return [...jornadas, ...plantoesAdministraveis, ...plantoesMonitorados];
+}
+
+/**
+ * HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — mesma classe de bug de
+ * `derivarStatusOperacaoDashboard()` acima: um indicador da Visão Geral
+ * (aqui, os documentos usados para calcular alertas de Jornada) não pode
+ * depender de qual operação está selecionada no seletor do header.
+ *
+ * Antes, o Dashboard calculava alertas só a partir do editor único e
+ * compartilhado (`resultado.documentos`) e zerava para 0 sempre que a
+ * Jornada não era a operação ativa no momento — mesmo que a Jornada
+ * continuasse tendo alertas reais e não relacionados à seleção do header.
+ * Fora de contexto, os documentos precisam vir do snapshot PERSISTIDO
+ * (já carregado independente do contexto ativo, ver `resumosJornadaDashboard`
+ * em `DashboardApp.tsx`) — nunca de uma lista vazia inventada só porque o
+ * usuário está olhando outra operação.
+ */
+export function documentosParaAlertasJornada(
+  emContexto: boolean,
+  documentosEmContexto: readonly TurnosMes[],
+  documentosPersistidos: readonly TurnosMes[] | undefined,
+): readonly TurnosMes[] {
+  return emContexto ? documentosEmContexto : (documentosPersistidos ?? []);
 }

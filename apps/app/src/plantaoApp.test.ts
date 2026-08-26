@@ -19,6 +19,7 @@ import {
   proximosPlantoesDoUsuario,
   resolverDestaquePlantaoHoje,
   resolverPlantaoAgora,
+  rotuloDesambiguadoGrupoPlantao,
   rotuloFimPlantao,
 } from './plantaoApp';
 
@@ -405,6 +406,61 @@ describe('escolherGrupoPlantaoPadrao', () => {
 
   it('lista vazia -> null', () => {
     expect(escolherGrupoPlantaoPadrao([], {}, 'clis')).toBeNull();
+  });
+
+  it('HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — sem temPublicacaoAtual (retrocompatível), comportamento idêntico a antes do hotfix', () => {
+    const porGrupo = { PLANTAO_NOC: [participante({ login: 'clis', grupoId: 'PLANTAO_NOC', ativo: true })] };
+    expect(escolherGrupoPlantaoPadrao([cosi, noc, dba], porGrupo, 'clis')).toBe('PLANTAO_NOC');
+  });
+
+  it('HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — dois grupos com o mesmo nome (migração incompleta), participante ativo nos dois: prefere o que tem a competência PUBLICADA', () => {
+    // Reproduz o bug real: "PLANTAO_COSI" legado e "PLANTAO_GEDSI_COSI" canônico,
+    // Jean participante ativo dos dois, só o canônico com setembro/2026 PUBLICADA.
+    const legado = { grupoId: 'PLANTAO_COSI', nome: 'Plantão COSI' } as GrupoPlantao;
+    const canonico = { grupoId: 'PLANTAO_GEDSI_COSI', nome: 'Plantão COSI' } as GrupoPlantao;
+    const porGrupo = {
+      PLANTAO_COSI: [participante({ login: 'jean', grupoId: 'PLANTAO_COSI', ativo: true })],
+      PLANTAO_GEDSI_COSI: [participante({ login: 'jean', grupoId: 'PLANTAO_GEDSI_COSI', ativo: true })],
+    };
+    const temPublicacaoAtual = { PLANTAO_COSI: false, PLANTAO_GEDSI_COSI: true };
+    expect(escolherGrupoPlantaoPadrao([legado, canonico], porGrupo, 'jean', temPublicacaoAtual)).toBe('PLANTAO_GEDSI_COSI');
+    // Ordem invertida na lista — o resultado não pode depender de qual veio primeiro.
+    expect(escolherGrupoPlantaoPadrao([canonico, legado], porGrupo, 'jean', temPublicacaoAtual)).toBe('PLANTAO_GEDSI_COSI');
+  });
+
+  it('grupo com publicação atual mas SEM participação ativa do usuário ainda vence quem participa mas não tem publicação', () => {
+    const porGrupo = { PLANTAO_COSI: [participante({ login: 'jean', grupoId: 'PLANTAO_COSI', ativo: true })] };
+    const temPublicacaoAtual = { PLANTAO_NOC: true };
+    expect(escolherGrupoPlantaoPadrao([cosi, noc], porGrupo, 'jean', temPublicacaoAtual)).toBe('PLANTAO_NOC');
+  });
+
+  it('nenhum grupo com publicação atual — cai na participação ativa (critério 3, igual ao comportamento anterior)', () => {
+    const porGrupo = { PLANTAO_NOC: [participante({ login: 'jean', grupoId: 'PLANTAO_NOC', ativo: true })] };
+    expect(escolherGrupoPlantaoPadrao([cosi, noc, dba], porGrupo, 'jean', {})).toBe('PLANTAO_NOC');
+  });
+});
+
+describe('rotuloDesambiguadoGrupoPlantao', () => {
+  it('nome único — mostra só o nome, sem nenhuma mudança visual', () => {
+    const grupo = { grupoId: 'PLANTAO_GEDSI_COSI', nome: 'Plantão COSI', equipeResponsavelId: 'GEDSI_COSI_PLANTAO' } as GrupoPlantao;
+    expect(rotuloDesambiguadoGrupoPlantao(grupo, [grupo])).toBe('Plantão COSI');
+  });
+
+  it('HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — dois grupos com o mesmo nome: NUNCA mostra "Plantão COSI" duas vezes sem diferenciação', () => {
+    const legado = { grupoId: 'PLANTAO_COSI', nome: 'Plantão COSI', equipeResponsavelId: 'EQ_PLANTAO_COSI' } as GrupoPlantao;
+    const canonico = { grupoId: 'PLANTAO_GEDSI_COSI', nome: 'Plantão COSI', equipeResponsavelId: 'GEDSI_COSI_PLANTAO' } as GrupoPlantao;
+    const grupos = [legado, canonico];
+    const rotuloLegado = rotuloDesambiguadoGrupoPlantao(legado, grupos);
+    const rotuloCanonico = rotuloDesambiguadoGrupoPlantao(canonico, grupos);
+    expect(rotuloLegado).not.toBe(rotuloCanonico);
+    expect(rotuloLegado).toContain('Plantão COSI');
+    expect(rotuloCanonico).toContain('Plantão COSI');
+  });
+
+  it('colisão de nome com descrição preenchida: usa a descrição como diferenciador (mais legível que o ID técnico)', () => {
+    const a = { grupoId: 'PLANTAO_COSI', nome: 'Plantão COSI', descricao: 'Legado (migração)', equipeResponsavelId: 'EQ_PLANTAO_COSI' } as GrupoPlantao;
+    const b = { grupoId: 'PLANTAO_GEDSI_COSI', nome: 'Plantão COSI', equipeResponsavelId: 'GEDSI_COSI_PLANTAO' } as GrupoPlantao;
+    expect(rotuloDesambiguadoGrupoPlantao(a, [a, b])).toBe('Plantão COSI (Legado (migração))');
   });
 });
 

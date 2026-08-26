@@ -346,6 +346,7 @@ import {
 import {
   classeSaudeOperacaoDashboard,
   derivarStatusOperacaoDashboard,
+  documentosParaAlertasJornada,
   resolverOperacoesDashboard,
   rotuloStatusOperacaoDashboard,
   type OperacaoDashboard,
@@ -3861,7 +3862,33 @@ export function DashboardApp() {
   const plantaoAlertasDashboard = plantaoEmContextoDashboard && resultadoPlantao !== null
     ? resultadoPlantao.erros.length + resultadoPlantao.avisos.length + pendenciasVinculoPlantao
     : 0;
-  const alertasJornadaDashboard = jornadaEmContextoDashboard ? alertasVisiveis.length : 0;
+  /**
+   * HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — a Visão Geral é
+   * integrada: o indicador de alertas de uma operação NUNCA pode depender
+   * de qual operação está selecionada no seletor do header. Antes,
+   * `jornadaEmContextoDashboard ? alertasVisiveis.length : 0` zerava SOC
+   * assim que Plantão virava o contexto ativo (`alertasVisiveis` só é
+   * calculado a partir do editor único e compartilhado, `resultado`/
+   * `documentos`). `resumoJornadaDashboard` já resolve corretamente entre
+   * o editor ao vivo (em contexto) e o snapshot persistido (fora de
+   * contexto) — ver linhas acima —, então recalcular os alertas a partir
+   * DELE (em vez de reusar `alertasVisiveis`, que só existe para o
+   * contexto ativo) mantém o mesmo resultado quando em contexto e passa a
+   * mostrar o valor real, nunca zerado, quando não está.
+   */
+  const alertasJornadaCalculados = useMemo(() => {
+    if (jornadaEmContextoDashboard) {
+      return alertasVisiveis;
+    }
+    const documentosParaAlertas = documentosParaAlertasJornada(false, [], resumoJornadaDashboard?.documentos);
+    if (documentosParaAlertas.length === 0) {
+      return [];
+    }
+    const publicadasParaAlertas = resumoJornadaDashboard?.publicadas ?? [];
+    const alertasOperacionaisFora = gerarAlertasEscala([...documentosParaAlertas], catalogo);
+    return montarAlertasVisiveis(alertasOperacionaisFora, usuarios, [...documentosParaAlertas], publicadasParaAlertas);
+  }, [resumoJornadaDashboard, jornadaEmContextoDashboard, alertasVisiveis, catalogo, usuarios]);
+  const alertasJornadaDashboard = alertasJornadaCalculados.length;
   const plantaoStatusDashboard = classeSaudeOperacional(estadoPlantaoOperacionalDashboard, plantaoAlertasDashboard);
   const socStatusDashboard = classeSaudeOperacional(estadoJornadaOperacionalDashboard, alertasJornadaDashboard);
   const colaboradoresJornadaDashboard = resumoJornadaDashboard?.colaboradoresAtivos ?? 0;
