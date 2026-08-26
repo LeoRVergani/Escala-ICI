@@ -221,11 +221,20 @@ test('31. Visão geral carrega Plantão pelo grupoId do alvo operacional, sem mi
   assert.doesNotMatch(trechoResumo[1], /equipeResponsavelId/u, 'resumo mensal de Plantão não pode usar equipeResponsavelId como chave');
 });
 
-test('32. Saúde da Visão geral não usa percentual arbitrário quando não há escala', async () => {
+/**
+ * Fase DASH-SIMPLES-1A — a barra de "Saúde das escalas" (percentual de
+ * apresentação, `healthBarSoc`/`healthBarPlantao`) foi removida da Visão
+ * geral inteira, não só corrigida: cada operação já mostra status e
+ * contagem de alertas real no próprio card (ver
+ * docs/spec/VISAO_GERAL_OPERACIONAL_SOC_PLANTAO.md § 6). Sem o percentual,
+ * a pergunta original ("é arbitrário quando não há escala?") deixou de se
+ * aplicar — a garantia agora é que a fórmula não existe mais.
+ */
+test('32. a barra de saúde percentual da Visão geral foi removida (não existe mais healthBarSoc/healthBarPlantao/rotuloSaudeDashboard)', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  assert.match(dashboard, /estadoJornadaOperacionalDashboard === 'sem-escala'\s*\?\s*0/u);
-  assert.match(dashboard, /plantaoStatusDashboard === 'empty'\s*\?\s*0/u);
-  assert.doesNotMatch(dashboard, /\?\s*12\s*:/u, 'estado sem escala não pode exibir 12% arbitrário');
+  assert.doesNotMatch(dashboard, /healthBarSoc/u, 'a barra de saúde de SOC não pode voltar a existir — status/alertas já estão no card principal');
+  assert.doesNotMatch(dashboard, /healthBarPlantao/u, 'a barra de saúde de Plantão não pode voltar a existir — status/alertas já estão no card principal');
+  assert.doesNotMatch(dashboard, /rotuloSaudeDashboard/u, 'o rótulo textual da barra de saúde não pode voltar a existir');
 });
 
 test('33. Abrir operação na Visão geral seleciona o contexto superior pelo ID real do alvo', async () => {
@@ -666,4 +675,55 @@ test('54. as duas buscas multi-fonte de gruposPlantao (efeito de Plantões admin
   const cargaUnicaMatriz = /const resultados = await Promise\.allSettled\(\[\s*\.\.\.equipesPermitidasEfetivas\(usuarioReal\)\.map\(\(equipeId\) => listarGruposPlantaoPermitidos\(equipeId\)\),\s*\.\.\.\(perfil === 'GESTOR_UNIDADE'/u.exec(dashboard);
   assert.ok(cargaUnicaMatriz, 'a busca legada/amplo-staging dentro da carga única da matriz precisa usar Promise.allSettled');
   assert.doesNotMatch(dashboard, /const listas = await Promise\.all\(\[\s*\.\.\.equipesPermitidasEfetivas/u, 'a versão antiga com Promise.all não pode sobreviver');
+});
+
+/**
+ * DASH-SIMPLES-1A (revisão pré-commit) — mesma classe de bug do
+ * HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 (testes 30/32 acima), agora
+ * para Plantão: `plantaoAlertasDashboard` não pode voltar a colapsar para
+ * `0` só porque o contexto ativo é outro (SOC). Duas direções cobertas:
+ *
+ * A) contexto = SOC (Jornada) → Visão geral: `plantaoAlertasDashboard`
+ *    continua computável quando Plantão tem escala, mesmo fora de
+ *    contexto — nunca um `: 0` incondicional.
+ * B) contexto = Plantão → Visão geral: `alertasJornadaCalculados` (já
+ *    coberto pelo teste 30) continua correto para SOC.
+ *
+ * Como o dado bruto (erros/avisos/pendências de vínculo) só existe no
+ * resultado do editor ao vivo — não há hoje um snapshot persistido
+ * suficiente para recalcular fora de contexto sem duplicar o pipeline de
+ * validação do editor (fora de escopo desta fase) — a garantia correta não
+ * é "sempre um número real", é "nunca um zero fabricado": `null` (não `0`)
+ * quando desconhecido, e SOMENTE `0` quando `estadoPlantaoOperacionalDashboard
+ * === 'sem-escala'` (zero verdadeiro, não chute).
+ */
+test('55. plantaoAlertasDashboard nunca colapsa para 0 fabricado fora de contexto — null quando desconhecido, 0 só quando realmente sem-escala', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  assert.match(
+    dashboard,
+    /const plantaoAlertasDashboard: number \| null = plantaoEmContextoDashboard && resultadoPlantao !== null\s*\?\s*resultadoPlantao\.erros\.length \+ resultadoPlantao\.avisos\.length \+ pendenciasVinculoPlantao\s*:\s*\(estadoPlantaoOperacionalDashboard === 'sem-escala' \? 0 : null\);/u,
+    'fora de contexto, só pode ser 0 quando o estado é genuinamente "sem-escala" — qualquer outro caso precisa ser null, nunca 0 fabricado',
+  );
+  assert.doesNotMatch(
+    dashboard,
+    /const plantaoAlertasDashboard[^;]*plantaoEmContextoDashboard && resultadoPlantao !== null\s*\?\s*resultadoPlantao\.erros\.length \+ resultadoPlantao\.avisos\.length \+ pendenciasVinculoPlantao\s*:\s*0;/u,
+    'a versão antiga (": 0" incondicional fora de contexto) não pode sobreviver — zerava Plantão sempre que o contexto ativo virava SOC',
+  );
+});
+
+test('56. nenhum consumidor de plantaoAlertasDashboard trata null como zero — nem a cor de severidade, nem a soma de pendências, nem os textos', async () => {
+  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  // Severidade: null nunca pode virar 'stable'/'attention' via classeSaudeOperacional (que coagiria null a false em `alertas > 0`).
+  assert.match(
+    dashboard,
+    /const plantaoStatusDashboard: 'stable' \| 'attention' \| 'empty' \| 'desconhecido' = plantaoAlertasDashboard === null\s*\?\s*'desconhecido'\s*:\s*classeSaudeOperacional\(estadoPlantaoOperacionalDashboard, plantaoAlertasDashboard\);/u,
+  );
+  // Soma de pendências: null tratado como 0 só na SOMA aritmética (não pode ser exibido cru), mas a UI precisa saber que existe uma pendência desconhecida separadamente.
+  assert.match(dashboard, /const pendenciasDashboard = alertasJornadaDashboard \+ \(plantaoAlertasDashboard \?\? 0\) \+ trocasPendentesGestor\.length;/u);
+  assert.match(dashboard, /const existePendenciaDesconhecida = plantaoAlertasDashboard === null;/u);
+  // O painel Pendências nunca declara "tudo limpo" quando há uma pendência desconhecida.
+  assert.match(dashboard, /\{pendenciasDashboard === 0 && !existePendenciaDesconhecida && \(/u);
+  // Texto do card e do painel Pendências: nunca "0"/"Nenhum alerta pendente" quando o dado é null.
+  assert.match(dashboard, /plantaoAlertasDashboard === null \? 'Alertas não disponíveis fora do editor — abra a operação para conferir'/u);
+  assert.match(dashboard, /<strong>\{plantaoAlertasDashboard \?\? '—'\}<\/strong><em>\{plantaoAlertasDashboard === null \? 'abra a operação para conferir'/u);
 });

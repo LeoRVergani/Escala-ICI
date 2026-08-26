@@ -3806,16 +3806,6 @@ export function DashboardApp() {
   const trocaSelecionada = trocaSelecionadaId !== null
     ? trocas.find((item) => item.trocaId === trocaSelecionadaId) ?? null
     : null;
-  const totaisGerais = useMemo(() => {
-    const totalMin = documentos.reduce((soma, documento) =>
-      soma + calcularTotais(documento.dias, catalogo).min, 0);
-    return {
-      pessoas: documentos.length,
-      dias: resultado?.totalDias ?? 0,
-      horas: formatarMinutos(totalMin),
-    };
-  }, [catalogo, documentos, resultado?.totalDias]);
-
   /**
    * Resumo operacional da Visão geral — identidade sempre vem do alvo
    * concedido pela matriz operacional: Jornada usa `Equipe.id`/`equipeId`;
@@ -3879,15 +3869,28 @@ export function DashboardApp() {
   const competenciaPlantaoExibidaDashboard = resumoPlantaoDashboard?.competenciaRascunho
     ?? resumoPlantaoDashboard?.competenciaPublicada
     ?? null;
-  const plantaoTotalBrutoDashboard = plantaoEmContextoDashboard && resultadoPlantao !== null
-    ? resultadoPlantao.totalBrutoCalculado
-    : (resumoPlantaoDashboard?.competenciaRascunho ?? resumoPlantaoDashboard?.competenciaPublicada)?.totalBruto ?? null;
   const participantesPlantaoDashboard = resumoPlantaoDashboard?.participantesAtivos ?? 0;
   const plantaoPossuiEscalaDashboard = estadoPlantaoOperacionalDashboard !== 'sem-escala'
     || (plantaoEmContextoDashboard && atribuicoesEditaveisPlantao.length > 0);
-  const plantaoAlertasDashboard = plantaoEmContextoDashboard && resultadoPlantao !== null
+  /**
+   * Fase DASH-SIMPLES-1A (revisão pré-commit) — mesma classe de bug do
+   * HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 abaixo, só que para
+   * Plantão: `erros`/`avisos`/`pendenciasVinculoPlantao` só existem no
+   * resultado do editor ao vivo (`resultadoPlantao`), calculado a partir de
+   * atribuições completas — ao contrário de Jornada, não existe hoje um
+   * snapshot persistido com atribuições suficiente para recalcular esses
+   * alertas fora de contexto sem duplicar o pipeline de validação do editor
+   * (fora de escopo desta fase). Diferente de Jornada, aqui o dado
+   * realmente NÃO está disponível fora do editor — então `null` (não "0")
+   * é o valor honesto: `estadoPlantaoOperacionalDashboard === 'sem-escala'`
+   * é a única situação em que "zero alertas" é uma verdade conhecida (não
+   * há nada para gerar alerta). Qualquer consumidor de
+   * `plantaoAlertasDashboard` precisa tratar `null` como "não avaliado",
+   * nunca como zero.
+   */
+  const plantaoAlertasDashboard: number | null = plantaoEmContextoDashboard && resultadoPlantao !== null
     ? resultadoPlantao.erros.length + resultadoPlantao.avisos.length + pendenciasVinculoPlantao
-    : 0;
+    : (estadoPlantaoOperacionalDashboard === 'sem-escala' ? 0 : null);
   /**
    * HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — a Visão Geral é
    * integrada: o indicador de alertas de uma operação NUNCA pode depender
@@ -3915,19 +3918,31 @@ export function DashboardApp() {
     return montarAlertasVisiveis(alertasOperacionaisFora, usuarios, [...documentosParaAlertas], publicadasParaAlertas);
   }, [resumoJornadaDashboard, jornadaEmContextoDashboard, alertasVisiveis, catalogo, usuarios]);
   const alertasJornadaDashboard = alertasJornadaCalculados.length;
-  const plantaoStatusDashboard = classeSaudeOperacional(estadoPlantaoOperacionalDashboard, plantaoAlertasDashboard);
+  /**
+   * `classeSaudeOperacaoDashboard` só aceita `number` (`alertas > 0`
+   * coagiria `null` para `false`, voltando a fingir "estável" quando o dado
+   * é desconhecido — o mesmo erro, um nível abaixo). Quando
+   * `plantaoAlertasDashboard` é `null`, a cor de severidade do card fica
+   * neutra (nunca verde/âmbar sem ter checado) — o rótulo de status
+   * (Rascunho/Publicada) continua exato, só a contagem de alertas é
+   * desconhecida.
+   */
+  const plantaoStatusDashboard: 'stable' | 'attention' | 'empty' | 'desconhecido' = plantaoAlertasDashboard === null
+    ? 'desconhecido'
+    : classeSaudeOperacional(estadoPlantaoOperacionalDashboard, plantaoAlertasDashboard);
   const socStatusDashboard = classeSaudeOperacional(estadoJornadaOperacionalDashboard, alertasJornadaDashboard);
   const colaboradoresJornadaDashboard = resumoJornadaDashboard?.colaboradoresAtivos ?? 0;
-  const colaboradoresOperacoesDashboard = colaboradoresJornadaDashboard + participantesPlantaoDashboard;
-  const pendenciasDashboard = alertasJornadaDashboard + plantaoAlertasDashboard + trocasPendentesGestor.length;
-  const healthBarSoc = estadoJornadaOperacionalDashboard === 'sem-escala'
-    ? 0
-    : Math.max(18, 100 - Math.min(82, alertasJornadaDashboard * 8));
-  const healthBarPlantao = plantaoStatusDashboard === 'empty'
-    ? 0
-    : Math.max(18, 100 - Math.min(82, plantaoAlertasDashboard * 12));
-  const rotuloSaudeDashboard = (status: 'stable' | 'attention' | 'empty') =>
-    status === 'stable' ? 'Operação estável' : status === 'attention' ? 'Revisão necessária' : 'Sem escala';
+  /**
+   * Pendências conhecidas — nunca soma `null` como zero (isso reintroduziria
+   * o mesmo zero falso um nível acima, no painel "Pendências"). Quando
+   * `plantaoAlertasDashboard` é `null`, o total deixa de ser confiável;
+   * `pendenciasConhecidas` só é usado para decidir o estado "tudo limpo",
+   * nunca como número exibido — `pendenciasDashboard` (com o Plantão
+   * conhecido tratado como 0 só para fins de soma) seria enganoso ali.
+   */
+  const pendenciasDashboard = alertasJornadaDashboard + (plantaoAlertasDashboard ?? 0) + trocasPendentesGestor.length;
+  /** `plantaoAlertasDashboard === null` só ocorre quando há um Grupo real com escala fora de contexto (ver comentário acima) — não precisa checar `possuiOperacaoPlantaoDashboard` de novo. */
+  const existePendenciaDesconhecida = plantaoAlertasDashboard === null;
   /**
    * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — causa raiz do card genérico
    * "Plantão": `grupoPlantaoDashboard` é `null` sempre que o usuário não
@@ -3958,9 +3973,6 @@ export function DashboardApp() {
    * status de Plantão.
    */
   const resumoPublicacaoPlantaoDashboard = resumoPublicacaoOperacao(estadoPlantaoOperacionalDashboard);
-  const plantaoMetricasDashboard = plantaoPossuiEscalaDashboard
-    ? `${participantesPlantaoDashboard} ${participantesPlantaoDashboard === 1 ? 'participante' : 'participantes'} · ${plantaoTotalBrutoDashboard?.quantidade ?? 0} ${plantaoTotalBrutoDashboard?.quantidade === 1 ? 'plantão' : 'plantões'}`
-    : `${participantesPlantaoDashboard} ${participantesPlantaoDashboard === 1 ? 'participante' : 'participantes'} · nenhum rascunho`;
   const chaveJornadasDashboard = escoposOperacionais.jornadasAdministraveis.map((equipe) => equipe.id).join('|');
   const chavePlantoesDashboard = escoposOperacionais.plantoesAdministraveis.map((grupo) => grupo.grupoId).join('|');
 
@@ -8662,20 +8674,34 @@ export function DashboardApp() {
       produtoHref={import.meta.env.VITE_EMPLOYEE_APP_URL ?? '/app'}
       contextoEscala={(
         <div className="schedule-context-cluster">
-          <ScheduleContextSwitcher
-            contextoAtivo={contextoEscalaAtivo}
-            rotuloContextoAtivo={rotuloContextoAtivo}
-            opcoesJornada={opcoesContextoJornada}
-            opcoesPlantao={opcoesContextoPlantao}
-            opcoesPlantaoMonitorados={opcoesContextoPlantaoMonitorados}
-            onSelecionar={solicitarTrocaContexto}
-            carregando={carregandoContexto || estadoCarregamentoOperacoes.fase === 'carregando'}
-          />
-          <ScheduleCompetenceControl
-            competencia={contextoEscalaAtivo?.competencia ?? null}
-            onMudarCompetencia={solicitarTrocaCompetencia}
-          />
-          <ScheduleStatusBadge status={statusContextoAtivo} />
+          {/*
+           * Fase DASH-SIMPLES-1A — a Visão geral já mostra as duas operações
+           * (SOC/Plantão) ao mesmo tempo, lado a lado; o seletor de contexto
+           * do header não filtra nem altera nenhum dado dela (ver
+           * `resolverOperacoesDashboard()`, HOTFIX-PLANTAO-PUBLICADO-APP-E-
+           * VISAO-GERAL-1). Mantê-lo ali era só carga cognitiva redundante —
+           * "qual escala estou trabalhando agora" só faz sentido dentro do
+           * workspace de Escalas, onde o seletor continua existindo,
+           * inalterado.
+           */}
+          {tela !== 'visao' && (
+            <>
+              <ScheduleContextSwitcher
+                contextoAtivo={contextoEscalaAtivo}
+                rotuloContextoAtivo={rotuloContextoAtivo}
+                opcoesJornada={opcoesContextoJornada}
+                opcoesPlantao={opcoesContextoPlantao}
+                opcoesPlantaoMonitorados={opcoesContextoPlantaoMonitorados}
+                onSelecionar={solicitarTrocaContexto}
+                carregando={carregandoContexto || estadoCarregamentoOperacoes.fase === 'carregando'}
+              />
+              <ScheduleCompetenceControl
+                competencia={contextoEscalaAtivo?.competencia ?? null}
+                onMudarCompetencia={solicitarTrocaCompetencia}
+              />
+              <ScheduleStatusBadge status={statusContextoAtivo} />
+            </>
+          )}
         </div>
       )}
       acoesTopo={(
@@ -8754,7 +8780,6 @@ export function DashboardApp() {
                 <span><Users size={16} /><small>Pessoas</small><strong>{colaboradoresJornadaDashboard}</strong><em>{colaboradoresJornadaDashboard === 0 ? 'Nenhum colaborador ativo encontrado para esta equipe.' : 'colaboradores'}</em></span>
                 <span><AlertTriangle size={16} /><small>Alertas</small><strong>{alertasJornadaDashboard}</strong><em>{alertasJornadaDashboard > 0 ? 'necessitam atenção' : 'nenhum pendente'}</em></span>
               </span>
-              <span className="overview-operation-health"><i style={{ width: `${healthBarSoc}%` }} /></span>
               <span className="overview-operation-action"><Pencil size={15} /> Abrir operação {nomeJornadaDashboard} <ArrowUpRight size={16} /></span>
             </button>
 
@@ -8781,28 +8806,27 @@ export function DashboardApp() {
               <span className="overview-operation-meta">
                 <span><CalendarDays size={16} /><small>Competência ativa</small><strong>{formatarCompetencia(competenciaPlantaoDashboard?.competencia ?? competenciaDashboard)}</strong><em>{periodoPlantaoDashboard}</em></span>
                 <span><Users size={16} /><small>Pessoas</small><strong>{participantesPlantaoDashboard}</strong><em>participantes</em></span>
-                <span><AlertTriangle size={16} /><small>Alertas</small><strong>{plantaoAlertasDashboard}</strong><em>{plantaoPossuiEscalaDashboard ? 'na operação' : 'nenhuma escala criada'}</em></span>
+                <span><AlertTriangle size={16} /><small>Alertas</small><strong>{plantaoAlertasDashboard ?? '—'}</strong><em>{plantaoAlertasDashboard === null ? 'abra a operação para conferir' : plantaoPossuiEscalaDashboard ? 'na operação' : 'nenhuma escala criada'}</em></span>
               </span>
-              <span className="overview-operation-health"><i style={{ width: `${healthBarPlantao}%` }} /></span>
               <span className="overview-operation-action"><Radio size={15} /> Abrir operação {nomePlantaoDashboard} <ArrowUpRight size={16} /></span>
             </button>
             )}
           </div>
 
-          <div className="metric-grid overview-summary-metrics">
-            <article><span>Colaboradores</span><strong>{colaboradoresOperacoesDashboard}</strong><small>{possuiOperacaoPlantaoDashboard ? 'ativos nas duas operações' : 'ativos na operação'}</small></article>
-            <article><span>Dias no período</span><strong>{totaisGerais.dias || 31}</strong><small>{formatarCompetencia(competenciaDashboard)}</small></article>
-            <article className="overview-health-summary">
-              <div className="overview-health-summary-heading"><span>Saúde das escalas</span><ShieldCheck size={18} /></div>
-              <div className="overview-health-row"><strong>{nomeJornadaDashboard}</strong><small className={socStatusDashboard}>{rotuloSaudeDashboard(socStatusDashboard)}</small><b>{estadoJornadaOperacionalDashboard === 'sem-escala' ? '—' : `${healthBarSoc}%`}</b><i><em style={{ width: `${healthBarSoc}%` }} /></i></div>
-              {possuiOperacaoPlantaoDashboard && (
-              <div className="overview-health-row"><strong>{nomePlantaoDashboard}</strong><small className={plantaoStatusDashboard}>{rotuloSaudeDashboard(plantaoStatusDashboard)}</small><b>{estadoPlantaoOperacionalDashboard === 'sem-escala' ? '—' : `${healthBarPlantao}%`}</b><i><em style={{ width: `${healthBarPlantao}%` }} /></i></div>
-              )}
-              <small className="overview-health-note">{pendenciasDashboard > 0 ? `${pendenciasDashboard} ${pendenciasDashboard === 1 ? 'pendência requer' : 'pendências requerem'} atenção` : 'Nenhuma pendência operacional'}</small>
-            </article>
-            <article><span>Pendências</span><strong>{pendenciasDashboard}</strong><small>requerem atenção</small></article>
-          </div>
-
+          {/*
+           * Fase DASH-SIMPLES-1A — a Visão geral parava de ser uma
+           * triagem e virava um mosaico repetindo, em texto e em barra,
+           * a MESMA informação já legível nos cards operacionais acima
+           * (status, alertas, competência). "Saúde das escalas" (barra
+           * artificial em %), "Colaboradores"/"Dias no período" e o card
+           * "Alertas por operação" saíram por não trazerem nenhuma
+           * informação operacional que os cards já não mostrassem — ver
+           * docs/spec/VISAO_GERAL_OPERACIONAL_SOC_PLANTAO.md § 7 (revisão
+           * desta fase). "Publicação da escala" continua (é a única visão
+           * lado a lado das duas operações) e um único painel "Pendências"
+           * substitui "Alertas por operação" + "Trocas pendentes", em
+           * linguagem humana, sem duplicar o que já está nos cards.
+           */}
           <div className="overview-grid overview-secondary-grid">
             <article className="panel overview-span-4 overview-publication-card">
               <div className="panel-title"><div><h2>Publicação da escala</h2><p>Disponibilidade no aplicativo</p></div><ShieldCheck /></div>
@@ -8815,26 +8839,37 @@ export function DashboardApp() {
               <button className="overview-card-link" type="button" onClick={() => setTela('escalas')}>Ver escalas e histórico <ChevronRight size={16} /></button>
             </article>
 
-            <article className="panel overview-span-4 overview-alerts-card">
-              <div className="panel-title"><div><h2>Alertas por operação</h2><p>Pontos que merecem atenção do gestor</p></div><Bell size={18} /></div>
+            <article className="panel overview-span-8 overview-pendencias-card">
+              <div className="panel-title"><div><h2>Pendências</h2><p>O que precisa da sua atenção agora</p></div><Bell size={18} /></div>
               <div className="overview-operation-list">
-                <button type="button" onClick={() => abrirOperacaoDoDashboard('JORNADA')}><ShieldCheck size={18} /><span><strong>{nomeJornadaDashboard}</strong><small>Jornada 6x1</small></span><em className={socStatusDashboard}>{alertasJornadaDashboard}</em><ChevronRight size={15} /></button>
+                <button type="button" onClick={() => setAlertaSelecionado(alertasVisiveis[0] ?? null)}>
+                  <AlertTriangle size={18} />
+                  <span><strong>{nomeJornadaDashboard}</strong><small>{alertasJornadaDashboard > 0 ? `${alertasJornadaDashboard} ${alertasJornadaDashboard === 1 ? 'alerta requer' : 'alertas requerem'} atenção` : 'Nenhum alerta pendente'}</small></span>
+                  <ChevronRight size={15} />
+                </button>
                 {possuiOperacaoPlantaoDashboard && (
-                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>{nomePlantaoDashboard}</strong><small>{plantaoMetricasDashboard}</small></span><em className={plantaoStatusDashboard}>{plantaoAlertasDashboard}</em><ChevronRight size={15} /></button>
+                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}>
+                  <AlertTriangle size={18} />
+                  <span><strong>{nomePlantaoDashboard}</strong><small>{plantaoAlertasDashboard === null ? 'Alertas não disponíveis fora do editor — abra a operação para conferir' : plantaoAlertasDashboard > 0 ? `${plantaoAlertasDashboard} ${plantaoAlertasDashboard === 1 ? 'alerta requer' : 'alertas requerem'} atenção` : 'Nenhum alerta pendente'}</small></span>
+                  <ChevronRight size={15} />
+                </button>
                 )}
+                <button type="button" onClick={abrirTrocasDoDashboard}>
+                  <ArrowLeftRight size={18} />
+                  <span><strong>Trocas</strong><small>{trocasPendentesGestor.length === 0 ? 'Nenhuma troca aguardando aprovação' : `${trocasPendentesGestor.length} ${trocasPendentesGestor.length === 1 ? 'troca aguardando' : 'trocas aguardando'} aprovação`}</small></span>
+                  <ChevronRight size={15} />
+                </button>
               </div>
-              <button className="overview-card-link" type="button" onClick={() => setAlertaSelecionado(alertasVisiveis[0] ?? null)}>Ver alertas de {nomeJornadaDashboard} <ChevronRight size={16} /></button>
-            </article>
-
-            <article className="panel overview-span-4 overview-swaps-card">
-              <div className="panel-title"><div><h2>Trocas pendentes</h2><p>Aguardando decisão do gestor</p></div><ArrowLeftRight size={18} /></div>
-              <button className="overview-swaps-summary" type="button" onClick={abrirTrocasDoDashboard}><strong>{trocasPendentesGestor.length}</strong><span>{trocasPendentesGestor.length === 1 ? 'troca aguarda' : 'trocas aguardam'} sua decisão.</span><ChevronRight size={16} /></button>
+              {trocasPendentesGestor.length > 0 && (
               <div className="overview-swap-preview">
                 {trocasPendentesGestor.slice(0, 2).map((troca) => (
                   <button key={troca.trocaId} type="button" onClick={() => { setTela('trocas'); setTrocaSelecionadaId(troca.trocaId); }}><ArrowLeftRight size={15} /><span><strong>{troca.solicitanteNome} ⇄ {troca.destinatarioNome}</strong><small>{formatarDataCurta(troca.data)} · {troca.turnoSolicitanteAntes} ⇄ {troca.turnoDestinatarioAntes}</small></span><ChevronRight size={14} /></button>
                 ))}
               </div>
-              <button className="overview-card-link" type="button" onClick={abrirTrocasDoDashboard}>Gerenciar trocas <ChevronRight size={16} /></button>
+              )}
+              {pendenciasDashboard === 0 && !existePendenciaDesconhecida && (
+                <small className="overview-health-note">Nenhuma pendência operacional no momento.</small>
+              )}
             </article>
           </div>
           </>}

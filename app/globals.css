@@ -667,6 +667,8 @@ textarea:focus-visible,
 .overview-operation-card.attention { border-top: 3px solid var(--warning, #b7791f); padding-top: 16px; }
 .overview-operation-card.stable { border-top: 3px solid var(--success, #17885a); padding-top: 16px; }
 .overview-operation-card.empty { border-top: 3px solid var(--border-strong); padding-top: 16px; }
+/* DASH-SIMPLES-1A (revisão pré-commit) — alertas de Plantão fora de contexto são desconhecidos, nunca "0" fabricado; a cor de severidade fica neutra (nunca verde/âmbar sem ter checado), igual a `.empty`, mas sem reaproveitar o rótulo "Sem escala". */
+.overview-operation-card.desconhecido { border-top: 3px solid var(--border-strong); padding-top: 16px; }
 .overview-operation-card-heading { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; }
 .overview-operation-icon { display: inline-flex; width: 48px; height: 48px; align-items: center; justify-content: center; border: 1px solid color-mix(in srgb, var(--primary-bright) 38%, var(--border)); border-radius: 50%; background: color-mix(in srgb, var(--primary-soft) 70%, var(--surface)); color: var(--primary-bright); }
 .overview-operation-icon.plantao { color: #2f8a80; border-color: color-mix(in srgb, #2f8a80 38%, var(--border)); background: color-mix(in srgb, #2f8a80 10%, var(--surface)); }
@@ -675,6 +677,7 @@ textarea:focus-visible,
 .overview-operation-title small { align-self: flex-start; padding: 4px 8px; border-radius: 999px; background: color-mix(in srgb, var(--warning, #b7791f) 12%, var(--surface)); color: var(--warning, #9a6718); font-size: 9px; font-weight: 700; }
 .overview-operation-card.stable .overview-operation-title small { background: color-mix(in srgb, var(--success, #17885a) 12%, var(--surface)); color: var(--success, #17885a); }
 .overview-operation-card.empty .overview-operation-title small { background: var(--surface-muted); color: var(--muted); }
+.overview-operation-card.desconhecido .overview-operation-title small { background: var(--surface-muted); color: var(--muted); }
 .overview-operation-card-heading > svg { color: var(--muted); }
 .overview-operation-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-top: 21px; }
 .overview-operation-meta > span { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto auto; column-gap: 8px; padding: 0 12px; border-left: 1px solid var(--border); }

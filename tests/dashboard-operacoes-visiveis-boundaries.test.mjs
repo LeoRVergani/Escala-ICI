@@ -35,11 +35,21 @@ test('3. Visão geral e seletor superior nunca podem divergir — os 3 filtros d
   assert.ok(ocorrencias.length >= 4, `operacoesDashboard precisa ser reaproveitado por múltiplos consumidores (encontrado ${ocorrencias.length} ocorrências)`);
 });
 
-test('4. o card/linha de Plantão da Visão geral só existe quando há um Grupo real no escopo (possuiOperacaoPlantaoDashboard) — nas 4 seções: cards superiores, Saúde das escalas, Publicação da escala, Alertas por operação', async () => {
+/**
+ * Fase DASH-SIMPLES-1A — a Visão geral deixou de ter 4 seções repetindo o
+ * status de Plantão (cards superiores, "Saúde das escalas", "Publicação da
+ * escala", "Alertas por operação"). "Saúde das escalas" e "Alertas por
+ * operação" saíram por serem redundantes com os cards superiores; um único
+ * painel "Pendências" substituiu "Alertas por operação" + "Trocas
+ * pendentes". A garantia original (o gate nunca pode faltar em nenhum lugar
+ * que mencione Plantão) continua válida, só que agora sobre 3 seções reais:
+ * cards superiores, "Publicação da escala", "Pendências".
+ */
+test('4. o card/linha de Plantão da Visão geral só existe quando há um Grupo real no escopo (possuiOperacaoPlantaoDashboard) — nas 3 seções: cards superiores, Publicação da escala, Pendências', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   assert.match(dashboard, /const possuiOperacaoPlantaoDashboard = grupoPlantaoDashboard !== null;/u);
   const ocorrenciasGate = dashboard.match(/\{possuiOperacaoPlantaoDashboard(?: &&|\s*\?)/gu) ?? [];
-  assert.ok(ocorrenciasGate.length >= 4, `esperado o gate em pelo menos 4 pontos da Visão geral (encontrado ${ocorrenciasGate.length})`);
+  assert.ok(ocorrenciasGate.length >= 3, `esperado o gate em pelo menos 3 pontos da Visão geral (encontrado ${ocorrenciasGate.length})`);
 });
 
 test('5. nenhum "<strong>Plantão</strong>" genérico sobrevive na Visão geral — sempre {nomePlantaoDashboard}, o nome real do Grupo', async () => {
