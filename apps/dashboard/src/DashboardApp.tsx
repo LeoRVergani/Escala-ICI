@@ -356,6 +356,8 @@ import {
   type OperacaoDashboard,
   type StatusOperacaoDashboard,
 } from '@/lib/operacoesDashboard';
+import { possuiOperacaoAdministravelHub } from '@/lib/hubEscalas';
+import { HubEscalasOperacoes } from '@/components/escalas/HubEscalasOperacoes';
 import {
   usuarioPodeAdministrarAlvoOperacional,
   usuarioPodeConsultarPlantaoOperacional,
@@ -8576,6 +8578,56 @@ export function DashboardApp() {
       };
     });
   /**
+   * Fase DASH-SIMPLES-1B — pessoas/alertas por operação para os cartões do
+   * Hub de Escalas (`HubEscalasOperacoes`). Nunca uma segunda regra de
+   * autorização/status: só lê os mesmos snapshots já carregados por
+   * `operacoesDashboard`/`resumosJornadaDashboard`/`resumosPlantaoDashboard`
+   * (o mesmo efeito que já popula os cards únicos da Visão geral, § 3 acima
+   * — aqui generalizado para TODAS as Jornadas/Plantões administráveis, não
+   * só "a" operação em destaque).
+   *
+   * Alertas de Plantão fora do editor continuam `null` (nunca "0"
+   * inventado) — mesma regra de `plantaoAlertasDashboard` acima, § 8 de
+   * `docs/spec/HUB_ESCALAS.md`: só é honesto assumir 0 quando o status já
+   * confirma "sem-escala"; qualquer outro caso sem o editor aberto mostra
+   * "Abra para conferir".
+   */
+  function pessoasOperacaoHub(operacao: OperacaoDashboard): number | null {
+    if (operacao.tipo === 'JORNADA') {
+      return resumosJornadaDashboard[`${operacao.alvoId}:${competenciaDashboard}`]?.colaboradoresAtivos ?? null;
+    }
+    return resumosPlantaoDashboard[`${operacao.alvoId}:${competenciaDashboard}`]?.participantesAtivos ?? null;
+  }
+  function alertasOperacaoHub(operacao: OperacaoDashboard): number | null {
+    if (operacao.tipo === 'JORNADA') {
+      if (operacao.status === 'sem-escala') {
+        return 0;
+      }
+      const emEdicaoAoVivo = contextoEhJornada(contextoEscalaAtivo)
+        && contextoEscalaAtivo.alvoId === operacao.alvoId
+        && resultado !== null;
+      if (emEdicaoAoVivo) {
+        return alertasVisiveis.length;
+      }
+      const resumo = resumosJornadaDashboard[`${operacao.alvoId}:${competenciaDashboard}`] ?? null;
+      if (resumo === null) {
+        return null;
+      }
+      const alertasOperacionaisFora = gerarAlertasEscala(resumo.documentos, catalogo);
+      return montarAlertasVisiveis(alertasOperacionaisFora, usuarios, resumo.documentos, resumo.publicadas).length;
+    }
+    if (operacao.status === 'sem-escala') {
+      return 0;
+    }
+    const emEdicaoAoVivo = contextoEhPlantao(contextoEscalaAtivo)
+      && contextoEscalaAtivo.alvoId === operacao.alvoId
+      && resultadoPlantao !== null;
+    return emEdicaoAoVivo && resultadoPlantao !== null
+      ? resultadoPlantao.erros.length + resultadoPlantao.avisos.length + pendenciasVinculoPlantao
+      : null;
+  }
+  const possuiOperacaoAdministravel = possuiOperacaoAdministravelHub(operacoesDashboard);
+  /**
    * `true` quando o contexto de Plantão ativo agora é só consultável (o
    * grupo está em `plantoesConsultaveis`, nunca em `plantoesAdministraveis`)
    * — gate único usado para esconder/desabilitar toda ação de escrita
@@ -9310,8 +9362,8 @@ export function DashboardApp() {
       {tela === 'escalas' && (
         <section>
           <header className="page-heading">
-            <div><h1>Escalas</h1><p>Rascunhos e publicações disponíveis para a equipe.</p></div>
-            {estadoCarregamentoOperacoes.fase === 'sucesso' && !contextoPlantaoSomenteConsulta && <div className="grade-header-actions">
+            <div><h1>Escalas</h1><p>Organize, revise e publique as escalas sob sua responsabilidade.</p></div>
+            {estadoCarregamentoOperacoes.fase === 'sucesso' && possuiOperacaoAdministravel && <div className="grade-header-actions">
               <button className="secondary-button" type="button" onClick={abrirImportarEscala}>
                 <UploadCloud size={17} /> Importar escala
               </button>
@@ -9322,6 +9374,13 @@ export function DashboardApp() {
           </header>
           {painelCarregamentoOperacoes()}
           {estadoCarregamentoOperacoes.fase === 'sucesso' && <>
+          <HubEscalasOperacoes
+            operacoes={operacoesDashboard}
+            competenciaFormatada={formatarCompetencia(competenciaDashboard)}
+            pessoasPorOperacao={pessoasOperacaoHub}
+            alertasPorOperacao={alertasOperacaoHub}
+            onAbrir={(operacao) => solicitarTrocaContexto(contextoOpcaoOperacao(operacao))}
+          />
           {avisoContextoEscala !== '' && <div className="alert warning" role="status">{avisoContextoEscala}</div>}
           {erroContextoEscala !== '' && (
             <div className="alert error" role="alert">

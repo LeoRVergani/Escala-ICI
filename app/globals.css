@@ -758,6 +758,49 @@ textarea:focus-visible,
   .overview-operation-meta > span:first-child { padding: 0; border-left: 0; }
 }
 
+/* Fase DASH-SIMPLES-1B — Hub de Escalas ("Minhas escalas"/"Acompanhamento"). Reaproveita os mesmos tokens/`.status-badge` já usados pelos cards da Visão geral — nenhum sistema visual novo. */
+.hub-escalas { display: flex; flex-direction: column; gap: var(--space-5); margin-bottom: var(--space-5); }
+.hub-escalas-secao { display: flex; flex-direction: column; gap: 10px; }
+.hub-escalas-titulo { margin: 0; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.hub-escala-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.hub-escala-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out, transform 150ms ease-out;
+}
+.hub-escala-card:hover { border-color: var(--primary-bright); box-shadow: var(--shadow-md, var(--shadow-card)); transform: translateY(-1px); }
+.hub-escala-card:focus-visible,
+.hub-escala-card:focus { outline: 3px solid color-mix(in srgb, var(--primary-bright) 28%, transparent); outline-offset: 2px; }
+.hub-escala-card.ativa { border-color: var(--primary-bright); background: color-mix(in srgb, var(--primary-soft) 30%, var(--surface)); }
+.hub-escala-card.consulta { cursor: pointer; }
+.hub-escala-card-icon { display: inline-flex; width: 40px; height: 40px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid color-mix(in srgb, var(--primary-bright) 38%, var(--border)); border-radius: 50%; background: color-mix(in srgb, var(--primary-soft) 70%, var(--surface)); color: var(--primary-bright); }
+.hub-escala-card-icon.plantao { color: #2f8a80; border-color: color-mix(in srgb, #2f8a80 38%, var(--border)); background: color-mix(in srgb, #2f8a80 10%, var(--surface)); }
+.hub-escala-card-corpo { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.hub-escala-card-cabecalho { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; }
+.hub-escala-card-cabecalho > strong { overflow: hidden; font-size: 15px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.hub-escala-card-tipo { color: var(--muted); font-size: 10px; }
+.hub-escala-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 4px; color: var(--muted); font-size: 11px; }
+.hub-escala-card-meta > span { display: inline-flex; align-items: center; gap: 5px; }
+.hub-escala-card-meta svg { color: var(--primary-bright); }
+.hub-escala-card-somente-consulta { color: var(--muted); font-style: italic; }
+.hub-escala-card-acao { display: flex; align-items: center; justify-content: flex-end; gap: 6px; grid-column: 1 / -1; margin-top: 6px; color: var(--primary-bright); font-size: 11px; font-weight: 650; }
+@media (max-width: 780px) {
+  .hub-escala-grid { grid-template-columns: 1fr; }
+}
+
 .import-panel { display: grid; grid-template-columns: minmax(340px, 1.1fr) 0.9fr; gap: var(--space-4); }
 .dropzone {
   min-height: 108px; border: 1px dashed var(--primary-bright); border-radius: 8px;

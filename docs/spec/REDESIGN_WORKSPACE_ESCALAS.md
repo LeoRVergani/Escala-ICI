@@ -21,6 +21,11 @@
 - Roster lateral, drag-and-drop, padrão de horário por Grupo, nova
   Contabilidade/Lista/Pendências, importação inline e publicação
   **ainda não foram iniciados**.
+- **DASH-SIMPLES-1B** ✅ implementada — "Escalas" virou o HUB único de
+  trabalho com escalas (índice "Minhas escalas"/"Acompanhamento" a partir
+  de `operacoesDashboard`, nunca filtrado pelo contexto ativo). Ver
+  `docs/spec/HUB_ESCALAS.md` (normativo) — complementa, não substitui,
+  este documento.
 
 ## Por que este documento existe
 
