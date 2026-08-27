@@ -106,10 +106,24 @@ export function limparContextoEscalaPersistido(
   armazenamento.removeItem(chaveArmazenamentoContextoEscala(login));
 }
 
+/**
+ * HOTFIX-COMPETENCIA-OPERACIONAL-DINAMICA-1 — `competenciaInicial`, quando
+ * informada, prevalece sobre a competência persistida: uma NOVA
+ * sessão/carregamento do Dashboard deve sempre nascer na competência
+ * operacional atual (ex.: dia 26 já é o mês seguinte), nunca reabrir a
+ * competência antiga que ficou salva no localStorage da última visita. Sem
+ * `competenciaInicial` (compat, ex.: chamadores existentes/testes), o
+ * comportamento é o de sempre — restaura a competência tal como persistida.
+ * O ALVO (`tipo`/`alvoId`) sempre vem do que foi persistido, revalidado
+ * contra `contextosValidos`; só a competência é normalizada aqui. Navegação
+ * manual para um mês histórico DURANTE a sessão não passa por esta função —
+ * só o carregamento inicial.
+ */
 export function restaurarContextoEscalaPersistido(
   login: string,
   contextosValidos: readonly ContextoEscalaAtivo[],
   armazenamento: ArmazenamentoContextoEscala,
+  opcoes?: { competenciaInicial?: string },
 ): ResultadoRestauracaoContextoEscala {
   const chave = chaveArmazenamentoContextoEscala(login);
   const bruto = armazenamento.getItem(chave);
@@ -138,7 +152,7 @@ export function restaurarContextoEscalaPersistido(
       alvoAtual.tipo,
       alvoAtual.alvoId,
       alvoAtual.label,
-      persistido.competencia,
+      opcoes?.competenciaInicial ?? persistido.competencia,
     ),
   };
 }

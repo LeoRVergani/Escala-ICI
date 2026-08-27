@@ -26,6 +26,20 @@
   de `operacoesDashboard`, nunca filtrado pelo contexto ativo). Ver
   `docs/spec/HUB_ESCALAS.md` (normativo) — complementa, não substitui,
   este documento.
+- **HOTFIX-COMPETENCIA-OPERACIONAL-DINAMICA-1** ✅ implementada — o
+  `ContextoEscalaAtivo` default (Visão geral/Hub/wizards/administração)
+  passou a nascer sempre na **competência operacional atual**, calculada
+  em runtime (`competenciaOperacionalAtual()`,
+  `lib/competenciaOperacionalAtual.ts` — dia 1–25 fica no mês corrente,
+  dia 26+ vira o mês seguinte), nunca na constante congelada
+  `COMPETENCIA_ATUAL` (removida de `lib/sessao.ts`, que travava tudo em
+  `'2026-08'`). A restauração do contexto persistido no `localStorage`
+  (`restaurarContextoEscalaPersistido()`, `lib/contextoEscala.ts`) também
+  passou a normalizar a competência para a operacional atual em toda NOVA
+  sessão — preserva o alvo (equipe/grupo) salvo, mas nunca reabre
+  automaticamente um mês antigo. Navegação manual para um mês histórico
+  (ex.: Agosto) continua funcionando normalmente durante a sessão; ver
+  `docs/spec/HUB_ESCALAS.md` § 5.1 para o detalhamento normativo.
 
 ## Por que este documento existe
 

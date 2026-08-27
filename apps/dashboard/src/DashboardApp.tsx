@@ -233,6 +233,7 @@ import {
   podeExcluirUsuario,
 } from '@/lib/adminGuards';
 import { areaNavegacaoDaTela } from '@/lib/navegacaoDashboard';
+import { competenciaOperacionalAtual } from '@/lib/competenciaOperacionalAtual';
 import {
   contextoEhJornada,
   contextoEhPlantao,
@@ -253,7 +254,6 @@ import { ResponsavelEscalaModal } from '@/components/admin/ResponsavelEscalaModa
 import { CancelarPublicacaoPlantaoModal } from '@/components/admin/CancelarPublicacaoPlantaoModal';
 import { AtribuirCoordenadorModal } from '@/components/admin/AtribuirCoordenadorModal';
 import {
-  COMPETENCIA_ATUAL,
   ehAdminSistema,
   equipesPermitidasEfetivas,
   perfilEfetivo,
@@ -3155,6 +3155,16 @@ export function DashboardApp() {
   const [usuarioReal, setUsuarioReal] = useState<Usuario | null>(null);
   const [simulando, setSimulando] = useState<Usuario | null>(null);
   const usuarioEfetivo = simulando ?? usuarioReal;
+  /**
+   * HOTFIX-COMPETENCIA-OPERACIONAL-DINAMICA-1 — substitui a antiga
+   * constante congelada `COMPETENCIA_ATUAL` ('lib/sessao.ts'). Calculada
+   * uma vez no mount via `competenciaOperacionalAtual()` (nunca no momento
+   * do build/import — precisa refletir o dia real do usuário). É o default
+   * operacional para contextos/wizards/exclusão administrativa; nunca é
+   * sobrescrita por navegação manual do usuário para um mês histórico
+   * durante a sessão (ver § 13 do hotfix) — só um reload/login reavalia.
+   */
+  const [competenciaOperacionalHoje] = useState(() => competenciaOperacionalAtual());
   const [modoDemo, setModoDemo] = useState(true);
   // PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — tela inicial padrão é "Visão
   // geral" (nunca "Escalas"), quando não há estado salvo intencionalmente
@@ -3325,7 +3335,7 @@ export function DashboardApp() {
   const [wizardAreaId, setWizardAreaId] = useState('');
   const [wizardEquipeId, setWizardEquipeId] = useState('');
   const [wizardGrupoId, setWizardGrupoId] = useState('');
-  const [wizardCompetencia, setWizardCompetencia] = useState(COMPETENCIA_ATUAL);
+  const [wizardCompetencia, setWizardCompetencia] = useState(competenciaOperacionalHoje);
   const [wizardArquivoNome, setWizardArquivoNome] = useState('');
   const [wizardErro, setWizardErro] = useState('');
   const [wizardProcessando, setWizardProcessando] = useState(false);
@@ -3468,7 +3478,7 @@ export function DashboardApp() {
   const [usuarioParaExcluir, setUsuarioParaExcluir] = useState<Usuario | null>(null);
   const [processandoExclusaoUsuario, setProcessandoExclusaoUsuario] = useState(false);
   const [equipeExportar, setEquipeExportar] = useState('');
-  const [competenciaExportar, setCompetenciaExportar] = useState(COMPETENCIA_ATUAL);
+  const [competenciaExportar, setCompetenciaExportar] = useState(competenciaOperacionalHoje);
   const [excluirEscalaPendente, setExcluirEscalaPendente] = useState(false);
   const [processandoEscalaAdmin, setProcessandoEscalaAdmin] = useState(false);
   const inputArquivo = useRef<HTMLInputElement>(null);
@@ -3815,7 +3825,7 @@ export function DashboardApp() {
    * (`resultado`) só complementa o resumo quando é exatamente o mesmo alvo,
    * nunca como fallback para a equipe do usuário logado.
    */
-  const competenciaDashboard = contextoEscalaAtivo?.competencia ?? COMPETENCIA_ATUAL;
+  const competenciaDashboard = contextoEscalaAtivo?.competencia ?? competenciaOperacionalHoje;
   const equipeJornadaOperacionalDashboard = contextoEhJornada(contextoEscalaAtivo)
     ? escoposOperacionais.jornadasAdministraveis.find((equipe) => equipe.id === contextoEscalaAtivo.alvoId)
     : undefined;
@@ -4247,10 +4257,10 @@ export function DashboardApp() {
     ] = await Promise.all([
       listarUsuarios(alvo.equipeId),
       listarCatalogo(alvo.equipeId),
-      carregarEscalasEquipe(alvo.equipeId, '2026-08', true),
-      carregarRascunhosEquipe(alvo.equipeId, '2026-08'),
-      listarHistoricoPublicacoes(alvo.equipeId, '2026-08'),
-      carregarEstadoPublicacao(alvo.equipeId, '2026-08'),
+      carregarEscalasEquipe(alvo.equipeId, competenciaOperacionalHoje, true),
+      carregarRascunhosEquipe(alvo.equipeId, competenciaOperacionalHoje),
+      listarHistoricoPublicacoes(alvo.equipeId, competenciaOperacionalHoje),
+      carregarEstadoPublicacao(alvo.equipeId, competenciaOperacionalHoje),
     ]);
     setUsuarios(usuariosRemotos);
     setCatalogo(catalogoRemoto);
@@ -4260,7 +4270,7 @@ export function DashboardApp() {
       ? rascunhosRemotos
       : escalasRemotas;
     const equipeAlvo = equipesAdmin.find((equipe) => equipe.id === alvo.equipeId);
-    setContextoEscalaAtivo(criarContextoEscala('JORNADA', alvo.equipeId, equipeAlvo?.nome ?? alvo.equipeId, '2026-08'));
+    setContextoEscalaAtivo(criarContextoEscala('JORNADA', alvo.equipeId, equipeAlvo?.nome ?? alvo.equipeId, competenciaOperacionalHoje));
     if (documentosCarregados.length > 0) {
       const datas = documentosCarregados.flatMap((documento) => Object.keys(documento.dias));
       const periodoInicio = datas.sort()[0] ?? '2026-07-26';
@@ -4621,12 +4631,12 @@ export function DashboardApp() {
     }
     const cancelar = observarTrocasDoGestor(
       usuarioEfetivo.equipeId,
-      contextoEscalaAtivo?.competencia ?? '2026-08',
+      contextoEscalaAtivo?.competencia ?? competenciaOperacionalHoje,
       setTrocas,
       (falha) => setErroTroca(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de escala.', ambienteFirebaseAtual)),
     );
     return cancelar;
-  }, [modoDemo, usuarioEfetivo, contextoEscalaAtivo]);
+  }, [modoDemo, usuarioEfetivo, contextoEscalaAtivo, competenciaOperacionalHoje]);
 
   function reparsear(
     buffer: ArrayBuffer,
@@ -4637,7 +4647,7 @@ export function DashboardApp() {
       equipeId: opcoes.equipeId
         ?? (contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : usuarioEfetivo?.equipeId)
         ?? EQUIPE_DEMO.id,
-      competencia: opcoes.competencia ?? '2026-08',
+      competencia: opcoes.competencia ?? competenciaOperacionalHoje,
       catalogo,
       loginParaUid,
     });
@@ -4694,7 +4704,7 @@ export function DashboardApp() {
           'JORNADA',
           equipeId,
           equipe?.nome ?? equipeId,
-          opcoes.competencia ?? parseado.documentos[0]?.competencia ?? '2026-08',
+          opcoes.competencia ?? parseado.documentos[0]?.competencia ?? competenciaOperacionalHoje,
         ));
         setContextoSemEscala(false);
       }
@@ -5056,7 +5066,7 @@ export function DashboardApp() {
     setWizardAreaId(areaInicial);
     setWizardEquipeId('');
     setWizardGrupoId('');
-    setWizardCompetencia(contextoEscalaAtivo?.competencia ?? COMPETENCIA_ATUAL);
+    setWizardCompetencia(contextoEscalaAtivo?.competencia ?? competenciaOperacionalHoje);
     setWizardArquivoNome('');
     setWizardErro('');
     setWizardProcessando(false);
@@ -5690,7 +5700,7 @@ export function DashboardApp() {
         ?? EQUIPE_DEMO.id;
       processado = processarArquivoImportado(buffer, {
         equipeId: equipeImportacaoId,
-        competencia: opcoes.competencia ?? '2026-08',
+        competencia: opcoes.competencia ?? competenciaOperacionalHoje,
         catalogo,
         loginParaUid: mapaLogins(usuarios),
       });
@@ -5821,7 +5831,7 @@ export function DashboardApp() {
       if (arquivo !== null) {
         const parseado = parsePlanilhaEscala(arquivo, {
           equipeId: equipeAlvoId,
-          competencia: contextoEscalaAtivo?.competencia ?? '2026-08',
+          competencia: contextoEscalaAtivo?.competencia ?? competenciaOperacionalHoje,
           catalogo,
           loginParaUid: mapaLogins(atualizados),
         });
@@ -6832,7 +6842,7 @@ export function DashboardApp() {
     }
     const referencia = {
       equipeId: equipeIdDaGradeAtiva,
-      competencia: resultado.documentos[0]?.competencia ?? '2026-08',
+      competencia: resultado.documentos[0]?.competencia ?? competenciaOperacionalHoje,
       periodoInicio: resultado.periodoInicio,
       periodoFim: resultado.periodoFim,
     };
@@ -8348,12 +8358,12 @@ export function DashboardApp() {
 
   const contextosOperacionaisValidos: ContextoEscalaAtivo[] = useMemo(() => [
     ...escoposOperacionais.jornadasAdministraveis.map((equipe) =>
-      criarContextoEscala('JORNADA', equipe.id, equipe.nome, COMPETENCIA_ATUAL)),
+      criarContextoEscala('JORNADA', equipe.id, equipe.nome, competenciaOperacionalHoje)),
     ...escoposOperacionais.plantoesAdministraveis.map((grupo) =>
-      criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, COMPETENCIA_ATUAL)),
+      criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, competenciaOperacionalHoje)),
     ...escoposOperacionais.plantoesMonitorados.map((grupo) =>
-      criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, COMPETENCIA_ATUAL)),
-  ], [escoposOperacionais]);
+      criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, competenciaOperacionalHoje)),
+  ], [escoposOperacionais, competenciaOperacionalHoje]);
   const chaveAlvosOperacionaisValidos = contextosOperacionaisValidos
     .map((contexto) => `${contexto.tipo}:${contexto.alvoId}`)
     .sort()
@@ -8377,7 +8387,12 @@ export function DashboardApp() {
     usuarioContextoRestauradoRef.current = usuarioReal.login;
     const restaurado = modoDemo || typeof window === 'undefined'
       ? { estado: 'ausente' as const }
-      : restaurarContextoEscalaPersistido(usuarioReal.login, contextosOperacionaisValidos, window.localStorage);
+      : restaurarContextoEscalaPersistido(
+        usuarioReal.login,
+        contextosOperacionaisValidos,
+        window.localStorage,
+        { competenciaInicial: competenciaOperacionalHoje },
+      );
     if (restaurado.estado === 'invalido') {
       void Promise.resolve().then(() => {
         setContextoEscalaAtivo(null);
@@ -8456,8 +8471,8 @@ export function DashboardApp() {
    * Equipe permitida (Jornada) e por Grupo de Plantão acessível
    * (Plantão), rótulos resolvidos a partir dos dados já carregados. A
    * competência de uma opção ainda não visitada herda a competência do
-   * contexto ativo (ou o único valor hoje hardcoded no restante do
-   * Dashboard, `'2026-08'`, se nenhum contexto foi selecionado ainda).
+   * contexto ativo (ou `competenciaOperacionalHoje`, se nenhum contexto
+   * foi selecionado ainda).
    */
   const areasWizard = unidadesAdministraveis(unidadesAdmin, minhasUnidadesPermitidas, souAdmin);
   const areaWizardEfetiva = wizardAreaId || (areasWizard.length === 1 ? areasWizard[0].unidadeId : null);
@@ -8506,7 +8521,7 @@ export function DashboardApp() {
   const periodoAnteriorWizardDisponivel = wizardGrupoId !== ''
     && competenciaAnteriorWizard !== null
     && (rascunhosPlantaoPorGrupo[wizardGrupoId] ?? []).some((item) => item.competencia === competenciaAnteriorWizard);
-  const competenciaParaNovasOpcoes = contextoEscalaAtivo?.competencia ?? '2026-08';
+  const competenciaParaNovasOpcoes = contextoEscalaAtivo?.competencia ?? competenciaOperacionalHoje;
   /**
    * Uma equipe responsável exclusivamente por um Grupo de Plantão não é uma
    * Jornada 6x1 adicional. O coordenador do COSI pode ter EQ_SOC e
@@ -10628,9 +10643,9 @@ export function DashboardApp() {
                 <button className="secondary-button" type="button" onClick={() => void exportarEscalaXlsx()}>Exportar XLSX</button>
                 <button className="secondary-button" type="button" onClick={() => void imprimirEscala()}>Imprimir · Salvar PDF</button>
               </div>
-              {!podeExcluirCompetencia(competenciaExportar, COMPETENCIA_ATUAL) ? (
+              {!podeExcluirCompetencia(competenciaExportar, competenciaOperacionalHoje) ? (
                 <p className="admin-form-preview admin-form-full">
-                  A competência atual (<strong>{COMPETENCIA_ATUAL}</strong>) não pode ser excluída por aqui.
+                  A competência atual (<strong>{competenciaOperacionalHoje}</strong>) não pode ser excluída por aqui.
                 </p>
               ) : (
                 <button

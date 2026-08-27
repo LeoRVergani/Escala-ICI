@@ -89,6 +89,33 @@ evita introduzir um segundo conceito de "competência por card" nesta fase.
 Abrir uma operação continua podendo trocar a competência normalmente
 dentro do workspace (`ScheduleCompetenceControl`, inalterado).
 
+### 5.1 Competência operacional atual (HOTFIX-COMPETENCIA-OPERACIONAL-DINAMICA-1)
+
+O default do Hub/Visão geral (`competenciaDashboard`, quando nenhum
+contexto foi selecionado ainda) é sempre a **competência operacional
+atual**, calculada em runtime — nunca uma constante congelada em build. A
+regra em si (também usada pela Escala 6x1 no App/PWA):
+
+- dia **1 a 25** do mês → competência do próprio mês;
+- dia **26 em diante** → competência do mês **seguinte**.
+
+Exemplo: em `26/08/2026` o default é `Setembro de 2026`
+(`26/08/2026 — 25/09/2026`), nunca `Agosto de 2026`. Implementação:
+`competenciaOperacionalAtual()` (`lib/competenciaOperacionalAtual.ts`),
+que só encapsula `competenciaOperacional(dataIsoLocal(data))`
+(`packages/contrato/src/jornada.ts`) — nunca uma segunda regra 26→25.
+
+**Competência operacional default ≠ competência histórica selecionada
+manualmente.** O usuário continua podendo abrir "Escalas" e selecionar um
+mês anterior (ex.: Agosto) para consulta/histórico durante a sessão —
+isso nunca é sobrescrito automaticamente enquanto ele navega. A
+normalização para a competência operacional atual só acontece no
+carregamento inicial de uma NOVA sessão (restauração do contexto
+persistido no `localStorage`, ver `restaurarContextoEscalaPersistido()`
+em `lib/contextoEscala.ts`): o ALVO (equipe/grupo) salvo é preservado,
+mas a competência é sempre recalculada para a atual — nunca reabre um mês
+antigo só porque foi o último visitado.
+
 ## 6. Status, pessoas e alertas — nunca fabricar
 
 - **Status**: sempre `rotuloStatusOperacaoDashboard(operacao.status)` —
