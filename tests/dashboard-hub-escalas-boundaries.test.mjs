@@ -23,9 +23,26 @@ test('1. a tela Escalas renderiza o Hub (HubEscalasOperacoes) a partir da MESMA 
   assert.equal(ocorrenciasResolverOperacoes.length, 1, 'o Hub não pode chamar resolverOperacoesDashboard uma segunda vez — só consome a lista já resolvida');
 });
 
-test('2. abrir uma operação do Hub passa pelo MESMO caminho único de troca de contexto — contextoOpcaoOperacao + solicitarTrocaContexto, nunca um segundo caminho paralelo', async () => {
+/**
+ * HOTFIX-OPERACIONAL-PLANTAO-IMPORTACAO-HUB-1 — `solicitarTrocaContexto()`
+ * sozinho é um no-op quando o alvo já é o contexto ativo (nunca abre o
+ * editor, mesmo numa troca real), então clicar num card do Hub não abria
+ * nada. `abrirOperacaoDoHub()` é o único caminho de abertura do Hub: para
+ * contexto igual, abre o editor direto pelo MESMO par de chamadas do botão
+ * "Abrir editor"/"Abrir consulta" já existente
+ * (`abrirEditorPlantaoDashboard()`/`setTela('grade')`); para contexto
+ * diferente, delega 100% para `contextoOpcaoOperacao()` +
+ * `solicitarTrocaContexto()` — nunca um terceiro caminho de navegação.
+ */
+test('2. abrir uma operação do Hub passa por abrirOperacaoDoHub(), que delega a troca de contexto real para contextoOpcaoOperacao + solicitarTrocaContexto (nunca um segundo caminho paralelo) e só abre o editor direto quando o contexto já é o ativo', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  assert.match(dashboard, /onAbrir=\{\(operacao\) => solicitarTrocaContexto\(contextoOpcaoOperacao\(operacao\)\)\}/u);
+  assert.match(dashboard, /onAbrir=\{abrirOperacaoDoHub\}/u);
+  const corpo = /function abrirOperacaoDoHub\(operacao: OperacaoDashboard\) \{([\s\S]*?)\n  \}/u.exec(dashboard);
+  assert.ok(corpo, 'abrirOperacaoDoHub precisa existir');
+  assert.match(corpo[1], /contextoOpcaoOperacao\(operacao\)/u);
+  assert.match(corpo[1], /solicitarTrocaContexto\(alvo\)/u);
+  assert.match(corpo[1], /abrirEditorPlantaoDashboard\(\)/u);
+  assert.match(corpo[1], /setTela\('grade'\)/u);
 });
 
 test('3. os botões "Nova escala"/"Importar escala" da tela Escalas só aparecem quando existe ao menos uma operação administrável — nunca para quem só consulta', async () => {

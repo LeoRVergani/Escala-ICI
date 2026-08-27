@@ -6616,6 +6616,56 @@ fieldset.checkbox-card-list > legend {
 .soc-import-review-cell[data-code="DU"] { border-color: color-mix(in srgb, #4ba87b 25%, var(--border)); background: color-mix(in srgb, #4ba87b 8%, white); color: #317a59; }
 .soc-import-review-cell[data-code="BH"] { border-color: color-mix(in srgb, #dbad3b 30%, var(--border)); background: color-mix(in srgb, #dbad3b 10%, white); color: #9a6f0d; }
 .soc-import-review-cell.empty { color: var(--muted); opacity: .55; }
+/*
+ * HOTFIX-OPERACIONAL-PLANTAO-IMPORTACAO-HUB-1 — sequência 1..6 (badge
+ * discreto no canto), 7º dia consecutivo (crítico) e erro reportado pela
+ * fonte. Nunca depende só da cor: badge crítico some borda 2px + ícone,
+ * erro de fonte soma ícone próprio — sempre com `title`/`aria-label`.
+ */
+.soc-import-review-cell { position: relative; }
+.soc-import-review-cell-seq {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font-style: normal;
+  font-size: 6px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--muted);
+  opacity: .85;
+}
+.soc-import-review-cell-seq.critica { color: var(--danger); opacity: 1; }
+.soc-import-review-cell.seq-critica {
+  border-color: var(--danger);
+  border-width: 2px;
+  background: color-mix(in srgb, var(--danger-soft) 70%, var(--surface-muted));
+}
+.soc-import-review-cell.erro-fonte {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger-soft) 35%, var(--surface-muted));
+}
+.soc-import-review-cell-erro-icon { position: absolute; bottom: 1px; right: 2px; color: var(--danger); }
+.soc-import-review-cell.em-foco {
+  outline: 2px solid var(--primary-bright);
+  outline-offset: 1px;
+}
+@keyframes soc-import-review-cell-pulso {
+  0%, 100% { box-shadow: none; }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-bright) 30%, transparent); }
+}
+.soc-import-review-erro-foco {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 11px;
+}
+.soc-import-review-erro-foco strong { font-weight: 700; }
+.soc-import-review-erro-foco span { flex: 1; min-width: 0; }
+.soc-import-review-erro-foco .icon-button { color: inherit; }
 .soc-import-review-density-legend { display: flex; align-items: center; gap: 5px; padding: 8px 10px; color: var(--muted); font-size: 8px; }
 .soc-import-review-density-legend > i { width: 16px; height: 7px; border-radius: 2px; background: color-mix(in srgb, var(--primary-bright) 10%, white); }
 .soc-import-review-density-legend > i.density-mid { background: color-mix(in srgb, var(--primary-bright) 25%, white); }
@@ -6703,6 +6753,7 @@ button.soc-import-review-alert-row:focus-visible { background: var(--surface-mut
   .soc-import-review-person,
   .soc-import-review-month-controls button { transition: background 150ms ease-out, border-color 150ms ease-out, transform 150ms ease-out; }
   .soc-import-review-cell:hover:not(:disabled) { transform: translateY(-1px); }
+  .soc-import-review-cell.em-foco { animation: soc-import-review-cell-pulso 1.6s ease-in-out 2; }
 }
 
 .soc-import-review-header-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }

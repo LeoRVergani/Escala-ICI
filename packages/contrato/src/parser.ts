@@ -694,7 +694,18 @@ export function parsePlanilhaEscala(
              */
             severidade: !seqValida ? 'ALERTA' : 'BLOQUEANTE',
           });
-        } else {
+        }
+
+        /**
+         * HOTFIX-IMPORTACAO-JORNADA-SEQUENCIA-1 — sequência fora de
+         * 1-6 é só ALERTA (dia real de trabalho, exceção operacional). Não
+         * podemos deixar o ALERTA apagar silenciosamente o dia: se existe
+         * turno válido (real da aba Escala ou base da Escalistas), o dia
+         * trabalhado é preservado sem `seq` — só o dígito é omitido, não o
+         * dia inteiro. Só ficamos sem gravar o dia quando o turno em si é
+         * inválido (`dia === undefined`, sempre BLOQUEANTE acima).
+         */
+        if (dia !== undefined) {
           dias[colunaDia.data] = dia;
         }
         continue;

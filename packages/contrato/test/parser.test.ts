@@ -117,6 +117,87 @@ function adulterarSequenciaForaDeAlcance(): ArrayBuffer {
   return bytes as ArrayBuffer;
 }
 
+/**
+ * HOTFIX-OPERACIONAL-PLANTAO-IMPORTACAO-HUB-1 — mesma célula-alvo de
+ * `adulterarSequenciaForaDeAlcance()`, mas escrevendo `0` em vez de `9`,
+ * reproduzindo o caso real relatado (alamancio, Escalistas!E8, 27/08/2026).
+ */
+function adulterarSequenciaParaZero(): ArrayBuffer {
+  const workbook = XLSX.read(carregarFixture(), { type: 'array' });
+  const planilha = workbook.Sheets.Escalistas;
+  if (planilha === undefined || planilha['!ref'] === undefined) {
+    throw new Error('Fixture sem a aba Escalistas.');
+  }
+
+  const intervalo = XLSX.utils.decode_range(planilha['!ref']);
+  let linhaLogin: number | undefined;
+  let colunaLogin: number | undefined;
+  let colunaDiaMes: number | undefined;
+  let linhaDiaMes: number | undefined;
+
+  for (let linha = intervalo.s.r; linha <= intervalo.e.r; linha += 1) {
+    for (let coluna = intervalo.s.c; coluna <= intervalo.e.c; coluna += 1) {
+      const referencia = XLSX.utils.encode_cell({ r: linha, c: coluna });
+      const valor = String(planilha[referencia]?.v ?? '').trim();
+      if (valor === 'aleilima') {
+        linhaLogin ??= linha;
+        colunaLogin ??= coluna;
+      }
+      if (valor === 'DIA/MÊS') {
+        linhaDiaMes ??= linha;
+        colunaDiaMes ??= coluna;
+      }
+    }
+  }
+
+  if (
+    linhaLogin === undefined
+    || colunaLogin === undefined
+    || linhaDiaMes === undefined
+    || colunaDiaMes === undefined
+    || colunaLogin !== colunaDiaMes
+  ) {
+    throw new Error('Estrutura da fixture inesperada.');
+  }
+
+  const segundaColunaDia = colunaDiaMes + 2;
+  const referenciaAlvo = XLSX.utils.encode_cell({
+    r: linhaLogin,
+    c: segundaColunaDia,
+  });
+  planilha[referenciaAlvo] = { t: 'n', v: 0 };
+
+  const bytes = XLSX.write(workbook, { type: 'array', bookType: 'xls' });
+  return bytes as ArrayBuffer;
+}
+
+describe('sequência 0 (HOTFIX-OPERACIONAL-PLANTAO-IMPORTACAO-HUB-1)', () => {
+  it('A. gera ALERTA com login, data, linha, coluna e valorEncontrado', () => {
+    const resultado = parsePlanilhaEscala(adulterarSequenciaParaZero(), OPCOES_SOC);
+    expect(resultado.erros).toHaveLength(1);
+    expect(resultado.erros[0]).toMatchObject({
+      login: 'aleilima',
+      data: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/u),
+      linha: expect.any(Number),
+      coluna: expect.any(String),
+      valorEncontrado: '0',
+      motivo: 'Sequência de trabalho inválida; esperado número inteiro entre 1 e 6.',
+      severidade: 'ALERTA',
+    });
+  });
+
+  it('B. NÃO perde o dia trabalhado quando o turno é válido — dia fica sem seq', () => {
+    const resultado = parsePlanilhaEscala(adulterarSequenciaParaZero(), OPCOES_SOC);
+    const documento = resultado.documentos.find(({ login }) => login === 'aleilima');
+    const erro = resultado.erros[0];
+    const dia = documento?.dias[erro?.data ?? ''];
+
+    expect(dia).toBeDefined();
+    expect(dia?.seq).toBeUndefined();
+    expect(dia).toMatchObject({ c: 'MD', i: '01:00', f: '07:00', m: 360 });
+  });
+});
+
 describe('parsePlanilhaEscala com a planilha real', () => {
   it('1. extrai o nome canônico da equipe', () => {
     expect(resultadoOriginal().equipeNome).toBe('SOC - Escala 6');

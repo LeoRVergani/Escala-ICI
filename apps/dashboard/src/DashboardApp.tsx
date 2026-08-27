@@ -8540,6 +8540,29 @@ export function DashboardApp() {
         : competenciaParaNovasOpcoes,
     );
   }
+  /**
+   * HOTFIX-OPERACIONAL-PLANTAO-IMPORTACAO-HUB-1 — `solicitarTrocaContexto`
+   * é um no-op quando `alvo` já é o contexto ativo (linha 8318), então um
+   * clique no card já ativo do Hub não fazia nada visível. Espelha
+   * exatamente o mesmo caminho do botão "Abrir editor"/"Abrir consulta"
+   * (linha ~9446): contexto igual → abre o editor direto; contexto
+   * diferente → passa pelo guard de alterações não salvas normalmente (o
+   * Hub vive na tela 'escalas', que está em
+   * `TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA`, então a troca já abre a grade
+   * sozinha ao concluir). Nenhum editor paralelo.
+   */
+  function abrirOperacaoDoHub(operacao: OperacaoDashboard) {
+    const alvo = contextoOpcaoOperacao(operacao);
+    if (contextosEscalaIguais(contextoEscalaAtivo, alvo)) {
+      if (operacao.tipo === 'PLANTAO') {
+        abrirEditorPlantaoDashboard();
+      } else {
+        setTela('grade');
+      }
+      return;
+    }
+    solicitarTrocaContexto(alvo);
+  }
   const opcoesContextoJornada: OpcaoContextoEscala[] = operacoesDashboard
     .filter((operacao) => operacao.tipo === 'JORNADA')
     .map((operacao) => ({
@@ -9394,7 +9417,7 @@ export function DashboardApp() {
             competenciaFormatada={formatarCompetencia(competenciaDashboard)}
             pessoasPorOperacao={pessoasOperacaoHub}
             alertasPorOperacao={alertasOperacaoHub}
-            onAbrir={(operacao) => solicitarTrocaContexto(contextoOpcaoOperacao(operacao))}
+            onAbrir={abrirOperacaoDoHub}
           />
           {avisoContextoEscala !== '' && <div className="alert warning" role="status">{avisoContextoEscala}</div>}
           {erroContextoEscala !== '' && (
