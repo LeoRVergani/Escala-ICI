@@ -1159,6 +1159,211 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    /**
+     * Informações operacionais da escala (dia/pessoa-dia) — Fase
+     * FASE-MATRIZ-DEFINITIVA-E-INFORMACOES-DIA-1, Parte B1. Documento em
+     * `informacoesEscala/{contextoId}/itens/{infoId}`: `contextoId` agrupa
+     * TODAS as informações de uma operação numa competência
+     * (`idContextoInformacoesEscala(tipoEscala, alvoId, competencia)` —
+     * concatenação simples, mesmo espírito de `idEscopoOperacional()`
+     * acima; nunca regex/sanitização aqui, só no helper cliente de
+     * exibição). Cada item também guarda `tipoEscala`/`alvoId` como campos
+     * próprios, redundantes com o path: não é autorização adicional (quem
+     * autoriza continua sendo só `podeAdministrarJornada()`/
+     * `podeAdministrarEscalaPlantao()`, nenhuma ACL paralela), mas sim o
+     * que permite a Rule de `list` provar a condição sem ler documento por
+     * documento — toda query precisa incluir esses dois campos por
+     * igualdade (ver `lib/firebase/informacoesEscalaRepository.ts`).
+     *
+     * Nunca hard delete de item PUBLICADA: cancelamento é
+     * `status -> CANCELADA`, documento preservado. RASCUNHO nunca aparece
+     * para quem não administra a operação; PUBLICADA aparece conforme
+     * `visibilidade`; GESTORES nunca é lido fora do administrador.
+     *
+     * `PUBLICADA` é imutável por completo (conteúdo e identidade) — a única
+     * transição possível a partir dela é `PUBLICADA -> CANCELADA`. Corrigir
+     * uma informação publicada incorretamente nunca edita o documento:
+     * cancela o item antigo e cria um novo `RASCUNHO` (novo `infoId`), que
+     * segue seu próprio ciclo de vida até ser publicado. Ver
+     * `docs/spec/INFORMACOES_ESCALA.md`.
+     */
+    function idContextoInformacoesEscala(tipoEscala, alvoId, competencia) {
+      return tipoEscala + '_' + alvoId + '_' + competencia;
+    }
+
+    function podeAdministrarInformacaoEscala(tipoEscala, alvoId) {
+      return tipoEscala == 'JORNADA'
+        ? podeAdministrarJornada(alvoId)
+        : podeAdministrarEscalaPlantao(alvoId);
+    }
+
+    /** Consulta (não administração) da operação — mesmo nível de acesso de leitura já usado pela grade/App. */
+    function podeConsultarOperacaoInformacaoEscala(tipoEscala, alvoId) {
+      return tipoEscala == 'JORNADA'
+        ? podeOperarNaEquipe(alvoId)
+        : podeLerEscalaPlantao(alvoId);
+    }
+
+    function informacaoEscalaValida(dados) {
+      return dados.keys().hasOnly([
+          'schemaVersion', 'infoId', 'tipoEscala', 'alvoId', 'competencia', 'data',
+          'escopo', 'usuarioLogin', 'categoria', 'titulo', 'descricao', 'visibilidade',
+          'status', 'criadoPorLogin', 'criadoEm', 'atualizadoPorLogin', 'atualizadoEm',
+          'publicadoPorLogin', 'publicadoEm', 'canceladoPorLogin', 'canceladoEm',
+          'motivoCancelamento',
+        ])
+        && dados.schemaVersion in [1]
+        && dados.infoId is string && dados.infoId.size() > 0
+        && dados.tipoEscala in ['JORNADA', 'PLANTAO']
+        && dados.alvoId is string && dados.alvoId.size() > 0
+        && dados.competencia is string && dados.competencia.size() > 0
+        && dados.data is string && dados.data.size() > 0
+        && dados.escopo in ['DIA', 'PESSOA_DIA']
+        && (
+          dados.escopo == 'DIA'
+            ? dados.usuarioLogin == null
+            : (dados.usuarioLogin is string && dados.usuarioLogin.size() > 0)
+        )
+        && dados.categoria in [
+          'GERAL', 'TREINAMENTO', 'FERIADO', 'FERIAS', 'COBERTURA_DU', 'CURSO',
+          'REUNIAO', 'OPERACAO_ESPECIAL', 'OUTRO',
+        ]
+        && dados.titulo is string && dados.titulo.size() > 0
+        && (dados.descricao == null || dados.descricao is string)
+        && dados.visibilidade in ['EQUIPE', 'PESSOAS_AFETADAS', 'GESTORES']
+        && dados.status in ['RASCUNHO', 'PUBLICADA', 'CANCELADA']
+        && dados.criadoPorLogin is string && dados.criadoPorLogin.size() > 0
+        && dados.atualizadoPorLogin is string && dados.atualizadoPorLogin.size() > 0
+        && (dados.publicadoPorLogin == null || dados.publicadoPorLogin is string)
+        && (dados.publicadoEm == null || dados.publicadoEm is string)
+        && (dados.canceladoPorLogin == null || dados.canceladoPorLogin is string)
+        && (dados.canceladoEm == null || dados.canceladoEm is string)
+        && (dados.motivoCancelamento == null || dados.motivoCancelamento is string);
+    }
+
+    /**
+     * `dadosAnteriores` é `resource.data` (o documento antes do update) —
+     * confere que os campos de CONTEÚDO do novo documento
+     * (`request.resource.data`) batem com os anteriores. Usada para provar
+     * que uma transição de status (publicar/cancelar) nunca é aproveitada
+     * para também editar conteúdo — a única forma de mudar
+     * categoria/título/descrição/visibilidade é um update que MANTÉM
+     * `status == 'RASCUNHO'` (ver `allow update` abaixo). Campos de
+     * identidade (tipoEscala/alvoId/competencia/data/escopo/usuarioLogin/
+     * criadoPorLogin/criadoEm) já são conferidos separadamente, sempre
+     * imutáveis, então não precisam entrar aqui.
+     */
+    function conteudoInformacaoEscalaPreservado(dadosAnteriores) {
+      return request.resource.data.categoria == dadosAnteriores.categoria
+        && request.resource.data.titulo == dadosAnteriores.titulo
+        && request.resource.data.descricao == dadosAnteriores.descricao
+        && request.resource.data.visibilidade == dadosAnteriores.visibilidade;
+    }
+
+    match /informacoesEscala/{contextoId}/itens/{infoId} {
+      // Administrador da operação sempre lê (qualquer status/visibilidade —
+      // precisa gerenciar RASCUNHO e itens GESTORES/PESSOAS_AFETADAS
+      // alheios). Fora disso, só PUBLICADA e conforme a visibilidade:
+      // EQUIPE para quem consulta a operação, PESSOAS_AFETADAS só para a
+      // própria pessoa. GESTORES nunca aparece fora do primeiro ramo.
+      allow read: if autenticado()
+        && (
+          podeAdministrarInformacaoEscala(resource.data.tipoEscala, resource.data.alvoId)
+          || (
+            resource.data.status == 'PUBLICADA'
+            && (
+              (
+                resource.data.visibilidade == 'EQUIPE'
+                && podeConsultarOperacaoInformacaoEscala(resource.data.tipoEscala, resource.data.alvoId)
+              )
+              || (resource.data.visibilidade == 'PESSOAS_AFETADAS' && resource.data.usuarioLogin == loginDoAuth())
+            )
+          )
+        );
+
+      allow create: if autenticado()
+        && contextoId == idContextoInformacoesEscala(
+          request.resource.data.tipoEscala, request.resource.data.alvoId, request.resource.data.competencia)
+        && informacaoEscalaValida(request.resource.data)
+        && request.resource.data.infoId == infoId
+        && request.resource.data.status == 'RASCUNHO'
+        && request.resource.data.criadoPorLogin == loginDoAuth()
+        && request.resource.data.atualizadoPorLogin == loginDoAuth()
+        && request.resource.data.publicadoPorLogin == null
+        && request.resource.data.publicadoEm == null
+        && request.resource.data.canceladoPorLogin == null
+        && request.resource.data.canceladoEm == null
+        && request.resource.data.motivoCancelamento == null
+        && podeAdministrarInformacaoEscala(request.resource.data.tipoEscala, request.resource.data.alvoId);
+
+      // Identidade — tipo/alvo/competência/DATA/escopo/pessoa/autoria/
+      // criadoEm — é imutável para sempre, desde a criação (mesmo enquanto
+      // RASCUNHO: corrigir a data de um rascunho é cancelar e recriar,
+      // nunca editar). Conteúdo (categoria/título/descrição/visibilidade)
+      // só pode mudar enquanto o item CONTINUA RASCUNHO
+      // (`RASCUNHO -> RASCUNHO`); qualquer transição de status
+      // (publicar/cancelar) tem que preservar o conteúdo intacto
+      // (`conteudoInformacaoEscalaPreservado()`). Depois de `PUBLICADA`,
+      // o item é imutável por completo — a ÚNICA transição possível é
+      // `PUBLICADA -> CANCELADA`, alterando só os campos de cancelamento.
+      // `CANCELADA` é terminal: nenhuma transição sai dela. Corrigir uma
+      // informação já publicada nunca edita o documento — cancela o item
+      // antigo e cria um novo `RASCUNHO` (novo `infoId`).
+      allow update: if autenticado()
+        && contextoId == idContextoInformacoesEscala(
+          request.resource.data.tipoEscala, request.resource.data.alvoId, request.resource.data.competencia)
+        && informacaoEscalaValida(request.resource.data)
+        && podeAdministrarInformacaoEscala(resource.data.tipoEscala, resource.data.alvoId)
+        && podeAdministrarInformacaoEscala(request.resource.data.tipoEscala, request.resource.data.alvoId)
+        && request.resource.data.infoId == resource.data.infoId
+        && request.resource.data.tipoEscala == resource.data.tipoEscala
+        && request.resource.data.alvoId == resource.data.alvoId
+        && request.resource.data.competencia == resource.data.competencia
+        && request.resource.data.data == resource.data.data
+        && request.resource.data.escopo == resource.data.escopo
+        && request.resource.data.usuarioLogin == resource.data.usuarioLogin
+        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
+        && request.resource.data.criadoEm == resource.data.criadoEm
+        && request.resource.data.atualizadoPorLogin == loginDoAuth()
+        && (
+          (
+            resource.data.status == 'RASCUNHO' && request.resource.data.status == 'RASCUNHO'
+            && request.resource.data.publicadoPorLogin == null
+            && request.resource.data.publicadoEm == null
+            && request.resource.data.canceladoPorLogin == null
+            && request.resource.data.canceladoEm == null
+            && request.resource.data.motivoCancelamento == null
+          )
+          || (
+            resource.data.status == 'RASCUNHO' && request.resource.data.status == 'PUBLICADA'
+            && conteudoInformacaoEscalaPreservado(resource.data)
+            && request.resource.data.publicadoPorLogin == loginDoAuth()
+            && request.resource.data.publicadoEm is string
+            && request.resource.data.canceladoPorLogin == null
+            && request.resource.data.canceladoEm == null
+            && request.resource.data.motivoCancelamento == null
+          )
+          || (
+            resource.data.status == 'RASCUNHO' && request.resource.data.status == 'CANCELADA'
+            && conteudoInformacaoEscalaPreservado(resource.data)
+            && request.resource.data.publicadoPorLogin == null
+            && request.resource.data.publicadoEm == null
+            && request.resource.data.canceladoPorLogin == loginDoAuth()
+            && request.resource.data.canceladoEm is string
+          )
+          || (
+            resource.data.status == 'PUBLICADA' && request.resource.data.status == 'CANCELADA'
+            && conteudoInformacaoEscalaPreservado(resource.data)
+            && request.resource.data.publicadoPorLogin == resource.data.publicadoPorLogin
+            && request.resource.data.publicadoEm == resource.data.publicadoEm
+            && request.resource.data.canceladoPorLogin == loginDoAuth()
+            && request.resource.data.canceladoEm is string
+          )
+        );
+
+      allow delete: if false;
+    }
+
     match /tiposTurno/{docId} {
       allow read: if autenticado();
       allow create: if podeAdministrarJornada(request.resource.data.equipeId);

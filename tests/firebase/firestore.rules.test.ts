@@ -5963,3 +5963,441 @@ describe('PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — publicação de Plantão por G
     await assertFails(getDoc(doc(atorEstranho, 'competenciasPlantao', 'PLANTAO_GEDSI_COSI_2026-11')));
   });
 });
+
+/**
+ * FASE-MATRIZ-DEFINITIVA-E-INFORMACOES-DIA-1, Parte B1 — Rules de
+ * `informacoesEscala/{contextoId}/itens/{infoId}`. Reaproveita os
+ * `usuarios` fixture do topo do arquivo: `gestor` (login `marina.azevedo`,
+ * `equipeId: 'EQ_COSI_SOC'`) é o responsável operacional de Jornada/SOC e
+ * de Plantão/COSI nesta suíte; `colaborador`/`colega` são membros comuns da
+ * mesma equipe (`EQ_COSI_SOC`), usados para os cenários de consulta/negação.
+ */
+describe('informacoesEscala — Rules (Parte B1)', () => {
+  const INFO_JORNADA_ALVO = 'EQ_COSI_SOC';
+  const INFO_PLANTAO_ALVO = 'PLANTAO_COSI';
+  const INFO_COMPETENCIA = '2026-09';
+
+  function contextoInfo(tipo: string, alvoId: string): string {
+    return `${tipo}_${alvoId}_${INFO_COMPETENCIA}`;
+  }
+
+  function refInfo(db: ReturnType<typeof autenticarComo>, tipo: string, alvoId: string, infoId: string) {
+    return doc(db, 'informacoesEscala', contextoInfo(tipo, alvoId), 'itens', infoId);
+  }
+
+  function colecaoInfo(db: ReturnType<typeof autenticarComo>, tipo: string, alvoId: string) {
+    return collection(db, 'informacoesEscala', contextoInfo(tipo, alvoId), 'itens');
+  }
+
+  function informacaoEscala(ajustes: Record<string, unknown> = {}) {
+    return {
+      schemaVersion: 1,
+      infoId: 'info-1',
+      tipoEscala: 'JORNADA',
+      alvoId: INFO_JORNADA_ALVO,
+      competencia: INFO_COMPETENCIA,
+      data: '2026-09-07',
+      escopo: 'DIA',
+      usuarioLogin: null,
+      categoria: 'FERIADO',
+      titulo: 'Feriado',
+      descricao: null,
+      visibilidade: 'EQUIPE',
+      status: 'RASCUNHO',
+      criadoPorLogin: usuarios.gestor.login,
+      criadoEm: '2026-08-27T00:00:00.000Z',
+      atualizadoPorLogin: usuarios.gestor.login,
+      atualizadoEm: '2026-08-27T00:00:00.000Z',
+      publicadoPorLogin: null,
+      publicadoEm: null,
+      canceladoPorLogin: null,
+      canceladoEm: null,
+      motivoCancelamento: null,
+      ...ajustes,
+    };
+  }
+
+  async function semearMatrizInformacoes() {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await Promise.all([
+        setDoc(doc(db, 'escoposOperacionais', `JORNADA_${INFO_JORNADA_ALVO}`), escopoOperacional({
+          tipo: 'JORNADA',
+          alvoId: INFO_JORNADA_ALVO,
+          alvoNome: 'SOC',
+          equipesConsulta: [],
+          responsaveisLogin: [usuarios.gestor.login],
+        })),
+        setDoc(doc(db, 'gruposPlantao', INFO_PLANTAO_ALVO), grupoPlantaoMatriz(INFO_PLANTAO_ALVO)),
+        setDoc(doc(db, 'escoposOperacionais', `PLANTAO_${INFO_PLANTAO_ALVO}`), escopoOperacional({
+          tipo: 'PLANTAO',
+          alvoId: INFO_PLANTAO_ALVO,
+          alvoNome: 'Plantão COSI',
+          responsaveisLogin: [usuarios.gestor.login],
+          equipesConsulta: [usuarios.colaborador.equipeId],
+        })),
+      ]);
+    });
+  }
+
+  async function semearItem(ajustes: Record<string, unknown> = {}) {
+    const item = informacaoEscala(ajustes);
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(
+        doc(contexto.firestore(), 'informacoesEscala', contextoInfo(item.tipoEscala, item.alvoId), 'itens', item.infoId),
+        item,
+      );
+    });
+    return item;
+  }
+
+  it('A. responsável de Jornada cria informação RASCUNHO', async () => {
+    await semearMatrizInformacoes();
+    const db = autenticarComo(usuarios.gestor);
+    await assertSucceeds(setDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), informacaoEscala()));
+  });
+
+  it('B. responsável de Jornada atualiza conteúdo do RASCUNHO', async () => {
+    await semearMatrizInformacoes();
+    await semearItem();
+    const db = autenticarComo(usuarios.gestor);
+    await assertSucceeds(updateDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), {
+      titulo: 'Feriado nacional',
+      atualizadoPorLogin: usuarios.gestor.login,
+      atualizadoEm: '2026-08-27T01:00:00.000Z',
+    }));
+  });
+
+  it('C. responsável de Jornada publica — publicadoPorLogin/publicadoEm preenchidos corretamente', async () => {
+    await semearMatrizInformacoes();
+    await semearItem();
+    const db = autenticarComo(usuarios.gestor);
+    await assertSucceeds(updateDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), {
+      status: 'PUBLICADA',
+      publicadoPorLogin: usuarios.gestor.login,
+      publicadoEm: '2026-08-27T01:00:00.000Z',
+      atualizadoPorLogin: usuarios.gestor.login,
+      atualizadoEm: '2026-08-27T01:00:00.000Z',
+    }));
+  });
+
+  it('C2. publicar forjando publicadoPorLogin de outra pessoa é negado', async () => {
+    await semearMatrizInformacoes();
+    await semearItem();
+    const db = autenticarComo(usuarios.gestor);
+    await assertFails(updateDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), {
+      status: 'PUBLICADA',
+      publicadoPorLogin: usuarios.colaborador.login,
+      publicadoEm: '2026-08-27T01:00:00.000Z',
+    }));
+  });
+
+  it('A. PUBLICADA -> PUBLICADA mudando titulo é negado', async () => {
+    await semearMatrizInformacoes();
+    await semearItem({
+      status: 'PUBLICADA', publicadoPorLogin: usuarios.gestor.login, publicadoEm: '2026-08-27T01:00:00.000Z',
+    });
+    const db = autenticarComo(usuarios.gestor);
+    await assertFails(updateDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), {
+      titulo: 'Feriado (revisado)',
+      atualizadoPorLogin: usuarios.gestor.login,
+      atualizadoEm: '2026-08-27T09:00:00.000Z',
+    }));
+  });
+
+  it('B. PUBLICADA -> PUBLICADA mudando descricao é negado', async () => {
+    await semearMatrizInformacoes();
+    await semearItem({
+      status: 'PUBLICADA', publicadoPorLogin: usuarios.gestor.login, publicadoEm: '2026-08-27T01:00:00.000Z',
+    });
+    const db = autenticarComo(usuarios.gestor);
+    await assertFails(updateDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), {
+      descricao: 'Detalhe adicionado depois de publicar',
+      atualizadoPorLogin: usuarios.gestor.login,
+      atualizadoEm: '2026-08-27T09:00:00.000Z',
+    }));
+  });
+
+  it('C. PUBLICADA -> PUBLICADA mudando visibilidade é negado', async () => {
+    await semearMatrizInformacoes();
+    await semearItem({
+      status: 'PUBLICADA', publicadoPorLogin: usuarios.gestor.login, publicadoEm: '2026-08-27T01:00:00.000Z',
+    });
+    const db = autenticarComo(usuarios.gestor);
+    await assertFails(updateDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), {
+      visibilidade: 'GESTORES',
+      atualizadoPorLogin: usuarios.gestor.login,
+      atualizadoEm: '2026-08-27T09:00:00.000Z',
+    }));
+  });
+
+  it('C4. PUBLICADA nunca aceita nem sequer um update que preserve o conteúdo — é imutável por completo', async () => {
+    await semearMatrizInformacoes();
+    await semearItem({
+      status: 'PUBLICADA', publicadoPorLogin: usuarios.gestor.login, publicadoEm: '2026-08-27T01:00:00.000Z',
+    });
+    const db = autenticarComo(usuarios.gestor);
+    await assertFails(updateDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), {
+      atualizadoPorLogin: usuarios.gestor.login,
+      atualizadoEm: '2026-08-27T09:00:00.000Z',
+    }));
+  });
+
+  it('D. PUBLICADA -> CANCELADA com metadados corretos é permitido', async () => {
+    await semearMatrizInformacoes();
+    await semearItem({
+      status: 'PUBLICADA', publicadoPorLogin: usuarios.gestor.login, publicadoEm: '2026-08-27T01:00:00.000Z',
+    });
+    const db = autenticarComo(usuarios.gestor);
+    await assertSucceeds(updateDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), {
+      status: 'CANCELADA',
+      canceladoPorLogin: usuarios.gestor.login,
+      canceladoEm: '2026-08-27T09:00:00.000Z',
+      motivoCancelamento: 'Informação errada',
+      atualizadoPorLogin: usuarios.gestor.login,
+      atualizadoEm: '2026-08-27T09:00:00.000Z',
+    }));
+  });
+
+  it('E. CANCELADA -> qualquer outro status é negado', async () => {
+    await semearMatrizInformacoes();
+    await semearItem({
+      status: 'CANCELADA', canceladoPorLogin: usuarios.gestor.login, canceladoEm: '2026-08-27T01:00:00.000Z',
+    });
+    const db = autenticarComo(usuarios.gestor);
+    await assertFails(updateDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), { status: 'RASCUNHO' }));
+    await assertFails(updateDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), {
+      status: 'PUBLICADA', publicadoPorLogin: usuarios.gestor.login, publicadoEm: '2026-08-27T09:00:00.000Z',
+    }));
+    await assertFails(updateDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), { status: 'CANCELADA' }));
+  });
+
+  it('F. conteúdo da CANCELADA é idêntico ao da PUBLICADA anterior (cancelar preserva, nunca edita)', async () => {
+    await semearMatrizInformacoes();
+    await semearItem({
+      status: 'PUBLICADA',
+      titulo: 'Feriado nacional',
+      descricao: 'Ponto facultativo',
+      categoria: 'FERIADO',
+      visibilidade: 'EQUIPE',
+      publicadoPorLogin: usuarios.gestor.login,
+      publicadoEm: '2026-08-27T01:00:00.000Z',
+    });
+    const db = autenticarComo(usuarios.gestor);
+    await assertSucceeds(updateDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), {
+      status: 'CANCELADA',
+      canceladoPorLogin: usuarios.gestor.login,
+      canceladoEm: '2026-08-27T09:00:00.000Z',
+      motivoCancelamento: 'Duplicado',
+      atualizadoPorLogin: usuarios.gestor.login,
+      atualizadoEm: '2026-08-27T09:00:00.000Z',
+    }));
+    const cancelada = await assertSucceeds(getDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1')));
+    expect(cancelada.data()?.titulo).toBe('Feriado nacional');
+    expect(cancelada.data()?.descricao).toBe('Ponto facultativo');
+    expect(cancelada.data()?.categoria).toBe('FERIADO');
+    expect(cancelada.data()?.visibilidade).toBe('EQUIPE');
+    expect(cancelada.data()?.publicadoPorLogin).toBe(usuarios.gestor.login);
+  });
+
+  it('D. equipesConsulta de Plantão só consulta — não cria informação', async () => {
+    await semearMatrizInformacoes();
+    const db = autenticarComo(usuarios.colaborador);
+    await assertFails(setDoc(refInfo(db, 'PLANTAO', INFO_PLANTAO_ALVO, 'info-plantao-1'), informacaoEscala({
+      infoId: 'info-plantao-1',
+      tipoEscala: 'PLANTAO',
+      alvoId: INFO_PLANTAO_ALVO,
+      criadoPorLogin: usuarios.colaborador.login,
+      atualizadoPorLogin: usuarios.colaborador.login,
+    })));
+  });
+
+  it('E. colaborador comum da equipe (não responsável) não escreve informação de Jornada', async () => {
+    await semearMatrizInformacoes();
+    const db = autenticarComo(usuarios.colaborador);
+    await assertFails(setDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), informacaoEscala({
+      criadoPorLogin: usuarios.colaborador.login,
+      atualizadoPorLogin: usuarios.colaborador.login,
+    })));
+  });
+
+  it('F. responsável de Plantão cria informação de Plantão', async () => {
+    await semearMatrizInformacoes();
+    const db = autenticarComo(usuarios.gestor);
+    await assertSucceeds(setDoc(refInfo(db, 'PLANTAO', INFO_PLANTAO_ALVO, 'info-plantao-1'), informacaoEscala({
+      infoId: 'info-plantao-1',
+      tipoEscala: 'PLANTAO',
+      alvoId: INFO_PLANTAO_ALVO,
+    })));
+  });
+
+  it('G. PUBLICADA + EQUIPE é lida (get e list) por quem consulta a operação de Jornada', async () => {
+    await semearMatrizInformacoes();
+    await semearItem({
+      status: 'PUBLICADA', publicadoPorLogin: usuarios.gestor.login, publicadoEm: '2026-08-27T01:00:00.000Z',
+    });
+    const db = autenticarComo(usuarios.colaborador);
+    await assertSucceeds(getDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1')));
+
+    const publicadas = await assertSucceeds(getDocs(query(
+      colecaoInfo(db, 'JORNADA', INFO_JORNADA_ALVO),
+      where('tipoEscala', '==', 'JORNADA'),
+      where('alvoId', '==', INFO_JORNADA_ALVO),
+      where('status', '==', 'PUBLICADA'),
+      where('visibilidade', '==', 'EQUIPE'),
+    )));
+    expect(publicadas.docs).toHaveLength(1);
+  });
+
+  it('H. RASCUNHO não é lido por quem não administra, mesmo com visibilidade EQUIPE', async () => {
+    await semearMatrizInformacoes();
+    await semearItem();
+    const db = autenticarComo(usuarios.colaborador);
+    await assertFails(getDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1')));
+  });
+
+  it('I/J. PESSOAS_AFETADAS é lida pela pessoa afetada; outro colega da mesma equipe é negado', async () => {
+    await semearMatrizInformacoes();
+    await semearItem({
+      infoId: 'info-pessoa',
+      escopo: 'PESSOA_DIA',
+      usuarioLogin: usuarios.colaborador.login,
+      categoria: 'COBERTURA_DU',
+      titulo: 'DU — Caio',
+      visibilidade: 'PESSOAS_AFETADAS',
+      status: 'PUBLICADA',
+      publicadoPorLogin: usuarios.gestor.login,
+      publicadoEm: '2026-08-27T01:00:00.000Z',
+    });
+    await assertSucceeds(getDoc(refInfo(autenticarComo(usuarios.colaborador), 'JORNADA', INFO_JORNADA_ALVO, 'info-pessoa')));
+    await assertFails(getDoc(refInfo(autenticarComo(usuarios.colega), 'JORNADA', INFO_JORNADA_ALVO, 'info-pessoa')));
+  });
+
+  it('K. GESTORES só é lido pelo responsável da operação, nunca por um colaborador comum', async () => {
+    await semearMatrizInformacoes();
+    await semearItem({
+      infoId: 'info-gestores',
+      categoria: 'OPERACAO_ESPECIAL',
+      titulo: 'Nota interna de gestão',
+      visibilidade: 'GESTORES',
+      status: 'PUBLICADA',
+      publicadoPorLogin: usuarios.gestor.login,
+      publicadoEm: '2026-08-27T01:00:00.000Z',
+    });
+    await assertSucceeds(getDoc(refInfo(autenticarComo(usuarios.gestor), 'JORNADA', INFO_JORNADA_ALVO, 'info-gestores')));
+    await assertFails(getDoc(refInfo(autenticarComo(usuarios.colaborador), 'JORNADA', INFO_JORNADA_ALVO, 'info-gestores')));
+  });
+
+  it('L. responsável consegue consultar um RASCUNHO privado de outra pessoa, para administrar', async () => {
+    await semearMatrizInformacoes();
+    await semearItem({
+      infoId: 'info-rascunho-privado',
+      escopo: 'PESSOA_DIA',
+      usuarioLogin: usuarios.colega.login,
+      visibilidade: 'PESSOAS_AFETADAS',
+      status: 'RASCUNHO',
+    });
+    await assertSucceeds(
+      getDoc(refInfo(autenticarComo(usuarios.gestor), 'JORNADA', INFO_JORNADA_ALVO, 'info-rascunho-privado')),
+    );
+  });
+
+  it('M. CANCELADA nunca aparece na query "Publicadas" do App, mesmo sendo EQUIPE, e o get direto é negado', async () => {
+    await semearMatrizInformacoes();
+    await semearItem({
+      infoId: 'info-cancelada',
+      status: 'CANCELADA',
+      canceladoPorLogin: usuarios.gestor.login,
+      canceladoEm: '2026-08-27T02:00:00.000Z',
+    });
+    const db = autenticarComo(usuarios.colaborador);
+    const publicadas = await assertSucceeds(getDocs(query(
+      colecaoInfo(db, 'JORNADA', INFO_JORNADA_ALVO),
+      where('tipoEscala', '==', 'JORNADA'),
+      where('alvoId', '==', INFO_JORNADA_ALVO),
+      where('status', '==', 'PUBLICADA'),
+      where('visibilidade', '==', 'EQUIPE'),
+    )));
+    expect(publicadas.docs).toHaveLength(0);
+    await assertFails(getDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-cancelada')));
+  });
+
+  it('contextoId precisa bater com tipoEscala/alvoId/competencia do próprio documento', async () => {
+    await semearMatrizInformacoes();
+    const db = autenticarComo(usuarios.gestor);
+    const refErrado = doc(db, 'informacoesEscala', contextoInfo('JORNADA', 'OUTRA_EQUIPE'), 'itens', 'info-1');
+    await assertFails(setDoc(refErrado, informacaoEscala()));
+  });
+
+  it('DIA com usuarioLogin preenchido é negado; PESSOA_DIA sem usuarioLogin é negado', async () => {
+    await semearMatrizInformacoes();
+    const db = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), informacaoEscala({
+      usuarioLogin: usuarios.colaborador.login,
+    })));
+    await assertFails(setDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-2'), informacaoEscala({
+      infoId: 'info-2', escopo: 'PESSOA_DIA', usuarioLogin: null,
+    })));
+  });
+
+  it('criar já forjando criadoPorLogin de outra pessoa, ou já como PUBLICADA/CANCELADA, é negado', async () => {
+    await semearMatrizInformacoes();
+    const db = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), informacaoEscala({
+      criadoPorLogin: usuarios.colaborador.login,
+    })));
+    await assertFails(setDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-2'), informacaoEscala({
+      infoId: 'info-2', status: 'PUBLICADA', publicadoPorLogin: usuarios.gestor.login, publicadoEm: '2026-08-27T01:00:00.000Z',
+    })));
+  });
+
+  it('campo extra, schemaVersion inválido ou categoria/visibilidade inválida são negados', async () => {
+    await semearMatrizInformacoes();
+    const db = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), {
+      ...informacaoEscala(), campoExtra: true,
+    }));
+    await assertFails(setDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-2'), informacaoEscala({
+      infoId: 'info-2', schemaVersion: 2,
+    })));
+    await assertFails(setDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-3'), informacaoEscala({
+      infoId: 'info-3', categoria: 'INVALIDA',
+    })));
+    await assertFails(setDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-4'), informacaoEscala({
+      infoId: 'info-4', visibilidade: 'PUBLICO',
+    })));
+  });
+
+  it('update não pode alterar tipoEscala/alvoId/competencia/data/escopo/usuarioLogin/criadoPorLogin/criadoEm, mesmo enquanto RASCUNHO', async () => {
+    await semearMatrizInformacoes();
+    await semearItem();
+    const db = autenticarComo(usuarios.gestor);
+    const ref = refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1');
+    await assertFails(updateDoc(ref, { alvoId: 'OUTRA_EQUIPE' }));
+    await assertFails(updateDoc(ref, { data: '2026-09-08' }));
+    await assertFails(updateDoc(ref, { escopo: 'PESSOA_DIA', usuarioLogin: usuarios.colaborador.login }));
+    await assertFails(updateDoc(ref, { criadoPorLogin: usuarios.colaborador.login }));
+    await assertFails(updateDoc(ref, { criadoEm: '2026-01-01T00:00:00.000Z' }));
+  });
+
+  it('update nunca regride PUBLICADA -> RASCUNHO nem sai de CANCELADA', async () => {
+    await semearMatrizInformacoes();
+    await semearItem({
+      status: 'PUBLICADA', publicadoPorLogin: usuarios.gestor.login, publicadoEm: '2026-08-27T01:00:00.000Z',
+    });
+    const db = autenticarComo(usuarios.gestor);
+    await assertFails(updateDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1'), { status: 'RASCUNHO' }));
+
+    await semearItem({
+      infoId: 'info-2', status: 'CANCELADA', canceladoPorLogin: usuarios.gestor.login, canceladoEm: '2026-08-27T01:00:00.000Z',
+    });
+    await assertFails(updateDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-2'), { status: 'PUBLICADA' }));
+  });
+
+  it('delete físico é sempre negado, mesmo para ADMIN_SISTEMA', async () => {
+    await semearMatrizInformacoes();
+    await semearItem();
+    const db = autenticarComo(usuarios.admin);
+    await assertFails(deleteDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1')));
+  });
+});
