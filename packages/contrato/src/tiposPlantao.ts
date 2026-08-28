@@ -6,6 +6,13 @@
  * XLS → login real" da especificação).
  */
 
+/**
+ * `import type` cruzado com `modeloPlantaoPersistente.ts` (que já importa
+ * `MomentoPlantao` daqui) — seguro porque é só tipo: apagado na compilação,
+ * nunca vira um ciclo de módulo em tempo de execução.
+ */
+import type { FuncaoPlantao } from './modeloPlantaoPersistente.js';
+
 export type TipoPlanilha = 'ESCALA_6X1' | 'PLANTAO' | 'DESCONHECIDA';
 
 export interface ResultadoDeteccaoPlanilha {
@@ -41,6 +48,17 @@ export interface AtribuicaoPlantaoBruta {
   linhaOrigem: number;
   /** Nome real da aba de origem — nunca assumir um nome fixo (ex.: "PlantaoCOSI"). */
   abaOrigem: string;
+  /**
+   * Correção CODB/NOC — posto/especialidade desta atribuição, só quando ela
+   * vem de uma planilha multi-fonte (`AtribuicaoPlantaoBrutaMultiFonte.fonte`
+   * já convertida via `funcaoPlantaoDaFonte()`). `undefined` no fluxo de
+   * fonte única — nunca inferido, nunca obrigatório. Opcional aqui (em vez
+   * de só em `AtribuicaoPlantaoBrutaMultiFonte`) para atravessar
+   * conciliação/montagem (`lib/conciliacaoPlantoes.ts`,
+   * `lib/montagemRascunhoPlantao.ts`) sem precisar de um segundo tipo
+   * paralelo em cada etapa do pipeline.
+   */
+  funcao?: FuncaoPlantao;
 }
 
 export interface ErroImportacaoPlantao {

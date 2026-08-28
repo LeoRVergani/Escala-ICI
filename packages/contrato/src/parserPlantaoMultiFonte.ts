@@ -5,8 +5,10 @@ import {
   localizarTabelaPlantaoMultiFonte,
   type ColunaPlantonistaMultiFonte,
 } from './detectorTabelaPlantaoMultiFonte.js';
+import { funcaoPlantaoDaFonte } from './modeloPlantaoPersistente.js';
 import { calcularDuracaoEntreMomentos, interpretarMomento } from './parserPlantao.js';
 import type {
+  AtribuicaoPlantaoBruta,
   AtribuicaoPlantaoBrutaMultiFonte,
   ErroImportacaoPlantao,
   ResultadoParsePlantaoMultiFonte,
@@ -152,4 +154,54 @@ export function parsePlanilhaPlantaoMultiFonte(arquivo: ArrayBuffer): ResultadoP
     erros,
     avisos,
   };
+}
+
+/**
+ * Ponte entre o resultado multi-fonte e o pipeline de conciliação/montagem
+ * de fonte única (`lib/conciliacaoPlantoes.ts`/`lib/montagemRascunhoPlantao.ts`),
+ * que já operam sobre `AtribuicaoPlantaoBruta[]` sem se importar com campos
+ * extras (conciliação casa por nome normalizado, nunca por índice — ver
+ * `aplicarVinculosNasAtribuicoes()`). Cada atribuição resultante carrega
+ * `funcao` derivado de `fonte` via `funcaoPlantaoDaFonte()` — uma coluna
+ * cujo cabeçalho não bate com nenhuma `FuncaoPlantao` conhecida NUNCA vira
+ * uma atribuição com função inventada: a linha inteira daquela fonte é
+ * reportada em `erros` e excluída do resultado (dado real preservado no
+ * erro, nunca descartado silenciosamente).
+ */
+export function converterAtribuicoesMultiFonteParaBrutas(
+  resultado: ResultadoParsePlantaoMultiFonte,
+): { atribuicoes: AtribuicaoPlantaoBruta[]; erros: ErroImportacaoPlantao[] } {
+  const erros: ErroImportacaoPlantao[] = [];
+  const atribuicoes: AtribuicaoPlantaoBruta[] = [];
+  const fontesDesconhecidasReportadas = new Set<string>();
+
+  for (const bruta of resultado.atribuicoes) {
+    const funcao = funcaoPlantaoDaFonte(bruta.fonte);
+    if (funcao === null) {
+      if (!fontesDesconhecidasReportadas.has(bruta.fonte)) {
+        fontesDesconhecidasReportadas.add(bruta.fonte);
+        erros.push({
+          linha: bruta.linhaOrigem,
+          coluna: `Plantonista ${bruta.fonte}`,
+          plantonistaNomeOriginal: bruta.plantonistaNomeOriginal,
+          valorEncontrado: bruta.fonte,
+          motivo: `Coluna "Plantonista ${bruta.fonte}" não corresponde a nenhum posto conhecido `
+            + `(${['DBA', 'LINUX', 'TELECOM', 'WINDOWS'].join(', ')}).`,
+          sugestao: 'Confira o cabeçalho da coluna na planilha antes de importar.',
+        });
+      }
+      continue;
+    }
+    atribuicoes.push({
+      plantonistaNomeOriginal: bruta.plantonistaNomeOriginal,
+      inicio: bruta.inicio,
+      fim: bruta.fim,
+      duracaoMinutos: bruta.duracaoMinutos,
+      linhaOrigem: bruta.linhaOrigem,
+      abaOrigem: bruta.abaOrigem,
+      funcao,
+    });
+  }
+
+  return { atribuicoes, erros };
 }

@@ -73,6 +73,26 @@ export const ROTULO_FUNCAO_PLANTAO: Readonly<Record<FuncaoPlantao, string>> = {
 };
 
 /**
+ * Converte o texto de uma coluna "Plantonista <fonte>" (verbatim do
+ * cabeçalho real, ex.: "DBA"/"Linux"/"Telecom"/"Windows" — ver
+ * `AtribuicaoPlantaoBrutaMultiFonte.fonte`) para `FuncaoPlantao`. Só
+ * normaliza (trim + uppercase, tolera acentuação removida) — nunca infere
+ * uma função a partir de uma coluna desconhecida. Retorna `null` para
+ * qualquer texto que não bata exatamente com um dos quatro valores
+ * conhecidos, para o chamador reportar como erro/aviso em vez de inventar.
+ */
+export function funcaoPlantaoDaFonte(fonte: string): FuncaoPlantao | null {
+  const normalizado = fonte
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/gu, '')
+    .trim()
+    .toUpperCase();
+  return (FUNCOES_PLANTAO_VALIDAS as readonly string[]).includes(normalizado)
+    ? (normalizado as FuncaoPlantao)
+    : null;
+}
+
+/**
  * Fase PLANTAO-PADRAO-1 — mesmo índice de `Date#getUTCDay()` (0 = domingo),
  * já usado internamente por `parserPlantao.ts` (`NOMES_DIA_SEMANA`, privado
  * àquele arquivo) — reaproveitado aqui como a ÚNICA convenção pública de dia
