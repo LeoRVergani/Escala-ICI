@@ -379,6 +379,19 @@ service cloud.firestore {
       return !('padraoHorarioSemanal' in dados) || padraoHorarioSemanalValido(dados.padraoHorarioSemanal);
     }
 
+    /**
+     * Correção CODB/NOC — declara os postos de um Grupo multi-função (ex.:
+     * Plantão CODB: `['DBA','LINUX','TELECOM','WINDOWS']`). Opcional: um
+     * Grupo de posto único (ex.: Plantão COSI) nunca precisa dele.
+     */
+    function funcoesEsperadasDoRequestValidas(dados) {
+      return !('funcoesEsperadas' in dados)
+        || (
+          dados.funcoesEsperadas is list
+          && ['DBA', 'LINUX', 'TELECOM', 'WINDOWS'].hasAll(dados.funcoesEsperadas)
+        );
+    }
+
     function escopoOperacionalValido(dados) {
       return dados.keys().hasOnly([
           'tipo', 'alvoId', 'alvoNome', 'unidadeId', 'caminhoUnidade',
@@ -1778,9 +1791,10 @@ service cloud.firestore {
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.criadoPorLogin == loginDoAuth()
         && padraoHorarioSemanalDoRequestValido(request.resource.data)
+        && funcoesEsperadasDoRequestValidas(request.resource.data)
         && request.resource.data.keys().hasOnly([
           'grupoId', 'nome', 'descricao', 'equipeResponsavelId', 'equipesConsulta',
-          'unidadeResponsavelId', 'caminhoUnidadeResponsavel',
+          'unidadeResponsavelId', 'caminhoUnidadeResponsavel', 'funcoesEsperadas',
           'timezone', 'ativo', 'padraoHorarioSemanal', 'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
         ]);
 
@@ -1813,9 +1827,10 @@ service cloud.firestore {
             && request.resource.data.equipesConsulta is list && request.resource.data.equipesConsulta.size() > 0
             && request.resource.data.schemaVersion in [1]
             && padraoHorarioSemanalDoRequestValido(request.resource.data)
+            && funcoesEsperadasDoRequestValidas(request.resource.data)
             && request.resource.data.keys().hasOnly([
               'grupoId', 'nome', 'descricao', 'equipeResponsavelId', 'equipesConsulta',
-              'unidadeResponsavelId', 'caminhoUnidadeResponsavel',
+              'unidadeResponsavelId', 'caminhoUnidadeResponsavel', 'funcoesEsperadas',
               'timezone', 'ativo', 'padraoHorarioSemanal', 'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
             ])
           )
@@ -1995,6 +2010,16 @@ service cloud.firestore {
      * aqui só o formato/autorização são checados (Rules não fazem
      * aritmética de datas ISO).
      */
+    /**
+     * Correção CODB/NOC — `funcao` é o posto/especialidade dentro de um
+     * Grupo multi-função (ex.: Plantão CODB: DBA/Linux/Telecom/Windows,
+     * paralelos no MESMO Grupo — nunca quatro Grupos). Sempre opcional:
+     * um Grupo de posto único (ex.: Plantão COSI) nunca precisa dele.
+     */
+    function funcaoPlantaoValida(dados) {
+      return !('funcao' in dados) || dados.funcao in ['DBA', 'LINUX', 'TELECOM', 'WINDOWS'];
+    }
+
     match /rascunhosCompetenciasPlantao/{id}/atribuicoes/{atribuicaoId} {
       allow read: if podeLerEscalaPlantao(resource.data.grupoId);
 
@@ -2007,12 +2032,13 @@ service cloud.firestore {
         && request.resource.data.fim is string
         && request.resource.data.duracaoMinutos is int && request.resource.data.duracaoMinutos > 0
         && request.resource.data.papel in ['PRIMARIO', 'SECUNDARIO']
+        && funcaoPlantaoValida(request.resource.data)
         && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']
         && request.resource.data.revisao == 0
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.keys().hasOnly([
           'atribuicaoId', 'grupoId', 'competenciaId', 'plantonistaLogin', 'inicio', 'fim',
-          'duracaoMinutos', 'papel', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
+          'duracaoMinutos', 'papel', 'funcao', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
         ]);
 
       allow update: if autenticado()
@@ -2025,11 +2051,12 @@ service cloud.firestore {
         && request.resource.data.fim is string
         && request.resource.data.duracaoMinutos is int && request.resource.data.duracaoMinutos > 0
         && request.resource.data.papel in ['PRIMARIO', 'SECUNDARIO']
+        && funcaoPlantaoValida(request.resource.data)
         && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.keys().hasOnly([
           'atribuicaoId', 'grupoId', 'competenciaId', 'plantonistaLogin', 'inicio', 'fim',
-          'duracaoMinutos', 'papel', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
+          'duracaoMinutos', 'papel', 'funcao', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
         ]);
 
       allow delete: if autenticado() && podeAdministrarEscalaPlantao(resource.data.grupoId);
@@ -2143,12 +2170,13 @@ service cloud.firestore {
         && request.resource.data.fim is string
         && request.resource.data.duracaoMinutos is int && request.resource.data.duracaoMinutos > 0
         && request.resource.data.papel in ['PRIMARIO', 'SECUNDARIO']
+        && funcaoPlantaoValida(request.resource.data)
         && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']
         && request.resource.data.revisao > 0
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.keys().hasOnly([
           'atribuicaoId', 'grupoId', 'competenciaId', 'plantonistaLogin', 'inicio', 'fim',
-          'duracaoMinutos', 'papel', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
+          'duracaoMinutos', 'papel', 'funcao', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
         ])
         && (
           !exists(/databases/$(database)/documents/competenciasPlantao/$(id)/atribuicoes/$(atribuicaoId))

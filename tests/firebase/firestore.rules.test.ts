@@ -6401,3 +6401,145 @@ describe('informacoesEscala — Rules (Parte B1)', () => {
     await assertFails(deleteDoc(refInfo(db, 'JORNADA', INFO_JORNADA_ALVO, 'info-1')));
   });
 });
+
+/**
+ * Correção CODB/NOC — Plantão CODB é UM Grupo multi-função (DBA/Linux/
+ * Telecom/Windows como postos paralelos do mesmo Grupo, nunca quatro
+ * Grupos). `usuarios.gestor` (equipeId `EQ_COSI_SOC`) administra o Grupo
+ * de teste abaixo pelo caminho legado (`podeGerenciarGrupoPlantao()`,
+ * sem Matriz) — suficiente para validar só o campo novo.
+ */
+describe('Plantão multi-função — funcao/funcoesEsperadas (correção CODB/NOC)', () => {
+  const GRUPO_ID = 'PLANTAO_MULTIFUNCAO_TESTE';
+
+  function grupoMultifuncao(ajustes: Record<string, unknown> = {}) {
+    return {
+      grupoId: GRUPO_ID,
+      nome: 'Plantão CODB',
+      descricao: 'Postos DBA/Linux/Telecom/Windows do CODB',
+      equipeResponsavelId: 'EQ_COSI_SOC',
+      equipesConsulta: ['EQ_COSI_SOC'],
+      funcoesEsperadas: ['DBA', 'LINUX', 'TELECOM', 'WINDOWS'],
+      timezone: 'America/Sao_Paulo',
+      ativo: true,
+      schemaVersion: 1,
+      criadoPorLogin: usuarios.gestor.login,
+      criadoEm: '2026-08-01T00:00:00.000Z',
+      atualizadoEm: '2026-08-01T00:00:00.000Z',
+      ...ajustes,
+    };
+  }
+
+  function rascunhoMultifuncao() {
+    return {
+      id: `${GRUPO_ID}_2026-09`,
+      grupoId: GRUPO_ID,
+      competencia: '2026-09',
+      periodoInicio: '2026-08-26',
+      periodoFim: '2026-09-25',
+      status: 'RASCUNHO',
+      revisao: 0,
+      origem: 'IMPORTADO',
+      totaisInformadosOrigem: null,
+      totalBruto: { quantidade: 0, minutos: 0 },
+      schemaVersion: 1,
+      criadoPorLogin: usuarios.gestor.login,
+      criadoEm: '2026-08-01T00:00:00.000Z',
+      atualizadoEm: '2026-08-01T00:00:00.000Z',
+    };
+  }
+
+  function atribuicaoComFuncao(ajustes: Record<string, unknown> = {}) {
+    return {
+      atribuicaoId: '0001',
+      grupoId: GRUPO_ID,
+      competenciaId: `${GRUPO_ID}_2026-09`,
+      plantonistaLogin: usuarios.colaborador.login,
+      inicio: '2026-08-26T22:00:00.000Z',
+      fim: '2026-08-27T10:00:00.000Z',
+      duracaoMinutos: 720,
+      papel: 'PRIMARIO',
+      funcao: 'DBA',
+      origem: 'IMPORTADO',
+      revisao: 0,
+      schemaVersion: 1,
+      criadoEm: '2026-08-01T00:00:00.000Z',
+      atualizadoEm: '2026-08-01T00:00:00.000Z',
+      ...ajustes,
+    };
+  }
+
+  async function semearGrupoERascunho() {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await Promise.all([
+        setDoc(doc(db, 'gruposPlantao', GRUPO_ID), grupoMultifuncao()),
+        setDoc(doc(db, 'rascunhosCompetenciasPlantao', `${GRUPO_ID}_2026-09`), rascunhoMultifuncao()),
+      ]);
+    });
+  }
+
+  it('cria Grupo com funcoesEsperadas válidas (DBA/LINUX/TELECOM/WINDOWS)', async () => {
+    const db = autenticarComo(usuarios.gestor);
+    await assertSucceeds(setDoc(doc(db, 'gruposPlantao', GRUPO_ID), grupoMultifuncao()));
+  });
+
+  it('rejeita Grupo com funcoesEsperadas contendo valor desconhecido', async () => {
+    const db = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(
+      doc(db, 'gruposPlantao', GRUPO_ID),
+      grupoMultifuncao({ funcoesEsperadas: ['DBA', 'REDE'] }),
+    ));
+  });
+
+  it('Grupo de posto único continua válido sem funcoesEsperadas (retrocompatível)', async () => {
+    const db = autenticarComo(usuarios.gestor);
+    const semFuncoes = grupoMultifuncao();
+    delete (semFuncoes as Record<string, unknown>).funcoesEsperadas;
+    await assertSucceeds(setDoc(doc(db, 'gruposPlantao', GRUPO_ID), semFuncoes));
+  });
+
+  it('responsável cria atribuição com funcao válida (DBA/LINUX/TELECOM/WINDOWS)', async () => {
+    await semearGrupoERascunho();
+    const db = autenticarComo(usuarios.gestor);
+    for (const [indice, funcao] of ['DBA', 'LINUX', 'TELECOM', 'WINDOWS'].entries()) {
+      await assertSucceeds(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', `${GRUPO_ID}_2026-09`, 'atribuicoes', `posto-${indice}`),
+        atribuicaoComFuncao({ atribuicaoId: `posto-${indice}`, funcao, plantonistaLogin: `pessoa-${indice}` }),
+      ));
+    }
+  });
+
+  it('rejeita atribuição com funcao desconhecida', async () => {
+    await semearGrupoERascunho();
+    const db = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(
+      doc(db, 'rascunhosCompetenciasPlantao', `${GRUPO_ID}_2026-09`, 'atribuicoes', '0001'),
+      atribuicaoComFuncao({ funcao: 'REDE' }),
+    ));
+  });
+
+  it('atribuição sem funcao continua válida (Grupo de posto único nunca precisa preenchê-la)', async () => {
+    await semearGrupoERascunho();
+    const db = autenticarComo(usuarios.gestor);
+    const semFuncao = atribuicaoComFuncao();
+    delete (semFuncao as Record<string, unknown>).funcao;
+    await assertSucceeds(setDoc(
+      doc(db, 'rascunhosCompetenciasPlantao', `${GRUPO_ID}_2026-09`, 'atribuicoes', '0001'),
+      semFuncao,
+    ));
+  });
+
+  it('responsável do Grupo administra qualquer posto — nenhuma ACL por especialidade', async () => {
+    await semearGrupoERascunho();
+    const db = autenticarComo(usuarios.gestor);
+    await assertSucceeds(setDoc(
+      doc(db, 'rascunhosCompetenciasPlantao', `${GRUPO_ID}_2026-09`, 'atribuicoes', 'dba'),
+      atribuicaoComFuncao({ atribuicaoId: 'dba', funcao: 'DBA' }),
+    ));
+    await assertSucceeds(updateDoc(
+      doc(db, 'rascunhosCompetenciasPlantao', `${GRUPO_ID}_2026-09`, 'atribuicoes', 'dba'),
+      { funcao: 'WINDOWS' },
+    ));
+  });
+});
