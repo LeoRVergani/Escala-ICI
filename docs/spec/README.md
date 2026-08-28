@@ -18,6 +18,7 @@ Esta pasta concentra a fonte normativa atual do projeto. Checkpoints e arquivos 
 13. `UI_CASCADE_E_HERANCA.md` — regra permanente para alterações de CSS/layout.
 14. `APP_PLANTAO_VISUALIZACAO.md` — visão "Plantão" no App/PWA do colaborador (quem está de plantão agora/próximo, meus plantões, contatos do plantonista).
 15. `INFORMACOES_ESCALA.md` — informações operacionais dia/pessoa-dia (Feriado, Treinamento, DU, Férias...), separadas de `TurnosMes` e reaproveitando 100% da Matriz para autorização. Parte B1 (domínio/Rules/repository) concluída; Dashboard/App/importação ainda pendentes.
+16. `PLANTAO_CODB.md` — Plantão CODB é UM GrupoPlantao multi-função (postos DBA/Linux/Telecom/Windows na mesma atribuição, via `FuncaoPlantao`), com anchor técnico `GEDSI_CODB_PLANTAO` — nunca quatro Equipes/Grupos/Matrizes/publicações. Separa definitivamente a responsabilidade do Coordenador CODB (Plantão CODB) da Supervisora NOC (Jornada NOC): hierarquia nunca concede escala. Parser/domínio/Rules concluídos; provisionamento em staging, Hub, Editor, importação real e App ainda pendentes.
 
 ## Specs herdadas ainda válidas por domínio
 
@@ -32,6 +33,7 @@ Esta pasta concentra a fonte normativa atual do projeto. Checkpoints e arquivos 
 - `TROCA_ESCALA_PLANO.md` — módulo de Trocas no estado atual.
 - `APP_PLANTAO_VISUALIZACAO.md` — fonte normativa da aba "Plantão" no App/PWA do colaborador e da autoatualização de contatos do plantonista.
 - `INFORMACOES_ESCALA.md` — domínio de informações operacionais dia/pessoa-dia, apartado de `TurnosMes`, sem ACL paralela à Matriz.
+- `PLANTAO_CODB.md` — Plantão CODB como GrupoPlantao multi-função (`FuncaoPlantao`), anchor técnico `GEDSI_CODB_PLANTAO`, e a separação hierarquia×responsabilidade entre Coordenador CODB e Supervisora NOC.
 
 Nota ESCOPO-OPERACIONAL-MATRIZ-1: a tela **Administração → Responsáveis por
 escala** é a interface normativa para configurar responsáveis. Seed/fixture

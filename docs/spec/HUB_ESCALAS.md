@@ -274,3 +274,13 @@ comportamento final.
   seção vazia renderizada, nenhum nome/sigla real hardcoded.
 - `lib/operacoesDashboard.test.ts` — inalterado, continua cobrindo a
   matriz completa de autorização/status que o Hub só consome.
+
+## 15. Grupo multi-função (Plantão CODB) — nota de referência
+
+`docs/spec/PLANTAO_CODB.md` é normativa para como um `GrupoPlantao`
+multi-função (postos DBA/Linux/Telecom/Windows via `FuncaoPlantao`)
+aparece no Hub: continua **um único** `OperacaoDashboard`/card em "Minhas
+escalas" (nunca um card por posto) — o agrupamento/autorização deste
+documento não muda; só o subtítulo do card ganha os nomes dos postos
+(`funcoesEsperadas`) quando presentes. Pendente até o Grupo canônico
+existir em staging.
