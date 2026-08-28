@@ -5,6 +5,7 @@ import {
   montarCamposAcessoUsuario,
   resumoAcessoUsuario,
   tipoAcessoDoUsuario,
+  usuarioGestorUnidadeComEquipeIdInvalido,
   validarCoerenciaAcessoUsuario,
   validarSelecaoAcessoUsuario,
 } from './perfilAcessoUsuario';
@@ -210,5 +211,24 @@ describe('resumoAcessoUsuario', () => {
   it('Colaborador: resumo indica ausência de acesso administrativo', () => {
     const resumo = resumoAcessoUsuario({ perfil: undefined, escopo: undefined }, {});
     expect(resumo.some((linha) => linha.includes('não terá nenhum acesso administrativo'))).toBe(true);
+  });
+});
+
+describe('usuarioGestorUnidadeComEquipeIdInvalido', () => {
+  it('acusa GESTOR_UNIDADE com equipeId de uma equipe descendente (bug real: Coordenador CODB com equipeId GEDSI_CODB_NOC)', () => {
+    expect(usuarioGestorUnidadeComEquipeIdInvalido({ perfil: 'GESTOR_UNIDADE', equipeId: 'GEDSI_CODB_NOC' })).toBe(true);
+  });
+
+  it('não acusa GESTOR_UNIDADE sem equipeId (o correto)', () => {
+    expect(usuarioGestorUnidadeComEquipeIdInvalido({ perfil: 'GESTOR_UNIDADE', equipeId: undefined })).toBe(false);
+    expect(usuarioGestorUnidadeComEquipeIdInvalido({ perfil: 'GESTOR_UNIDADE', equipeId: '' })).toBe(false);
+    expect(usuarioGestorUnidadeComEquipeIdInvalido({ perfil: 'GESTOR_UNIDADE', equipeId: '   ' })).toBe(false);
+  });
+
+  it('nunca acusa outros perfis, mesmo com equipeId preenchido — equipeId é normal para eles', () => {
+    expect(usuarioGestorUnidadeComEquipeIdInvalido({ perfil: 'GESTOR_EQUIPE', equipeId: 'GEDSI_COSI_SOC' })).toBe(false);
+    expect(usuarioGestorUnidadeComEquipeIdInvalido({ perfil: 'SUPERVISOR_EQUIPE', equipeId: 'GEDSI_COSI_SOC' })).toBe(false);
+    expect(usuarioGestorUnidadeComEquipeIdInvalido({ perfil: undefined, equipeId: 'GEDSI_COSI_SOC' })).toBe(false);
+    expect(usuarioGestorUnidadeComEquipeIdInvalido({ perfil: 'ADMIN_SISTEMA', equipeId: 'GEDSI_COSI_SOC' })).toBe(false);
   });
 });

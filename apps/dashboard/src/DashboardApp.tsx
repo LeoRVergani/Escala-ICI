@@ -6347,11 +6347,21 @@ export function DashboardApp() {
    * `perfil`/`escopo`/`equipeId`/`equipesPermitidas`/`unidadeId`/
    * `unidadesPermitidas`/`nivelHierarquico` via `montarCamposAcessoUsuario()`
    * puro e grava tudo de volta no MESMO estado que a área "Avançado" edita
-   * diretamente — as duas UIs nunca divergem. Para `GESTOR_UNIDADE`,
-   * `equipeId` é deliberadamente preservado (nunca zerado): esse perfil
-   * administra a unidade inteira, `equipeId` continua só metadado
-   * informativo (mesmo princípio do fallback de
-   * PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 em `salvarFormularioUsuario`).
+   * diretamente — as duas UIs nunca divergem.
+   *
+   * Correção CODB/NOC — até esta fase, `GESTOR_UNIDADE` preservava
+   * deliberadamente o `equipeId` anterior, na crença de que era "só
+   * metadado informativo". Bug real encontrado: quando `equipesPermitidas`
+   * está vazio, `minhasEquipesPermitidas()` (`firestore.rules`) cai para
+   * `[equipeId]` — se essa equipe também estiver em `responsaveisEquipe`
+   * da Matriz de alguma operação, o coordenador ganha administração dela
+   * por acidente, nunca por responsabilidade explícita (um Coordenador de
+   * Unidade com `equipeId` de uma equipe subordinada virou administrador
+   * da Jornada dessa equipe sem nunca ter sido designado responsável).
+   * Agora sempre usa `campos.equipeId` (sempre `undefined` para
+   * `GESTOR_UNIDADE`) — mesma trava reforçada em
+   * `usuarioGestorUnidadeComEquipeIdInvalido()`
+   * (`lib/perfilAcessoUsuario.ts`), que `salvarUsuario()` já rejeita.
    */
   function aplicarSelecaoAcessoUsuario(patch: {
     tipo?: TipoAcessoUsuario;
@@ -6377,7 +6387,7 @@ export function DashboardApp() {
       confirmaAcessoGlobal: selecao.confirmaAcessoGlobal,
       perfil: campos.perfil,
       escopo: campos.escopo,
-      equipeId: selecao.tipo === 'GESTOR_UNIDADE' ? formularioUsuario.equipeId : campos.equipeId,
+      equipeId: campos.equipeId,
       equipesPermitidas: campos.equipesPermitidas,
       unidadeId: campos.unidadeId,
       unidadesPermitidas: campos.unidadesPermitidas,
@@ -6534,29 +6544,20 @@ export function DashboardApp() {
     }
 
     /**
-     * PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 — `equipeId` continua um
-     * campo sempre preenchido no cadastro (histórico do produto), mesmo para
-     * GESTOR_UNIDADE, cuja autorização real vem de `unidadeId`/
-     * `unidadesPermitidas`, não deste campo. Sem equipe escolhida no select
-     * livre, usa a primeira equipe ativa da unidade só como identidade
-     * técnica — nunca como restrição de escopo — em vez de gravar `''`.
-     *
-     * PATCH-ADMIN-SIMPLIFICAR-CADASTRO-PERFIS-1 — estendido ao cadastro
-     * administrativo (`souAdmin`): o bloco simples "Gestor de unidade"
-     * nunca pede uma equipe (só a unidade), então `equipeId` pode chegar
-     * aqui `undefined` também para o admin, não só no cadastro livre de
-     * staging. `?? ''` evita `undefined.trim()`.
+     * Correção CODB/NOC — até esta fase, um `GESTOR_UNIDADE` sem equipe
+     * escolhida no select livre ganhava `equipeId` da primeira equipe ativa
+     * da unidade "só como identidade técnica" (PATCH-CIRURGICO-JORNADA-
+     * VINCULOS-USUARIOS-1/PATCH-ADMIN-SIMPLIFICAR-CADASTRO-PERFIS-1). Bug
+     * real: essa equipe preenchida automaticamente pode coincidir com
+     * `responsaveisEquipe` da Matriz de alguma Jornada, e quando
+     * `equipesPermitidas` está vazio, `minhasEquipesPermitidas()`
+     * (`firestore.rules`) cai para `[equipeId]` — o coordenador ganha
+     * administração daquela Jornada por acidente, nunca por
+     * responsabilidade explícita. `GESTOR_UNIDADE` nunca deve ter
+     * `equipeId` (`usuarioGestorUnidadeComEquipeIdInvalido()`,
+     * `lib/perfilAcessoUsuario.ts` — `salvarUsuario()` já rejeita) — este
+     * bloco de preenchimento automático foi removido, não substituído.
      */
-    if (
-      (usarCadastroLivreStaging && cadastroNovo || (souAdmin && participanteVinculoCadastro === null))
-      && candidato.perfil === 'GESTOR_UNIDADE'
-      && (candidato.equipeId ?? '').trim() === ''
-    ) {
-      const equipeFallback = equipesAdmin.find((equipe) => equipe.ativa && equipe.unidadeId === candidato.unidadeId);
-      if (equipeFallback !== undefined) {
-        candidato = { ...candidato, equipeId: equipeFallback.id };
-      }
-    }
 
     /**
      * PATCH-ADMIN-SIMPLIFICAR-CADASTRO-PERFIS-1 — validações de coerência

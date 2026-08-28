@@ -86,6 +86,14 @@ export function AtribuirCoordenadorModal({
       ...pessoa,
       perfil: campos.perfil,
       escopo: campos.escopo,
+      // Correção CODB/NOC: `campos.equipeId`/`campos.equipesPermitidas` são
+      // sempre undefined/[] para GESTOR_UNIDADE — aplicados explicitamente
+      // (nunca herdados de `...pessoa`) para não deixar sobreviver o
+      // `equipeId` de uma equipe que a pessoa tinha antes de virar
+      // coordenadora, que poderia coincidir com `responsaveisEquipe` da
+      // Matriz de alguma Jornada e conceder administração por acidente.
+      equipeId: campos.equipeId ?? '',
+      equipesPermitidas: campos.equipesPermitidas,
       unidadeId: campos.unidadeId,
       unidadesPermitidas: campos.unidadesPermitidas,
       nivelHierarquico: campos.nivelHierarquico,

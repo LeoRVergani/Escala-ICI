@@ -63,6 +63,32 @@ export interface ContextoMontagemAcessoUsuario {
   unidadeDaEquipe?: (equipeId: string) => string | undefined;
 }
 
+/**
+ * FASE-MATRIZ-DEFINITIVA-E-INFORMACOES-DIA-1 (correção CODB/NOC) —
+ * `GESTOR_UNIDADE` é vinculado à organização por `unidadeId`/
+ * `unidadesPermitidas`, nunca por `equipeId` (`montarCamposAcessoUsuario()`
+ * já produz `equipeId: undefined` para este tipo). Um `equipeId` de equipe
+ * descendente sobrevivendo no documento não é só um campo "morto": quando
+ * `equipesPermitidas` está vazio, `minhasEquipesPermitidas()`
+ * (`firestore.rules`) cai para `[equipeId]` — se essa equipe também estiver
+ * em `responsaveisEquipe` da Matriz de outra operação (ex.: a Jornada da
+ * própria equipe descendente), o coordenador ganha administração daquela
+ * operação por acidente, nunca por responsabilidade explícita. Bug real
+ * encontrado em produção: um Coordenador de Unidade com `equipeId` da
+ * equipe do NOC (subordinada à sua unidade) virou administrador da Jornada
+ * do NOC sem nunca ter sido designado responsável.
+ *
+ * `salvarUsuario()`/`salvarUsuarios()` chamam isto antes de qualquer
+ * escrita — é o único ponto por onde as quatro origens conhecidas de
+ * gravação de usuário (os dois formulários de `DashboardApp.tsx`,
+ * `AtribuirCoordenadorModal`, e qualquer chamador futuro) passam.
+ */
+export function usuarioGestorUnidadeComEquipeIdInvalido(
+  usuario: { perfil?: Usuario['perfil']; equipeId?: string | null },
+): boolean {
+  return usuario.perfil === 'GESTOR_UNIDADE' && (usuario.equipeId ?? '').trim() !== '';
+}
+
 /** Deriva o Tipo de acesso atual de um usuário já cadastrado — para pré-selecionar o seletor ao editar. */
 export function tipoAcessoDoUsuario(usuario: Pick<Usuario, 'perfil'>): TipoAcessoUsuario {
   switch (usuario.perfil) {

@@ -220,4 +220,25 @@ describe('salvarUsuario', () => {
     expect(gravado?.id).toBe('lvergani');
     expect(gravado?.id).not.toBe(usuario.uid);
   });
+
+  it('rejeita GESTOR_UNIDADE com equipeId de equipe descendente, sem escrever nada (bug real CODB/NOC)', async () => {
+    const coordenador: Usuario = {
+      login: 'elrauh',
+      nome: 'Elton Rauh',
+      email: 'elrauh@empresa.com',
+      cargo: 'Coordenador de Data Center e Banco de Dados',
+      equipeId: 'GEDSI_CODB_NOC',
+      gestorUid: null,
+      nivelHierarquico: 4,
+      perfil: 'GESTOR_UNIDADE',
+      escopo: 'UNIDADE',
+      unidadeId: 'GEDSI_CODB',
+      unidadesPermitidas: ['GEDSI_CODB'],
+      turnoPadrao: '',
+      ativo: true,
+    };
+
+    await expect(salvarUsuario(coordenador)).rejects.toThrow();
+    expect(estado.operacoes.find((operacao) => operacao.colecao === 'usuarios')).toBeUndefined();
+  });
 });

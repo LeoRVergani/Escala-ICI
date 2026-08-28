@@ -166,7 +166,13 @@ test('6. trocar de unidade limpa a equipe incompatível e mostra "Selecione uma 
 test('7/8/9/10. validação por tipo de acesso — só GESTOR_UNIDADE fica isento de escolher equipe', async () => {
   const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
   assert.ok(dashboard.includes("usarCadastroLivreStaging\n      && cadastroNovo\n      && formularioUsuario.perfil !== 'GESTOR_UNIDADE'\n      && equipeIdCadastroUsuario.trim() === ''"));
-  assert.ok(dashboard.includes("candidato.perfil === 'GESTOR_UNIDADE'\n      && (candidato.equipeId ?? '').trim() === ''"));
+  // Correção CODB/NOC — o preenchimento automático de equipeId para
+  // GESTOR_UNIDADE (equipeFallback) foi removido, não substituído: um bug
+  // real mostrou que essa equipe "só identidade técnica" podia coincidir
+  // com responsaveisEquipe da Matriz de alguma Jornada e conceder
+  // administração por acidente. GESTOR_UNIDADE nunca recebe equipeId —
+  // nem por escolha do usuário (isento do select), nem por fallback.
+  assert.ok(!dashboard.includes('equipeFallback'));
   // COLABORADOR (perfil ausente)/SUPERVISOR_EQUIPE/GESTOR_EQUIPE continuam
   // sujeitos ao bloqueio — a única exceção adicionada é GESTOR_UNIDADE.
   assert.ok(dashboard.includes("PERFIS_DELEGAVEIS_STAGING"));
