@@ -83,10 +83,26 @@ test('7. o Dashboard deriva o Calendário e o payload salvo da MESMA working cop
     /aplicarVinculosNasAtribuicoes\(atribuicoesEditaveisPlantao, vinculosPlantao\)/u,
     'atribuicoesPlantaoComVinculo, consumido pelo payload de salvar, precisa derivar da working copy',
   );
+  /*
+   * FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — o PlantaoCalendario passou a
+   * consumir `atribuicoesFiltradas` (filtro puro de função por
+   * `filtrarAtribuicoesPlantaoPorFuncao`, nunca um segundo estado), não
+   * mais `atribuicoesEditaveis` diretamente. Continua sendo A MESMA
+   * working copy — só uma projeção pura e determinística dela — então a
+   * checagem passa a exigir que `atribuicoesFiltradas` seja derivada de
+   * `atribuicoesEditaveis` (a prop recebida, que por sua vez vem do
+   * estado `atribuicoesEditaveisPlantao`, verificado abaixo), e que o
+   * Calendário consuma exatamente essa projeção.
+   */
   assert.match(
     dashboard,
-    /atribuicoes=\{atribuicoesEditaveis\}/u,
-    'o PlantaoCalendario precisa consumir a mesma working copy, não uma cópia paralela',
+    /const atribuicoesFiltradas = filtrarAtribuicoesPlantaoPorFuncao\(atribuicoesEditaveis, funcaoSelecionada\);/u,
+    'atribuicoesFiltradas precisa ser uma projeção pura de atribuicoesEditaveis (a working copy), nunca um segundo estado',
+  );
+  assert.match(
+    dashboard,
+    /atribuicoes=\{atribuicoesFiltradas\}/u,
+    'o PlantaoCalendario precisa consumir a projeção pura da mesma working copy, não uma cópia paralela',
   );
   assert.match(
     dashboard,

@@ -23,6 +23,7 @@ import {
   type Dia,
   type DivergenciaPlantao,
   type ErroImportacao,
+  type FuncaoPlantao,
   type GrupoPlantao,
   type OrigemPlantao,
   type PadraoHorarioPlantaoDia,
@@ -188,7 +189,14 @@ import {
   resumirPorPessoa,
   type AtribuicaoPlantaoEditavel,
 } from '@/lib/editorPlantao';
+import {
+  avaliarSaudePlantao,
+  filtrarAtribuicoesPlantaoPorFuncao,
+  ROTULO_FUNCAO_PLANTAO,
+  type FiltroFuncaoPlantao,
+} from '@/lib/plantaoMultiposto';
 import { PlantaoCalendario } from '@/components/plantao/PlantaoCalendario';
+import { CardFuncaoPlantao } from '@/components/plantao/CardFuncaoPlantao';
 import { PlantaoRoster } from '@/components/plantao/PlantaoRoster';
 import { QuickAddPlantaoPopover } from '@/components/plantao/QuickAddPlantaoPopover';
 import {
@@ -2629,6 +2637,17 @@ interface PreviewPlantaoProps {
   /** Nomes normalizados (`normalizarNome`) de participantes inativos referenciados por alguma atribuição — para o roster mostrar "Inativo" sem esconder a escala. */
   nomesInativosPlantao: ReadonlySet<string>;
   /**
+   * FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — postos do Grupo em contexto
+   * (`GrupoPlantao.funcoesEsperadas`). Vazio/ausente = Grupo de posto
+   * único (ex.: Plantão COSI): nenhuma tab/card de função aparece, e todo
+   * o restante deste componente se comporta EXATAMENTE como antes desta
+   * fase (`funcaoSelecionada` nunca deixa de ser `'TODOS'` nesse caso).
+   */
+  funcoesEsperadas: readonly FuncaoPlantao[];
+  /** Seleção PURAMENTE visual (nunca grava Firebase, nunca reprocessa importação — §11 da fase). */
+  funcaoSelecionada: FiltroFuncaoPlantao;
+  onMudarFuncaoSelecionada: (funcao: FiltroFuncaoPlantao) => void;
+  /**
    * Fase ESCOPO-CONSULTA-PLANTAO-1 — `true` quando o Plantão em contexto é
    * só consultável pela equipe (autovínculo de consulta, nunca
    * administração). Além de repassar `modo="consulta"` ao calendário
@@ -2684,21 +2703,65 @@ function PreviewPlantao({
   onSelecionarPlantonista,
   onSolicitarNovaAtribuicao,
   nomesInativosPlantao,
+  funcoesEsperadas,
+  funcaoSelecionada,
+  onMudarFuncaoSelecionada,
   somenteConsulta = false,
 }: PreviewPlantaoProps) {
   const vinculoPorParticipante = new Map(vinculos.map((vinculo) => [vinculo.participanteNomeOriginal, vinculo]));
   const nomesPendentesPlantao = new Set(
     vinculos.filter((vinculo) => vinculo.status !== 'VINCULADO').map((vinculo) => normalizarNome(vinculo.participanteNomeOriginal)),
   );
-  const conferenciaEscalaAtual = conferirEscalaAtualPlantao(atribuicoesEditaveis, duracaoPlantaoAtipica);
+  /**
+   * FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — `atribuicoesFiltradas` é a ÚNICA
+   * fonte que o calendário/roster/resumo abaixo enxergam a partir daqui
+   * (§14 da fase: "calendário deve receber dados já filtrados"). Para um
+   * Grupo de posto único (`funcoesEsperadas` vazio), `funcaoSelecionada`
+   * nunca deixa de ser `'TODOS'` (nenhuma tab aparece — ver mais abaixo),
+   * então este filtro é sempre a identidade e nada muda de comportamento
+   * em relação a antes desta fase.
+   */
+  const ehMultiposto = funcoesEsperadas.length > 0;
+  const atribuicoesFiltradas = filtrarAtribuicoesPlantaoPorFuncao(atribuicoesEditaveis, funcaoSelecionada);
+  const conferenciaEscalaAtual = conferirEscalaAtualPlantao(atribuicoesFiltradas, duracaoPlantaoAtipica);
   const resumoPorPessoa = resumirPorPessoa(
-    atribuicoesEditaveis,
+    atribuicoesFiltradas,
     participantes.map((participante) => ({ nomeOriginal: participante.nomeOriginal })),
   );
+  /**
+   * Painel de saúde por posto (§16/§51 da fase) — só calculado para Grupos
+   * multi-função; `SEMPRE` a partir de `atribuicoesEditaveis` COMPLETA
+   * (nunca da filtrada), porque cada card precisa da saúde do PRÓPRIO
+   * posto, não do posto atualmente selecionado.
+   */
+  const saudeMultiposto = ehMultiposto
+    ? avaliarSaudePlantao({
+      grupo: { funcoesEsperadas },
+      atribuicoes: atribuicoesEditaveis,
+      vinculos,
+      erros: resultado?.erros ?? [],
+      avisos: resultado?.avisos ?? [],
+    })
+    : null;
+  /**
+   * Fase 27 — `conferenciaEscalaAtual.sobreposicoes`, quando calculada
+   * sobre a lista JÁ FILTRADA por uma função específica, nunca mistura
+   * postos diferentes (todo item do array já é do mesmo posto) — correta
+   * por construção, sem filtro adicional. Só o caso `'TODOS'` de um Grupo
+   * multi-função precisa do filtro de relevância (`conflitosRelevantesPlantao`,
+   * dentro de `avaliarSaudePlantao()`), porque aí SIM há postos diferentes
+   * misturados no mesmo array.
+   */
+  const conflitosEfetivos = ehMultiposto && funcaoSelecionada === 'TODOS'
+    ? (saudeMultiposto?.todos.conflitos ?? 0)
+    : conferenciaEscalaAtual.sobreposicoes.length;
+  const pendenciasEfetivas = ehMultiposto && funcaoSelecionada !== 'TODOS'
+    ? (saudeMultiposto?.porFuncao[funcaoSelecionada]?.vinculosPendentes ?? 0)
+    : pendencias;
   const totalAlertasEditor = conferenciaEscalaAtual.quantidadeDuracoesAtipicas
-    + conferenciaEscalaAtual.sobreposicoes.length
-    + pendencias;
-  const primeiraAtipica = atribuicoesEditaveis.find((atribuicao) => duracaoPlantaoAtipica(atribuicao.duracaoMinutos));
+    + conflitosEfetivos
+    + pendenciasEfetivas;
+  const primeiraAtipica = atribuicoesFiltradas.find((atribuicao) => duracaoPlantaoAtipica(atribuicao.duracaoMinutos));
 
   /**
    * PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — antes o calendário escolhia
@@ -2809,6 +2872,67 @@ function PreviewPlantao({
         )
       )}
 
+      {ehMultiposto && (
+        <article className="panel plantao-preview-multiposto">
+          <div className="panel-title">
+            <div>
+              <p className="eyebrow">Postos deste Plantão</p>
+              <h2>Todos os postos, ou um de cada vez</h2>
+            </div>
+          </div>
+          <div className="segmented-control" aria-label="Filtro por posto do Plantão">
+            <button
+              type="button"
+              className={funcaoSelecionada === 'TODOS' ? 'active' : ''}
+              aria-pressed={funcaoSelecionada === 'TODOS'}
+              onClick={() => onMudarFuncaoSelecionada('TODOS')}
+            >
+              Todos
+            </button>
+            {funcoesEsperadas.map((funcao) => (
+              <button
+                key={funcao}
+                type="button"
+                className={funcaoSelecionada === funcao ? 'active' : ''}
+                aria-pressed={funcaoSelecionada === funcao}
+                onClick={() => onMudarFuncaoSelecionada(funcao)}
+              >
+                {ROTULO_FUNCAO_PLANTAO[funcao]}
+              </button>
+            ))}
+          </div>
+          {funcaoSelecionada === 'TODOS' && saudeMultiposto !== null && (
+            <div className="import-summary plantao-resumo-grid">
+              <div><span>Pessoas únicas</span><strong>{saudeMultiposto.todos.pessoasUnicas}</strong></div>
+              <div><span>Atribuições</span><strong>{saudeMultiposto.todos.atribuicoes}</strong></div>
+              <div><span>Conflitos</span><strong>{saudeMultiposto.todos.conflitos}</strong></div>
+            </div>
+          )}
+          {saudeMultiposto !== null && (
+            <div className="plantao-cards-funcao">
+              {funcoesEsperadas.map((funcao) => {
+                const saudeFuncao = saudeMultiposto.porFuncao[funcao];
+                if (saudeFuncao === undefined) {
+                  return null;
+                }
+                return (
+                  <CardFuncaoPlantao
+                    key={funcao}
+                    rotulo={ROTULO_FUNCAO_PLANTAO[funcao]}
+                    saude={saudeFuncao}
+                    selecionado={funcaoSelecionada === funcao}
+                    onSelecionar={() => {
+                      onMudarFuncaoSelecionada(funcao);
+                      onMudarAba('calendario');
+                    }}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </article>
+      )}
+
       <article className="panel plantao-preview-principal">
         <div className="plantao-preview-toolbar">
           <div className="segmented-control" aria-label="Seções da prévia de Plantão">
@@ -2834,7 +2958,7 @@ function PreviewPlantao({
           <div className="plantao-editor-calendario">
             <div className="import-summary plantao-resumo-grid">
               <div><span>Plantonistas</span><strong>{conferenciaEscalaAtual.quantidadePessoas}</strong></div>
-              <div><span>Plantões</span><strong>{atribuicoesEditaveis.length}</strong></div>
+              <div><span>Plantões</span><strong>{atribuicoesFiltradas.length}</strong></div>
               <div><span>Horas atuais</span><strong>{formatarMinutos(conferenciaEscalaAtual.bruto.minutos)}</strong></div>
               <div><span>Alertas</span><strong>{totalAlertasEditor}</strong></div>
             </div>
@@ -2864,8 +2988,8 @@ function PreviewPlantao({
                     </button>
                   </li>
                 )}
-                {conferenciaEscalaAtual.sobreposicoes.length > 0 && (
-                  <li>⚠ {conferenciaEscalaAtual.sobreposicoes.length} sobreposição(ões) de horário</li>
+                {conflitosEfetivos > 0 && (
+                  <li>⚠ {conflitosEfetivos} sobreposição(ões) de horário</li>
                 )}
                 {pendencias > 0 && (
                   <li>
@@ -2939,7 +3063,7 @@ function PreviewPlantao({
                     periodoInicio={periodoInicio}
                     periodoFim={periodoFim}
                     dataHoje={dataHoje}
-                    atribuicoes={atribuicoesEditaveis}
+                    atribuicoes={atribuicoesFiltradas}
                     onEditarAtribuicao={onEditarAtribuicao}
                     plantonistaSelecionado={plantonistaSelecionado}
                     modo={somenteConsulta ? 'consulta' : (modoVisualizacaoPlantao === 'compacta' ? 'importacao' : 'editor')}
@@ -2960,7 +3084,7 @@ function PreviewPlantao({
               <p>Recalculada a partir do que está no calendário agora — nunca comparada automaticamente com a fonte.</p>
               <div className="import-summary plantao-resumo-grid">
                 <div><span>Plantonistas</span><strong>{conferenciaEscalaAtual.quantidadePessoas}</strong></div>
-                <div><span>Plantões</span><strong>{atribuicoesEditaveis.length}</strong></div>
+                <div><span>Plantões</span><strong>{atribuicoesFiltradas.length}</strong></div>
                 <div><span>Horas atuais</span><strong>{formatarMinutos(conferenciaEscalaAtual.bruto.minutos)}</strong></div>
                 <div><span>Durações atípicas</span><strong>{conferenciaEscalaAtual.quantidadeDuracoesAtipicas}</strong></div>
               </div>
@@ -3277,6 +3401,15 @@ export function DashboardApp() {
    * seleção de uma prévia para a próxima.
    */
   const [plantonistaSelecionadoPlantao, setPlantonistaSelecionadoPlantao] = useState<string | null>(null);
+  /**
+   * FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — seleção da tab Todos/DBA/Linux/
+   * Telecom/Windows. PURAMENTE visual (§11/§12 da fase): nunca grava
+   * Firebase, nunca reprocessa a importação, nunca altera `funcao` de
+   * nenhuma atribuição. Reiniciada em toda entrada nova no Editor, mesmo
+   * princípio de `plantonistaSelecionadoPlantao` acima — nunca "vaza" a
+   * função selecionada de uma prévia para a próxima.
+   */
+  const [funcaoSelecionadaPlantao, setFuncaoSelecionadaPlantao] = useState<FiltroFuncaoPlantao>('TODOS');
   /**
    * Fase ESCALAS-UX-2B — confirmação contextual do padrão do Grupo
    * (`QuickAddPlantaoPopover`), aberta por `solicitarNovaAtribuicaoPlantao()`
@@ -4746,6 +4879,7 @@ export function DashboardApp() {
     setAbaPreviaPlantao('calendario');
     setBuscaVinculoPlantao({});
     setPlantonistaSelecionadoPlantao(null);
+    setFuncaoSelecionadaPlantao('TODOS');
     const grupoIdEscolhido = opcoes.grupoId?.trim() ?? '';
     setGrupoRascunhoEscolhido(grupoIdEscolhido);
     // Fase ESCALAS-UX-1A — sugerida já na importação (não só ao validar a
@@ -4852,10 +4986,20 @@ export function DashboardApp() {
    * Reaproveitada por `salvarModalAtribuicaoPlantao()` (modal completo,
    * "Outro horário") E pelo quick-add ("Adicionar" do padrão do Grupo) —
    * nenhum segundo caminho que grava atribuição.
+   *
+   * FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — o Modal/quick-add ainda não têm
+   * campo de posto (dívida documentada em `docs/spec/PLANTAO_MULTIPOSTO.md`).
+   * Enquanto isso, uma nova atribuição criada com uma função específica já
+   * selecionada (aba DBA/Linux/Telecom/Windows) herda essa função — sem
+   * isso, ela nasceria sem `funcao` e desapareceria de toda aba específica,
+   * só visível em "Todos" (§31/§32: nunca um posto "sumido"). Criar a
+   * partir de "Todos" continua sem `funcao`, exatamente como antes desta
+   * fase — nunca inferida às cegas.
    */
   function criarAtribuicaoPlantaoNaWorkingCopy(valores: FormularioAtribuicaoPlantao) {
     const abaOrigem = resultadoPlantao?.atribuicoes[0]?.abaOrigem ?? '';
-    setAtribuicoesEditaveisPlantao((atuais) => adicionarAtribuicaoEditavel(atuais, { ...valores, abaOrigem }));
+    const funcao = funcaoSelecionadaPlantao === 'TODOS' ? {} : { funcao: funcaoSelecionadaPlantao };
+    setAtribuicoesEditaveisPlantao((atuais) => adicionarAtribuicaoEditavel(atuais, { ...valores, abaOrigem, ...funcao }));
     marcarPlantaoEditadoNoEditor();
   }
 
@@ -5193,7 +5337,7 @@ export function DashboardApp() {
       setWizardProcessando(false);
     }
   }
-  async function criarGrupoWizard(nome: string, equipeId: string) {
+  async function criarGrupoWizard(nome: string, equipeId: string, funcoesEsperadas?: readonly FuncaoPlantao[]) {
     const equipeResponsavel = equipesAdmin.find((item) => item.id === equipeId);
     if (equipeResponsavel === undefined) {
       setWizardErro('Selecione uma equipe responsável cadastrada para este Plantão.');
@@ -5229,6 +5373,7 @@ export function DashboardApp() {
         equipeResponsavel,
         criadoPorLogin: usuarioReal.login,
         criadoEm: agora,
+        funcoesEsperadas,
       });
       const errosGrupo = validarGrupoPlantao(grupo);
       if (errosGrupo.length > 0) {
@@ -5452,6 +5597,7 @@ export function DashboardApp() {
       setAbaPreviaPlantao('calendario');
       setBuscaVinculoPlantao({});
       setPlantonistaSelecionadoPlantao(null);
+      setFuncaoSelecionadaPlantao('TODOS');
       setGrupoRascunhoEscolhido(grupo.grupoId);
       setCompetenciaRascunho(competencia);
       setPeriodoInicioRascunho(periodo.periodoInicio);
@@ -5569,6 +5715,7 @@ export function DashboardApp() {
       setAbaPreviaPlantao('calendario');
       setBuscaVinculoPlantao({});
       setPlantonistaSelecionadoPlantao(null);
+      setFuncaoSelecionadaPlantao('TODOS');
       setGrupoRascunhoEscolhido(grupo.grupoId);
       setCompetenciaRascunho(competencia);
       setPeriodoInicioRascunho(periodo.periodoInicio);
@@ -7225,6 +7372,7 @@ export function DashboardApp() {
       setAbaPreviaPlantao('calendario');
       setBuscaVinculoPlantao({});
       setPlantonistaSelecionadoPlantao(null);
+      setFuncaoSelecionadaPlantao('TODOS');
       setGrupoRascunhoEscolhido(grupo.grupoId);
       setCompetenciaRascunho(reidratado.competencia.competencia);
       setPeriodoInicioRascunho(reidratado.competencia.periodoInicio);
@@ -9268,6 +9416,9 @@ export function DashboardApp() {
               onSelecionarPlantonista={alternarPlantonistaSelecionado}
               onSolicitarNovaAtribuicao={contextoPlantaoSomenteConsulta ? NAO_OPERAR_PLANTAO_CONSULTA : solicitarNovaAtribuicaoPlantao}
               nomesInativosPlantao={nomesInativosReferenciadosPlantao}
+              funcoesEsperadas={gruposPlantaoAdmin.find((item) => item.grupoId === grupoRascunhoEscolhido)?.funcoesEsperadas ?? []}
+              funcaoSelecionada={funcaoSelecionadaPlantao}
+              onMudarFuncaoSelecionada={setFuncaoSelecionadaPlantao}
               somenteConsulta={contextoPlantaoSomenteConsulta}
             />
           )}

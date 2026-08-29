@@ -161,7 +161,14 @@ export function editarAtribuicaoEditavel(
 
 export function adicionarAtribuicaoEditavel(
   atribuicoes: readonly AtribuicaoPlantaoEditavel[],
-  nova: { plantonistaNomeOriginal: string; inicio: MomentoPlantao; fim: MomentoPlantao; abaOrigem: string },
+  nova: {
+    plantonistaNomeOriginal: string;
+    inicio: MomentoPlantao;
+    fim: MomentoPlantao;
+    abaOrigem: string;
+    /** FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — posto da nova atribuição, quando o Grupo é multi-função. `undefined` para Grupo de posto único, exatamente como antes desta fase. */
+    funcao?: AtribuicaoPlantaoEditavel['funcao'];
+  },
 ): AtribuicaoPlantaoEditavel[] {
   const duracaoMinutos = calcularDuracaoEntreMomentos(nova.inicio, nova.fim) ?? 0;
   const adicionada: AtribuicaoPlantaoEditavel = {
@@ -173,6 +180,7 @@ export function adicionarAtribuicaoEditavel(
     linhaOrigem: -1,
     abaOrigem: nova.abaOrigem,
     origemImportacao: false,
+    ...(nova.funcao === undefined ? {} : { funcao: nova.funcao }),
   };
   return [...atribuicoes, adicionada];
 }

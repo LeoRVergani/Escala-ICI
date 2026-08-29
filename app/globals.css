@@ -5561,6 +5561,30 @@ fieldset.checkbox-card-list > legend {
 .plantao-preview-fonte .plantao-resumo-grid > div { padding: 10px 12px; }
 .plantao-preview-fonte .plantao-resumo-grid strong { margin-top: 4px; font-size: 14px; }
 .plantao-preview-fonte .plantao-resumo-grid span { font-size: 9.5px; }
+
+/*
+ * FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — tabs Todos/DBA/Linux/Telecom/
+ * Windows + cards de saúde por posto. `order: 0` (padrão, sem regra
+ * própria) já posiciona este panel antes dos demais dentro de
+ * `.plantao-preview-fluxo` (que reordena por `order`, não por posição no
+ * DOM) — é o resumo que o Coordenador deve ver primeiro ao abrir um
+ * Plantão multi-função.
+ */
+.plantao-preview-multiposto .segmented-control { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.plantao-cards-funcao {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.plantao-cards-funcao .overview-operation-card.selected { border-color: var(--primary-bright); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-bright) 28%, transparent); }
+@media (max-width: 960px) {
+  .plantao-cards-funcao { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .plantao-cards-funcao { grid-template-columns: minmax(0, 1fr); }
+  .plantao-preview-multiposto .segmented-control { flex-wrap: nowrap; }
+}
 @media (max-width: 720px) {
   .plantao-command-head { align-items: stretch; flex-direction: column; }
   .plantao-command-file strong { max-width: min(100%, 420px); }
@@ -6221,6 +6245,34 @@ fieldset.checkbox-card-list > legend {
 .wizard-inline-create p { margin: 0; font-size: 12px; color: var(--muted); }
 .wizard-inline-fields { display: grid; gap: 8px; }
 .wizard-inline-fields label { display: grid; gap: 5px; font-size: 11px; font-weight: 700; }
+/* FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — "Posto único"/"Múltiplos postos" + checkboxes de posto, dentro do fluxo de criação de Grupo do Wizard. */
+.wizard-inline-fields fieldset.wizard-grupo-estrutura,
+.wizard-inline-fields fieldset.wizard-grupo-postos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.wizard-inline-fields fieldset.wizard-grupo-estrutura legend,
+.wizard-inline-fields fieldset.wizard-grupo-postos legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.wizard-inline-fields fieldset.wizard-grupo-estrutura label,
+.wizard-inline-fields fieldset.wizard-grupo-postos label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.wizard-inline-fields fieldset.wizard-grupo-postos p.admin-form-erro { flex-basis: 100%; margin: 0; font-size: 10px; }
 .wizard-upload-block { display: grid; gap: 8px; border-top: 1px solid var(--border); padding-top: 16px; }
 .wizard-dropzone { display: grid; justify-items: center; gap: 6px; padding: 22px 16px; border: 1px dashed var(--primary-bright); border-radius: 10px; background: var(--primary-soft); text-align: center; cursor: pointer; }
 .wizard-dropzone svg { color: var(--primary-bright); }
