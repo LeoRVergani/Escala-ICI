@@ -4,6 +4,7 @@ import {
   criarIdOcorrenciaPlantao,
   funcaoPlantaoDaFonte,
   FUNCOES_PLANTAO_VALIDAS,
+  ROTULO_FUNCAO_PLANTAO,
   type AtribuicaoPlantaoBruta,
   type ErroImportacaoPlantao,
   type FuncaoPlantao,
@@ -168,6 +169,61 @@ export function funcaoDoErroPlantao(erro: Pick<ErroImportacaoPlantao, 'coluna'>)
   return fonte === undefined ? null : funcaoPlantaoDaFonte(fonte);
 }
 
+/**
+ * FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§10 da fase) — regra única de
+ * "esta função é válida para este Grupo". Grupo de posto único
+ * (`funcoesEsperadas` ausente/vazio) sempre aceita `funcao === undefined`
+ * (retrocompatibilidade total, comportamento de sempre); Grupo multiposto
+ * exige `funcao` PRESENTE e pertencente a `funcoesEsperadas` — nunca
+ * aceita `undefined` nem um valor fora da lista configurada, mesmo que
+ * `FuncaoPlantao` (enum global) o conheça.
+ */
+export function funcaoPermitidaNoGrupo(
+  grupo: { funcoesEsperadas?: readonly FuncaoPlantao[] },
+  funcao: FuncaoPlantao | undefined,
+): boolean {
+  const funcoesEsperadas = grupo.funcoesEsperadas ?? [];
+  if (funcoesEsperadas.length === 0) {
+    return true;
+  }
+  return funcao !== undefined && funcoesEsperadas.includes(funcao);
+}
+
+/**
+ * §11/§29/§30 da fase — validação da IMPORTAÇÃO contra o Grupo
+ * ESPECÍFICO selecionado, não só o enum global `FuncaoPlantao`. Uma
+ * função que o enum conhece (ex.: `TELECOM`) mas que este Grupo não
+ * espera (`funcoesEsperadas` não a inclui) gera um erro BLOQUEANTE
+ * nomeado, exatamente como uma fonte desconhecida do parser — nunca
+ * adiciona a função a `funcoesEsperadas` sozinho, nunca cria posto novo,
+ * nunca cria Grupo (§12). Posto único (`funcoesEsperadas` vazio) nunca
+ * valida nada aqui — retrocompatibilidade total.
+ *
+ * `coluna` usa o mesmo formato `"Plantonista <fonte>"` que
+ * `converterAtribuicoesMultiFonteParaBrutas()` já produz para fonte
+ * desconhecida, para que `funcaoDoErroPlantao()` atribua este erro ao
+ * card certo sem nenhuma lógica nova de atribuição.
+ */
+export function validarFuncoesContraGrupo(
+  atribuicoes: readonly { funcao?: FuncaoPlantao }[],
+  funcoesEsperadas: readonly FuncaoPlantao[],
+): ErroImportacaoPlantao[] {
+  if (funcoesEsperadas.length === 0) {
+    return [];
+  }
+  const funcoesForaDoGrupo = new Set(
+    atribuicoes
+      .map((atribuicao) => atribuicao.funcao)
+      .filter((funcao): funcao is FuncaoPlantao => funcao !== undefined && !funcoesEsperadas.includes(funcao)),
+  );
+  return [...funcoesForaDoGrupo].map((funcao) => ({
+    linha: 1,
+    coluna: `Plantonista ${ROTULO_FUNCAO_PLANTAO[funcao]}`,
+    valorEncontrado: funcao,
+    motivo: `A função ${ROTULO_FUNCAO_PLANTAO[funcao]} foi encontrada no arquivo, mas não está configurada para este Plantão.`,
+  }));
+}
+
 export type StatusSaudePlantao = 'OK' | 'ATENCAO' | 'CRITICO';
 
 export interface SaudeFuncaoPlantao {
@@ -179,6 +235,16 @@ export interface SaudeFuncaoPlantao {
   conflitos: number;
   errosOrigem: number;
   avisos: number;
+  /**
+   * §14 da fase — atribuições SEM `funcao` num Grupo multiposto (nunca
+   * aceito silenciosamente). Só populado em `'TODOS'`: filtrar por uma
+   * função específica já exclui, por definição, qualquer atribuição sem
+   * função (`atribuicao.funcao === filtro` nunca é verdade para
+   * `undefined`) — não há "aba" própria para uma atribuição sem posto.
+   */
+  atribuicoesSemFuncao: number;
+  /** Total de ocorrências do PERÍODO (grupo inteiro — §22 da fase) — o mesmo valor em `todos` e em cada função, já que todo posto é esperado em toda ocorrência de um Grupo multiposto. */
+  ocorrencias: number;
   status: StatusSaudePlantao;
 }
 
@@ -191,7 +257,13 @@ export interface ResultadoSaudePlantao {
 }
 
 function calcularStatusSaude(saude: Omit<SaudeFuncaoPlantao, 'status'>): StatusSaudePlantao {
-  if (saude.postosFaltando > 0 || saude.vinculosPendentes > 0 || saude.conflitos > 0 || saude.errosOrigem > 0) {
+  if (
+    saude.postosFaltando > 0
+    || saude.vinculosPendentes > 0
+    || saude.conflitos > 0
+    || saude.errosOrigem > 0
+    || saude.atribuicoesSemFuncao > 0
+  ) {
     return 'CRITICO';
   }
   if (saude.avisos > 0) {
@@ -240,16 +312,21 @@ export function avaliarSaudePlantao(params: {
       ? params.erros.length
       : params.erros.filter((erro) => funcaoDoErroPlantao(erro) === filtro).length;
     const avisos = filtro === 'TODOS' ? params.avisos.length : 0;
+    const atribuicoesSemFuncao = filtro === 'TODOS' && ehMultiposto
+      ? params.atribuicoes.filter((atribuicao) => atribuicao.funcao === undefined).length
+      : 0;
 
     const base = {
       atribuicoes: atribuicoesFiltradas.length,
       pessoasUnicas: pessoas.length,
+      ocorrencias: ocorrencias.length,
       minutosCobertura,
       postosFaltando,
       vinculosPendentes,
       conflitos,
       errosOrigem,
       avisos,
+      atribuicoesSemFuncao,
     };
     return { ...base, status: calcularStatusSaude(base) };
   }
@@ -272,6 +349,9 @@ export function avaliarSaudePlantao(params: {
   }
   if (todos.errosOrigem > 0) {
     bloqueiosGlobais.push(`${todos.errosOrigem} erro(s) de origem.`);
+  }
+  if (todos.atribuicoesSemFuncao > 0) {
+    bloqueiosGlobais.push(`${todos.atribuicoesSemFuncao} atribuição(ões) sem posto definido.`);
   }
 
   return { todos, porFuncao, podePublicar: bloqueiosGlobais.length === 0, bloqueiosGlobais };

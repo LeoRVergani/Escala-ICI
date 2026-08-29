@@ -9,6 +9,8 @@ import {
   conflitosRelevantesPlantao,
   filtrarAtribuicoesPlantaoPorFuncao,
   funcaoDoErroPlantao,
+  funcaoPermitidaNoGrupo,
+  validarFuncoesContraGrupo,
   vinculosPendentesPorFuncao,
 } from './plantaoMultiposto';
 
@@ -215,5 +217,85 @@ describe('avaliarSaudePlantao — status e podePublicar', () => {
     expect(saude.todos.status).toBe('CRITICO');
     expect(saude.podePublicar).toBe(false);
     expect(saude.bloqueiosGlobais.some((texto) => texto.includes('posto'))).toBe(true);
+  });
+
+  /** §31 — atribuição sem função em Grupo multiposto é sempre bloqueante, nunca aceita silenciosamente. */
+  it('TESTE ATRIBUIÇÃO SEM FUNÇÃO — nunca aceita silenciosamente em Grupo multiposto', () => {
+    const atribuicoes = [
+      atribuicao({ plantonistaNomeOriginal: 'João' }), // sem funcao
+    ];
+    const saude = avaliarSaudePlantao({ grupo: { funcoesEsperadas: FUNCOES_CODB }, atribuicoes, vinculos: [], erros: [], avisos: [] });
+
+    expect(saude.todos.atribuicoesSemFuncao).toBe(1);
+    expect(saude.todos.status).toBe('CRITICO');
+    expect(saude.podePublicar).toBe(false);
+    expect(saude.bloqueiosGlobais.some((texto) => texto.includes('sem posto'))).toBe(true);
+  });
+
+  it('em Grupo de posto único, atribuição sem função nunca é bloqueante (retrocompatibilidade)', () => {
+    const atribuicoes = [atribuicao({ plantonistaNomeOriginal: 'João' })];
+    const saude = avaliarSaudePlantao({ grupo: {}, atribuicoes, vinculos: [], erros: [], avisos: [] });
+
+    expect(saude.todos.atribuicoesSemFuncao).toBe(0);
+    expect(saude.todos.status).toBe('OK');
+    expect(saude.podePublicar).toBe(true);
+  });
+
+  /** §35 — status por função reflete exatamente o mais crítico; resultado deve ser preciso o suficiente para a UI apontar a função exata. */
+  it('TESTE PRÉ-PUBLICAÇÃO — cada função com seu próprio status, podePublicar reflete o pior caso', () => {
+    const atribuicoes = [
+      atribuicao({ plantonistaNomeOriginal: 'João', funcao: 'DBA' }),
+      atribuicao({ plantonistaNomeOriginal: 'Maria', funcao: 'LINUX' }),
+      // TELECOM ausente desta ocorrência — vira posto faltando (CRITICO).
+      atribuicao({ plantonistaNomeOriginal: 'Ana', funcao: 'WINDOWS' }),
+    ];
+    const vinculos = [vinculo('João', 'VINCULADO'), vinculo('Maria', 'PENDENTE'), vinculo('Ana', 'VINCULADO')];
+    const saude = avaliarSaudePlantao({ grupo: { funcoesEsperadas: FUNCOES_CODB }, atribuicoes, vinculos, erros: [], avisos: [] });
+
+    expect(saude.porFuncao.DBA?.status).toBe('OK');
+    expect(saude.porFuncao.LINUX?.status).toBe('CRITICO'); // vínculo pendente
+    expect(saude.porFuncao.TELECOM?.status).toBe('CRITICO'); // posto faltando
+    expect(saude.porFuncao.WINDOWS?.status).toBe('OK');
+    expect(saude.podePublicar).toBe(false);
+  });
+});
+
+describe('funcaoPermitidaNoGrupo (§10)', () => {
+  it('Grupo multiposto exige funcao presente E pertencente a funcoesEsperadas', () => {
+    expect(funcaoPermitidaNoGrupo({ funcoesEsperadas: ['DBA', 'LINUX'] }, 'DBA')).toBe(true);
+    expect(funcaoPermitidaNoGrupo({ funcoesEsperadas: ['DBA', 'LINUX'] }, 'TELECOM')).toBe(false);
+    expect(funcaoPermitidaNoGrupo({ funcoesEsperadas: ['DBA', 'LINUX'] }, undefined)).toBe(false);
+  });
+
+  it('Grupo de posto único sempre aceita funcao ausente (retrocompatibilidade)', () => {
+    expect(funcaoPermitidaNoGrupo({}, undefined)).toBe(true);
+    expect(funcaoPermitidaNoGrupo({ funcoesEsperadas: [] }, undefined)).toBe(true);
+  });
+});
+
+describe('validarFuncoesContraGrupo — validação da importação contra o Grupo específico (§11/§29/§30)', () => {
+  it('real CODB: DBA/LINUX/TELECOM/WINDOWS todas pertencem a funcoesEsperadas — zero erro', () => {
+    const atribuicoes = (['DBA', 'LINUX', 'TELECOM', 'WINDOWS'] as const).map((funcao) =>
+      atribuicao({ plantonistaNomeOriginal: `Pessoa ${funcao}`, funcao }));
+    const erros = validarFuncoesContraGrupo(atribuicoes, FUNCOES_CODB);
+    expect(erros).toEqual([]);
+  });
+
+  /** §30 — TESTE GRUPO REDUZIDO: prova que a validação usa o Grupo, não só o enum global. */
+  it('TESTE GRUPO REDUZIDO — grupo espera só DBA/LINUX; TELECOM no arquivo é bloqueado nomeadamente', () => {
+    const atribuicoes = [
+      atribuicao({ plantonistaNomeOriginal: 'João', funcao: 'DBA' }),
+      atribuicao({ plantonistaNomeOriginal: 'Maria', funcao: 'LINUX' }),
+      atribuicao({ plantonistaNomeOriginal: 'Carlos', funcao: 'TELECOM' }),
+    ];
+    const erros = validarFuncoesContraGrupo(atribuicoes, ['DBA', 'LINUX']);
+    expect(erros).toHaveLength(1);
+    expect(erros[0]?.motivo).toMatch(/Telecom.*não está configurada/i);
+    expect(erros[0]?.coluna).toBe('Plantonista Telecom');
+  });
+
+  it('Grupo de posto único nunca valida função — retrocompatibilidade total', () => {
+    const atribuicoes = [atribuicao({ plantonistaNomeOriginal: 'João', funcao: 'TELECOM' })];
+    expect(validarFuncoesContraGrupo(atribuicoes, [])).toEqual([]);
   });
 });

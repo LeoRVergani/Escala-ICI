@@ -6,6 +6,7 @@ import {
   identificarLacunasPlantao,
   TAMANHO_PALETA_IDENTIDADE_PLANTAO,
   type AtribuicaoPlantaoBruta,
+  type FuncaoPlantao,
   type LacunaPlantao,
   type MomentoPlantao,
   type PadraoHorarioPlantaoDia,
@@ -139,10 +140,20 @@ export function novoIdLocalManual(): string {
   return `manual-${proximoIdManual}`;
 }
 
+/**
+ * FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§7/§9 da fase) — `funcao` é
+ * opcional aqui de propósito: quando ausente, o `funcao` já existente na
+ * atribuição NUNCA é apagado (edição de horário/pessoa não deve limpar o
+ * posto por acidente). Só passar `funcao` explicitamente troca o posto —
+ * exatamente como qualquer outro campo desta função, isso é só working
+ * copy em memória (Editar → Salvar rascunho → Publicar depois, nunca
+ * grava Firestore aqui). Nunca altera `usuario.funcao`/cadastro — o campo
+ * pertence só à atribuição.
+ */
 export function editarAtribuicaoEditavel(
   atribuicoes: readonly AtribuicaoPlantaoEditavel[],
   idLocal: string,
-  alteracoes: { plantonistaNomeOriginal: string; inicio: MomentoPlantao; fim: MomentoPlantao },
+  alteracoes: { plantonistaNomeOriginal: string; inicio: MomentoPlantao; fim: MomentoPlantao; funcao?: FuncaoPlantao },
 ): AtribuicaoPlantaoEditavel[] {
   return atribuicoes.map((atribuicao) => {
     if (atribuicao.idLocal !== idLocal) {
@@ -155,6 +166,7 @@ export function editarAtribuicaoEditavel(
       inicio: alteracoes.inicio,
       fim: alteracoes.fim,
       duracaoMinutos,
+      ...(alteracoes.funcao === undefined ? {} : { funcao: alteracoes.funcao }),
     };
   });
 }
@@ -226,12 +238,22 @@ export function construirAtribuicaoDoPadraoHorario(opcoes: {
  * vazio, data inicial/final vazia, fim &lt;= início. Duração atípica (nem
  * 12h nem 24h) NUNCA bloqueia aqui — vira aviso não-bloqueante em outro
  * lugar (`duracaoPlantaoAtipica()`, já existente no Dashboard).
+ *
+ * FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§2/§4/§31 da fase) —
+ * `funcoesEsperadas` (default `[]`, Grupo de posto único, comportamento
+ * inalterado) torna `entrada.funcao` obrigatório quando não vazio: um
+ * Grupo multiposto nunca aceita silenciosamente uma atribuição sem posto,
+ * seja criada em "Todos" ou em qualquer aba específica.
  */
-export function validarAtribuicaoEditavel(entrada: {
-  plantonistaNomeOriginal: string;
-  inicio: MomentoPlantao;
-  fim: MomentoPlantao;
-}): string[] {
+export function validarAtribuicaoEditavel(
+  entrada: {
+    plantonistaNomeOriginal: string;
+    inicio: MomentoPlantao;
+    fim: MomentoPlantao;
+    funcao?: FuncaoPlantao;
+  },
+  funcoesEsperadas: readonly FuncaoPlantao[] = [],
+): string[] {
   const erros: string[] = [];
   if (entrada.plantonistaNomeOriginal.trim() === '') {
     erros.push('Selecione ou informe o plantonista.');
@@ -241,6 +263,9 @@ export function validarAtribuicaoEditavel(entrada: {
   }
   if (entrada.fim.data.trim() === '' || entrada.fim.hora.trim() === '') {
     erros.push('Informe a data e a hora finais.');
+  }
+  if (funcoesEsperadas.length > 0 && entrada.funcao === undefined) {
+    erros.push('Selecione o posto (função) desta atribuição.');
   }
   if (erros.length === 0) {
     const duracaoMinutos = calcularDuracaoEntreMomentos(entrada.inicio, entrada.fim);
