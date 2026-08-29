@@ -20,6 +20,7 @@ Esta pasta concentra a fonte normativa atual do projeto. Checkpoints e arquivos 
 15. `INFORMACOES_ESCALA.md` — informações operacionais dia/pessoa-dia (Feriado, Treinamento, DU, Férias...), separadas de `TurnosMes` e reaproveitando 100% da Matriz para autorização. Parte B1 (domínio/Rules/repository) concluída; Dashboard/App/importação ainda pendentes.
 16. `PLANTAO_CODB.md` — Plantão CODB é UM GrupoPlantao multi-função (postos DBA/Linux/Telecom/Windows na mesma atribuição, via `FuncaoPlantao`), com anchor técnico `GEDSI_CODB_PLANTAO` — nunca quatro Equipes/Grupos/Matrizes/publicações. Separa definitivamente a responsabilidade do Coordenador CODB (Plantão CODB) da Supervisora NOC (Jornada NOC): hierarquia nunca concede escala. Parser/domínio/Rules concluídos; provisionamento em staging, Hub, Editor, importação real e App ainda pendentes.
 17. `IMPORTADOR_UNIVERSAL_ESCALAS.md` — modelo canônico neutro (`RegistroEscalaCanonico`) e entrypoint único de análise (`analisarArquivoEscalaPlantao()`) para o domínio Plantão, por trás dos parsers/detectores já existentes (nunca substituídos). Corrigiu a causa raiz real de "4 plantonistas em vez de 17" no Plantão CODB. Jornada 6x1 e o scanner genérico de qualquer estrutura tabular ainda não migrados — dívida documentada na própria spec.
+18. `PLANTAO_MULTIPOSTO.md` — spec genérica (não específica de CODB) do workspace de Plantão multi-função: tabs Todos/postos geradas de `grupo.funcoesEsperadas`, cards de saúde por posto (`CardFuncaoPlantao`), filtro único (`filtrarAtribuicoesPlantaoPorFuncao`), vínculos/conflitos/postos-faltando por posto (`lib/plantaoMultiposto.ts`), e "Nova escala" com posto único ou múltiplos postos. `FuncaoPlantao` continua o enum fechado atual — postos além dele exigem evolução de modelo, fora desta fase.
 
 ## Specs herdadas ainda válidas por domínio
 
@@ -36,6 +37,7 @@ Esta pasta concentra a fonte normativa atual do projeto. Checkpoints e arquivos 
 - `INFORMACOES_ESCALA.md` — domínio de informações operacionais dia/pessoa-dia, apartado de `TurnosMes`, sem ACL paralela à Matriz.
 - `PLANTAO_CODB.md` — Plantão CODB como GrupoPlantao multi-função (`FuncaoPlantao`), anchor técnico `GEDSI_CODB_PLANTAO`, e a separação hierarquia×responsabilidade entre Coordenador CODB e Supervisora NOC.
 - `IMPORTADOR_UNIVERSAL_ESCALAS.md` — modelo canônico e entrypoint único de análise do domínio Plantão (fonte única e multi-função), reaproveitando os parsers/detectores existentes.
+- `PLANTAO_MULTIPOSTO.md` — workspace de Plantão multi-função (tabs/cards/filtro/saúde por posto) e Nova escala com posto único ou múltiplos postos.
 
 Nota ESCOPO-OPERACIONAL-MATRIZ-1: a tela **Administração → Responsáveis por
 escala** é a interface normativa para configurar responsáveis. Seed/fixture
