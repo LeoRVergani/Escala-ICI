@@ -144,6 +144,16 @@ XLS
  → montarAtribuicoesPlantaoRascunho()         (funcao passa intacto para AtribuicaoPlantaoPersistida)
 ```
 
+FASE-IMPORTADOR-UNIVERSAL-1 (`docs/spec/IMPORTADOR_UNIVERSAL_ESCALAS.md`)
+— o entrypoint real do Dashboard (`lib/importadorPlanilha.ts`) agora
+decide multi-fonte × fonte única através de
+`analisarArquivoEscalaPlantao()` ANTES de qualquer outra detecção. Isso
+corrigiu um bug real: o detector de fonte única aceitava sozinho a última
+coluna "Plantonista Windows" (contígua às colunas de data) como se fosse
+a planilha inteira, produzindo só 1 dos 4 postos no Dashboard ("4
+plantonistas" em vez de 17). Ver a spec do importador para o pipeline
+completo e os limites documentados desta fase.
+
 `funcaoPlantaoDaFonte(fonte)` normaliza (trim + uppercase + remove
 acentos) o texto verbatim do cabeçalho ("Linux"/"Telecom"/"Windows", só
 "DBA" já nasce maiúsculo) — uma coluna cujo cabeçalho não bate com nenhum
