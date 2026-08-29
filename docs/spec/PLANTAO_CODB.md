@@ -214,14 +214,19 @@ MESMO Grupo, nunca uma rota/aba principal nova. Contabilidade (total de
 plantões, horas, alertas) continua agregada; função fica disponível para
 filtrar/exibir, nunca obrigatória para o cálculo.
 
-Implementado em `FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1`
+Implementado em `FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1` e
+`FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1`
 (`docs/spec/PLANTAO_MULTIPOSTO.md`, spec genérica — não específica de
 CODB): tabs geradas de `grupo.funcoesEsperadas`, cards de saúde por
-posto, calendário/roster/contabilidade já recebem a lista filtrada, e
-"Nova escala" agora oferece posto único ou múltiplos postos ao criar um
-Grupo. Ver a spec genérica para o modelo completo (filtro, saúde,
-vínculos por função, correção da sobreposição para não confundir postos
-paralelos com conflito, e as dívidas técnicas ainda pendentes).
+posto, calendário/roster/contabilidade já recebem a lista filtrada,
+"Nova escala" oferece posto único ou múltiplos postos ao criar um Grupo,
+criar/editar uma atribuição exige o posto correto (nunca aceito
+silenciosamente ausente), a aba Vínculos prioriza a função selecionada, a
+importação valida a função encontrada contra `grupo.funcoesEsperadas`
+específico (não só o enum global), e "Revisar publicação" resume a
+saúde por posto com o gate de publicação baseado em
+`ResultadoSaudePlantao.podePublicar`. Ver a spec genérica para o modelo
+completo e as dívidas técnicas ainda pendentes.
 
 ## 17. Responsabilidade operacional
 
