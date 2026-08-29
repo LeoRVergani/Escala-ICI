@@ -5578,6 +5578,68 @@ fieldset.checkbox-card-list > legend {
   margin-top: var(--space-3);
 }
 .plantao-cards-funcao .overview-operation-card.selected { border-color: var(--primary-bright); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-bright) 28%, transparent); }
+/*
+ * FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§19/§20) — o card deixou de
+ * ser um único <button> (não é HTML válido aninhar botões) e virou um
+ * <article> com dois botões-irmãos: o corpo inteiro (navega para o
+ * Calendário da função) e, quando há pendência, "Resolver vínculos"
+ * (navega para a aba Vínculos já filtrada). `.plantao-card-funcao-corpo`
+ * reseta a aparência de botão para continuar indistinguível do card
+ * antigo.
+ */
+.plantao-card-funcao { cursor: default; }
+.plantao-card-funcao-corpo {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.plantao-card-funcao-vinculos { width: 100%; justify-content: center; margin-top: 12px; }
+
+/* FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§15-18) — contexto de função na aba Vínculos. */
+.plantao-vinculos-contexto-funcao { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: var(--space-3); padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); font-size: 12px; font-weight: 700; }
+
+/* FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§21-24) — modal "Revisar publicação". */
+.plantao-revisao-modal { width: min(560px, 100%); }
+.plantao-revisao-status-geral { display: inline-flex; align-items: center; gap: 7px; margin-top: var(--space-3); }
+.plantao-revisao-icone-ok { color: var(--success); }
+.plantao-revisao-icone-atencao { color: var(--warning); }
+.plantao-revisao-icone-critico { color: var(--danger); }
+.plantao-revisao-subtitulo { margin: var(--space-4) 0 var(--space-2); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.plantao-revisao-lista { display: flex; flex-direction: column; gap: 8px; list-style: none; padding: 0; margin: 0; }
+.plantao-revisao-linha {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.plantao-revisao-linha:hover { border-color: var(--primary-bright); background: var(--primary-soft); }
+.plantao-revisao-linha.ok { border-left-color: var(--success); }
+.plantao-revisao-linha.atencao { border-left-color: var(--warning); }
+.plantao-revisao-linha.critico { border-left-color: var(--danger); }
+.plantao-revisao-linha-titulo { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; font-weight: 700; font-size: 12px; }
+.plantao-revisao-linha-status { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); }
+.plantao-revisao-linha-acao { flex: 0 0 auto; color: var(--primary-bright); }
+@media (max-width: 640px) {
+  .plantao-revisao-linha { flex-wrap: wrap; }
+  .plantao-revisao-linha-status { white-space: normal; }
+}
 @media (max-width: 960px) {
   .plantao-cards-funcao { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

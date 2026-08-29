@@ -83,10 +83,30 @@ test('a importação e a reabertura de Plantão carregam usuários da equipe res
     /listarUsuariosElegiveisPlantao\(grupo\.equipeResponsavelId, grupo\.grupoId, grupo\.unidadeResponsavelId, grupo\.equipesConsulta\)/u,
     'o catálogo de vínculos deve vir da equipe/unidade responsável pelo Grupo de Plantão (PATCH-PLANTAO-VINCULO-GESTOR-COMO-PARTICIPANTE-1 — pool ampliado, mesmo alvo)',
   );
+  /*
+   * FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 — `processado.resultado` passou
+   * por `validarFuncoesContraGrupo()` (funções do arquivo vs.
+   * `grupo.funcoesEsperadas` específico, não só o enum global) antes de
+   * chegar em `interpretarPlantao()`, produzindo `resultadoPlantaoValidado`
+   * — mas continua sendo o MESMO resultado (nunca um segundo parse
+   * independente): sem erro de função fora do Grupo, é literalmente
+   * `processado.resultado`; com erro, é `processado.resultado` com
+   * `erros` estendido. A checagem agora exige essa derivação explícita.
+   */
   assert.match(
     dashboard,
-    /interpretarPlantao\(buffer, file\.name, processado\.resultado, opcoesPlantao, usuariosDoGrupo\)/u,
-    'o preview precisa receber a lista recém-carregada, sem depender do setState assíncrono',
+    /const errosFuncaoForaDoGrupo = validarFuncoesContraGrupo\(processado\.resultado\.atribuicoes, grupo\.funcoesEsperadas \?\? \[\]\);/u,
+    'as funções do arquivo precisam ser validadas contra grupo.funcoesEsperadas especificamente, não só o enum global',
+  );
+  assert.match(
+    dashboard,
+    /const resultadoPlantaoValidado = errosFuncaoForaDoGrupo\.length === 0\s*\n\s*\? processado\.resultado/u,
+    'sem erro de função fora do Grupo, o resultado precisa continuar sendo processado.resultado — nunca um segundo parse',
+  );
+  assert.match(
+    dashboard,
+    /interpretarPlantao\(buffer, file\.name, resultadoPlantaoValidado, opcoesPlantao, usuariosDoGrupo\)/u,
+    'o preview precisa receber a lista recém-carregada (já validada contra o Grupo), sem depender do setState assíncrono',
   );
 });
 

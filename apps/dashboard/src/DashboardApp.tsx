@@ -193,10 +193,12 @@ import {
   avaliarSaudePlantao,
   filtrarAtribuicoesPlantaoPorFuncao,
   ROTULO_FUNCAO_PLANTAO,
+  validarFuncoesContraGrupo,
   type FiltroFuncaoPlantao,
 } from '@/lib/plantaoMultiposto';
 import { PlantaoCalendario } from '@/components/plantao/PlantaoCalendario';
 import { CardFuncaoPlantao } from '@/components/plantao/CardFuncaoPlantao';
+import { RevisarPublicacaoPlantaoModal } from '@/components/plantao/RevisarPublicacaoPlantaoModal';
 import { PlantaoRoster } from '@/components/plantao/PlantaoRoster';
 import { QuickAddPlantaoPopover } from '@/components/plantao/QuickAddPlantaoPopover';
 import {
@@ -2794,6 +2796,29 @@ function PreviewPlantao({
     }
   }
 
+  /**
+   * FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§15-18 da fase) — aba
+   * Vínculos passa a priorizar quem tem atribuição na função selecionada,
+   * sem perder o contexto ("Mostrar todos os vínculos" sempre disponível).
+   * Reseta ao trocar de função — nunca herda "mostrar todos" de uma função
+   * para outra.
+   */
+  const [mostrarTodosVinculosPlantao, setMostrarTodosVinculosPlantao] = useState(false);
+  /**
+   * Reset "durante o render" (padrão recomendado pelo React para resetar
+   * estado quando um valor muda, em vez de `useEffect` — evita o
+   * cascading-render que a regra `react-hooks/set-state-in-effect` aponta).
+   */
+  const [funcaoAnteriorParaResetVinculos, setFuncaoAnteriorParaResetVinculos] = useState(funcaoSelecionada);
+  if (funcaoAnteriorParaResetVinculos !== funcaoSelecionada) {
+    setFuncaoAnteriorParaResetVinculos(funcaoSelecionada);
+    setMostrarTodosVinculosPlantao(false);
+  }
+  const nomesNaFuncaoSelecionada = new Set(atribuicoesFiltradas.map((item) => normalizarNome(item.plantonistaNomeOriginal)));
+  const participantesExibidosVinculos = (funcaoSelecionada === 'TODOS' || mostrarTodosVinculosPlantao)
+    ? participantes
+    : participantes.filter((participante) => nomesNaFuncaoSelecionada.has(normalizarNome(participante.nomeOriginal)));
+
   return (
     <div className="plantao-preview-fluxo">
       <article className="panel plantao-resumo-panel plantao-preview-fonte">
@@ -2924,6 +2949,10 @@ function PreviewPlantao({
                     onSelecionar={() => {
                       onMudarFuncaoSelecionada(funcao);
                       onMudarAba('calendario');
+                    }}
+                    onResolverVinculos={() => {
+                      onMudarFuncaoSelecionada(funcao);
+                      onMudarAba('vinculos');
                     }}
                   />
                 );
@@ -3132,13 +3161,33 @@ function PreviewPlantao({
         )}
 
         {aba === 'vinculos' && (
+          <>
+            {ehMultiposto && (
+              <div className="plantao-vinculos-contexto-funcao">
+                <span>
+                  {funcaoSelecionada === 'TODOS'
+                    ? `Vínculos — Todos (${participantesExibidosVinculos.length} participante(s))`
+                    : `Vínculos — ${ROTULO_FUNCAO_PLANTAO[funcaoSelecionada]} (${participantesExibidosVinculos.length} participante(s))`}
+                </span>
+                {funcaoSelecionada !== 'TODOS' && !mostrarTodosVinculosPlantao && (
+                  <button type="button" className="link-button" onClick={() => setMostrarTodosVinculosPlantao(true)}>
+                    Mostrar todos os vínculos
+                  </button>
+                )}
+                {funcaoSelecionada !== 'TODOS' && mostrarTodosVinculosPlantao && (
+                  <button type="button" className="link-button" onClick={() => setMostrarTodosVinculosPlantao(false)}>
+                    Voltar para {ROTULO_FUNCAO_PLANTAO[funcaoSelecionada]}
+                  </button>
+                )}
+              </div>
+            )}
           <div className="table-scroll">
             <table className="data-table conciliation-table">
               <thead>
                 <tr><th>Participante</th><th>Encontrado na planilha</th><th>Vincular a</th><th>Status</th><th>Ação</th></tr>
               </thead>
               <tbody>
-                {participantes.map((participante) => {
+                {participantesExibidosVinculos.map((participante) => {
                   const vinculo = vinculoPorParticipante.get(participante.nomeOriginal);
                   if (vinculo === undefined) {
                     return null;
@@ -3261,6 +3310,7 @@ function PreviewPlantao({
               </tbody>
             </table>
           </div>
+          </>
         )}
       </article>
     </div>
@@ -3410,6 +3460,8 @@ export function DashboardApp() {
    * função selecionada de uma prévia para a próxima.
    */
   const [funcaoSelecionadaPlantao, setFuncaoSelecionadaPlantao] = useState<FiltroFuncaoPlantao>('TODOS');
+  /** FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§21 da fase) — modal "Revisar publicação", só para Grupo multi-função. */
+  const [revisarPublicacaoPlantaoAberta, setRevisarPublicacaoPlantaoAberta] = useState(false);
   /**
    * Fase ESCALAS-UX-2B — confirmação contextual do padrão do Grupo
    * (`QuickAddPlantaoPopover`), aberta por `solicitarNovaAtribuicaoPlantao()`
@@ -3687,8 +3739,40 @@ export function DashboardApp() {
   );
   const pendenciasVinculoPlantao = contarPendenciasVinculoPlantao(vinculosPlantao);
   const previaPlantaoPodeValidar = previaPlantaoValidavel(vinculosPlantao);
+  /**
+   * FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 — lookup único do Grupo em
+   * contexto no rascunho, reaproveitado por `PreviewPlantao`, pelo Modal de
+   * atribuição e pelo gate de publicação abaixo (nunca um segundo find()
+   * divergente).
+   */
+  const grupoRascunhoPlantaoEmContexto = gruposPlantaoAdmin.find((item) => item.grupoId === grupoRascunhoEscolhido);
+  const funcoesEsperadasRascunhoPlantao = grupoRascunhoPlantaoEmContexto?.funcoesEsperadas ?? [];
+  /**
+   * §21/§25/§26 da fase — `avaliarSaudePlantao()` é a ÚNICA fonte do gate
+   * de publicação para Grupo multi-função; `null` para posto único
+   * (`funcoesEsperadasRascunhoPlantao` vazio), então `rascunhoPlantaoProntoParaPublicar`
+   * abaixo continua exatamente como antes desta fase nesse caso — zero
+   * regressão para Plantão COSI (§36 da fase).
+   */
+  const saudePlantaoRascunho = funcoesEsperadasRascunhoPlantao.length > 0
+    ? avaliarSaudePlantao({
+      grupo: { funcoesEsperadas: funcoesEsperadasRascunhoPlantao },
+      atribuicoes: atribuicoesEditaveisPlantao,
+      vinculos: vinculosPlantao,
+      erros: resultadoPlantao?.erros ?? [],
+      avisos: resultadoPlantao?.avisos ?? [],
+    })
+    : null;
   const rascunhoPlantaoProntoParaPublicar = rascunhoPlantaoSalvoEm === grupoRascunhoEscolhido
     && !plantaoPossuiAlteracoesNaoSalvas;
+  /**
+   * §25/§26 da fase — fonte NORMATIVA do gate de saúde: `null` (posto
+   * único) nunca bloqueia, exatamente como antes desta fase. Nunca usar
+   * `alertas.length > 0` aqui — um ALERTA (`status: 'ATENCAO'`) não é
+   * bloqueante; só `podePublicar === false` (equivalente a algum posto em
+   * `status: 'CRITICO'`) bloqueia de verdade.
+   */
+  const podePublicarPlantaoPelaSaude = saudePlantaoRascunho === null || saudePlantaoRascunho.podePublicar;
   /**
    * Gate na identidade REAL, nunca na simulada — a aba de Administração
    * precisa continuar acessível (para "Sair da simulação") mesmo enquanto o
@@ -4942,6 +5026,7 @@ export function DashboardApp() {
         plantonistaNomeOriginal: atribuicao.plantonistaNomeOriginal,
         inicio: atribuicao.inicio,
         fim: atribuicao.fim,
+        ...(atribuicao.funcao === undefined ? {} : { funcao: atribuicao.funcao }),
       },
     });
   }
@@ -4967,6 +5052,10 @@ export function DashboardApp() {
         plantonistaNomeOriginal: plantonistaNomeOriginal ?? plantonistaSelecionadoPlantao ?? '',
         inicio: { data: dataIso, hora: '' },
         fim: { data: dataIso, hora: '' },
+        // FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§3 da fase) — criar a partir de uma aba
+        // específica (DBA/Linux/Telecom/Windows) já preenche o posto; a partir de "Todos",
+        // o campo nasce vazio e a escolha é obrigatória (ver validarAtribuicaoEditavel()).
+        ...(funcaoSelecionadaPlantao === 'TODOS' ? {} : { funcao: funcaoSelecionadaPlantao }),
       },
     });
   }
@@ -4998,8 +5087,15 @@ export function DashboardApp() {
    */
   function criarAtribuicaoPlantaoNaWorkingCopy(valores: FormularioAtribuicaoPlantao) {
     const abaOrigem = resultadoPlantao?.atribuicoes[0]?.abaOrigem ?? '';
-    const funcao = funcaoSelecionadaPlantao === 'TODOS' ? {} : { funcao: funcaoSelecionadaPlantao };
-    setAtribuicoesEditaveisPlantao((atuais) => adicionarAtribuicaoEditavel(atuais, { ...valores, abaOrigem, ...funcao }));
+    // `valores.funcao` (escolhido no Modal) sempre manda quando presente; o
+    // quick-add (construirAtribuicaoDoPadraoHorario()) ainda não tem campo
+    // de posto, então cai no fallback da aba selecionada no momento.
+    const funcaoResolvida = valores.funcao ?? (funcaoSelecionadaPlantao === 'TODOS' ? undefined : funcaoSelecionadaPlantao);
+    setAtribuicoesEditaveisPlantao((atuais) => adicionarAtribuicaoEditavel(atuais, {
+      ...valores,
+      abaOrigem,
+      ...(funcaoResolvida === undefined ? {} : { funcao: funcaoResolvida }),
+    }));
     marcarPlantaoEditadoNoEditor();
   }
 
@@ -5903,7 +5999,22 @@ export function DashboardApp() {
       setResultado(null);
       setJornadaPossuiAlteracoesNaoSalvas(false);
       setLinhasConciliacao([]);
-      interpretarPlantao(buffer, file.name, processado.resultado, opcoesPlantao, usuariosDoGrupo);
+      /**
+       * FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§11-13/§29/§30 da fase) —
+       * valida as funções ENCONTRADAS no arquivo contra `grupo.funcoesEsperadas`
+       * ESPECIFICAMENTE (nunca só o enum global `FuncaoPlantao`, que
+       * `processarArquivoImportado()` já usa por baixo). Uma função que o
+       * enum conhece mas que este Grupo não espera vira erro BLOQUEANTE
+       * nomeado, mesclado aos erros já existentes — nunca adiciona a função
+       * a `funcoesEsperadas` sozinho, nunca cria posto/Grupo (§12). Grupo de
+       * posto único nunca passa por aqui com erro (`validarFuncoesContraGrupo`
+       * retorna `[]` quando `funcoesEsperadas` está vazio).
+       */
+      const errosFuncaoForaDoGrupo = validarFuncoesContraGrupo(processado.resultado.atribuicoes, grupo.funcoesEsperadas ?? []);
+      const resultadoPlantaoValidado = errosFuncaoForaDoGrupo.length === 0
+        ? processado.resultado
+        : { ...processado.resultado, ok: false, erros: [...processado.resultado.erros, ...errosFuncaoForaDoGrupo] };
+      interpretarPlantao(buffer, file.name, resultadoPlantaoValidado, opcoesPlantao, usuariosDoGrupo);
       return true;
     }
     setResultadoPlantao(null);
@@ -9188,11 +9299,26 @@ export function DashboardApp() {
                         {salvandoRascunhoPlantao ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}
                         Salvar rascunho
                       </button>
+                      {saudePlantaoRascunho !== null && (
+                        <button
+                          className="secondary-button compact-button"
+                          type="button"
+                          onClick={() => setRevisarPublicacaoPlantaoAberta(true)}
+                        >
+                          <ShieldCheck size={15} /> Revisar publicação
+                        </button>
+                      )}
                       <button
                         className="primary-button compact-button"
                         type="button"
-                        title={!rascunhoPlantaoProntoParaPublicar ? 'Salve o rascunho atual antes de publicar.' : undefined}
-                        disabled={publicandoPlantao || salvandoRascunhoPlantao || !rascunhoPlantaoProntoParaPublicar}
+                        title={
+                          !rascunhoPlantaoProntoParaPublicar
+                            ? 'Salve o rascunho atual antes de publicar.'
+                            : !podePublicarPlantaoPelaSaude
+                              ? 'Existem problemas que precisam ser corrigidos antes de publicar — veja "Revisar publicação".'
+                              : undefined
+                        }
+                        disabled={publicandoPlantao || salvandoRascunhoPlantao || !rascunhoPlantaoProntoParaPublicar || !podePublicarPlantaoPelaSaude}
                         onClick={() => void publicarPlantaoAcao()}
                       >
                         {publicandoPlantao ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}
@@ -9430,9 +9556,25 @@ export function DashboardApp() {
               modo={modalAtribuicaoPlantao.modo}
               participantesConhecidos={participantesPlantao.map((participante) => participante.nomeOriginal)}
               padroesDisponiveis={padroesHorarioModalPlantao}
+              funcoesDisponiveis={funcoesEsperadasRascunhoPlantao}
               onFechar={fecharModalAtribuicaoPlantao}
               onSalvar={salvarModalAtribuicaoPlantao}
               onExcluir={modalAtribuicaoPlantao.modo === 'editar' ? excluirModalAtribuicaoPlantao : undefined}
+            />
+          )}
+
+          {revisarPublicacaoPlantaoAberta && saudePlantaoRascunho !== null && (
+            <RevisarPublicacaoPlantaoModal
+              nomeGrupo={grupoRascunhoPlantaoEmContexto?.nome ?? 'Plantão'}
+              competenciaRotulo={formatarCompetencia(competenciaRascunho)}
+              saude={saudePlantaoRascunho}
+              funcoesEsperadas={funcoesEsperadasRascunhoPlantao}
+              onFechar={() => setRevisarPublicacaoPlantaoAberta(false)}
+              onNavegarParaFuncao={(funcao, destino) => {
+                setFuncaoSelecionadaPlantao(funcao);
+                setAbaPreviaPlantao(destino);
+                setRevisarPublicacaoPlantaoAberta(false);
+              }}
             />
           )}
 
