@@ -445,6 +445,59 @@ service cloud.firestore {
         );
     }
 
+    /**
+     * HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — espelha `LOGIN_ADMIN_TECNICO_STAGING`
+     * de `lib/escoposOperacionaisMatriz.ts`: o login técnico genérico do seed
+     * inicial de staging (`scripts/staging/hierarquia-ici.mjs`,
+     * `MATRIZ_INICIAL`), nunca uma pessoa real. Função (não variável solta)
+     * porque Rules não tem constante de módulo — centraliza a string para
+     * nunca duplicá-la pelo arquivo.
+     */
+    function loginAdminTecnicoStaging() {
+      return 'admin';
+    }
+
+    /**
+     * Mesma classificação de `estadoMatrizOperacional()` (cliente), restrita
+     * ao caso que interessa às Rules: uma Matriz ativa que ainda é só o
+     * placeholder de bootstrap (`responsaveisLogin` contém só o login
+     * técnico, `responsaveisEquipe` vazio) — nenhuma responsabilidade humana
+     * real cadastrada ainda. `escopoOperacionalValido()` já garante que uma
+     * Matriz ativa nunca tem as duas listas vazias, então não há caso
+     * "bootstrap por lista vazia" a considerar aqui.
+     *
+     * NUNCA chamar diretamente sem antes confirmar `existeMatrizOperacional(...)`
+     * — `get()` sobre documento inexistente é erro de avaliação em Rules
+     * (mesma regra não-negociável de `equipeDentroDoEscopoDeUnidade()`,
+     * acima). Toda chamada (`fallbackStagingPermitidoParaAlvo()` e o ramo de
+     * hierarquia de `podeAdministrarJornada()`, abaixo) só chega aqui depois
+     * de um `&&`/`||` já ter confirmado a existência via curto-circuito — um
+     * único `let` (em vez de repetir `matrizOperacional(...)` a cada campo)
+     * evita explodir o orçamento de expressões do avaliador de Rules, já que
+     * `podeAdministrarJornada()`/`podeAdministrarEscalaPlantao()` são
+     * expandidas em múltiplos pontos do arquivo.
+     */
+    function matrizOperacionalEhBootstrapTecnico(tipo, alvoId) {
+      let m = matrizOperacional(tipo, alvoId);
+      return m.ativo == true
+        && m.responsaveisLogin.hasOnly([loginAdminTecnicoStaging()])
+        && m.responsaveisEquipe.size() == 0;
+    }
+
+    /**
+     * `true` quando o fallback AMPLO de staging (`souCoordenadorOperacionalStaging()`)
+     * ainda pode complementar a Matriz deste alvo: sem Matriz nenhuma, OU
+     * Matriz só com o placeholder técnico de bootstrap. Uma Matriz INATIVA
+     * ou já CONFIGURADA com responsável real nunca passa por aqui — decide
+     * sozinha via `matrizConcedeAdministracao()`, ou fecha o alvo
+     * (fail-closed). Nunca usado pelo fallback LEGADO (`!existeMatrizOperacional(...)`
+     * puro, sem distinguir bootstrap) — sua semântica já era correta e não
+     * muda nesta fase.
+     */
+    function fallbackStagingPermitidoParaAlvo(tipo, alvoId) {
+      return !existeMatrizOperacional(tipo, alvoId) || matrizOperacionalEhBootstrapTecnico(tipo, alvoId);
+    }
+
     function matrizConcedeConsultaPlantao(grupoId) {
       return autenticado()
         && existeMatrizOperacional('PLANTAO', grupoId)
@@ -498,19 +551,65 @@ service cloud.firestore {
         // administra Jornada de uma equipe da própria unidade (ou
         // descendente) sem depender de Matriz manual, espelhando o mesmo
         // caminho que Plantão já tinha via podeGerenciarGrupoPlantao().
+        //
+        // HOTFIX-STAGING-FALLBACK-MATRIZ-1 — até esta fase, staging
+        // ignorava `existeMatrizOperacional(...)` aqui de propósito
+        // (`|| souCoordenadorOperacionalStaging()`), então uma Matriz
+        // INATIVA (decisão operacional explícita de "este alvo está
+        // desabilitado") não bloqueava o coordenador de voltar a
+        // administrar pela hierarquia. Corrigido: matriz explícita
+        // (ativa OU inativa) agora sempre vence o fallback de staging
+        // também — `souCoordenadorOperacionalStaging()` removido do OR.
+        // Nunca amplia autorização (produção já não dependia deste OR,
+        // porque `souCoordenadorOperacionalStaging()` é sempre `false`
+        // fora de staging) — só passa a negar um caso que staging
+        // liberava indevidamente.
+        //
+        // HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — essa remoção também apagou o
+        // único caminho de staging que cobre GESTOR_UNIDADE por UNIDADE
+        // (`equipeDentroDoEscopoDeUnidade`, nunca por equipe — diferente do
+        // ramo `podeOperarNaEquipe()` mais abaixo, que só ajuda quando a
+        // própria equipe do ator é a equipe-alvo). Sem ele, um coordenador
+        // cuja equipe própria é outra (ex.: administra por UNIDADE, não por
+        // vínculo direto) ficava travado assim que o seed de bootstrap
+        // (`MATRIZ_INICIAL`) criava a Matriz — exatamente a regressão que
+        // este hotfix existe para consertar. Restaurado com precisão: o
+        // escape de staging só reabre quando a Matriz é AUSENTE ou
+        // BOOTSTRAP (`matrizOperacionalEhBootstrapTecnico`, só avaliado
+        // depois do curto-circuito já ter confirmado que a Matriz existe) —
+        // CONFIGURADA ou INATIVA continuam fechando este ramo.
         || (
           souGestorUnidade()
           && equipeId != null
-          && (!existeMatrizOperacional('JORNADA', equipeId) || souCoordenadorOperacionalStaging())
+          && (
+            !existeMatrizOperacional('JORNADA', equipeId)
+            || (souCoordenadorOperacionalStaging() && matrizOperacionalEhBootstrapTecnico('JORNADA', equipeId))
+          )
           && exists(/databases/$(database)/documents/equipes/$(equipeId))
           && equipeDentroDoEscopoDeUnidade(equipeId)
         )
         // STAGING-RESET-HIERARQUIA-ICI-1 — em staging, a Matriz ajuda a
         // navegação mas NUNCA trava um coordenador/supervisor dentro do
-        // próprio escopo, mesmo que exista (e não o liste) ou esteja
-        // inativa. Deliberadamente FORA do `!existeMatrizOperacional(...)`
-        // acima — é exatamente o caso que essa branch não cobre.
-        || (souCoordenadorOperacionalStaging() && podeOperarNaEquipe(equipeId));
+        // próprio escopo, QUANDO NÃO EXISTE NENHUMA MATRIZ para o alvo.
+        //
+        // HOTFIX-STAGING-FALLBACK-MATRIZ-1 — antes desta fase, esta branch
+        // era deliberadamente a ÚNICA sem `!existeMatrizOperacional(...)`
+        // (documentado como "é exatamente o caso que a outra branch não
+        // cobre") — ou seja, uma Matriz existente (mesmo inativa) NUNCA
+        // bloqueava este fallback. Corrigido: agora exige ausência de
+        // matriz também, para que "matriz explícita > fallback de
+        // staging" valha sempre, sem exceção.
+        //
+        // HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — essa correção absoluta
+        // também travava o mecanismo deliberado de bootstrap: uma Matriz
+        // recém-semeada (`MATRIZ_INICIAL`, ativa, só listando o login
+        // técnico) passou a bloquear o fallback igual a uma Matriz já
+        // CONFIGURADA — trancando todo coordenador legítimo até um humano
+        // ser cadastrado manualmente. Corrigido com precisão:
+        // `fallbackStagingPermitidoParaAlvo(...)` libera quando a Matriz
+        // está AUSENTE ou é só BOOTSTRAP técnico; bloqueia quando está
+        // CONFIGURADA (responsável real) ou INATIVA.
+        || (fallbackStagingPermitidoParaAlvo('JORNADA', equipeId) && souCoordenadorOperacionalStaging() && podeOperarNaEquipe(equipeId));
     }
 
     function podeAdministrarEscalaPlantao(grupoId) {
@@ -519,10 +618,24 @@ service cloud.firestore {
         // Mesmo fallback transitório, restrito a alvos sem matriz.
         || (!existeMatrizOperacional('PLANTAO', grupoId) && podeGerenciarGrupoPlantao(grupoPlantaoPorId(grupoId)))
         // STAGING-RESET-HIERARQUIA-ICI-1 — mesmo raciocínio de
-        // podeAdministrarJornada(): liberação de staging fica FORA do
-        // `!existeMatrizOperacional(...)`, para não ser bloqueada por uma
-        // Matriz existente que não lista o coordenador de teste.
-        || (souCoordenadorOperacionalStaging() && escopoDoGrupoPlantaoNoMeuAlcance(grupoPlantaoPorId(grupoId)));
+        // podeAdministrarJornada(): liberação de staging só quando NÃO
+        // existe matriz para o alvo.
+        //
+        // HOTFIX-STAGING-FALLBACK-MATRIZ-1 — `!existeMatrizOperacional(...)`
+        // adicionado: antes, esta branch ficava deliberadamente FORA dessa
+        // checagem ("para não ser bloqueada por uma Matriz existente que
+        // não lista o coordenador de teste"), o que também significava que
+        // uma Matriz INATIVA (ex.: `PLANTAO_NOC`, tombstone de um Grupo
+        // legado desativado — `docs/spec/PLANTAO_CODB.md`) não bloqueava
+        // este fallback hierárquico. Agora bloqueia: matriz explícita
+        // (ativa ou inativa) sempre vence.
+        //
+        // HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — refinado: uma Matriz ativa
+        // recém-semeada (só o login técnico do bootstrap, `MATRIZ_INICIAL`)
+        // continua liberando este fallback — só uma Matriz CONFIGURADA
+        // (responsável real) ou INATIVA o bloqueia, via
+        // `fallbackStagingPermitidoParaAlvo(...)`.
+        || (fallbackStagingPermitidoParaAlvo('PLANTAO', grupoId) && souCoordenadorOperacionalStaging() && escopoDoGrupoPlantaoNoMeuAlcance(grupoPlantaoPorId(grupoId)));
     }
 
     /**

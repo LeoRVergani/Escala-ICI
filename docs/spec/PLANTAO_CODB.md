@@ -231,6 +231,49 @@ Plantão CODB canônico estiver criado, atribuído, importável, visível no
 Hub, publicável, e um diagnóstico final confirmar zero referências
 operacionais (script auditável, nunca delete físico).
 
+## 19b. Precedência da Matriz em staging
+
+`escoposOperacionais/PLANTAO_NOC` (`alvoId: 'NOC'`, `ativo: false`,
+`responsaveisLogin: []`, `responsaveisEquipe: []`) é um **tombstone
+temporário de migração**, não a arquitetura final — existe só para fechar
+os dois fallbacks de staging sobre o Grupo legado `gruposPlantao/NOC`
+(seção 19) enquanto ele não é desativado de vez. Remover quando o shell
+`NOC` finalmente virar `ativo: false`.
+
+Staging tem dois mecanismos de fallback (fallback legado,
+`permitirFallbackLegado`/`souGestor()`+`souGestorUnidade()`; fallback
+amplo, `permitirAmploStaging`/`souCoordenadorOperacionalStaging()`) que
+ajudam um coordenador/supervisor legítimo administrar um alvo antes de uma
+Matriz de Responsáveis (`escoposOperacionais`) existir para ele. A Matriz
+de um alvo (`tipo` + `alvoId`) se classifica em quatro estados
+(`estadoMatrizOperacional()` em `lib/escoposOperacionaisMatriz.ts`,
+espelhado em `firestore.rules` por `matrizOperacionalEhBootstrapTecnico()`/
+`fallbackStagingPermitidoParaAlvo()`):
+
+- **AUSENTE** (nenhum documento) → fallback de staging pode ajudar
+  (finalidade original).
+- **BOOTSTRAP** (`ativo: true`, `responsaveisLogin` contém *só* o login
+  técnico do seed inicial — `admin`, `scripts/staging/hierarquia-ici.mjs`,
+  `MATRIZ_INICIAL` — e `responsaveisEquipe` vazio) → fallback de staging
+  ainda pode ajudar. Todo alvo recém-semeado nasce neste estado; sem essa
+  exceção, um reset de staging trancaria todo coordenador legítimo até um
+  humano cadastrar manualmente o responsável real
+  (Administração → Responsáveis por escala).
+- **CONFIGURADA** (`ativo: true` com pelo menos um responsável real — um
+  login diferente do técnico, ou `responsaveisEquipe` não vazio) → a
+  Matriz decide sozinha; fallback de staging NUNCA complementa, mesmo que
+  o ator não esteja entre os responsáveis listados.
+- **INATIVA** (`ativo: false`) → fail-closed absoluto: nenhum fallback
+  (legado ou amplo) reabre o alvo. É exatamente o papel de
+  `escoposOperacionais/PLANTAO_NOC`.
+
+Regra de precedência: **Matriz explícita (CONFIGURADA ou INATIVA) sempre
+vence o fallback de staging.** Só a ausência de Matriz ou uma Matriz ainda
+em estado de bootstrap deixam o fallback ajudar — nunca o inverso.
+(`HOTFIX-STAGING-FALLBACK-MATRIZ-1` fechou o caso INATIVA;
+`HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1` corrigiu a correção anterior, que
+tinha ficado absoluta demais e também travava o bootstrap.)
+
 ## 20. Segurança
 
 Autorização sempre no nível do Grupo

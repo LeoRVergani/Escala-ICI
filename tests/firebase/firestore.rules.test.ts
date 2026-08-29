@@ -2513,13 +2513,31 @@ describe('Jornada 6x1 — escopo GESTOR_UNIDADE (podeAdministrarJornada)', () =>
   it('com staging habilitado, GESTOR_UNIDADE administra mesmo com essa Matriz existente (espelha PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1)', async () => {
     await semearEquipeGedsi('EQ_GEDSI_SOC');
     await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      // HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — 'admin' (não usuarios.admin.login,
+      // uma pessoa real de teste) é o placeholder técnico do seed inicial de
+      // staging (MATRIZ_INICIAL): só ele classifica esta Matriz como
+      // BOOTSTRAP, o único estado (com AUSENTE) que ainda libera o fallback
+      // hierárquico de staging — espelhando de verdade a Matriz do gêmeo
+      // PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 (`responsaveisLogin: ['admin']`).
+      await setDoc(doc(contexto.firestore(), 'escoposOperacionais', 'JORNADA_EQ_GEDSI_SOC'), escopoOperacional({
+        tipo: 'JORNADA', alvoId: 'EQ_GEDSI_SOC', responsaveisLogin: ['admin'], equipesConsulta: [],
+      }));
+    });
+    await habilitarStaging();
+    const db = autenticarComo(usuarios.gestorUnidade);
+    await assertSucceeds(setDoc(doc(db, 'turnosMes', 'EQ_GEDSI_SOC_alguem_2026-08'), escala('alguem', 'EQ_GEDSI_SOC', 'PUBLICADA')));
+  });
+
+  it('com staging habilitado, Matriz CONFIGURADA (responsável real diferente) BLOQUEIA o fallback hierárquico de GESTOR_UNIDADE', async () => {
+    await semearEquipeGedsi('EQ_GEDSI_SOC');
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
       await setDoc(doc(contexto.firestore(), 'escoposOperacionais', 'JORNADA_EQ_GEDSI_SOC'), escopoOperacional({
         tipo: 'JORNADA', alvoId: 'EQ_GEDSI_SOC', responsaveisLogin: [usuarios.admin.login], equipesConsulta: [],
       }));
     });
     await habilitarStaging();
     const db = autenticarComo(usuarios.gestorUnidade);
-    await assertSucceeds(setDoc(doc(db, 'turnosMes', 'EQ_GEDSI_SOC_alguem_2026-08'), escala('alguem', 'EQ_GEDSI_SOC', 'PUBLICADA')));
+    await assertFails(setDoc(doc(db, 'turnosMes', 'EQ_GEDSI_SOC_alguem_2026-08'), escala('alguem', 'EQ_GEDSI_SOC', 'PUBLICADA')));
   });
 
   it('um equipeId fantasma em outro documento da mesma coleção não derruba uma list legítima (regressão da classe "Hotfix 2")', async () => {
@@ -5112,13 +5130,22 @@ describe('STAGING-RESET-HIERARQUIA-ICI-1 — liberação operacional de staging'
     escopo: 'EQUIPE',
   };
 
+  /**
+   * HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — o default agora é `['admin']` (o
+   * placeholder técnico do seed inicial de staging, `MATRIZ_INICIAL`), não
+   * uma pessoa real: é exatamente o estado BOOTSTRAP que este describe
+   * documenta ("staging não trava um coordenador legítimo enquanto ninguém
+   * configurou a Matriz de verdade ainda"). Passar `{ responsaveisLogin:
+   * [usuarios.externo.login] }` explicitamente simula o estado CONFIGURADA
+   * (responsável real diferente) para os testes que provam o bloqueio.
+   */
   function matrizJornadaSocSemResponsavelDoTime(ajustes: Record<string, unknown> = {}) {
     return escopoOperacional({
       tipo: 'JORNADA',
       alvoId: 'EQ_COSI_SOC',
       alvoNome: 'SOC',
       equipesConsulta: [],
-      responsaveisLogin: [usuarios.externo.login],
+      responsaveisLogin: ['admin'],
       ...ajustes,
     });
   }
@@ -5128,7 +5155,7 @@ describe('STAGING-RESET-HIERARQUIA-ICI-1 — liberação operacional de staging'
       tipo: 'PLANTAO',
       alvoId: 'PLANTAO_COSI',
       alvoNome: 'Plantão COSI',
-      responsaveisLogin: [usuarios.externo.login],
+      responsaveisLogin: ['admin'],
       equipesConsulta: ['EQ_PLANTAO_COSI'],
       ...ajustes,
     });
@@ -5168,7 +5195,7 @@ describe('STAGING-RESET-HIERARQUIA-ICI-1 — liberação operacional de staging'
     ));
   });
 
-  it('com staging habilitado, GESTOR_EQUIPE e SUPERVISOR_EQUIPE administram Jornada mesmo com Matriz existente que não os lista', async () => {
+  it('com staging habilitado, GESTOR_EQUIPE e SUPERVISOR_EQUIPE administram Jornada mesmo com Matriz existente que não os lista (BOOTSTRAP)', async () => {
     await habilitarStaging();
     for (const ator of [usuarios.gestor, supervisoraSoc]) {
       const db = autenticarComo(ator);
@@ -5179,11 +5206,45 @@ describe('STAGING-RESET-HIERARQUIA-ICI-1 — liberação operacional de staging'
     }
   });
 
-  it('com staging habilitado, GESTOR_EQUIPE e SUPERVISOR_EQUIPE administram Plantão mesmo com Matriz existente que não os lista', async () => {
+  it('com staging habilitado, Matriz de Jornada CONFIGURADA (responsável real diferente) BLOQUEIA GESTOR_EQUIPE/SUPERVISOR_EQUIPE', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(
+        doc(contexto.firestore(), 'escoposOperacionais', 'JORNADA_EQ_COSI_SOC'),
+        matrizJornadaSocSemResponsavelDoTime({ responsaveisLogin: [usuarios.externo.login] }),
+      );
+    });
+    await habilitarStaging();
+    for (const ator of [usuarios.gestor, supervisoraSoc]) {
+      const db = autenticarComo(ator);
+      await assertFails(setDoc(
+        doc(db, 'rascunhosTurnosMes', `EQ_COSI_SOC_novo.${ator.login}_2026-09`),
+        escala(`novo.${ator.login}`, 'EQ_COSI_SOC', 'RASCUNHO'),
+      ));
+    }
+  });
+
+  it('com staging habilitado, GESTOR_EQUIPE e SUPERVISOR_EQUIPE administram Plantão mesmo com Matriz existente que não os lista (BOOTSTRAP)', async () => {
     await habilitarStaging();
     for (const ator of [coordenadorPlantao, supervisoraPlantao]) {
       const db = autenticarComo(ator);
       await assertSucceeds(setDoc(
+        doc(db, 'rascunhosCompetenciasPlantao', `PLANTAO_COSI_2026-09-${ator.login}`),
+        { ...competenciaPlantaoMatriz(), id: `PLANTAO_COSI_2026-09-${ator.login}`, competencia: '2026-09', criadoPorLogin: ator.login },
+      ));
+    }
+  });
+
+  it('com staging habilitado, Matriz de Plantão CONFIGURADA (responsável real diferente) BLOQUEIA coordenador/supervisor', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(
+        doc(contexto.firestore(), 'escoposOperacionais', 'PLANTAO_PLANTAO_COSI'),
+        matrizPlantaoSemResponsavelDoTime({ responsaveisLogin: [usuarios.externo.login] }),
+      );
+    });
+    await habilitarStaging();
+    for (const ator of [coordenadorPlantao, supervisoraPlantao]) {
+      const db = autenticarComo(ator);
+      await assertFails(setDoc(
         doc(db, 'rascunhosCompetenciasPlantao', `PLANTAO_COSI_2026-09-${ator.login}`),
         { ...competenciaPlantaoMatriz(), id: `PLANTAO_COSI_2026-09-${ator.login}`, competencia: '2026-09', criadoPorLogin: ator.login },
       ));
@@ -6540,6 +6601,131 @@ describe('Plantão multi-função — funcao/funcoesEsperadas (correção CODB/N
     await assertSucceeds(updateDoc(
       doc(db, 'rascunhosCompetenciasPlantao', `${GRUPO_ID}_2026-09`, 'atribuicoes', 'dba'),
       { funcao: 'WINDOWS' },
+    ));
+  });
+});
+
+/**
+ * HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — cenário real de staging que motivou
+ * este hotfix: Elton (`elrauh`, GESTOR_UNIDADE de `GEDSI_CODB`) deve
+ * administrar `PLANTAO_CODB` pela própria Matriz (CONFIGURADA, ele é o
+ * responsável real) mas NUNCA `NOC` (Matriz `PLANTAO_NOC` é um tombstone
+ * INATIVO — fail-closed, mesmo em staging), nem a Jornada NOC (Matriz
+ * CONFIGURADA para Wanessa, não para ele) — mesmo `NOC` estando
+ * hierarquicamente dentro de `GEDSI_CODB`.
+ */
+describe('HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — Elton (GESTOR_UNIDADE de GEDSI_CODB): Plantão CODB pela Matriz, NOC nunca por fallback', () => {
+  const elton = {
+    login: 'elrauh',
+    nome: 'Elton Rauh',
+    email: 'elrauh@teste.local',
+    equipeId: 'GEDSI_CODB_OUTRA',
+    nivelHierarquico: 4,
+    perfil: 'GESTOR_UNIDADE',
+    escopo: 'UNIDADE',
+    unidadeId: 'GEDSI_CODB',
+    unidadesPermitidas: ['GEDSI_CODB'],
+  };
+
+  beforeEach(async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await Promise.all([
+        setDoc(doc(db, 'usuarios', elton.login), elton),
+        setDoc(doc(db, 'usuarios', 'wmoriyama'), {
+          login: 'wmoriyama',
+          nome: 'Wanessa Moriyama',
+          email: 'wmoriyama@teste.local',
+          equipeId: 'GEDSI_CODB_NOC',
+          nivelHierarquico: 4,
+          perfil: 'SUPERVISOR_EQUIPE',
+          escopo: 'EQUIPE',
+        }),
+        setDoc(doc(db, 'equipes', 'GEDSI_CODB_PLANTAO'), {
+          id: 'GEDSI_CODB_PLANTAO', nome: 'Plantão CODB', sigla: 'PLANTAO_CODB', ativa: true,
+          unidadeId: 'GEDSI_CODB', caminhoUnidade: ['GEDSI_CODB'],
+        }),
+        setDoc(doc(db, 'equipes', 'GEDSI_CODB_NOC'), {
+          id: 'GEDSI_CODB_NOC', nome: 'NOC', sigla: 'NOC', ativa: true,
+          unidadeId: 'GEDSI_CODB', caminhoUnidade: ['GEDSI_CODB'],
+        }),
+        setDoc(doc(db, 'gruposPlantao', 'PLANTAO_CODB'), {
+          ...grupoPlantaoMatriz('PLANTAO_CODB'),
+          equipeResponsavelId: 'GEDSI_CODB_PLANTAO',
+          equipesConsulta: ['GEDSI_CODB_PLANTAO'],
+          unidadeResponsavelId: 'GEDSI_CODB',
+          caminhoUnidadeResponsavel: ['GEDSI_CODB'],
+        }),
+        setDoc(doc(db, 'gruposPlantao', 'NOC'), {
+          ...grupoPlantaoMatriz('NOC'),
+          equipeResponsavelId: 'GEDSI_CODB_NOC',
+          equipesConsulta: ['GEDSI_CODB_NOC'],
+          unidadeResponsavelId: 'GEDSI_CODB',
+          caminhoUnidadeResponsavel: ['GEDSI_CODB'],
+        }),
+        setDoc(doc(db, 'escoposOperacionais', 'PLANTAO_PLANTAO_CODB'), escopoOperacional({
+          tipo: 'PLANTAO',
+          alvoId: 'PLANTAO_CODB',
+          alvoNome: 'Plantão CODB',
+          unidadeId: 'GEDSI_CODB',
+          caminhoUnidade: ['GEDSI_CODB'],
+          responsaveisLogin: ['elrauh'],
+          responsaveisEquipe: [],
+          equipesConsulta: ['GEDSI_CODB_PLANTAO'],
+        })),
+        setDoc(doc(db, 'escoposOperacionais', 'PLANTAO_NOC'), escopoOperacional({
+          tipo: 'PLANTAO',
+          alvoId: 'NOC',
+          alvoNome: 'NOC',
+          responsaveisLogin: [],
+          responsaveisEquipe: [],
+          equipesConsulta: [],
+          ativo: false,
+        })),
+        setDoc(doc(db, 'escoposOperacionais', 'JORNADA_GEDSI_CODB_NOC'), escopoOperacional({
+          tipo: 'JORNADA',
+          alvoId: 'GEDSI_CODB_NOC',
+          alvoNome: 'NOC',
+          unidadeId: 'GEDSI_CODB',
+          caminhoUnidade: ['GEDSI_CODB'],
+          responsaveisLogin: ['wmoriyama'],
+          responsaveisEquipe: [],
+          equipesConsulta: [],
+        })),
+      ]);
+    });
+  });
+
+  it('PLANTAO_CODB (Matriz CONFIGURADA para elrauh): Elton cria rascunho de competência pela própria Matriz', async () => {
+    const db = autenticarComo(elton);
+    await assertSucceeds(setDoc(doc(db, 'rascunhosCompetenciasPlantao', 'PLANTAO_CODB_2026-09'), {
+      ...competenciaPlantaoMatriz(),
+      id: 'PLANTAO_CODB_2026-09',
+      grupoId: 'PLANTAO_CODB',
+      competencia: '2026-09',
+      criadoPorLogin: elton.login,
+    }));
+  });
+
+  it('NOC (Matriz PLANTAO_NOC inativa): Elton nunca administra, mesmo em staging e mesmo sendo GESTOR_UNIDADE de GEDSI_CODB', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'config', 'ambiente'), { staging: true });
+    });
+    const db = autenticarComo(elton);
+    await assertFails(setDoc(doc(db, 'rascunhosCompetenciasPlantao', 'NOC_2026-09'), {
+      ...competenciaPlantaoMatriz(),
+      id: 'NOC_2026-09',
+      grupoId: 'NOC',
+      competencia: '2026-09',
+      criadoPorLogin: elton.login,
+    }));
+  });
+
+  it('Jornada NOC (Matriz CONFIGURADA para wmoriyama): Elton nunca administra', async () => {
+    const db = autenticarComo(elton);
+    await assertFails(setDoc(
+      doc(db, 'turnosMes', 'GEDSI_CODB_NOC_alguem_2026-09'),
+      escala('alguem', 'GEDSI_CODB_NOC', 'PUBLICADA'),
     ));
   });
 });

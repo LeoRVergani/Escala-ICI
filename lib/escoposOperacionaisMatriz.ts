@@ -19,6 +19,26 @@ export interface ResultadoMatrizOperacional {
     plantoes: GrupoPlantao[];
   };
   alvoTemMatriz: (tipo: EscopoOperacional['tipo'], alvoId: string) => boolean;
+  /**
+   * HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — `true` quando o fallback AMPLO de
+   * staging (`permitirAmploStaging`, espelha `souCoordenadorOperacionalStaging()`
+   * de `firestore.rules`) ainda pode complementar a Matriz para este alvo:
+   * sem Matriz nenhuma, OU Matriz só com o placeholder técnico de bootstrap
+   * (ver `estadoMatrizOperacional()`). Nunca usado pelo fallback LEGADO
+   * (`permitirFallbackLegado`), que continua gateado só por `alvoTemMatriz`
+   * — sua semântica é fixada por `tests/dashboard-contexto-escala-boundaries.test.mjs`
+   * e não muda nesta fase.
+   */
+  fallbackStagingPermitidoParaAlvo: (tipo: EscopoOperacional['tipo'], alvoId: string) => boolean;
+}
+
+/** Versão SEM o filtro `.ativo` de `escopoDoAlvo()` — precisa enxergar Matriz INATIVA para classificar estado. */
+function escopoBrutoDoAlvo(
+  escopos: readonly EscopoOperacional[],
+  tipo: EscopoOperacional['tipo'],
+  alvoId: string,
+): EscopoOperacional | undefined {
+  return escopos.find((escopo) => escopo.tipo === tipo && escopo.alvoId === alvoId);
 }
 
 function escopoDoAlvo(
@@ -35,6 +55,65 @@ function alvoTemQualquerMatriz(
   alvoId: string,
 ): boolean {
   return escopos.some((escopo) => escopo.tipo === tipo && escopo.alvoId === alvoId);
+}
+
+/**
+ * Login técnico do seed inicial de staging (`scripts/staging/hierarquia-ici.mjs`,
+ * `MATRIZ_INICIAL`) — uma conta técnica genérica, nunca uma pessoa real.
+ * Preenche a exigência de schema de `escopoOperacionalValido()` (`responsaveisLogin`
+ * ou `responsaveisEquipe` não vazio) enquanto nenhum responsável humano foi
+ * cadastrado ainda. Nunca espalhar a string literal `'admin'` por outros
+ * módulos — importar esta constante.
+ */
+export const LOGIN_ADMIN_TECNICO_STAGING = 'admin';
+
+export type EstadoMatrizOperacional = 'AUSENTE' | 'BOOTSTRAP' | 'CONFIGURADA' | 'INATIVA';
+
+/**
+ * HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — classifica a Matriz de um alvo em um
+ * dos quatro estados que decidem se o fallback AMPLO de staging pode
+ * complementá-la (`docs/spec/PLANTAO_CODB.md`, seção "Precedência da Matriz
+ * em staging"):
+ *
+ * - `AUSENTE`: nenhum documento de Matriz para tipo+alvoId — fallback pode
+ *   ajudar (finalidade original de staging).
+ * - `BOOTSTRAP`: Matriz ativa, mas só lista o placeholder técnico
+ *   (`responsaveisLogin` contém SOMENTE `LOGIN_ADMIN_TECNICO_STAGING`,
+ *   `responsaveisEquipe` vazio) — nenhuma responsabilidade humana real
+ *   ainda cadastrada, fallback pode ajudar.
+ * - `CONFIGURADA`: Matriz ativa com pelo menos uma responsabilidade real
+ *   (um login diferente do técnico, OU `responsaveisEquipe` não vazio) — a
+ *   Matriz passa a ser autoridade única; fallback nunca complementa, mesmo
+ *   que o próprio usuário não esteja entre os responsáveis listados.
+ * - `INATIVA`: `ativo === false` — decisão operacional explícita (ex.:
+ *   `escoposOperacionais/PLANTAO_NOC`, tombstone temporário de um Grupo
+ *   legado desativado). Fail-closed: nenhum fallback (legado ou amplo)
+ *   pode reviver o alvo.
+ */
+export function estadoMatrizOperacional(
+  escopos: readonly EscopoOperacional[],
+  tipo: EscopoOperacional['tipo'],
+  alvoId: string,
+): EstadoMatrizOperacional {
+  const escopo = escopoBrutoDoAlvo(escopos, tipo, alvoId);
+  if (escopo === undefined) {
+    return 'AUSENTE';
+  }
+  if (!escopo.ativo) {
+    return 'INATIVA';
+  }
+  const somenteAdminTecnico = escopo.responsaveisLogin.every((login) => login === LOGIN_ADMIN_TECNICO_STAGING);
+  const semResponsavelDeEquipe = escopo.responsaveisEquipe.length === 0;
+  return somenteAdminTecnico && semResponsavelDeEquipe ? 'BOOTSTRAP' : 'CONFIGURADA';
+}
+
+function calcularFallbackStagingPermitidoParaAlvo(
+  escopos: readonly EscopoOperacional[],
+  tipo: EscopoOperacional['tipo'],
+  alvoId: string,
+): boolean {
+  const estado = estadoMatrizOperacional(escopos, tipo, alvoId);
+  return estado === 'AUSENTE' || estado === 'BOOTSTRAP';
 }
 
 /**
@@ -145,6 +224,7 @@ export function resolverMatrizOperacional(params: {
       plantoes: gruposAtivos,
     },
     alvoTemMatriz: (tipo, alvoId) => alvoTemQualquerMatriz(escoposOperacionais, tipo, alvoId),
+    fallbackStagingPermitidoParaAlvo: (tipo, alvoId) => calcularFallbackStagingPermitidoParaAlvo(escoposOperacionais, tipo, alvoId),
   };
 }
 
