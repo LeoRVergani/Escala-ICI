@@ -6164,7 +6164,11 @@ fieldset.checkbox-card-list > legend {
 }
 @media (max-width: 780px) {
   .plantao-editor-layout { grid-template-columns: 1fr; }
-  .plantao-roster { position: static; max-height: none; }
+  /* min-width: 0 — sem isso o item de grid cresce para caber a lista horizontal
+     inteira (17+ pessoas de 168px), e o overflow-x: auto abaixo nunca ativa;
+     o conteúdo excedente fica só clipado por `.page-column { overflow-x: clip }`,
+     inacessível (mesmo gotcha documentado em `.plantao-editor-central` acima). */
+  .plantao-roster { position: static; max-height: none; min-width: 0; }
   .plantao-roster-lista { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
   .plantao-roster-pessoa { flex: 0 0 auto; min-width: 168px; }
 }
