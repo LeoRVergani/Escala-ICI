@@ -7187,14 +7187,37 @@ export function DashboardApp() {
    * real, em vez de manter dois sistemas de autorização divergentes.
    */
   function podeGerenciarEsteGrupoPlantao(grupo: GrupoPlantao): boolean {
+    /**
+     * BUGFIX-HOMOLOGACAO-PLANTAO-MULTIPOSTO-1 — o fallback hierárquico
+     * abaixo (`podeGerenciarGrupoPlantao()`, `lib/sessao.ts`) é puramente
+     * de UNIDADE/EQUIPE, sem NENHUMA noção de Matriz — nunca soube
+     * distinguir "Grupo sem Matriz ainda" (o caso original que motivou
+     * este fallback, comentário acima) de "Matriz INATIVA" (um tombstone
+     * fail-closed deliberado, ex. `escoposOperacionais/PLANTAO_NOC`).
+     * Resultado real: Elton (GESTOR_UNIDADE de GEDSI_CODB) via o Grupo
+     * legado `NOC` como administrável aqui — mesmo com
+     * `resolverEscoposOperacionais()`/Rules já corretamente fechados
+     * (HOTFIX-STAGING-FALLBACK-MATRIZ-1/HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1)
+     * — porque este É um terceiro caminho de autorização, paralelo aos
+     * outros dois, que ninguém tinha atualizado ainda. Corrigido: o
+     * fallback hierárquico só entra quando NÃO existe NENHUM documento de
+     * Matriz para este alvo (mesmo critério simples — não bootstrap-aware
+     * — do fallback legado em `lib/escoposOperacionais.ts`, nunca
+     * reaproveita nem altera a semântica bootstrap-aware do resolver).
+     */
+    const existeMatrizParaEsteGrupo = escoposOperacionaisAdmin.some((escopo) =>
+      escopo.tipo === 'PLANTAO' && escopo.alvoId === grupo.grupoId);
     return usuarioReal !== null
       && (
         escoposOperacionais.plantoesAdministraveis.some((item) => item.grupoId === grupo.grupoId)
-        || podeGerenciarGrupoPlantao(usuarioReal, {
-          equipeResponsavelId: grupo.equipeResponsavelId,
-          unidadeResponsavelId: grupo.unidadeResponsavelId,
-          caminhoUnidadeResponsavel: grupo.caminhoUnidadeResponsavel,
-        })
+        || (
+          !existeMatrizParaEsteGrupo
+          && podeGerenciarGrupoPlantao(usuarioReal, {
+            equipeResponsavelId: grupo.equipeResponsavelId,
+            unidadeResponsavelId: grupo.unidadeResponsavelId,
+            caminhoUnidadeResponsavel: grupo.caminhoUnidadeResponsavel,
+          })
+        )
       );
   }
 
