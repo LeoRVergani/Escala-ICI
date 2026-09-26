@@ -1743,6 +1743,25 @@ button.shift-chip:disabled { cursor: default; }
 .empty-state { padding: 36px; color: var(--muted); text-align: center; }
 
 .schedule-panel-title { align-items: center; }
+.schedule-month-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.schedule-month-heading h2 {
+  min-width: 180px;
+  text-align: center;
+}
+.schedule-month-arrow {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+.schedule-month-arrow:disabled {
+  opacity: .35;
+  cursor: not-allowed;
+}
 .segmented-control {
   display: inline-flex;
   gap: 3px;
@@ -2286,6 +2305,14 @@ button.shift-chip:disabled { cursor: default; }
   .schedule-panel-title {
     align-items: stretch;
     flex-direction: column;
+  }
+  .schedule-month-heading {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .schedule-month-heading h2 {
+    min-width: 0;
+    flex: 1 1 auto;
   }
   /* `flex: 1 0 auto` + `min-width: max-content` faz as abas dividirem o
    * espaço igualmente quando cabem (como antes), mas em vez de espremer o
