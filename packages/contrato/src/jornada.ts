@@ -236,6 +236,33 @@ export function selecionarEscalaPorData(
     ?? null;
 }
 
+/**
+ * FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — funde os `dias` de todas as
+ * competências carregadas (ex.: a competência anterior, ainda vigente até
+ * o dia 25, e a seguinte, já publicada) num único mapa. Necessário porque
+ * o calendário do App precisa navegar/exibir datas de mais de um período
+ * 26–25 ao mesmo tempo (`selecionarEscalaPorData` acima escolhe só UM
+ * documento por data — correto para "a jornada de hoje", mas insuficiente
+ * para desenhar um calendário que atravessa dois meses).
+ *
+ * Datas nunca colidem entre competências reais — cada dia civil pertence
+ * a, no máximo, um período 26–25 — mas em caso de dado inconsistente (duas
+ * publicações com o mesmo dia), a competência textualmente mais recente
+ * prevalece, nunca a ordem de chegada do array.
+ */
+export function mesclarDiasEscalas(
+  escalas: readonly TurnosMes[],
+): Record<string, Dia> {
+  const ordenadas = [...escalas].sort(
+    (a, b) => a.competencia.localeCompare(b.competencia),
+  );
+  const mesclado: Record<string, Dia> = {};
+  for (const escala of ordenadas) {
+    Object.assign(mesclado, escala.dias);
+  }
+  return mesclado;
+}
+
 export function resolverJornadaDia(
   documento: TurnosMes | null | undefined,
   catalogo: Record<string, TipoTurno>,

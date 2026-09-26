@@ -157,6 +157,15 @@ CSS/cascade obrigatória para qualquer alteração visual futura no módulo:
 - Lembretes pessoais e atribuídos pelo gestor, com realtime, privacidade
   estrutural e responsividade validados manualmente em staging — ver seção
   "Ciclo Lembretes / consulta diária" acima e `docs/spec/LEMBRETES.md`.
+- **PWA com duas competências sobrepostas (regra 26–25)** — fase
+  `FIX-PWA-COMPETENCIAS-MULTIPERIODOS-1`, branch `fix/pwa-staging-correcoes`:
+  o App passou a acompanhar em tempo real uma JANELA de competências
+  (anterior + vigente + seguinte), não mais uma só — corrige o bug em que
+  publicar a competência seguinte fazia o período anterior sumir do PWA
+  antes da virada do dia 26. Calendário/agenda/lembretes mostram a escala
+  mesclada das competências carregadas; a aba Equipe continua uma linha por
+  colaborador. Ver `CHECKPOINT-FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1.md`.
+  **Ainda sem commit, deploy ou reteste real em staging.**
 
 ## Situação atual do push (FCM)
 
@@ -215,6 +224,12 @@ CSS/cascade obrigatória para qualquer alteração visual futura no módulo:
   `notificationclick` (fase PUSH-PWA-2B.2D, código já corrigido e validado
   automaticamente) resolve de fato o clique que não abria o PWA — requer
   commit e deploy de staging antes do reteste.
+- Confirmar por reteste real em staging (uma escala publicada cobrindo
+  25/09 e 26/09, com férias) que a correção de competências sobrepostas
+  (`FIX-PWA-COMPETENCIAS-MULTIPERIODOS-1`, código corrigido e validado
+  automaticamente — ver `CHECKPOINT-FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1.md`)
+  resolve de fato o PWA "perdendo" o período anterior — requer push da
+  branch e deploy de staging antes do reteste.
 - Runbook de push (`docs/operacao/PUSH-FCM-OPERACAO.md`) ainda não documenta
   como procedimento operacional formal: teste local, reconfiguração de
   dispositivo, saneamento reversível com dry-run, diagnóstico de

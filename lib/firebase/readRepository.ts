@@ -236,6 +236,51 @@ export function observarEscalasEquipe(
   ));
 }
 
+/**
+ * FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — regra 26–25: a escala de uma
+ * equipe é sempre composta por (no mínimo) DUAS competências vigentes ao
+ * mesmo tempo em torno da virada (ex.: 26/08–25/09 ainda válida até 25/09,
+ * e 26/09–25/10 já publicada) — nunca uma só. `observarEscalasEquipe()`
+ * acima assina exatamente UMA competência; usá-la sozinha é o que fazia o
+ * PWA "perder" o período anterior assim que a competência seguinte era
+ * publicada e a tela trocava de assinatura. Esta função assina uma
+ * assinatura por competência da janela informada (tipicamente
+ * `competenciasCandidatas(dataHoje)`, de `@escala-ici/contrato`) e funde os
+ * resultados por competência num único array — cada assinatura tem seu
+ * próprio "balde" de documentos, atualizado de forma independente; nenhuma
+ * publicação nova apaga o balde de outra competência.
+ */
+export function observarEscalasEquipeMultiplasCompetencias(
+  equipeId: string,
+  competencias: readonly string[],
+  aoAtualizar: (documentos: TurnosMes[]) => void,
+  aoFalhar: (erro: Error) => void,
+): Unsubscribe {
+  const janela = [...new Set(competencias)];
+  const porCompetencia = new Map<string, TurnosMes[]>();
+
+  function emitir() {
+    aoAtualizar(janela.flatMap((competencia) => porCompetencia.get(competencia) ?? []));
+  }
+
+  const cancelamentos = janela.map((competencia) =>
+    observarEscalasEquipe(
+      equipeId,
+      competencia,
+      (documentos) => {
+        porCompetencia.set(competencia, documentos);
+        emitir();
+      },
+      aoFalhar,
+    ));
+
+  return () => {
+    for (const cancelar of cancelamentos) {
+      cancelar();
+    }
+  };
+}
+
 export async function carregarRascunhosEquipe(
   equipeId: string,
   competencia: string,

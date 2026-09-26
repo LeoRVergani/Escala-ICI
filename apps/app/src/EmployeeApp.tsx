@@ -12,6 +12,7 @@ import {
   formatarMinutos,
   formatarPeriodo,
   MAXIMO_CONTATOS_PLANTONISTA,
+  mesclarDiasEscalas,
   referenciaLocal,
   resolverContextoJornada,
   resolverJornadaDia,
@@ -58,7 +59,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { AppFrame, type ItemNavegacao } from '@/components/AppFrame';
 import { LoginPanel } from '@/components/LoginPanel';
@@ -105,7 +106,7 @@ import {
   listarCatalogo,
   listarUsuarios,
   obterEquipe,
-  observarEscalasEquipe,
+  observarEscalasEquipeMultiplasCompetencias,
   observarEventosEscala,
 } from '@/lib/firebase/readRepository';
 import { descreverNivelHierarquico } from '@/lib/organizacao';
@@ -2519,13 +2520,29 @@ export function EmployeeApp() {
     modoDemonstracao,
   });
 
+  /**
+   * FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — janela de competências que a
+   * escala de Jornada 6x1 precisa acompanhar ao mesmo tempo: a operacional
+   * de hoje, o mês-calendário corrente e as duas vizinhas (mesmo conjunto
+   * de `competenciaOperacional(dataHoje)` ± 1 mês já usado no carregamento
+   * inicial, via `competenciasCandidatas`). Sem isso, a virada do dia 26
+   * cancelava a assinatura da competência anterior e o período de 26/mês
+   * passado a 25/mês corrente sumia do PWA assim que a competência seguinte
+   * era publicada. `useMemo` evita recriar o array (e reabrir as
+   * assinaturas) a cada re-render — só muda quando o dia civil muda.
+   */
+  const janelaCompetenciasApp = useMemo(
+    () => competenciasCandidatas(dataHoje),
+    [dataHoje],
+  );
+
   useEffect(() => {
     if (!listenersLiberados || loginUsuario === null || equipeUsuario === null) {
       return undefined;
     }
-    const cancelarEscalas = observarEscalasEquipe(
+    const cancelarEscalas = observarEscalasEquipeMultiplasCompetencias(
       equipeUsuario,
-      competenciaAtiva,
+      janelaCompetenciasApp,
       setDocumentos,
       (falha) => setErro(mensagemErroFirebase(falha, 'A sincronização em tempo real foi interrompida.', ambienteFirebaseAtual)),
     );
@@ -2573,7 +2590,7 @@ export function EmployeeApp() {
       cancelarTrocas();
       cancelarNotificacoesTroca();
     };
-  }, [competenciaAtiva, equipeUsuario, listenersLiberados, loginUsuario]);
+  }, [competenciaAtiva, equipeUsuario, janelaCompetenciasApp, listenersLiberados, loginUsuario]);
 
   useEffect(() => {
     if (!listenersLiberados || loginUsuario === null) {
@@ -2850,6 +2867,24 @@ export function EmployeeApp() {
   );
   const minhaEscala = selecionarEscalaPorData(escalasDoUsuario, dataHoje);
 
+  /**
+   * FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — `minhaEscala` acima escolhe UM
+   * documento (a competência que cobre `dataHoje`) — correto para os
+   * totais/estado "de hoje", mas insuficiente para o calendário/agenda, que
+   * precisa navegar por TODAS as datas já publicadas carregadas (a
+   * competência anterior, ainda vigente até o dia 25, e a seguinte, já
+   * publicada). `escalaVisivelApp` funde os `dias` de todos os documentos
+   * do usuário na janela carregada (`mesclarDiasEscalas`,
+   * `@escala-ici/contrato`) — nenhuma data já publicada desaparece só
+   * porque outra competência foi publicada por cima. Os demais campos
+   * (competência/período/turnoPadrão) continuam vindo de `minhaEscala`
+   * (rótulos de "hoje"), nunca do documento mesclado.
+   */
+  const diasEscalaVisivelApp = mesclarDiasEscalas(escalasDoUsuario);
+  const escalaVisivelApp: TurnosMes | null = minhaEscala
+    ? { ...minhaEscala, dias: diasEscalaVisivelApp }
+    : (escalasDoUsuario[0] ? { ...escalasDoUsuario[0], dias: diasEscalaVisivelApp } : null);
+
   const totais = minhaEscala
     ? calcularTotais(minhaEscala.dias, catalogo)
     : null;
@@ -2863,9 +2898,34 @@ export function EmployeeApp() {
    * `proximosDiasTrabalhados` acima) no metric tile "Próximo turno" da aba
    * Agenda, que tinha o mesmo problema do card "Próximo turno" removido de
    * "Hoje": ficava permanentemente vazio assim que o último turno do
-   * documento da competência carregada já tinha passado.
+   * documento da competência carregada já tinha passado. Usa
+   * `escalaVisivelApp` (mesclado) para também enxergar turnos da
+   * competência seguinte, já publicada, sem esperar a virada do dia 26.
    */
-  const proximoTurnoTrabalho = proximosDiasTrabalhados(minhaEscala, catalogo, dataHoje, 1)[0] ?? null;
+  const proximoTurnoTrabalho = proximosDiasTrabalhados(escalaVisivelApp, catalogo, dataHoje, 1)[0] ?? null;
+
+  /**
+   * FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — a grade da aba "Equipe"
+   * (`ScheduleGrid`) sempre mostrou UMA linha por colaborador; agora que
+   * `documentos` pode conter dois documentos por pessoa (competência
+   * anterior + seguinte, ambos publicados), passar `documentos` cru
+   * duplicaria cada colega na grade. Reduz para o documento de cada login
+   * que cobre `dataHoje` — a mesma escolha de `selecionarEscalaPorData`
+   * usada para o próprio usuário — preservando o comportamento anterior
+   * (uma linha por pessoa, sempre a competência vigente agora).
+   */
+  const documentosPorLoginApp = new Map<string, TurnosMes[]>();
+  for (const documento of documentos) {
+    const lista = documentosPorLoginApp.get(documento.login);
+    if (lista) {
+      lista.push(documento);
+    } else {
+      documentosPorLoginApp.set(documento.login, [documento]);
+    }
+  }
+  const documentosEquipeAtualApp = [...documentosPorLoginApp.values()]
+    .map((docs) => selecionarEscalaPorData(docs, dataHoje))
+    .filter((documento): documento is TurnosMes => documento !== null);
 
   const escaladosNoDiaConsultado = documentos
     .map((documento) => ({
@@ -3911,7 +3971,11 @@ export function EmployeeApp() {
     ? operacaoEquipeApp
     : (plantaoPublicadoApp && !jornadaPublicadaApp ? 'PLANTAO' : 'JORNADA');
   const nomes = Object.fromEntries(usuarios.map((item) => [item.login, item.nome]));
-  const datas = Object.keys(minhaEscala?.dias ?? {}).sort();
+  // FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — datas de TODAS as competências
+  // carregadas (`diasEscalaVisivelApp`, mesclado acima), não só da
+  // competência de hoje — é o que permite o calendário navegar/exibir os
+  // dois períodos ao redor da virada do dia 26 sem clipar o anterior.
+  const datas = Object.keys(diasEscalaVisivelApp).sort();
   const dataHojeFormatada = formatarData(dataHoje, {
     weekday: 'long',
     day: '2-digit',
@@ -4037,12 +4101,12 @@ export function EmployeeApp() {
                   {jornadaPublicadaApp && (
                     <>
                       <TurnoHoje contexto={contextoHoje} />
-                      <ProximosDias turnos={proximosDiasTrabalhados(minhaEscala, catalogo, dataHoje, 3)} />
+                      <ProximosDias turnos={proximosDiasTrabalhados(escalaVisivelApp, catalogo, dataHoje, 3)} />
                       <ResumoSemana
                         datas={datas}
                         dataHoje={dataHoje}
                         dataSelecionada={dataConsultaEquipe}
-                        escala={minhaEscala}
+                        escala={escalaVisivelApp}
                         catalogo={catalogo}
                         onSelecionar={consultarEquipeNoDia}
                       />
@@ -4249,7 +4313,7 @@ export function EmployeeApp() {
                 <ResumoSemana
                   datas={datas}
                   dataHoje={dataHoje}
-                  escala={minhaEscala}
+                  escala={escalaVisivelApp}
                   catalogo={catalogo}
                   onSelecionar={setDataSelecionada}
                 />
@@ -4340,7 +4404,7 @@ export function EmployeeApp() {
                       modoDemonstracao={modoDemonstracao}
                       listenersLiberados={listenersLiberados}
                       dataHoje={dataHoje}
-                      escala={minhaEscala}
+                      escala={escalaVisivelApp}
                       catalogo={catalogo}
                     />
                   ) : (
@@ -4351,7 +4415,7 @@ export function EmployeeApp() {
                             datas={datas}
                             dataHoje={dataHoje}
                             dataSelecionada={dataSelecionadaEfetiva}
-                            escala={minhaEscala}
+                            escala={escalaVisivelApp}
                             catalogo={catalogo}
                             onSelecionar={setDataSelecionada}
                           />
@@ -4360,7 +4424,7 @@ export function EmployeeApp() {
                             datas={datas}
                             dataHoje={dataHoje}
                             dataSelecionada={dataSelecionadaEfetiva}
-                            escala={minhaEscala}
+                            escala={escalaVisivelApp}
                             catalogo={catalogo}
                             onSelecionar={setDataSelecionada}
                           />
@@ -4369,7 +4433,7 @@ export function EmployeeApp() {
                       <DetalheDia
                         data={dataSelecionadaEfetiva}
                         dataHoje={dataHoje}
-                        escala={minhaEscala}
+                        escala={escalaVisivelApp}
                         catalogo={catalogo}
                         onSolicitarTroca={(diaEscolhido) => abrirNovaSolicitacaoTroca(diaEscolhido)}
                       />
@@ -4839,10 +4903,10 @@ export function EmployeeApp() {
                       <option value="N">Noite</option>
                     </select>
                   </label>
-                  <span><Users size={16} /> {documentos.length} colaboradores</span>
+                  <span><Users size={16} /> {documentosEquipeAtualApp.length} colaboradores</span>
                 </div>
                 <ScheduleGrid
-                  documentos={documentos}
+                  documentos={documentosEquipeAtualApp}
                   usuarios={usuarios}
                   catalogo={catalogo}
                   filtroTurno={filtroTurno}

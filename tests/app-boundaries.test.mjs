@@ -355,7 +355,11 @@ test('a fase 3K-D1 estabiliza a sessão do App e a atualização interna', async
   assert.match(sessao, /podeIniciarListeners/);
   assert.match(app, /podeIniciarListeners\(\{/);
   assert.match(app, /dadosIniciaisCarregados: dadosCarregados/);
-  assert.match(app, /\[competenciaAtiva, equipeUsuario, listenersLiberados, loginUsuario\]/);
+  // FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — a assinatura em tempo real
+  // passou a acompanhar uma janela de competências (`janelaCompetenciasApp`,
+  // não só a `competenciaAtiva`), para o período anterior nunca desaparecer
+  // quando a competência seguinte é publicada.
+  assert.match(app, /\[competenciaAtiva, equipeUsuario, janelaCompetenciasApp, listenersLiberados, loginUsuario\]/);
   assert.match(app, /Revisão \$\{maisRecente\.revisao\}/);
   assert.match(app, /toast-action/);
   assert.match(estilos, /Fase 3K-D1 — restauração de sessão e atualização interna/);
