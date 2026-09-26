@@ -24,7 +24,7 @@ const [
   // (`apps/app/vite.sw.config.ts`) — nomes de identificador como
   // SCOPE_PATH/APP_ENTRY são renomeados pelo minificador, então essas
   // checagens leem a fonte legível; strings literais (ex.:
-  // `manifest-app.webmanifest`, `fase-3k-c-v1`) sobrevivem à minificação e
+  // `manifest-app.webmanifest`, `fase-3k-c-v2`) sobrevivem à minificação e
   // continuam sendo checadas no artefato de fato distribuído.
   ler('apps/app/src/sw/serviceWorker.js'),
   ler('dist/apps/app/_headers'),
@@ -51,7 +51,7 @@ assert.equal(pwaCompatibilidade.scope, '/app');
 assert.match(swFonte, /SCOPE_PATH/);
 assert.match(swFonte, /APP_ENTRY/);
 assert.match(serviceWorker, /manifest-app\.webmanifest/);
-assert.match(serviceWorker, /fase-3k-c-v1/);
+assert.match(serviceWorker, /fase-3k-c-v2/);
 assert.match(serviceWorker, /onBackgroundMessage/);
 assert.equal(
   serviceWorker.includes('firebase-messaging-sw'),

@@ -60,6 +60,11 @@ function dataUtc(dataIso: string): Date {
   return new Date(Date.UTC(ano, mes - 1, dia, 12));
 }
 
+/** Retorna o dia da semana de uma data civil sem depender do fuso local. */
+export function diaSemanaEscalaCivil(dataIso: string): number {
+  return dataUtc(dataIso).getUTCDay();
+}
+
 function minutosHora(hora: string): number {
   const correspondencia = /^(\d{2}):(\d{2})$/u.exec(hora);
   if (correspondencia === null) {

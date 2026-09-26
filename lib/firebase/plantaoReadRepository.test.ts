@@ -6,6 +6,7 @@ const estado = vi.hoisted(() => ({
   rascunhosCompetencias: [] as Array<{ id: string; data: Record<string, unknown> }>,
   competenciasPublicadas: [] as Array<{ id: string; data: Record<string, unknown> }>,
   atribuicoes: {} as Record<string, Array<{ id: string; data: Record<string, unknown> }>>,
+  assinatura: null as null | { grupoId: string; atualizar: () => void; falhar: (erro: Error) => void; ativa: boolean },
 }));
 
 vi.mock('./shared', () => ({
@@ -13,6 +14,11 @@ vi.mock('./shared', () => ({
 }));
 
 vi.mock('firebase/firestore', () => ({
+  onSnapshot: (ref: { condicoes: Array<{ valor: string }> }, atualizar: () => void, falhar: (erro: Error) => void) => {
+    const assinatura = { grupoId: ref.condicoes[0]!.valor, atualizar, falhar, ativa: true };
+    estado.assinatura = assinatura;
+    return () => { assinatura.ativa = false; };
+  },
   collection: (_db: unknown, ...segmentos: string[]) => ({ __caminho: segmentos.join('/') }),
   where: (campo: string, operador: string, valor: unknown) => ({ __tipo: 'where', campo, operador, valor }),
   orderBy: (campo: string) => ({ __tipo: 'orderBy', campo }),
@@ -68,9 +74,58 @@ const {
   listarParticipantesPlantao,
   listarTodosGruposPlantao,
   obterCompetenciaPlantaoPublicada,
+  obterCompetenciaPlantaoPublicadaNaData,
+  observarPublicacoesPlantao,
   obterCompetenciaPlantaoRascunho,
   obterGrupoPlantao,
 } = await import('./plantaoReadRepository');
+
+describe('Plantão publicado por período real', () => {
+  it('acompanha novas publicações do grupo e fornece cancelamento e erro ao App', () => {
+    const atualizar = vi.fn();
+    const falhar = vi.fn();
+    const parar = observarPublicacoesPlantao('COSI', atualizar, falhar);
+    expect(estado.assinatura?.grupoId).toBe('COSI');
+    estado.assinatura?.atualizar();
+    estado.assinatura?.atualizar();
+    expect(atualizar).toHaveBeenCalledTimes(2);
+    const erro = new Error('Sem conexão');
+    estado.assinatura?.falhar(erro);
+    expect(falhar).toHaveBeenCalledWith(erro);
+    parar();
+    expect(estado.assinatura?.ativa).toBe(false);
+  });
+  const publicada = (grupoId: string, competencia: string, inicio: string, fim: string) => ({
+    id: `${grupoId}_${competencia}`,
+    data: { id: `${grupoId}_${competencia}`, grupoId, competencia, periodoInicio: inicio, periodoFim: fim,
+      status: 'PUBLICADA', atualizadoEm: '2026-08-01T00:00:00.000Z' },
+  });
+
+  it('encontra agosto no dia 26 mesmo quando o corte SOC aponta setembro', async () => {
+    estado.competenciasPublicadas = [publicada('COSI', '2026-08', '2026-08-01', '2026-08-31')];
+    expect(await obterCompetenciaPlantaoPublicada('COSI', '2026-09')).toBeNull();
+    expect((await obterCompetenciaPlantaoPublicadaNaData('COSI', '2026-08-26'))?.competencia).toBe('2026-08');
+  });
+
+  it('preserva o período 26→25 e inclui seus dois limites', async () => {
+    estado.competenciasPublicadas = [publicada('CODB', '2027-01', '2026-12-26', '2027-01-25')];
+    for (const data of ['2026-12-26', '2027-01-25']) {
+      expect((await obterCompetenciaPlantaoPublicadaNaData('CODB', data))?.competencia).toBe('2027-01');
+    }
+    expect(await obterCompetenciaPlantaoPublicadaNaData('CODB', '2027-01-26')).toBeNull();
+  });
+
+  it('não confunde rascunho, outro grupo ou publicação fora do período com escala disponível', async () => {
+    const rascunho = publicada('COSI', '2026-09', '2026-09-01', '2026-09-30');
+    rascunho.data.status = 'RASCUNHO';
+    estado.competenciasPublicadas = [
+      rascunho,
+      publicada('CODB', '2026-09', '2026-09-01', '2026-09-30'),
+      publicada('COSI', '2026-08', '2026-08-01', '2026-08-31'),
+    ];
+    expect(await obterCompetenciaPlantaoPublicadaNaData('COSI', '2026-09-09')).toBeNull();
+  });
+});
 
 function grupo(overrides: Record<string, unknown>) {
   return {
@@ -128,6 +183,7 @@ describe('listarGruposPlantaoPermitidos', () => {
   it('retorna só os grupos cuja equipesConsulta inclui a equipe informada', async () => {
     estado.gruposPlantao = [
       { id: 'PLANTAO_SEGURANCA', data: grupo({ equipesConsulta: ['EQ_COSI', 'EQ_SOC'] }) },
+      { id: 'PLANTAO_LEGADO', data: grupo({ grupoId: 'PLANTAO_LEGADO', equipesConsulta: ['EQ_SOC'], ativo: false }) },
       { id: 'PLANTAO_REDES', data: grupo({ grupoId: 'PLANTAO_REDES', equipesConsulta: ['EQ_REDES'] }) },
     ];
     const resultado = await listarGruposPlantaoPermitidos('EQ_SOC');

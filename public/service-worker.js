@@ -1,4 +1,4 @@
-const VERSION = 'fase-3k-c-v1';
+const VERSION = 'fase-3k-c-v2';
 const CACHE_SHELL = `escala-ici-shell-${VERSION}`;
 const CACHE_RUNTIME = `escala-ici-runtime-${VERSION}`;
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, '');
