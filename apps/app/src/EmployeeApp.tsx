@@ -36,6 +36,7 @@ import {
   CalendarDays,
   Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Clock3,
   Coffee,
@@ -102,7 +103,6 @@ import {
 import { formatarDataHoraSafe, formatarDiaTrocaSafe } from '@/lib/dataSegura';
 import {
   carregarEscalasEquipe,
-  carregarMinhaEscala,
   listarCatalogo,
   listarUsuarios,
   obterEquipe,
@@ -2355,6 +2355,10 @@ export function EmployeeApp() {
   const [erro, setErro] = useState('');
   const [modoEscala, setModoEscala] = useState<ModoEscala>('agenda');
   const [dataSelecionada, setDataSelecionada] = useState(dataHoje);
+  // Navegação da Agenda é por competência operacional publicada (26→25),
+  // nunca por mês civil isolado. O mês civil continua sendo apenas a forma
+  // visual já conhecida do calendário.
+  const [periodoInicioEscalaSelecionado, setPeriodoInicioEscalaSelecionado] = useState<string | null>(null);
   const [dataConsultaEquipe, setDataConsultaEquipe] = useState(dataHoje);
   /**
    * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — estado da visão
@@ -2927,7 +2931,15 @@ export function EmployeeApp() {
     .map((docs) => selecionarEscalaPorData(docs, dataHoje))
     .filter((documento): documento is TurnosMes => documento !== null);
 
-  const escaladosNoDiaConsultado = documentos
+  // A lista da equipe também precisa escolher UMA competência por login,
+  // agora que setembro e outubro ficam carregados ao mesmo tempo. Sem essa
+  // seleção, o mesmo analista aparecia duas vezes quando havia documentos
+  // publicados nos dois períodos.
+  const documentosEquipeNoDiaConsultado = [...documentosPorLoginApp.values()]
+    .map((docs) => selecionarEscalaPorData(docs, dataConsultaEquipe))
+    .filter((documento): documento is TurnosMes => documento !== null);
+
+  const escaladosNoDiaConsultado = documentosEquipeNoDiaConsultado
     .map((documento) => ({
       documento,
       jornada: resolverJornadaDia(documento, catalogo, dataConsultaEquipe),
@@ -3022,27 +3034,31 @@ export function EmployeeApp() {
           listarCatalogo(autenticado.equipeId),
           listarUsuarios(autenticado.equipeId),
         ]);
-        let minha: TurnosMes | null = null;
-        for (const competencia of competenciasCandidatas(dataHoje)) {
-          minha = await carregarMinhaEscala(
-            autenticado.login,
-            autenticado.equipeId,
-            competencia,
-          );
-          if (minha !== null) {
-            break;
-          }
-        }
-
-        const competencia = minha?.competencia ?? competenciaOperacional(dataHoje);
-        const [equipe, [catalogoRemoto, usuariosRemotos]] = await Promise.all([
-          carregarEscalasEquipe(autenticado.equipeId, competencia, true),
+        // Carrega toda a janela de competências antes de liberar a tela.
+        // A versão anterior encontrava apenas a primeira competência que
+        // continha o login e carregava a equipe daquele único período; isso
+        // fazia setembro desaparecer quando outubro era publicado e também
+        // deixava a Agenda sem dados para selecionar o período anterior.
+        const competencias = competenciasCandidatas(dataHoje);
+        const [equipesPorCompetencia, [catalogoRemoto, usuariosRemotos]] = await Promise.all([
+          Promise.all(competencias.map((competencia) =>
+            carregarEscalasEquipe(autenticado.equipeId, competencia, true))),
           metadados,
         ]);
+        const equipe = equipesPorCompetencia.flat();
+        const minha = selecionarEscalaPorData(
+          equipe.filter((documento) => documento.login === autenticado.login),
+          dataHoje,
+        );
+        const competencia = minha?.competencia ?? competenciaOperacional(dataHoje);
+        const documentosUnicos = Array.from(new Map(
+          equipe.map((documento) => [
+            `${documento.login}:${documento.competencia}`,
+            documento,
+          ]),
+        ).values());
         setDocumentos(
-          minha && !equipe.some((item) => item.login === minha.login)
-            ? [minha, ...equipe]
-            : equipe,
+          documentosUnicos,
         );
         setCatalogo(catalogoRemoto);
         setUsuarios(usuariosRemotos);
@@ -3976,14 +3992,41 @@ export function EmployeeApp() {
   // competência de hoje — é o que permite o calendário navegar/exibir os
   // dois períodos ao redor da virada do dia 26 sem clipar o anterior.
   const datas = Object.keys(diasEscalaVisivelApp).sort();
+  // Cada documento já representa exatamente uma competência 26→25. A
+  // navegação precisa trocar esses documentos, e não cortar o mapa por
+  // `YYYY-MM` (isso eliminava 26–30/31 e produzia títulos duplicados).
+  const escalasPorPeriodo = Array.from(new Map(
+    escalasDoUsuario
+      .filter((escala) => escala.periodoInicio && escala.periodoFim)
+      .map((escala) => [escala.periodoInicio, escala]),
+  ).values()).sort((a, b) => a.periodoInicio.localeCompare(b.periodoInicio));
+  const escalaDaCompetenciaAtual = escalasPorPeriodo.find(
+    (escala) => escala.periodoInicio === periodoInicioEscalaSelecionado,
+  ) ?? (minhaEscala
+    ? escalasPorPeriodo.find((escala) => escala.periodoInicio === minhaEscala.periodoInicio)
+    : undefined)
+    ?? escalasPorPeriodo.at(-1)
+    ?? null;
+  const indiceCompetenciaEscala = escalaDaCompetenciaAtual === null
+    ? -1
+    : escalasPorPeriodo.findIndex(
+      (escala) => escala.periodoInicio === escalaDaCompetenciaAtual.periodoInicio,
+    );
+  const datasCompetenciaEscala = escalaDaCompetenciaAtual
+    ? diasCivisNoPeriodo(escalaDaCompetenciaAtual.periodoInicio, escalaDaCompetenciaAtual.periodoFim)
+    : [];
   const dataHojeFormatada = formatarData(dataHoje, {
     weekday: 'long',
     day: '2-digit',
     month: 'long',
   });
-  const dataSelecionadaEfetiva = datas.includes(dataSelecionada)
+  const dataSelecionadaEfetiva = datasCompetenciaEscala.includes(dataSelecionada)
     ? dataSelecionada
-    : datas[0] ?? dataHoje;
+    : datasCompetenciaEscala[0] ?? dataHoje;
+
+  function selecionarDataEscala(data: string) {
+    setDataSelecionada(data);
+  }
 
   function consultarEquipeNoDia(data: string) {
     setDataConsultaEquipe(data);
@@ -4111,28 +4154,6 @@ export function EmployeeApp() {
                         onSelecionar={consultarEquipeNoDia}
                       />
                     </>
-                  )}
-                  {plantaoPublicadoApp && grupoPlantaoApp != null && (
-                    jornadaPublicadaApp ? (
-                      <PlantaoResumoCompacto
-                        grupo={grupoPlantaoApp}
-                        atribuicoes={atribuicoesPlantaoApp}
-                        usuarios={usuarios}
-                        agoraIso={agora.toISOString()}
-                        onAbrir={() => setTela('plantao')}
-                      />
-                    ) : (
-                      <>
-                        <PlantaoGrupoChips
-                          grupos={gruposPlantaoApp}
-                          grupoSelecionadoId={grupoPlantaoSelecionadoId}
-                          onSelecionar={selecionarGrupoPlantaoApp}
-                        />
-                        {souPlantonistaAtivoApp && (
-                          <PlantaoStatsRow estatisticas={estatisticasPlantaoApp(usuario.login, atribuicoesPlantaoApp, grupoPlantaoApp.timezone)} />
-                        )}
-                      </>
-                    )
                   )}
                 </>
               )}
@@ -4364,7 +4385,33 @@ export function EmployeeApp() {
                       </>
                     ) : (
                       <>
-                        <h2>{tituloCalendario(datas)}</h2>
+                        <div className="schedule-month-heading">
+                          <button
+                            type="button"
+                            className="icon-button schedule-month-arrow"
+                            aria-label="Escala publicada anterior"
+                            disabled={indiceCompetenciaEscala <= 0}
+                            onClick={() => setPeriodoInicioEscalaSelecionado(
+                              escalasPorPeriodo[indiceCompetenciaEscala - 1]?.periodoInicio ?? null,
+                            )}
+                          >
+                            <ChevronLeft size={18} />
+                          </button>
+                          <h2>{escalaDaCompetenciaAtual
+                            ? formatarCompetencia(competenciaOperacional(escalaDaCompetenciaAtual.periodoFim))
+                            : 'Período sem datas'}</h2>
+                          <button
+                            type="button"
+                            className="icon-button schedule-month-arrow"
+                            aria-label="Próxima escala publicada"
+                            disabled={indiceCompetenciaEscala < 0 || indiceCompetenciaEscala >= escalasPorPeriodo.length - 1}
+                            onClick={() => setPeriodoInicioEscalaSelecionado(
+                              escalasPorPeriodo[indiceCompetenciaEscala + 1]?.periodoInicio ?? null,
+                            )}
+                          >
+                            <ChevronRight size={18} />
+                          </button>
+                        </div>
                         <p>{minhaEscala?.turnoPadrao} · {minhaEscala?.login}</p>
                       </>
                     )}
@@ -4412,28 +4459,28 @@ export function EmployeeApp() {
                       <div className="schedule-view-panel">
                         {modoEscala === 'calendario' ? (
                           <CalendarioEscala
-                            datas={datas}
+                            datas={datasCompetenciaEscala}
                             dataHoje={dataHoje}
                             dataSelecionada={dataSelecionadaEfetiva}
-                            escala={escalaVisivelApp}
+                            escala={escalaDaCompetenciaAtual ?? escalaVisivelApp}
                             catalogo={catalogo}
-                            onSelecionar={setDataSelecionada}
+                            onSelecionar={selecionarDataEscala}
                           />
                         ) : (
                           <AgendaEscala
-                            datas={datas}
+                            datas={datasCompetenciaEscala}
                             dataHoje={dataHoje}
                             dataSelecionada={dataSelecionadaEfetiva}
-                            escala={escalaVisivelApp}
+                            escala={escalaDaCompetenciaAtual ?? escalaVisivelApp}
                             catalogo={catalogo}
-                            onSelecionar={setDataSelecionada}
+                            onSelecionar={selecionarDataEscala}
                           />
                         )}
                       </div>
                       <DetalheDia
                         data={dataSelecionadaEfetiva}
                         dataHoje={dataHoje}
-                        escala={escalaVisivelApp}
+                        escala={escalaDaCompetenciaAtual ?? escalaVisivelApp}
                         catalogo={catalogo}
                         onSolicitarTroca={(diaEscolhido) => abrirNovaSolicitacaoTroca(diaEscolhido)}
                       />
