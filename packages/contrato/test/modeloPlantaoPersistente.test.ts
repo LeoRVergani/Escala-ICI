@@ -14,6 +14,7 @@ import {
   obterPadraoHorarioGrupoParaData,
   obterPadraoHorarioParaDia,
   ordenarPadraoHorarioSemanal,
+  postosIncompletos,
   timezoneValida,
   validarAtribuicaoPlantaoPersistida,
   validarCompetenciaPlantao,
@@ -275,6 +276,67 @@ describe('validarAtribuicaoPlantaoPersistida', () => {
       duracaoMinutos: 12 * 60,
     });
     expect(erros.some((e) => e.includes('Papel desconhecido'))).toBe(true);
+  });
+
+  it('sem funcao (Grupo de posto único) não gera erro — campo é opcional', () => {
+    const erros = validarAtribuicaoPlantaoPersistida({
+      ...base,
+      inicio: '2026-07-26T22:00:00.000Z',
+      fim: '2026-07-27T10:00:00.000Z',
+      duracaoMinutos: 12 * 60,
+    });
+    expect(erros).toEqual([]);
+  });
+
+  it('funcao válida (DBA/LINUX/TELECOM/WINDOWS) não gera erro', () => {
+    for (const funcao of ['DBA', 'LINUX', 'TELECOM', 'WINDOWS']) {
+      const erros = validarAtribuicaoPlantaoPersistida({
+        ...base,
+        funcao,
+        inicio: '2026-07-26T22:00:00.000Z',
+        fim: '2026-07-27T10:00:00.000Z',
+        duracaoMinutos: 12 * 60,
+      });
+      expect(erros).toEqual([]);
+    }
+  });
+
+  it('funcao desconhecida é inválida', () => {
+    const erros = validarAtribuicaoPlantaoPersistida({
+      ...base,
+      funcao: 'REDE',
+      inicio: '2026-07-26T22:00:00.000Z',
+      fim: '2026-07-27T10:00:00.000Z',
+      duracaoMinutos: 12 * 60,
+    });
+    expect(erros.some((e) => e.includes('Função desconhecida'))).toBe(true);
+  });
+});
+
+describe('postosIncompletos', () => {
+  const ocorrencia = { inicio: '2026-08-27T10:00:00.000Z', fim: '2026-08-27T22:00:00.000Z' };
+  const grupoMultifuncao = { funcoesEsperadas: ['DBA', 'LINUX', 'TELECOM', 'WINDOWS'] as const };
+
+  it('todos os quatro postos preenchidos → nenhuma pendência', () => {
+    const atribuicoes = (['DBA', 'LINUX', 'TELECOM', 'WINDOWS'] as const).map((funcao) => ({ ...ocorrencia, funcao }));
+    expect(postosIncompletos(grupoMultifuncao, atribuicoes, ocorrencia)).toEqual([]);
+  });
+
+  it('Telecom sem plantonista → reporta só o posto pendente, nunca inventa pessoa', () => {
+    const atribuicoes = (['DBA', 'LINUX', 'WINDOWS'] as const).map((funcao) => ({ ...ocorrencia, funcao }));
+    expect(postosIncompletos(grupoMultifuncao, atribuicoes, ocorrencia)).toEqual(['TELECOM']);
+  });
+
+  it('Grupo de posto único (funcoesEsperadas ausente) nunca reporta pendência', () => {
+    expect(postosIncompletos({ funcoesEsperadas: undefined }, [], ocorrencia)).toEqual([]);
+    expect(postosIncompletos({ funcoesEsperadas: [] }, [], ocorrencia)).toEqual([]);
+  });
+
+  it('atribuição de outra ocorrência (inicio/fim diferentes) não conta como preenchida', () => {
+    const outraOcorrencia = { inicio: '2026-08-28T10:00:00.000Z', fim: '2026-08-28T22:00:00.000Z', funcao: 'DBA' as const };
+    expect(postosIncompletos(grupoMultifuncao, [outraOcorrencia], ocorrencia)).toEqual(
+      ['DBA', 'LINUX', 'TELECOM', 'WINDOWS'],
+    );
   });
 });
 

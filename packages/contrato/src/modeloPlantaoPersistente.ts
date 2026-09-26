@@ -31,12 +31,66 @@ import type { MomentoPlantao } from './tiposPlantao.js';
  */
 export type OrigemPlantao = 'IMPORTADO' | 'MANUAL' | 'GERADO' | 'COPIADO';
 export type PapelPlantonista = 'PRIMARIO' | 'SECUNDARIO';
-export type StatusCompetenciaPlantao = 'RASCUNHO' | 'PUBLICADA';
+/**
+ * Correção CODB/NOC — posto/especialidade dentro de UM `GrupoPlantao`
+ * multi-função (ex.: Plantão CODB cobre DBA/Linux/Telecom/Windows como
+ * postos paralelos do MESMO plantão, nunca quatro Grupos independentes —
+ * ver `docs/spec/PLANTOES.md`). Nome genérico deliberado (nunca
+ * `EspecialidadePlantaoCODB`): o conceito é do domínio Plantão, não de uma
+ * unidade específica — outra área com múltiplos postos reaproveita o
+ * mesmo enum, sem hardcode de CODB em `packages/contrato`/`firestore.rules`.
+ * `PapelPlantonista` (PRIMARIO/SECUNDARIO) é ortogonal a isto: papel
+ * distingue titular/backup DENTRO do mesmo posto/turno; `funcao` distingue
+ * QUAL posto paralelo é aquele. Opcional em `AtribuicaoPlantaoPersistida` —
+ * um Grupo de posto único (ex.: Plantão COSI) nunca precisa preenchê-lo.
+ */
+export type FuncaoPlantao = 'DBA' | 'LINUX' | 'TELECOM' | 'WINDOWS';
+/**
+ * FASE-ESCOPO-HIERARQUICO-CODB-E-ADMIN-PLANTAO-1 — `'CANCELADA'` é uma
+ * transição terminal a partir de `'PUBLICADA'` (nunca de `'RASCUNHO'`, que
+ * já tem exclusão física própria via `rascunhosCompetenciasPlantao`).
+ * Cancelar NÃO é excluir: a competência e suas atribuições continuam
+ * fisicamente presentes (`firestore.rules` mantém `allow delete: if false`
+ * inalterado) — só deixam de contar como publicação vigente para qualquer
+ * leitura operacional (`obterCompetenciaPlantaoPublicada()`). Existe para
+ * corrigir uma publicação feita no Grupo/competência errado sem apagar
+ * histórico/auditoria (docs/spec/PLANTOES.md § 20).
+ */
+export type StatusCompetenciaPlantao = 'RASCUNHO' | 'PUBLICADA' | 'CANCELADA';
 
 export const MAXIMO_CONTATOS_PLANTONISTA = 3;
 
 export const ORIGENS_PLANTAO_VALIDAS: readonly OrigemPlantao[] = ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO'];
 export const PAPEIS_PLANTONISTA_VALIDOS: readonly PapelPlantonista[] = ['PRIMARIO', 'SECUNDARIO'];
+export const FUNCOES_PLANTAO_VALIDAS: readonly FuncaoPlantao[] = ['DBA', 'LINUX', 'TELECOM', 'WINDOWS'];
+
+/** Rótulo de exibição — UI nunca mostra o código técnico do enum diretamente. */
+export const ROTULO_FUNCAO_PLANTAO: Readonly<Record<FuncaoPlantao, string>> = {
+  DBA: 'DBA',
+  LINUX: 'Linux',
+  TELECOM: 'Telecom',
+  WINDOWS: 'Windows',
+};
+
+/**
+ * Converte o texto de uma coluna "Plantonista <fonte>" (verbatim do
+ * cabeçalho real, ex.: "DBA"/"Linux"/"Telecom"/"Windows" — ver
+ * `AtribuicaoPlantaoBrutaMultiFonte.fonte`) para `FuncaoPlantao`. Só
+ * normaliza (trim + uppercase, tolera acentuação removida) — nunca infere
+ * uma função a partir de uma coluna desconhecida. Retorna `null` para
+ * qualquer texto que não bata exatamente com um dos quatro valores
+ * conhecidos, para o chamador reportar como erro/aviso em vez de inventar.
+ */
+export function funcaoPlantaoDaFonte(fonte: string): FuncaoPlantao | null {
+  const normalizado = fonte
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/gu, '')
+    .trim()
+    .toUpperCase();
+  return (FUNCOES_PLANTAO_VALIDAS as readonly string[]).includes(normalizado)
+    ? (normalizado as FuncaoPlantao)
+    : null;
+}
 
 /**
  * Fase PLANTAO-PADRAO-1 — mesmo índice de `Date#getUTCDay()` (0 = domingo),
@@ -150,6 +204,15 @@ export interface GrupoPlantao {
    * ESCALAS-UX-2B); nunca recalcula/normaliza atribuições já existentes.
    */
   padraoHorarioSemanal?: PadraoHorarioPlantaoDia[];
+  /**
+   * Correção CODB/NOC — quando presente e não vazio, este Grupo é
+   * multi-função: cada atribuição carrega `funcao` (`FuncaoPlantao`), e
+   * uma ocorrência só está completa quando TODOS os postos aqui listados
+   * têm plantonista no mesmo intervalo (`postosIncompletos()`, abaixo).
+   * Ausente/vazio (ex.: Plantão COSI) = Grupo de posto único, `funcao`
+   * nunca é exigido em nenhuma atribuição dele.
+   */
+  funcoesEsperadas?: FuncaoPlantao[];
   schemaVersion: number;
   criadoPorLogin: string;
   criadoEm: string;
@@ -227,6 +290,15 @@ export interface CompetenciaPlantao {
   criadoPorLogin: string;
   criadoEm: string;
   atualizadoEm: string;
+  /**
+   * Presentes SOMENTE quando `status === 'CANCELADA'` — nunca escritos na
+   * publicação/republicação normal (`firestore.rules` trava isso pelo
+   * `diff().affectedKeys()` da transição de cancelamento). `motivoCancelamento`
+   * é obrigatório e sempre não-vazio nesse caso (`validarCancelamentoCompetenciaPlantao`).
+   */
+  canceladaEm?: string;
+  canceladaPorLogin?: string;
+  motivoCancelamento?: string;
 }
 
 /**
@@ -246,6 +318,12 @@ export interface AtribuicaoPlantaoPersistida {
   fim: string;
   duracaoMinutos: number;
   papel: PapelPlantonista;
+  /**
+   * Posto/especialidade desta atribuição, só quando o Grupo é multi-função
+   * (`GrupoPlantao.funcoesEsperadas`). `undefined` num Grupo de posto único
+   * — nunca uma string livre, nunca inferido do nome do plantonista.
+   */
+  funcao?: FuncaoPlantao;
   origem: OrigemPlantao;
   revisao: number;
   schemaVersion: number;
@@ -711,13 +789,32 @@ export function validarCompetenciaPlantao(competencia: {
   if (!PADRAO_DATA_ISO.test(competencia.periodoFim)) {
     erros.push('Período de fim inválido (use o formato AAAA-MM-DD).');
   }
-  if (competencia.status !== 'RASCUNHO' && competencia.status !== 'PUBLICADA') {
+  if (competencia.status !== 'RASCUNHO' && competencia.status !== 'PUBLICADA' && competencia.status !== 'CANCELADA') {
     erros.push(`Status desconhecido: "${competencia.status}".`);
   }
   if (!ORIGENS_PLANTAO_VALIDAS.includes(competencia.origem as OrigemPlantao)) {
     erros.push(`Origem desconhecida: "${competencia.origem}".`);
   }
 
+  return erros;
+}
+
+const TAMANHO_MAXIMO_MOTIVO_CANCELAMENTO_PLANTAO = 500;
+
+/**
+ * Único validador do texto de motivo exigido para cancelar uma competência
+ * PUBLICADA (`docs/spec/PLANTOES.md` § 20) — reaproveitado pelo Dashboard
+ * (antes de chamar `cancelarCompetenciaPlantaoPublicada()`) e pelo próprio
+ * repository (segunda barreira, nunca confia só na UI).
+ */
+export function validarCancelamentoCompetenciaPlantao(motivo: string): string[] {
+  const erros: string[] = [];
+  const motivoNormalizado = motivo.trim();
+  if (motivoNormalizado === '') {
+    erros.push('Informe o motivo do cancelamento.');
+  } else if (motivoNormalizado.length > TAMANHO_MAXIMO_MOTIVO_CANCELAMENTO_PLANTAO) {
+    erros.push(`O motivo não pode ultrapassar ${TAMANHO_MAXIMO_MOTIVO_CANCELAMENTO_PLANTAO} caracteres.`);
+  }
   return erros;
 }
 
@@ -728,6 +825,7 @@ export function validarAtribuicaoPlantaoPersistida(atribuicao: {
   duracaoMinutos: number;
   origem: string;
   papel: string;
+  funcao?: string;
 }): string[] {
   const erros: string[] = [];
 
@@ -766,6 +864,35 @@ export function validarAtribuicaoPlantaoPersistida(atribuicao: {
   if (!PAPEIS_PLANTONISTA_VALIDOS.includes(atribuicao.papel as PapelPlantonista)) {
     erros.push(`Papel desconhecido: "${atribuicao.papel}".`);
   }
+  if (atribuicao.funcao !== undefined && !FUNCOES_PLANTAO_VALIDAS.includes(atribuicao.funcao as FuncaoPlantao)) {
+    erros.push(`Função desconhecida: "${atribuicao.funcao}".`);
+  }
 
   return erros;
+}
+
+/**
+ * Postos de `grupo.funcoesEsperadas` sem NENHUMA atribuição cobrindo
+ * exatamente `[inicio, fim)` na ocorrência informada. Retorna `[]` quando
+ * o Grupo é de posto único (`funcoesEsperadas` ausente/vazio) — nunca
+ * "todos incompletos" por falta de configuração. Não inventa pessoa: só
+ * relata o posto como pendente. Comparação de intervalo é por igualdade
+ * exata de `inicio`/`fim` (mesma ocorrência), nunca sobreposição parcial.
+ */
+export function postosIncompletos(
+  grupo: { funcoesEsperadas?: readonly FuncaoPlantao[] },
+  atribuicoesDaOcorrencia: readonly Pick<AtribuicaoPlantaoPersistida, 'funcao' | 'inicio' | 'fim'>[],
+  ocorrencia: { inicio: string; fim: string },
+): FuncaoPlantao[] {
+  const funcoesEsperadas = grupo.funcoesEsperadas ?? [];
+  if (funcoesEsperadas.length === 0) {
+    return [];
+  }
+  const funcoesPreenchidas = new Set(
+    atribuicoesDaOcorrencia
+      .filter((atribuicao) => atribuicao.inicio === ocorrencia.inicio && atribuicao.fim === ocorrencia.fim)
+      .map((atribuicao) => atribuicao.funcao)
+      .filter((funcao): funcao is FuncaoPlantao => funcao !== undefined),
+  );
+  return funcoesEsperadas.filter((funcao) => !funcoesPreenchidas.has(funcao));
 }

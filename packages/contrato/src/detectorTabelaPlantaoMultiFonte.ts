@@ -39,12 +39,22 @@ function extrairFonte(cabecalhoOriginal: string): string {
 /**
  * Localiza, em qualquer aba do workbook, a linha de cabeçalho de uma
  * tabela de Plantão com MÚLTIPLAS fontes simultâneas: uma ou mais colunas
- * contíguas começando com "PLANTONISTA" (cada uma sua própria fonte, ex.
- * "Plantonista DBA"/"Plantonista Linux"), imediatamente seguidas por
- * "Data Início" e "Data Fim", nesta ordem. Estrutura irmã de
- * `localizarTabelaPlantao()` (fonte única) — deliberadamente uma função
- * separada, nunca compartilhada, para as duas formas nunca se misturarem.
- * Nunca depende de nome de aba ou de arquivo.
+ * começando com "PLANTONISTA" (cada uma sua própria fonte, ex. "Plantonista
+ * DBA"/"Plantonista Linux") mais "Data Início" e "Data Fim", em QUALQUER
+ * posição da linha — cabeçalho decide, nunca a posição/adjacência das
+ * colunas. Estrutura irmã de `localizarTabelaPlantao()` (fonte única) —
+ * deliberadamente uma função separada, nunca compartilhada, para as duas
+ * formas nunca se misturarem. Nunca depende de nome de aba ou de arquivo.
+ *
+ * Correção HOTFIX-PARSER-PLANTAO-CODB-4-EQUIPES-1 — antes desta fase, as
+ * colunas "Plantonista*" precisavam ser contíguas e imediatamente seguidas
+ * por "Data Início"/"Data Fim" nesta ordem exata; uma planilha real com as
+ * colunas de data intercaladas entre postos (ex.: "Data Início, DBA,
+ * Linux, Data Fim, Telecom, Windows") não era reconhecida. A busca agora é
+ * puramente por CONTEÚDO normalizado de cada célula da linha, independente
+ * de posição — estritamente mais permissiva que a regra anterior (todo
+ * cabeçalho que já satisfazia "contíguo e nesta ordem" continua satisfazendo
+ * "em qualquer posição"), então nenhum caso já reconhecido deixa de ser.
  */
 export function localizarTabelaPlantaoMultiFonte(
   workbook: XLSX.WorkBook,
@@ -66,44 +76,30 @@ export function localizarTabelaPlantaoMultiFonte(
 
     const intervalo = XLSX.utils.decode_range(referencia);
     for (let linha = intervalo.s.r; linha <= intervalo.e.r; linha += 1) {
-      let coluna = intervalo.s.c;
-      while (coluna <= intervalo.e.c) {
-        const chave = normalizarChaveEstrutural(valorCelula(obterCelula(planilha, linha, coluna)));
-        if (!chave.startsWith('PLANTONISTA')) {
-          coluna += 1;
-          continue;
-        }
+      const colunasPlantonista: ColunaPlantonistaMultiFonte[] = [];
+      let colInicio: number | null = null;
+      let colFim: number | null = null;
 
-        const colunasRun: ColunaPlantonistaMultiFonte[] = [];
-        while (coluna <= intervalo.e.c) {
-          const celulaAtual = obterCelula(planilha, linha, coluna);
-          const chaveAtual = normalizarChaveEstrutural(valorCelula(celulaAtual));
-          if (!chaveAtual.startsWith('PLANTONISTA')) {
-            break;
-          }
-          colunasRun.push({ coluna, fonte: extrairFonte(textoCelula(celulaAtual)) });
-          coluna += 1;
+      for (let coluna = intervalo.s.c; coluna <= intervalo.e.c; coluna += 1) {
+        const celula = obterCelula(planilha, linha, coluna);
+        const chave = normalizarChaveEstrutural(valorCelula(celula));
+        if (chave.startsWith('PLANTONISTA')) {
+          colunasPlantonista.push({ coluna, fonte: extrairFonte(textoCelula(celula)) });
+        } else if (chave === 'DATAINICIO') {
+          colInicio = coluna;
+        } else if (chave === 'DATAFIM') {
+          colFim = coluna;
         }
+      }
 
-        if (coluna + 1 > intervalo.e.c) {
-          continue;
-        }
-
-        const chaveInicio = normalizarChaveEstrutural(
-          valorCelula(obterCelula(planilha, linha, coluna)),
-        );
-        const chaveFim = normalizarChaveEstrutural(
-          valorCelula(obterCelula(planilha, linha, coluna + 1)),
-        );
-        if (chaveInicio === 'DATAINICIO' && chaveFim === 'DATAFIM') {
-          candidatos.push({
-            aba: nomeAba,
-            linha,
-            colunas: colunasRun,
-            colInicio: coluna,
-            colFim: coluna + 1,
-          });
-        }
+      if (colunasPlantonista.length > 0 && colInicio !== null && colFim !== null) {
+        candidatos.push({
+          aba: nomeAba,
+          linha,
+          colunas: colunasPlantonista,
+          colInicio,
+          colFim,
+        });
       }
     }
   }

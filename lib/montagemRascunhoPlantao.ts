@@ -317,6 +317,10 @@ export function montarAtribuicoesPlantaoRascunho(opcoes: {
       fim: converterMomentoParaInstanteUtc(atribuicao.fim, timezone),
       duracaoMinutos: atribuicao.duracaoMinutos,
       papel: 'PRIMARIO',
+      // Correção CODB/NOC — presente só quando a atribuição veio de uma
+      // planilha multi-fonte (`converterAtribuicoesMultiFonteParaBrutas()`,
+      // `@escala-ici/contrato`); ausente no fluxo de fonte única de sempre.
+      ...(atribuicao.funcao !== undefined ? { funcao: atribuicao.funcao } : {}),
       origem,
       revisao: 0,
       schemaVersion: 1,

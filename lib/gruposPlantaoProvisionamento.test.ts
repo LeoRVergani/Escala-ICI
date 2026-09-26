@@ -110,6 +110,42 @@ describe('construirGrupoPlantaoOficial', () => {
     expect(grupo.descricao).toBeUndefined();
   });
 
+  it('FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — sem funcoesEsperadas, o Grupo nasce de posto único (campo ausente, nunca [])', () => {
+    const grupo = construirGrupoPlantaoOficial({
+      grupoId: 'PLANTAO_COSI',
+      nome: 'Plantão COSI',
+      equipeResponsavel,
+      criadoPorLogin: 'coordenadora.cosi',
+      criadoEm: '2026-08-20T00:00:00.000Z',
+    });
+    expect('funcoesEsperadas' in grupo).toBe(false);
+  });
+
+  it('com funcoesEsperadas, o Grupo nasce multi-função — UM único GrupoPlantao com os postos escolhidos, nunca quatro Grupos', () => {
+    const grupo = construirGrupoPlantaoOficial({
+      grupoId: 'PLANTAO_CODB',
+      nome: 'Plantão CODB',
+      equipeResponsavel,
+      criadoPorLogin: 'coordenador.codb',
+      criadoEm: '2026-08-20T00:00:00.000Z',
+      funcoesEsperadas: ['DBA', 'LINUX', 'TELECOM', 'WINDOWS'],
+    });
+    expect(grupo.funcoesEsperadas).toEqual(['DBA', 'LINUX', 'TELECOM', 'WINDOWS']);
+    expect(grupo.grupoId).toBe('PLANTAO_CODB');
+  });
+
+  it('funcoesEsperadas vazio é tratado como posto único (campo ausente), nunca [] persistido', () => {
+    const grupo = construirGrupoPlantaoOficial({
+      grupoId: 'PLANTAO_COSI',
+      nome: 'Plantão COSI',
+      equipeResponsavel,
+      criadoPorLogin: 'coordenadora.cosi',
+      criadoEm: '2026-08-20T00:00:00.000Z',
+      funcoesEsperadas: [],
+    });
+    expect('funcoesEsperadas' in grupo).toBe(false);
+  });
+
   it('não contém nomes de unidades ou equipes de seed nas regras de construção', async () => {
     const modulo = await import('./gruposPlantaoProvisionamento');
     const fonte = Object.values(modulo).map(String).join('\n');

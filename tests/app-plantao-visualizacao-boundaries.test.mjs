@@ -87,7 +87,10 @@ test('7. a tela "Hoje" (Jornada SOC) e o fluxo de Trocas SOC continuam intactos 
   const app = await ler('apps/app/src/EmployeeApp.tsx');
   assert.match(app, /\{tela === 'hoje' && \(/u);
   assert.match(app, /function TurnoHoje\(/u);
-  assert.match(app, /function ProximoTurno\(/u);
+  // FASE-APP-REDESIGN-HOJE-1 — `ProximoTurno` (sempre vazio após o último
+  // turno do mês carregado) virou `ProximosDias` (lista de próximos dias
+  // trabalhados, com dados já carregados).
+  assert.match(app, /function ProximosDias\(/u);
   assert.match(app, /\{tela === 'trocas' && usuario && \(/u);
   assert.match(app, /criarSolicitacaoTroca/u, 'a criação de troca de Jornada SOC continua existindo (fora da tela de Plantão)');
 });

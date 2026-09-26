@@ -239,7 +239,18 @@ describe('resolverEscoposOperacionais — permitirAmploStaging (STAGING-RESET-HI
     expect(escopos.jornadasAdministraveis).toEqual([]);
   });
 
-  it('GESTOR_EQUIPE e SUPERVISOR_EQUIPE administram Jornada mesmo com Matriz existente que não os lista', () => {
+  /**
+   * HOTFIX-STAGING-FALLBACK-MATRIZ-1 — até esta fase, `permitirAmploStaging`
+   * concedia Jornada MESMO com uma Matriz ativa que não lista o usuário
+   * (comportamento documentado como intencional). Isso se provou incorreto
+   * na prática: uma Matriz explícita — mesmo sem listar este usuário — é
+   * uma decisão operacional real e precisa vencer o fallback de staging,
+   * nunca ser contornada por hierarquia. Corrigido: `alvoTemMatriz(...)`
+   * agora bloqueia `jornadasAmploStaging`/`gruposPlantaoAmploStaging`
+   * sempre que existe QUALQUER documento de Matriz para o alvo (ativo ou
+   * inativo) — só alvo SEM NENHUMA Matriz continua elegível ao fallback.
+   */
+  it('Matriz ATIVA que não lista o usuário BLOQUEIA o fallback de staging — matriz explícita sempre vence', () => {
     const matrizSemEsteUsuario = [{
       tipo: 'JORNADA' as const,
       alvoId: 'EQ_SOC',
@@ -257,18 +268,67 @@ describe('resolverEscoposOperacionais — permitirAmploStaging (STAGING-RESET-HI
       const escopos = resolverEscoposOperacionaisBase(
         ator, UNIDADES, EQUIPES, GRUPOS, matrizSemEsteUsuario, { permitirAmploStaging: true },
       );
-      expect(escopos.jornadasAdministraveis.map((item) => item.id)).toEqual(['EQ_SOC']);
+      expect(escopos.jornadasAdministraveis).toEqual([]);
     }
   });
 
-  it('GESTOR_EQUIPE e SUPERVISOR_EQUIPE administram Plantão mesmo com Matriz existente que não os lista (cobre SUPERVISOR_EQUIPE, que podeGerenciarGrupoPlantao sozinho não cobre)', () => {
-    const matrizSemEsteUsuario = [{
+  it('Matriz ATIVA com o usuário explicitamente responsável concede administração pela própria Matriz, sem precisar de fallback', () => {
+    const matrizComEsteUsuario = [{
+      tipo: 'JORNADA' as const,
+      alvoId: 'EQ_SOC',
+      alvoNome: 'SOC',
+      responsaveisLogin: ['gestor.soc'],
+      responsaveisEquipe: [],
+      equipesConsulta: [],
+      ativo: true,
+      criadoPorLogin: 'admin',
+      atualizadoPorLogin: 'admin',
+      schemaVersion: 1 as const,
+    }];
+    const ator = usuario({ login: 'gestor.soc', perfil: 'GESTOR_EQUIPE', equipeId: 'EQ_SOC', equipesPermitidas: ['EQ_SOC'] });
+    const escopos = resolverEscoposOperacionaisBase(
+      ator, UNIDADES, EQUIPES, GRUPOS, matrizComEsteUsuario, { permitirAmploStaging: true },
+    );
+    expect(escopos.jornadasAdministraveis.map((item) => item.id)).toEqual(['EQ_SOC']);
+  });
+
+  it('Matriz INATIVA (tombstone) também BLOQUEIA o fallback de staging — matriz inativa é fail-closed, nunca reativada pela hierarquia', () => {
+    const matrizInativa = [{
       tipo: 'PLANTAO' as const,
       alvoId: 'PLANTAO_COSI',
       alvoNome: 'Plantão COSI',
-      responsaveisLogin: ['outra.pessoa'],
+      responsaveisLogin: [],
       responsaveisEquipe: [],
-      equipesConsulta: ['EQ_PLANTAO_COSI'],
+      equipesConsulta: [],
+      ativo: false,
+      criadoPorLogin: 'admin',
+      atualizadoPorLogin: 'admin',
+      schemaVersion: 1 as const,
+    }];
+    for (const perfil of ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'] as const) {
+      const ator = usuario({ perfil, equipeId: 'EQ_PLANTAO_COSI', equipesPermitidas: ['EQ_PLANTAO_COSI'] });
+      const escopos = resolverEscoposOperacionaisBase(
+        ator, UNIDADES, EQUIPES, GRUPOS, matrizInativa, { permitirAmploStaging: true },
+      );
+      expect(escopos.gruposPlantaoAdministraveis).toEqual([]);
+    }
+  });
+
+  /**
+   * HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — a Matriz criada pelo seed estrutural
+   * de staging (`scripts/staging/hierarquia-ici.mjs`, `MATRIZ_INICIAL`) é
+   * sempre assim logo após um reset: ativa, mas só listando o login técnico
+   * `admin`. Precisa continuar liberando o fallback amplo — só uma Matriz
+   * com responsável REAL (humano ou equipe) deve travá-lo (ver `estadoMatrizOperacional()`).
+   */
+  it('Matriz ativa só com o login técnico "admin" (bootstrap) ainda libera o fallback de staging', () => {
+    const matrizBootstrap = [{
+      tipo: 'PLANTAO' as const,
+      alvoId: 'PLANTAO_COSI',
+      alvoNome: 'Plantão COSI',
+      responsaveisLogin: ['admin'],
+      responsaveisEquipe: [],
+      equipesConsulta: [],
       ativo: true,
       criadoPorLogin: 'admin',
       atualizadoPorLogin: 'admin',
@@ -277,7 +337,17 @@ describe('resolverEscoposOperacionais — permitirAmploStaging (STAGING-RESET-HI
     for (const perfil of ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'] as const) {
       const ator = usuario({ perfil, equipeId: 'EQ_PLANTAO_COSI', equipesPermitidas: ['EQ_PLANTAO_COSI'] });
       const escopos = resolverEscoposOperacionaisBase(
-        ator, UNIDADES, EQUIPES, GRUPOS, matrizSemEsteUsuario, { permitirAmploStaging: true },
+        ator, UNIDADES, EQUIPES, GRUPOS, matrizBootstrap, { permitirAmploStaging: true },
+      );
+      expect(escopos.gruposPlantaoAdministraveis.map((item) => item.grupoId)).toEqual(['PLANTAO_COSI']);
+    }
+  });
+
+  it('alvo SEM NENHUMA Matriz continua elegível ao fallback de staging (finalidade original preservada)', () => {
+    for (const perfil of ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'] as const) {
+      const ator = usuario({ perfil, equipeId: 'EQ_PLANTAO_COSI', equipesPermitidas: ['EQ_PLANTAO_COSI'] });
+      const escopos = resolverEscoposOperacionaisBase(
+        ator, UNIDADES, EQUIPES, GRUPOS, [], { permitirAmploStaging: true },
       );
       expect(escopos.gruposPlantaoAdministraveis.map((item) => item.grupoId)).toEqual(['PLANTAO_COSI']);
     }
@@ -424,6 +494,92 @@ describe('ADENDO — Área de gestão do Plantão resolve GEDSI_COSI -> PLANTAO_
  * deles. Ver `docs/spec/ESCOPO_OPERACIONAL_GESTOR_UNIDADE.md`, seção
  * "Plantões monitorados por equipe".
  */
+/**
+ * HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — reproduz o cenário real de staging que
+ * motivou este hotfix: Elton (`elrauh`, GESTOR_UNIDADE de `GEDSI_CODB`) deve
+ * administrar `PLANTAO_CODB` (Matriz CONFIGURADA, ele é o responsável real)
+ * mas NUNCA `NOC` (Matriz `PLANTAO_NOC` é um tombstone INATIVO — fail-closed,
+ * mesmo `NOC` estando hierarquicamente dentro de `GEDSI_CODB` e mesmo com
+ * `permitirFallbackLegado`/`permitirAmploStaging` ligados).
+ */
+describe('HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — Elton (GESTOR_UNIDADE de GEDSI_CODB): Plantão CODB pela Matriz, NOC nunca por fallback', () => {
+  const caminhoCodb = ['PRE', 'DIO', 'GEDSI', 'GEDSI_CODB'];
+  const UNIDADE_GEDSI_CODB = unidade('GEDSI_CODB', { caminho: caminhoCodb });
+  const EQUIPE_PLANTAO_CODB = equipe('GEDSI_CODB_PLANTAO', { unidadeId: 'GEDSI_CODB', caminhoUnidade: caminhoCodb });
+  const EQUIPE_NOC = equipe('GEDSI_CODB_NOC', { unidadeId: 'GEDSI_CODB', caminhoUnidade: caminhoCodb });
+  const GRUPO_PLANTAO_CODB_REAL = grupo('PLANTAO_CODB', EQUIPE_PLANTAO_CODB.id, {
+    equipesConsulta: [EQUIPE_PLANTAO_CODB.id],
+    unidadeResponsavelId: 'GEDSI_CODB',
+    caminhoUnidadeResponsavel: caminhoCodb,
+  });
+  const GRUPO_NOC_LEGADO = grupo('NOC', EQUIPE_NOC.id, {
+    equipesConsulta: [EQUIPE_NOC.id],
+    unidadeResponsavelId: 'GEDSI_CODB',
+    caminhoUnidadeResponsavel: caminhoCodb,
+  });
+  const MATRIZ_ELTON = [
+    {
+      tipo: 'PLANTAO' as const,
+      alvoId: 'PLANTAO_CODB',
+      alvoNome: 'Plantão CODB',
+      unidadeId: 'GEDSI_CODB',
+      caminhoUnidade: caminhoCodb,
+      responsaveisLogin: ['elrauh'],
+      responsaveisEquipe: [],
+      equipesConsulta: GRUPO_PLANTAO_CODB_REAL.equipesConsulta,
+      ativo: true,
+      criadoPorLogin: 'admin',
+      atualizadoPorLogin: 'admin',
+      schemaVersion: 1 as const,
+    },
+    {
+      tipo: 'PLANTAO' as const,
+      alvoId: 'NOC',
+      alvoNome: 'NOC',
+      responsaveisLogin: [],
+      responsaveisEquipe: [],
+      equipesConsulta: [],
+      ativo: false,
+      criadoPorLogin: 'admin',
+      atualizadoPorLogin: 'admin',
+      schemaVersion: 1 as const,
+    },
+  ];
+  const elton = usuario({
+    login: 'elrauh',
+    nome: 'Elton Rauh',
+    equipeId: 'GEDSI_CODB_OUTRA',
+    perfil: 'GESTOR_UNIDADE',
+    escopo: 'UNIDADE',
+    unidadeId: 'GEDSI_CODB',
+    unidadesPermitidas: ['GEDSI_CODB'],
+  });
+
+  it('NOC (Matriz PLANTAO_NOC inativa) nunca aparece, mesmo com fallback legado e amplo de staging ligados', () => {
+    const escopos = resolverEscoposOperacionaisBase(
+      elton, [UNIDADE_GEDSI_CODB], [EQUIPE_PLANTAO_CODB, EQUIPE_NOC], [GRUPO_PLANTAO_CODB_REAL, GRUPO_NOC_LEGADO], MATRIZ_ELTON,
+      { permitirFallbackLegado: true, permitirAmploStaging: true },
+    );
+    expect(escopos.gruposPlantaoAdministraveis.map((item) => item.grupoId)).not.toContain('NOC');
+  });
+
+  it('PLANTAO_CODB (Matriz configurada, elrauh é o responsável real) aparece pela própria Matriz', () => {
+    const escopos = resolverEscoposOperacionaisBase(
+      elton, [UNIDADE_GEDSI_CODB], [EQUIPE_PLANTAO_CODB, EQUIPE_NOC], [GRUPO_PLANTAO_CODB_REAL, GRUPO_NOC_LEGADO], MATRIZ_ELTON,
+      { permitirFallbackLegado: true, permitirAmploStaging: true },
+    );
+    expect(escopos.gruposPlantaoAdministraveis.map((item) => item.grupoId)).toContain('PLANTAO_CODB');
+  });
+
+  it('resultado conjunto de gruposPlantaoAdministraveis é exatamente {PLANTAO_CODB}, sem depender de ordenação', () => {
+    const escopos = resolverEscoposOperacionaisBase(
+      elton, [UNIDADE_GEDSI_CODB], [EQUIPE_PLANTAO_CODB, EQUIPE_NOC], [GRUPO_PLANTAO_CODB_REAL, GRUPO_NOC_LEGADO], MATRIZ_ELTON,
+      { permitirFallbackLegado: true, permitirAmploStaging: true },
+    );
+    expect(new Set(escopos.gruposPlantaoAdministraveis.map((item) => item.grupoId))).toEqual(new Set(['PLANTAO_CODB']));
+  });
+});
+
 describe('resolverEscoposOperacionais — plantoesConsultaveis (Plantões monitorados pela equipe)', () => {
   const GRUPO_PLANTAO_CODB = grupo('PLANTAO_CODB', 'EQ_PLANTAO_CODB', {
     equipesConsulta: ['EQ_PLANTAO_CODB'],

@@ -128,6 +128,46 @@ describe('ContextoEscalaAtivo — Fase ESCALAS-UX-2A.1 (contexto ativo de escala
     expect(dados.size).toBe(0);
   });
 
+  it('HOTFIX-COMPETENCIA-OPERACIONAL-DINAMICA-1 — com competenciaInicial informada, normaliza a competência antiga persistida para a operacional atual, preservando o alvo', () => {
+    const dados = new Map<string, string>();
+    const armazenamento = {
+      getItem: (chave: string) => dados.get(chave) ?? null,
+      setItem: (chave: string, valor: string) => dados.set(chave, valor),
+      removeItem: (chave: string) => dados.delete(chave),
+    };
+    const salvo = criarContextoEscala('JORNADA', 'GEDSI_COSI_SOC', 'SOC', '2026-08');
+    salvarContextoEscalaPersistido('marina', salvo, armazenamento);
+
+    const resultado = restaurarContextoEscalaPersistido(
+      'marina',
+      [criarContextoEscala('JORNADA', 'GEDSI_COSI_SOC', 'SOC', '2026-08')],
+      armazenamento,
+      { competenciaInicial: '2026-09' },
+    );
+
+    expect(resultado).toEqual({
+      estado: 'valido',
+      contexto: criarContextoEscala('JORNADA', 'GEDSI_COSI_SOC', 'SOC', '2026-09'),
+    });
+  });
+
+  it('HOTFIX-COMPETENCIA-OPERACIONAL-DINAMICA-1 — alvo persistido não permitido mais continua inválido, mesmo com competenciaInicial informada', () => {
+    const chave = chaveArmazenamentoContextoEscala('marina');
+    const dados = new Map([[chave, JSON.stringify(criarContextoEscala('PLANTAO', 'GRUPO_INATIVO', 'Inativo', '2026-08'))]]);
+    const armazenamento = {
+      getItem: (item: string) => dados.get(item) ?? null,
+      setItem: (item: string, valor: string) => dados.set(item, valor),
+      removeItem: (item: string) => dados.delete(item),
+    };
+    expect(restaurarContextoEscalaPersistido(
+      'marina',
+      [criarContextoEscala('PLANTAO', 'GRUPO_ATIVO', 'Ativo', '2026-08')],
+      armazenamento,
+      { competenciaInicial: '2026-09' },
+    )).toEqual({ estado: 'invalido' });
+    expect(dados.has(chave)).toBe(false);
+  });
+
   it('limpa alvo inexistente ou grupo inativo, pois eles não estão nas opções válidas', () => {
     const chave = chaveArmazenamentoContextoEscala('marina');
     const dados = new Map([[chave, JSON.stringify(criarContextoEscala('PLANTAO', 'GRUPO_INATIVO', 'Inativo', '2026-08'))]]);

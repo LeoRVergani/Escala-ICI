@@ -48,10 +48,31 @@ vi.mock('firebase/firestore', () => ({
     const filtrados = fonte.filter((item) => ref.condicoes.every((condicao) => combina(item, condicao)));
     return { docs: filtrados.map((item) => ({ id: item.id, data: () => item.data })) };
   },
-  onSnapshot: () => () => {},
+  /**
+   * FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — mesma semântica de `getDocs`
+   * acima, mas síncrona (`onSnapshot` chama o callback imediatamente com o
+   * estado atual de `estado.turnosMes`, sem esperar um microtask) e devolve
+   * o `unsubscribe` real da assinatura — necessário para provar que
+   * `observarEscalasEquipeMultiplasCompetencias()` mantém uma assinatura
+   * por competência (nunca substitui uma pela outra).
+   */
+  onSnapshot: (
+    ref: { __colecao: string; condicoes: Array<{ campo: string; operador: string; valor: unknown }> },
+    aoAtualizar: (snapshot: { docs: Array<{ id: string; data: () => Record<string, unknown> }> }) => void,
+  ) => {
+    const fonte = ref.__colecao === 'turnosMes' ? estado.turnosMes : [];
+    const filtrados = fonte.filter((item) => ref.condicoes.every((condicao) => item.data[condicao.campo] === condicao.valor));
+    aoAtualizar({ docs: filtrados.map((item) => ({ id: item.id, data: () => item.data })) });
+    return () => {};
+  },
 }));
 
-const { carregarMinhaEscala, listarUsuariosDoPlantao, listarUsuariosElegiveisPlantao } = await import('./readRepository');
+const {
+  carregarMinhaEscala,
+  listarUsuariosDoPlantao,
+  listarUsuariosElegiveisPlantao,
+  observarEscalasEquipeMultiplasCompetencias,
+} = await import('./readRepository');
 
 const EQUIPE = 'EQ_SOC';
 const COMPETENCIA = '2026-08';
@@ -271,5 +292,68 @@ describe('listarUsuariosElegiveisPlantao', () => {
 
     const logins = usuarios.map((usuario) => usuario.login).sort();
     expect(logins).toEqual(['admin.no.time', 'clis', 'colaborador.comum']);
+  });
+});
+
+/**
+ * FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — regressão do bug relatado: depois
+ * de publicar 2026-10, o PWA passou a mostrar só essa competência e parou
+ * de exibir 2026-09 (ainda vigente até 25/09). A causa raiz era
+ * `observarEscalasEquipe()` assinar UMA competência só — trocar de
+ * competência ativa cancelava a assinatura antiga e descartava o período
+ * anterior. `observarEscalasEquipeMultiplasCompetencias()` mantém uma
+ * assinatura por competência da janela.
+ */
+describe('observarEscalasEquipeMultiplasCompetencias', () => {
+  it('funde documentos de competências diferentes, sem descartar nenhuma', () => {
+    estado.turnosMes = [
+      escalaPublicada({ login: 'lvergani', competencia: '2026-09', periodoInicio: '2026-08-26', periodoFim: '2026-09-25' }),
+      escalaPublicada({ login: 'lvergani', competencia: '2026-10', periodoInicio: '2026-09-26', periodoFim: '2026-10-25' }),
+    ];
+
+    let ultimaEmissao: TurnosMes[] = [];
+    observarEscalasEquipeMultiplasCompetencias(
+      EQUIPE,
+      ['2026-09', '2026-10'],
+      (documentos) => { ultimaEmissao = documentos as TurnosMes[]; },
+      () => { throw new Error('não deveria falhar'); },
+    );
+
+    expect(ultimaEmissao.map((documento) => documento.competencia).sort()).toEqual(['2026-09', '2026-10']);
+  });
+
+  it('uma publicação nova numa competência não apaga o balde de outra competência já carregado', () => {
+    estado.turnosMes = [
+      escalaPublicada({ login: 'lvergani', competencia: '2026-09', periodoInicio: '2026-08-26', periodoFim: '2026-09-25' }),
+    ];
+
+    const emissoes: TurnosMes[][] = [];
+    observarEscalasEquipeMultiplasCompetencias(
+      EQUIPE,
+      ['2026-09', '2026-10'],
+      (documentos) => { emissoes.push(documentos as TurnosMes[]); },
+      () => { throw new Error('não deveria falhar'); },
+    );
+
+    // A assinatura de 2026-10 ainda não tinha nenhum documento no primeiro
+    // disparo (mock síncrono) — a competência anterior precisa continuar
+    // presente na emissão mais recente mesmo assim.
+    const ultima = emissoes.at(-1) ?? [];
+    expect(ultima.some((documento) => documento.competencia === '2026-09')).toBe(true);
+  });
+
+  it('cancela todas as assinaturas da janela ao chamar o unsubscribe devolvido', () => {
+    estado.turnosMes = [
+      escalaPublicada({ login: 'lvergani', competencia: '2026-09' }),
+    ];
+
+    const cancelar = observarEscalasEquipeMultiplasCompetencias(
+      EQUIPE,
+      ['2026-09', '2026-10', '2026-08'],
+      () => {},
+      () => { throw new Error('não deveria falhar'); },
+    );
+
+    expect(() => cancelar()).not.toThrow();
   });
 });

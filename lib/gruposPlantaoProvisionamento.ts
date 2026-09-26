@@ -1,4 +1,4 @@
-import { equipesConsultaEfetivas, type GrupoPlantao } from '@escala-ici/contrato';
+import { equipesConsultaEfetivas, type FuncaoPlantao, type GrupoPlantao } from '@escala-ici/contrato';
 import type { Equipe } from './modelos';
 
 /**
@@ -56,6 +56,14 @@ export function construirGrupoPlantaoOficial(params: {
   equipesConsultaAdicionais?: readonly string[];
   criadoPorLogin: string;
   criadoEm: string;
+  /**
+   * FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — presente e não vazio ⇒ Grupo
+   * multi-função (ex.: Plantão CODB: DBA/Linux/Telecom/Windows); ausente ⇒
+   * Grupo de posto único (comportamento de sempre, ex.: Plantão COSI).
+   * Nunca cria quatro Equipes/Grupos/Matrizes — sempre UM `GrupoPlantao`,
+   * qualquer que seja a estrutura escolhida (§2/§40/§61 da fase).
+   */
+  funcoesEsperadas?: readonly FuncaoPlantao[];
 }): GrupoPlantao {
   const { unidadeResponsavelId, caminhoUnidadeResponsavel } = derivarUnidadeResponsavelDoGrupoPlantao(params.equipeResponsavel);
   return {
@@ -72,5 +80,8 @@ export function construirGrupoPlantaoOficial(params: {
     criadoPorLogin: params.criadoPorLogin,
     criadoEm: params.criadoEm,
     atualizadoEm: params.criadoEm,
+    ...(params.funcoesEsperadas === undefined || params.funcoesEsperadas.length === 0
+      ? {}
+      : { funcoesEsperadas: [...params.funcoesEsperadas] }),
   };
 }

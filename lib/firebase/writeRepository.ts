@@ -24,6 +24,7 @@ import type {
   TipoPublicacaoEscala,
   Usuario,
 } from '../modelos';
+import { usuarioGestorUnidadeComEquipeIdInvalido } from '../perfilAcessoUsuario';
 import { agruparAlteracoesPorUsuario, calcularAlteracoesEscala } from '../revisoes';
 import { gerarUuid } from '../uuid';
 import { fatiarEmLotes } from './batches';
@@ -440,6 +441,12 @@ export async function reverterPublicacao(
  */
 export async function salvarUsuario(usuario: Usuario): Promise<void> {
   exigirEscritaAdministrativaHabilitada();
+  if (usuarioGestorUnidadeComEquipeIdInvalido(usuario)) {
+    throw new Error(
+      'Gestor de unidade não pode ter uma equipe vinculada (equipeId) — o vínculo dele é a unidade, '
+      + 'nunca uma equipe descendente. Remova a equipe do cadastro antes de salvar.',
+    );
+  }
   const { db } = exigirFirebase();
   await setDoc(doc(db, 'usuarios', usuario.login), removerUndefined(usuario), { merge: true });
 }

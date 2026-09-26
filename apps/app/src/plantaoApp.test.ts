@@ -7,6 +7,7 @@ import {
   contatosAtivosDoPlantonista,
   diasCivisNoPeriodo,
   escolherGrupoPlantaoPadrao,
+  estatisticasPlantaoApp,
   formatarIntervaloPlantaoCivil,
   formatarIntervaloPlantaoRelativoAHoje,
   indiceCorPlantonista,
@@ -18,6 +19,7 @@ import {
   proximosPlantoesDoUsuario,
   resolverDestaquePlantaoHoje,
   resolverPlantaoAgora,
+  rotuloDesambiguadoGrupoPlantao,
   rotuloFimPlantao,
 } from './plantaoApp';
 
@@ -405,6 +407,61 @@ describe('escolherGrupoPlantaoPadrao', () => {
   it('lista vazia -> null', () => {
     expect(escolherGrupoPlantaoPadrao([], {}, 'clis')).toBeNull();
   });
+
+  it('HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — sem temPublicacaoAtual (retrocompatível), comportamento idêntico a antes do hotfix', () => {
+    const porGrupo = { PLANTAO_NOC: [participante({ login: 'clis', grupoId: 'PLANTAO_NOC', ativo: true })] };
+    expect(escolherGrupoPlantaoPadrao([cosi, noc, dba], porGrupo, 'clis')).toBe('PLANTAO_NOC');
+  });
+
+  it('HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — dois grupos com o mesmo nome (migração incompleta), participante ativo nos dois: prefere o que tem a competência PUBLICADA', () => {
+    // Reproduz o bug real: "PLANTAO_COSI" legado e "PLANTAO_GEDSI_COSI" canônico,
+    // Jean participante ativo dos dois, só o canônico com setembro/2026 PUBLICADA.
+    const legado = { grupoId: 'PLANTAO_COSI', nome: 'Plantão COSI' } as GrupoPlantao;
+    const canonico = { grupoId: 'PLANTAO_GEDSI_COSI', nome: 'Plantão COSI' } as GrupoPlantao;
+    const porGrupo = {
+      PLANTAO_COSI: [participante({ login: 'jean', grupoId: 'PLANTAO_COSI', ativo: true })],
+      PLANTAO_GEDSI_COSI: [participante({ login: 'jean', grupoId: 'PLANTAO_GEDSI_COSI', ativo: true })],
+    };
+    const temPublicacaoAtual = { PLANTAO_COSI: false, PLANTAO_GEDSI_COSI: true };
+    expect(escolherGrupoPlantaoPadrao([legado, canonico], porGrupo, 'jean', temPublicacaoAtual)).toBe('PLANTAO_GEDSI_COSI');
+    // Ordem invertida na lista — o resultado não pode depender de qual veio primeiro.
+    expect(escolherGrupoPlantaoPadrao([canonico, legado], porGrupo, 'jean', temPublicacaoAtual)).toBe('PLANTAO_GEDSI_COSI');
+  });
+
+  it('grupo com publicação atual mas SEM participação ativa do usuário ainda vence quem participa mas não tem publicação', () => {
+    const porGrupo = { PLANTAO_COSI: [participante({ login: 'jean', grupoId: 'PLANTAO_COSI', ativo: true })] };
+    const temPublicacaoAtual = { PLANTAO_NOC: true };
+    expect(escolherGrupoPlantaoPadrao([cosi, noc], porGrupo, 'jean', temPublicacaoAtual)).toBe('PLANTAO_NOC');
+  });
+
+  it('nenhum grupo com publicação atual — cai na participação ativa (critério 3, igual ao comportamento anterior)', () => {
+    const porGrupo = { PLANTAO_NOC: [participante({ login: 'jean', grupoId: 'PLANTAO_NOC', ativo: true })] };
+    expect(escolherGrupoPlantaoPadrao([cosi, noc, dba], porGrupo, 'jean', {})).toBe('PLANTAO_NOC');
+  });
+});
+
+describe('rotuloDesambiguadoGrupoPlantao', () => {
+  it('nome único — mostra só o nome, sem nenhuma mudança visual', () => {
+    const grupo = { grupoId: 'PLANTAO_GEDSI_COSI', nome: 'Plantão COSI', equipeResponsavelId: 'GEDSI_COSI_PLANTAO' } as GrupoPlantao;
+    expect(rotuloDesambiguadoGrupoPlantao(grupo, [grupo])).toBe('Plantão COSI');
+  });
+
+  it('HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — dois grupos com o mesmo nome: NUNCA mostra "Plantão COSI" duas vezes sem diferenciação', () => {
+    const legado = { grupoId: 'PLANTAO_COSI', nome: 'Plantão COSI', equipeResponsavelId: 'EQ_PLANTAO_COSI' } as GrupoPlantao;
+    const canonico = { grupoId: 'PLANTAO_GEDSI_COSI', nome: 'Plantão COSI', equipeResponsavelId: 'GEDSI_COSI_PLANTAO' } as GrupoPlantao;
+    const grupos = [legado, canonico];
+    const rotuloLegado = rotuloDesambiguadoGrupoPlantao(legado, grupos);
+    const rotuloCanonico = rotuloDesambiguadoGrupoPlantao(canonico, grupos);
+    expect(rotuloLegado).not.toBe(rotuloCanonico);
+    expect(rotuloLegado).toContain('Plantão COSI');
+    expect(rotuloCanonico).toContain('Plantão COSI');
+  });
+
+  it('colisão de nome com descrição preenchida: usa a descrição como diferenciador (mais legível que o ID técnico)', () => {
+    const a = { grupoId: 'PLANTAO_COSI', nome: 'Plantão COSI', descricao: 'Legado (migração)', equipeResponsavelId: 'EQ_PLANTAO_COSI' } as GrupoPlantao;
+    const b = { grupoId: 'PLANTAO_GEDSI_COSI', nome: 'Plantão COSI', equipeResponsavelId: 'GEDSI_COSI_PLANTAO' } as GrupoPlantao;
+    expect(rotuloDesambiguadoGrupoPlantao(a, [a, b])).toBe('Plantão COSI (Legado (migração))');
+  });
 });
 
 describe('podeAcompanharTrocasPlantaoDoGrupo', () => {
@@ -448,5 +505,50 @@ describe('plataformaContatoPlantao', () => {
   it('rótulo não reconhecido (ex.: Ramal) cai em telefone, o padrão seguro', () => {
     expect(plataformaContatoPlantao('Ramal')).toBe('telefone');
     expect(plataformaContatoPlantao('Celular pessoal')).toBe('telefone');
+  });
+});
+
+describe('estatisticasPlantaoApp', () => {
+  it('mês normal: soma horas, conta plantões e finais de semana do usuário', () => {
+    const atribuicoes = [
+      // Segunda 2026-08-10, 12h — dia de semana.
+      atribuicao({ atribuicaoId: 'a', plantonistaLogin: 'clis', inicio: '2026-08-10T10:00:00.000Z', fim: '2026-08-10T22:00:00.000Z', duracaoMinutos: 720 }),
+      // Sábado 2026-08-15, 12h — final de semana.
+      atribuicao({ atribuicaoId: 'b', plantonistaLogin: 'clis', inicio: '2026-08-15T10:00:00.000Z', fim: '2026-08-15T22:00:00.000Z', duracaoMinutos: 720 }),
+      // Plantão de outra pessoa no mesmo período — não deve contar.
+      atribuicao({ atribuicaoId: 'c', plantonistaLogin: 'jean', inicio: '2026-08-16T10:00:00.000Z', fim: '2026-08-16T22:00:00.000Z', duracaoMinutos: 720 }),
+    ];
+    const estatisticas = estatisticasPlantaoApp('clis', atribuicoes, 'America/Sao_Paulo');
+    expect(estatisticas.totalPlantoes).toBe(2);
+    expect(estatisticas.horasTotais).toBe(24);
+    expect(estatisticas.finaisDeSemana).toBe(1);
+  });
+
+  it('plantão que começa sábado e termina domingo conta como UM plantão de final de semana (classificado pelo dia civil de início)', () => {
+    const atravessaMeiaNoite = atribuicao({
+      plantonistaLogin: 'clis',
+      // 22:00 UTC = 19:00 em America/Sao_Paulo (UTC-3) no sábado 2026-08-08;
+      // termina 07:00 local no domingo 2026-08-09.
+      inicio: '2026-08-08T22:00:00.000Z',
+      fim: '2026-08-09T10:00:00.000Z',
+      duracaoMinutos: 720,
+    });
+    const estatisticas = estatisticasPlantaoApp('clis', [atravessaMeiaNoite], 'America/Sao_Paulo');
+    expect(estatisticas.totalPlantoes).toBe(1);
+    expect(estatisticas.finaisDeSemana).toBe(1);
+  });
+
+  it('zero plantões do usuário -> tudo zerado, sem lançar', () => {
+    const deOutraPessoa = atribuicao({ plantonistaLogin: 'jean' });
+    const estatisticas = estatisticasPlantaoApp('clis', [deOutraPessoa], 'America/Sao_Paulo');
+    expect(estatisticas).toEqual({ horasTotais: 0, totalPlantoes: 0, finaisDeSemana: 0 });
+  });
+
+  it('lista de atribuições vazia -> tudo zerado', () => {
+    expect(estatisticasPlantaoApp('clis', [], 'America/Sao_Paulo')).toEqual({
+      horasTotais: 0,
+      totalPlantoes: 0,
+      finaisDeSemana: 0,
+    });
   });
 });

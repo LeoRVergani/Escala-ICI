@@ -667,6 +667,8 @@ textarea:focus-visible,
 .overview-operation-card.attention { border-top: 3px solid var(--warning, #b7791f); padding-top: 16px; }
 .overview-operation-card.stable { border-top: 3px solid var(--success, #17885a); padding-top: 16px; }
 .overview-operation-card.empty { border-top: 3px solid var(--border-strong); padding-top: 16px; }
+/* DASH-SIMPLES-1A (revisão pré-commit) — alertas de Plantão fora de contexto são desconhecidos, nunca "0" fabricado; a cor de severidade fica neutra (nunca verde/âmbar sem ter checado), igual a `.empty`, mas sem reaproveitar o rótulo "Sem escala". */
+.overview-operation-card.desconhecido { border-top: 3px solid var(--border-strong); padding-top: 16px; }
 .overview-operation-card-heading { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; }
 .overview-operation-icon { display: inline-flex; width: 48px; height: 48px; align-items: center; justify-content: center; border: 1px solid color-mix(in srgb, var(--primary-bright) 38%, var(--border)); border-radius: 50%; background: color-mix(in srgb, var(--primary-soft) 70%, var(--surface)); color: var(--primary-bright); }
 .overview-operation-icon.plantao { color: #2f8a80; border-color: color-mix(in srgb, #2f8a80 38%, var(--border)); background: color-mix(in srgb, #2f8a80 10%, var(--surface)); }
@@ -675,6 +677,7 @@ textarea:focus-visible,
 .overview-operation-title small { align-self: flex-start; padding: 4px 8px; border-radius: 999px; background: color-mix(in srgb, var(--warning, #b7791f) 12%, var(--surface)); color: var(--warning, #9a6718); font-size: 9px; font-weight: 700; }
 .overview-operation-card.stable .overview-operation-title small { background: color-mix(in srgb, var(--success, #17885a) 12%, var(--surface)); color: var(--success, #17885a); }
 .overview-operation-card.empty .overview-operation-title small { background: var(--surface-muted); color: var(--muted); }
+.overview-operation-card.desconhecido .overview-operation-title small { background: var(--surface-muted); color: var(--muted); }
 .overview-operation-card-heading > svg { color: var(--muted); }
 .overview-operation-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-top: 21px; }
 .overview-operation-meta > span { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto auto; column-gap: 8px; padding: 0 12px; border-left: 1px solid var(--border); }
@@ -753,6 +756,49 @@ textarea:focus-visible,
   .overview-operation-meta { grid-template-columns: 1fr; gap: 10px; }
   .overview-operation-meta > span,
   .overview-operation-meta > span:first-child { padding: 0; border-left: 0; }
+}
+
+/* Fase DASH-SIMPLES-1B — Hub de Escalas ("Minhas escalas"/"Acompanhamento"). Reaproveita os mesmos tokens/`.status-badge` já usados pelos cards da Visão geral — nenhum sistema visual novo. */
+.hub-escalas { display: flex; flex-direction: column; gap: var(--space-5); margin-bottom: var(--space-5); }
+.hub-escalas-secao { display: flex; flex-direction: column; gap: 10px; }
+.hub-escalas-titulo { margin: 0; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.hub-escala-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.hub-escala-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out, transform 150ms ease-out;
+}
+.hub-escala-card:hover { border-color: var(--primary-bright); box-shadow: var(--shadow-md, var(--shadow-card)); transform: translateY(-1px); }
+.hub-escala-card:focus-visible,
+.hub-escala-card:focus { outline: 3px solid color-mix(in srgb, var(--primary-bright) 28%, transparent); outline-offset: 2px; }
+.hub-escala-card.ativa { border-color: var(--primary-bright); background: color-mix(in srgb, var(--primary-soft) 30%, var(--surface)); }
+.hub-escala-card.consulta { cursor: pointer; }
+.hub-escala-card-icon { display: inline-flex; width: 40px; height: 40px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid color-mix(in srgb, var(--primary-bright) 38%, var(--border)); border-radius: 50%; background: color-mix(in srgb, var(--primary-soft) 70%, var(--surface)); color: var(--primary-bright); }
+.hub-escala-card-icon.plantao { color: #2f8a80; border-color: color-mix(in srgb, #2f8a80 38%, var(--border)); background: color-mix(in srgb, #2f8a80 10%, var(--surface)); }
+.hub-escala-card-corpo { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.hub-escala-card-cabecalho { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; }
+.hub-escala-card-cabecalho > strong { overflow: hidden; font-size: 15px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.hub-escala-card-tipo { color: var(--muted); font-size: 10px; }
+.hub-escala-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 4px; color: var(--muted); font-size: 11px; }
+.hub-escala-card-meta > span { display: inline-flex; align-items: center; gap: 5px; }
+.hub-escala-card-meta svg { color: var(--primary-bright); }
+.hub-escala-card-somente-consulta { color: var(--muted); font-style: italic; }
+.hub-escala-card-acao { display: flex; align-items: center; justify-content: flex-end; gap: 6px; grid-column: 1 / -1; margin-top: 6px; color: var(--primary-bright); font-size: 11px; font-weight: 650; }
+@media (max-width: 780px) {
+  .hub-escala-grid { grid-template-columns: 1fr; }
 }
 
 .import-panel { display: grid; grid-template-columns: minmax(340px, 1.1fr) 0.9fr; gap: var(--space-4); }
@@ -1045,6 +1091,7 @@ button.shift-chip:disabled { cursor: default; }
 .revision-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 0 4px color-mix(in srgb, var(--cyan) 13%, transparent); }
 .revision-dot.rollback { background: var(--warning); box-shadow: 0 0 0 4px color-mix(in srgb, var(--warning) 14%, transparent); }
 .revision-dot.seed { background: var(--primary-bright); box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-bright) 14%, transparent); }
+.revision-dot.cancelada { background: var(--muted); box-shadow: 0 0 0 4px color-mix(in srgb, var(--muted) 14%, transparent); }
 .compact-button { min-height: var(--control-height-compact); padding: 0 11px; border-radius: var(--radius-control); }
 .history-empty { min-height: 92px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 12px; }
 .history-empty svg { color: var(--primary-bright); }
@@ -1563,6 +1610,120 @@ button.shift-chip:disabled { cursor: default; }
   font-size: 13px;
 }
 .plantao-meu-item strong { font-variant-numeric: tabular-nums; }
+
+/*
+ * FASE-APP-REDESIGN-HOJE-1 — "Próximos dias" (`ProximosDias`,
+ * `EmployeeApp.tsx`) substitui o antigo card "Próximo turno", que ficava
+ * vazio assim que o único turno futuro conhecido já tinha passado. Mesma
+ * moldura de lista já usada por `.plantao-contatos-lista`/
+ * `.plantao-contato-linha` (borda única ao redor, divisor entre itens) —
+ * um padrão de lista, não um componente novo.
+ */
+.proximos-dias-lista {
+  display: flex;
+  flex-direction: column;
+  margin-top: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.proximos-dias-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface);
+}
+.proximos-dias-item + .proximos-dias-item { border-top: 1px solid var(--border); }
+.proximos-dias-data {
+  flex: 0 0 auto;
+  width: 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.proximos-dias-data strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+.proximos-dias-data small { color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+.proximos-dias-icone {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: white;
+  background: linear-gradient(145deg, var(--periodo-icon, var(--primary)), color-mix(in srgb, var(--periodo-icon, var(--primary)) 65%, black));
+}
+.proximos-dias-icone svg { width: 16px; height: 16px; }
+.proximos-dias-info { flex: 1 1 auto; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.proximos-dias-info strong { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proximos-dias-info small { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+/*
+ * FASE-APP-REDESIGN-HOJE-1 — linha compacta de UMA operação (Jornada 6x1 ou
+ * Plantão) quando ela NÃO é a operação principal do usuário na aba "Hoje"
+ * (`PlantaoResumoCompacto`/`JornadaResumoCompacta`, `EmployeeApp.tsx`) —
+ * substitui o card cheio nesse caso, para não competir visualmente com o
+ * card principal. Reset de `<button>` + o mesmo padrão de "linha clicável
+ * com ícone à esquerda, texto no meio, seta à direita" já usado em outros
+ * pontos do produto.
+ */
+.today-secondary-row {
+  width: 100%;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.today-secondary-row:hover { box-shadow: var(--shadow-card-hover); }
+.today-secondary-row:active { transform: scale(0.995); }
+.today-secondary-row-icon {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--primary-soft);
+  color: var(--primary-bright);
+}
+.today-secondary-row-icon svg { width: 18px; height: 18px; }
+.today-secondary-row-text { flex: 1 1 auto; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.today-secondary-row-text small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.today-secondary-row-text strong { font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.today-secondary-row-text > span { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.today-secondary-row > svg { flex: 0 0 auto; color: var(--muted); }
+
+/*
+ * FASE-APP-REDESIGN-HOJE-1 — estatísticas de Plantão do usuário
+ * (`PlantaoStatsRow`, `EmployeeApp.tsx`; `estatisticasPlantaoApp`,
+ * `plantaoApp.ts`): horas totais, quantidade de plantões e finais de
+ * semana. Reaproveita `.metric-grid` (já usado pela aba Agenda e pelo
+ * Dashboard) só ajustando para 3 colunas — nunca redefine `.metric-grid`
+ * em si, que é compartilhado com `apps/dashboard`.
+ */
+.plantao-stats-grid { grid-template-columns: repeat(3, 1fr); margin: 12px 0 0; }
+@media (max-width: 560px) {
+  .plantao-stats-grid { grid-template-columns: repeat(3, 1fr); gap: var(--space-2); }
+  .plantao-stats-grid article { padding: var(--space-3); }
+  .plantao-stats-grid strong { font-size: 19px; }
+}
 
 .today-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 .shift-group { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
@@ -2496,6 +2657,8 @@ button.shift-chip:disabled { cursor: default; }
 .profile-avatar {
   width: 64px;
   height: 64px;
+  flex-shrink: 0;
+  aspect-ratio: 1 / 1;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -3080,6 +3243,8 @@ button.shift-chip:disabled { cursor: default; }
 .app-shell.product-app .profile-avatar {
   width: 76px;
   height: 76px;
+  flex-shrink: 0;
+  aspect-ratio: 1 / 1;
   font-size: 21px;
   box-shadow: 0 12px 28px rgba(29, 78, 216, 0.2);
 }
@@ -3297,6 +3462,18 @@ button.shift-chip:disabled { cursor: default; }
   .app-shell.product-app .today-dashboard-grid > .today-hero { order: 1; }
   .app-shell.product-app .today-dashboard-grid > .week-strip { order: 2; }
   .app-shell.product-app .today-dashboard-grid > .next-shift-card { order: 3; }
+  /*
+   * FASE-APP-REDESIGN-HOJE-1 — `PlantaoHojeCard` (`.today-hero
+   * .plantao-hoje-card`) e `TurnoHoje` (`.today-hero` só) são elementos
+   * DIFERENTES que compartilham a classe `.today-hero` por estilo visual —
+   * a regra acima (`> .today-hero { order: 1 }`) por isso casava as duas,
+   * empatando no mesmo `order` e deixando o desempate cair na ordem do DOM
+   * (que colocava o Plantão ANTES de "Minha semana"/"Próximos dias" no
+   * mobile). Seletor composto (mais específico que `.today-hero` sozinho)
+   * garante que só `.plantao-hoje-card` pegue este `order`, sem tocar em
+   * `.today-hero` puro nem em qualquer outro uso da classe.
+   */
+  .app-shell.product-app .today-dashboard-grid > .today-hero.plantao-hoje-card { order: 3; }
   .app-shell.product-app .today-hero,
   :root[data-theme="dark"] .app-shell.product-app .today-hero,
   .app-shell.product-app .today-hero[data-state="DESCANSO"],
@@ -3800,6 +3977,18 @@ button.shift-chip:disabled { cursor: default; }
   .app-shell.product-app .today-dashboard-grid > .today-hero { order: 1; }
   .app-shell.product-app .today-dashboard-grid > .week-strip { order: 2; }
   .app-shell.product-app .today-dashboard-grid > .next-shift-card { order: 3; }
+  /*
+   * FASE-APP-REDESIGN-HOJE-1 — `PlantaoHojeCard` (`.today-hero
+   * .plantao-hoje-card`) e `TurnoHoje` (`.today-hero` só) são elementos
+   * DIFERENTES que compartilham a classe `.today-hero` por estilo visual —
+   * a regra acima (`> .today-hero { order: 1 }`) por isso casava as duas,
+   * empatando no mesmo `order` e deixando o desempate cair na ordem do DOM
+   * (que colocava o Plantão ANTES de "Minha semana"/"Próximos dias" no
+   * mobile). Seletor composto (mais específico que `.today-hero` sozinho)
+   * garante que só `.plantao-hoje-card` pegue este `order`, sem tocar em
+   * `.today-hero` puro nem em qualquer outro uso da classe.
+   */
+  .app-shell.product-app .today-dashboard-grid > .today-hero.plantao-hoje-card { order: 3; }
 
   .app-shell.product-app .today-hero,
   :root[data-theme="dark"] .app-shell.product-app .today-hero,
@@ -5372,6 +5561,92 @@ fieldset.checkbox-card-list > legend {
 .plantao-preview-fonte .plantao-resumo-grid > div { padding: 10px 12px; }
 .plantao-preview-fonte .plantao-resumo-grid strong { margin-top: 4px; font-size: 14px; }
 .plantao-preview-fonte .plantao-resumo-grid span { font-size: 9.5px; }
+
+/*
+ * FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — tabs Todos/DBA/Linux/Telecom/
+ * Windows + cards de saúde por posto. `order: 0` (padrão, sem regra
+ * própria) já posiciona este panel antes dos demais dentro de
+ * `.plantao-preview-fluxo` (que reordena por `order`, não por posição no
+ * DOM) — é o resumo que o Coordenador deve ver primeiro ao abrir um
+ * Plantão multi-função.
+ */
+.plantao-preview-multiposto .segmented-control { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.plantao-cards-funcao {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.plantao-cards-funcao .overview-operation-card.selected { border-color: var(--primary-bright); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-bright) 28%, transparent); }
+/*
+ * FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§19/§20) — o card deixou de
+ * ser um único <button> (não é HTML válido aninhar botões) e virou um
+ * <article> com dois botões-irmãos: o corpo inteiro (navega para o
+ * Calendário da função) e, quando há pendência, "Resolver vínculos"
+ * (navega para a aba Vínculos já filtrada). `.plantao-card-funcao-corpo`
+ * reseta a aparência de botão para continuar indistinguível do card
+ * antigo.
+ */
+.plantao-card-funcao { cursor: default; }
+.plantao-card-funcao-corpo {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.plantao-card-funcao-vinculos { width: 100%; justify-content: center; margin-top: 12px; }
+
+/* FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§15-18) — contexto de função na aba Vínculos. */
+.plantao-vinculos-contexto-funcao { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: var(--space-3); padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); font-size: 12px; font-weight: 700; }
+
+/* FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§21-24) — modal "Revisar publicação". */
+.plantao-revisao-modal { width: min(560px, 100%); }
+.plantao-revisao-status-geral { display: inline-flex; align-items: center; gap: 7px; margin-top: var(--space-3); }
+.plantao-revisao-icone-ok { color: var(--success); }
+.plantao-revisao-icone-atencao { color: var(--warning); }
+.plantao-revisao-icone-critico { color: var(--danger); }
+.plantao-revisao-subtitulo { margin: var(--space-4) 0 var(--space-2); font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.plantao-revisao-lista { display: flex; flex-direction: column; gap: 8px; list-style: none; padding: 0; margin: 0; }
+.plantao-revisao-linha {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.plantao-revisao-linha:hover { border-color: var(--primary-bright); background: var(--primary-soft); }
+.plantao-revisao-linha.ok { border-left-color: var(--success); }
+.plantao-revisao-linha.atencao { border-left-color: var(--warning); }
+.plantao-revisao-linha.critico { border-left-color: var(--danger); }
+.plantao-revisao-linha-titulo { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; font-weight: 700; font-size: 12px; }
+.plantao-revisao-linha-status { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); }
+.plantao-revisao-linha-acao { flex: 0 0 auto; color: var(--primary-bright); }
+@media (max-width: 640px) {
+  .plantao-revisao-linha { flex-wrap: wrap; }
+  .plantao-revisao-linha-status { white-space: normal; }
+}
+@media (max-width: 960px) {
+  .plantao-cards-funcao { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .plantao-cards-funcao { grid-template-columns: minmax(0, 1fr); }
+  .plantao-preview-multiposto .segmented-control { flex-wrap: nowrap; }
+}
 @media (max-width: 720px) {
   .plantao-command-head { align-items: stretch; flex-direction: column; }
   .plantao-command-file strong { max-width: min(100%, 420px); }
@@ -5889,7 +6164,11 @@ fieldset.checkbox-card-list > legend {
 }
 @media (max-width: 780px) {
   .plantao-editor-layout { grid-template-columns: 1fr; }
-  .plantao-roster { position: static; max-height: none; }
+  /* min-width: 0 — sem isso o item de grid cresce para caber a lista horizontal
+     inteira (17+ pessoas de 168px), e o overflow-x: auto abaixo nunca ativa;
+     o conteúdo excedente fica só clipado por `.page-column { overflow-x: clip }`,
+     inacessível (mesmo gotcha documentado em `.plantao-editor-central` acima). */
+  .plantao-roster { position: static; max-height: none; min-width: 0; }
   .plantao-roster-lista { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
   .plantao-roster-pessoa { flex: 0 0 auto; min-width: 168px; }
 }
@@ -6032,6 +6311,34 @@ fieldset.checkbox-card-list > legend {
 .wizard-inline-create p { margin: 0; font-size: 12px; color: var(--muted); }
 .wizard-inline-fields { display: grid; gap: 8px; }
 .wizard-inline-fields label { display: grid; gap: 5px; font-size: 11px; font-weight: 700; }
+/* FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — "Posto único"/"Múltiplos postos" + checkboxes de posto, dentro do fluxo de criação de Grupo do Wizard. */
+.wizard-inline-fields fieldset.wizard-grupo-estrutura,
+.wizard-inline-fields fieldset.wizard-grupo-postos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.wizard-inline-fields fieldset.wizard-grupo-estrutura legend,
+.wizard-inline-fields fieldset.wizard-grupo-postos legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.wizard-inline-fields fieldset.wizard-grupo-estrutura label,
+.wizard-inline-fields fieldset.wizard-grupo-postos label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.wizard-inline-fields fieldset.wizard-grupo-postos p.admin-form-erro { flex-basis: 100%; margin: 0; font-size: 10px; }
 .wizard-upload-block { display: grid; gap: 8px; border-top: 1px solid var(--border); padding-top: 16px; }
 .wizard-dropzone { display: grid; justify-items: center; gap: 6px; padding: 22px 16px; border: 1px dashed var(--primary-bright); border-radius: 10px; background: var(--primary-soft); text-align: center; cursor: pointer; }
 .wizard-dropzone svg { color: var(--primary-bright); }
@@ -6427,6 +6734,56 @@ fieldset.checkbox-card-list > legend {
 .soc-import-review-cell[data-code="DU"] { border-color: color-mix(in srgb, #4ba87b 25%, var(--border)); background: color-mix(in srgb, #4ba87b 8%, white); color: #317a59; }
 .soc-import-review-cell[data-code="BH"] { border-color: color-mix(in srgb, #dbad3b 30%, var(--border)); background: color-mix(in srgb, #dbad3b 10%, white); color: #9a6f0d; }
 .soc-import-review-cell.empty { color: var(--muted); opacity: .55; }
+/*
+ * HOTFIX-OPERACIONAL-PLANTAO-IMPORTACAO-HUB-1 — sequência 1..6 (badge
+ * discreto no canto), 7º dia consecutivo (crítico) e erro reportado pela
+ * fonte. Nunca depende só da cor: badge crítico some borda 2px + ícone,
+ * erro de fonte soma ícone próprio — sempre com `title`/`aria-label`.
+ */
+.soc-import-review-cell { position: relative; }
+.soc-import-review-cell-seq {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font-style: normal;
+  font-size: 6px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--muted);
+  opacity: .85;
+}
+.soc-import-review-cell-seq.critica { color: var(--danger); opacity: 1; }
+.soc-import-review-cell.seq-critica {
+  border-color: var(--danger);
+  border-width: 2px;
+  background: color-mix(in srgb, var(--danger-soft) 70%, var(--surface-muted));
+}
+.soc-import-review-cell.erro-fonte {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger-soft) 35%, var(--surface-muted));
+}
+.soc-import-review-cell-erro-icon { position: absolute; bottom: 1px; right: 2px; color: var(--danger); }
+.soc-import-review-cell.em-foco {
+  outline: 2px solid var(--primary-bright);
+  outline-offset: 1px;
+}
+@keyframes soc-import-review-cell-pulso {
+  0%, 100% { box-shadow: none; }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-bright) 30%, transparent); }
+}
+.soc-import-review-erro-foco {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 11px;
+}
+.soc-import-review-erro-foco strong { font-weight: 700; }
+.soc-import-review-erro-foco span { flex: 1; min-width: 0; }
+.soc-import-review-erro-foco .icon-button { color: inherit; }
 .soc-import-review-density-legend { display: flex; align-items: center; gap: 5px; padding: 8px 10px; color: var(--muted); font-size: 8px; }
 .soc-import-review-density-legend > i { width: 16px; height: 7px; border-radius: 2px; background: color-mix(in srgb, var(--primary-bright) 10%, white); }
 .soc-import-review-density-legend > i.density-mid { background: color-mix(in srgb, var(--primary-bright) 25%, white); }
@@ -6514,6 +6871,7 @@ button.soc-import-review-alert-row:focus-visible { background: var(--surface-mut
   .soc-import-review-person,
   .soc-import-review-month-controls button { transition: background 150ms ease-out, border-color 150ms ease-out, transform 150ms ease-out; }
   .soc-import-review-cell:hover:not(:disabled) { transform: translateY(-1px); }
+  .soc-import-review-cell.em-foco { animation: soc-import-review-cell-pulso 1.6s ease-in-out 2; }
 }
 
 .soc-import-review-header-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }

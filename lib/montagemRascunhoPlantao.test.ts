@@ -435,6 +435,85 @@ describe('montarAtribuicoesPlantaoRascunho', () => {
     });
   });
 
+  it('Correção CODB/NOC — uma "linha" com 4 postos (mesmo início/fim) vira 4 atribuições com funcao diferente, mesmo grupoId/competencia', () => {
+    const resultado = montarAtribuicoesPlantaoRascunho({
+      grupoId: 'PLANTAO_CODB',
+      competenciaId: 'PLANTAO_CODB_2026-09',
+      atribuicoes: [
+        comVinculo({ loginVinculado: 'pessoaa', funcao: 'DBA' }),
+        comVinculo({ loginVinculado: 'pessoab', funcao: 'LINUX' }),
+        comVinculo({ loginVinculado: 'pessoac', funcao: 'TELECOM' }),
+        comVinculo({ loginVinculado: 'pessoad', funcao: 'WINDOWS' }),
+      ],
+      timezone: 'America/Sao_Paulo',
+      origem: 'IMPORTADO',
+      agoraIso: '2026-08-01T00:00:00.000Z',
+    });
+    expect(resultado).toHaveLength(4);
+    expect(new Set(resultado.map((item) => item.grupoId))).toEqual(new Set(['PLANTAO_CODB']));
+    expect(new Set(resultado.map((item) => item.inicio))).toEqual(new Set([resultado[0].inicio]));
+    expect(new Set(resultado.map((item) => item.fim))).toEqual(new Set([resultado[0].fim]));
+    expect(resultado.map((item) => item.funcao)).toEqual(['DBA', 'LINUX', 'TELECOM', 'WINDOWS']);
+    expect(resultado.map((item) => item.plantonistaLogin)).toEqual(['pessoaa', 'pessoab', 'pessoac', 'pessoad']);
+  });
+
+  it('Correção CODB/NOC — Telecom sem plantonista vira 3 atribuições (nunca inventa a 4ª)', () => {
+    const resultado = montarAtribuicoesPlantaoRascunho({
+      grupoId: 'PLANTAO_CODB',
+      competenciaId: 'PLANTAO_CODB_2026-09',
+      atribuicoes: [
+        comVinculo({ loginVinculado: 'pessoaa', funcao: 'DBA' }),
+        comVinculo({ loginVinculado: 'pessoab', funcao: 'LINUX' }),
+        comVinculo({ loginVinculado: 'pessoad', funcao: 'WINDOWS' }),
+      ],
+      timezone: 'America/Sao_Paulo',
+      origem: 'IMPORTADO',
+      agoraIso: '2026-08-01T00:00:00.000Z',
+    });
+    expect(resultado).toHaveLength(3);
+    expect(resultado.map((item) => item.funcao)).toEqual(['DBA', 'LINUX', 'WINDOWS']);
+  });
+
+  it('Correção CODB/NOC — pessoa não conciliada continua lançando, mesmo com funcao presente (não inventa login)', () => {
+    expect(() => montarAtribuicoesPlantaoRascunho({
+      grupoId: 'PLANTAO_CODB',
+      competenciaId: 'PLANTAO_CODB_2026-09',
+      atribuicoes: [comVinculo({ loginVinculado: null, statusVinculo: 'PENDENTE', funcao: 'TELECOM' })],
+      timezone: 'America/Sao_Paulo',
+      origem: 'IMPORTADO',
+      agoraIso: '2026-08-01T00:00:00.000Z',
+    })).toThrow(/login vinculado/);
+  });
+
+  it('Correção CODB/NOC — a mesma pessoa em dois postos na mesma ocorrência gera duas atribuições distintas (dado da fonte preservado)', () => {
+    const resultado = montarAtribuicoesPlantaoRascunho({
+      grupoId: 'PLANTAO_CODB',
+      competenciaId: 'PLANTAO_CODB_2026-09',
+      atribuicoes: [
+        comVinculo({ loginVinculado: 'pessoaa', funcao: 'DBA' }),
+        comVinculo({ loginVinculado: 'pessoaa', funcao: 'LINUX' }),
+      ],
+      timezone: 'America/Sao_Paulo',
+      origem: 'IMPORTADO',
+      agoraIso: '2026-08-01T00:00:00.000Z',
+    });
+    expect(resultado).toHaveLength(2);
+    expect(resultado.map((item) => item.funcao)).toEqual(['DBA', 'LINUX']);
+    expect(resultado.every((item) => item.plantonistaLogin === 'pessoaa')).toBe(true);
+  });
+
+  it('sem funcao (fluxo de fonte única de sempre) nunca grava o campo — retrocompatível', () => {
+    const [resultado] = montarAtribuicoesPlantaoRascunho({
+      grupoId: 'PLANTAO_SEGURANCA',
+      competenciaId: 'PLANTAO_SEGURANCA_2026-07',
+      atribuicoes: [comVinculo()],
+      timezone: 'America/Sao_Paulo',
+      origem: 'IMPORTADO',
+      agoraIso: '2026-08-01T00:00:00.000Z',
+    });
+    expect(resultado).not.toHaveProperty('funcao');
+  });
+
   it('Fase ESCALAS-UX-1B — origem MANUAL é honrada, nunca hardcoded para IMPORTADO', () => {
     const [resultado] = montarAtribuicoesPlantaoRascunho({
       grupoId: 'PLANTAO_SEGURANCA',

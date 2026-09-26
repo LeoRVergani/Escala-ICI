@@ -8,9 +8,11 @@ import {
   converterInstanteUtcParaMomento,
   formatarCompetencia,
   formatarData,
+  diaSemanaEscalaCivil,
   formatarMinutos,
   formatarPeriodo,
   MAXIMO_CONTATOS_PLANTONISTA,
+  mesclarDiasEscalas,
   referenciaLocal,
   resolverContextoJornada,
   resolverJornadaDia,
@@ -57,7 +59,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { AppFrame, type ItemNavegacao } from '@/components/AppFrame';
 import { LoginPanel } from '@/components/LoginPanel';
@@ -104,7 +106,7 @@ import {
   listarCatalogo,
   listarUsuarios,
   obterEquipe,
-  observarEscalasEquipe,
+  observarEscalasEquipeMultiplasCompetencias,
   observarEventosEscala,
 } from '@/lib/firebase/readRepository';
 import { descreverNivelHierarquico } from '@/lib/organizacao';
@@ -112,7 +114,8 @@ import {
   listarAtribuicoesPlantaoPublicada,
   listarGruposPlantaoPermitidos,
   listarParticipantesPlantao,
-  obterCompetenciaPlantaoPublicada,
+  obterCompetenciaPlantaoPublicadaNaData,
+  observarPublicacoesPlantao,
 } from '@/lib/firebase/plantaoReadRepository';
 import { atualizarContatosPlantonista, atualizarCorPlantonista } from '@/lib/firebase/plantaoWriteRepository';
 import {
@@ -120,6 +123,7 @@ import {
   contatosAtivosDoPlantonista,
   diasCivisNoPeriodo,
   escolherGrupoPlantaoPadrao,
+  estatisticasPlantaoApp,
   formatarIntervaloPlantaoCivil,
   formatarIntervaloPlantaoRelativoAHoje,
   indiceCorPlantonista,
@@ -131,7 +135,9 @@ import {
   proximosPlantoesDoUsuario,
   resolverDestaquePlantaoHoje,
   resolverPlantaoAgora,
+  rotuloDesambiguadoGrupoPlantao,
   rotuloFimPlantao,
+  type EstatisticasPlantaoApp,
 } from './plantaoApp';
 import {
   cancelarSolicitacaoTroca as cancelarSolicitacaoTrocaFirebase,
@@ -272,15 +278,6 @@ function tituloCalendario(datas: string[]): string {
   return titulo.charAt(0).toUpperCase() + titulo.slice(1);
 }
 
-function tituloProximoTurno(turno: IntervaloTurno): string {
-  const data = formatarData(turno.data, {
-    weekday: 'long',
-    day: '2-digit',
-    month: 'short',
-  }).replace('.', '');
-  return data.charAt(0).toUpperCase() + data.slice(1);
-}
-
 function capitalizar(texto: string): string {
   return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
@@ -295,6 +292,40 @@ function datasDaSemana(datas: string[], dataHoje: string): string[] {
   }
   const inicio = Math.max(0, Math.min(indiceHoje - 3, datas.length - 7));
   return datas.slice(inicio, inicio + 7);
+}
+
+/**
+ * FASE-APP-REDESIGN-HOJE-1 — substitui `ContextoJornada.proximoTurno`
+ * (`resolverContextoJornada`, `packages/contrato/src/jornada.ts`), que só
+ * enxerga UM próximo turno e fica permanentemente `null` assim que o último
+ * turno do documento da competência carregada já passou. Em vez de mudar a
+ * camada de dados (exigiria buscar um segundo documento de competência),
+ * varremos os dias já carregados em `escala.dias` — os mesmos usados por
+ * `ResumoSemana`/`CalendarioEscala` — filtrando aos dias FUTUROS (após
+ * `dataHoje`) em que o usuário realmente trabalha, na ordem cronológica.
+ * `limite` controla quantos itens vêm de volta (1 para o metric tile da
+ * Agenda, 3 para o card "Próximos dias" da aba Hoje).
+ */
+function proximosDiasTrabalhados(
+  escala: TurnosMes | null,
+  catalogo: typeof CATALOGO_SOC,
+  dataHoje: string,
+  limite: number,
+): IntervaloTurno[] {
+  const resultado: IntervaloTurno[] = [];
+  const proximasDatas = Object.keys(escala?.dias ?? {})
+    .filter((data) => data > dataHoje)
+    .sort();
+  for (const data of proximasDatas) {
+    if (resultado.length >= limite) {
+      break;
+    }
+    const dia = resolverJornadaDia(escala, catalogo, data);
+    if (dia.trabalha && dia.inicio !== undefined && dia.fim !== undefined) {
+      resultado.push(dia as IntervaloTurno);
+    }
+  }
+  return resultado;
 }
 
 function textoEstado(contexto: ContextoJornada): string {
@@ -388,29 +419,42 @@ function TurnoHoje({ contexto }: { contexto: ContextoJornada }) {
   );
 }
 
-function ProximoTurno({ turno }: { turno: IntervaloTurno | null }) {
+/**
+ * FASE-APP-REDESIGN-HOJE-1 — substitui o antigo `ProximoTurno` (card
+ * "Próximo turno" que ficava permanentemente vazio assim que o último turno
+ * do mês carregado já tinha passado — ver `proximosDiasTrabalhados` acima).
+ * Mostra até 3 próximos dias em que o usuário trabalha, com data, dia da
+ * semana, descrição do turno e horário — mesmos dados/ícone que
+ * `TurnoHoje` já usa para o turno de hoje.
+ */
+function ProximosDias({ turnos }: { turnos: IntervaloTurno[] }) {
   return (
-    <article className="panel next-shift-card" data-code={turno?.codigo ?? ''}>
+    <article className="panel next-shift-card proximos-dias-card">
       <header className="today-card-heading">
-        <span>Próximo turno</span>
+        <span>Próximos dias</span>
         <CalendarCheck2 size={17} />
       </header>
-      {turno && (
-        <>
-          <div className="next-shift-title">
-            <span className="next-shift-icon" data-code={turno.codigo}>
-              <IconeTurno codigo={turno.codigo} />
-            </span>
-            <div>
-              <strong>{turno.descricao}</strong>
-              <span>{turno.inicio}–{turno.fim}</span>
-              <small>{tituloProximoTurno(turno)}</small>
+      {turnos.length === 0 ? (
+        <p className="empty-inline">Nenhum próximo turno publicado nesta competência.</p>
+      ) : (
+        <div className="proximos-dias-lista">
+          {turnos.map((turno) => (
+            <div className="proximos-dias-item" key={turno.data}>
+              <span className="proximos-dias-data">
+                <strong>{formatarData(turno.data, { day: '2-digit' })}</strong>
+                <small>{capitalizar(formatarData(turno.data, { weekday: 'short' }).replace('.', ''))}</small>
+              </span>
+              <span className="proximos-dias-icone" data-code={turno.codigo}>
+                <IconeTurno codigo={turno.codigo} />
+              </span>
+              <span className="proximos-dias-info">
+                <strong>{turno.descricao}</strong>
+                <small>{turno.inicio}–{turno.fim}</small>
+              </span>
             </div>
-          </div>
-          <p>{formatarMinutos(turno.duracaoMinutos)} de jornada prevista</p>
-        </>
+          ))}
+        </div>
       )}
-      {!turno && <p>Não encontrado neste período.</p>}
     </article>
   );
 }
@@ -528,10 +572,135 @@ function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso
   );
 }
 
+interface PlantaoResumoCompactoProps {
+  grupo: GrupoPlantao;
+  atribuicoes: AtribuicaoPlantaoPersistida[];
+  usuarios: Usuario[];
+  agoraIso: string;
+  onAbrir: () => void;
+}
+
+/**
+ * FASE-APP-REDESIGN-HOJE-1 — versão de UMA LINHA do Plantão para a aba
+ * "Hoje" quando ele NÃO é a operação principal do usuário nesta competência
+ * (ver `operacaoPrincipalHoje`, `operacoesApp.ts`) — ou seja, quando Jornada
+ * 6x1 E Plantão estão publicados ao mesmo tempo e a Jornada vem primeiro
+ * (regra 4 do App universal). Antes disso, `PlantaoHojeCard` (card cheio)
+ * sempre aparecia ao lado da Jornada mesmo sendo secundário, competindo
+ * visualmente pela atenção; esta linha resume o essencial (quem, até
+ * quando) e leva para a aba Plantão completa ao tocar.
+ */
+function PlantaoResumoCompacto({ grupo, atribuicoes, usuarios, agoraIso, onAbrir }: PlantaoResumoCompactoProps) {
+  const resumo = resolverPlantaoAgora(atribuicoes, agoraIso);
+  const dataHojeGrupo = converterInstanteUtcParaMomento(agoraIso, grupo.timezone).data;
+  const primeiroNome = (login: string) => nomeExibicaoPlantonista(login, usuarios).split(' ')[0];
+
+  if (resumo.atual !== null) {
+    const intervalo = intervaloPlantaoCivil(resumo.atual, grupo.timezone);
+    return (
+      <button type="button" className="today-secondary-row" onClick={onAbrir}>
+        <span className="today-secondary-row-icon"><Radio size={18} /></span>
+        <span className="today-secondary-row-text">
+          <small>Plantão {grupo.nome} agora</small>
+          <strong>{primeiroNome(resumo.atual.plantonistaLogin)}</strong>
+          <span>{intervalo.valido ? rotuloFimPlantao(intervalo, dataHojeGrupo) : 'Horário indisponível'}</span>
+        </span>
+        <ChevronRight size={18} />
+      </button>
+    );
+  }
+
+  const destaque = resolverDestaquePlantaoHoje(resumo, grupo.timezone, dataHojeGrupo);
+  if (destaque.estado === 'VAZIO') {
+    return (
+      <button type="button" className="today-secondary-row" onClick={onAbrir}>
+        <span className="today-secondary-row-icon"><Radio size={18} /></span>
+        <span className="today-secondary-row-text">
+          <small>Plantão {grupo.nome}</small>
+          <strong>Ninguém de plantão agora</strong>
+        </span>
+        <ChevronRight size={18} />
+      </button>
+    );
+  }
+
+  const intervalo = intervaloPlantaoCivil(destaque.atribuicao, grupo.timezone);
+  return (
+    <button type="button" className="today-secondary-row" onClick={onAbrir}>
+      <span className="today-secondary-row-icon"><Radio size={18} /></span>
+      <span className="today-secondary-row-text">
+        <small>{destaque.estado === 'PROXIMO_HOJE' ? `Próximo em ${grupo.nome}` : `Próximo plantão · ${grupo.nome}`}</small>
+        <strong>{primeiroNome(destaque.atribuicao.plantonistaLogin)}</strong>
+        <span>{intervalo.valido ? formatarIntervaloPlantaoRelativoAHoje(intervalo, dataHojeGrupo) : 'Horário indisponível'}</span>
+      </span>
+      <ChevronRight size={18} />
+    </button>
+  );
+}
+
+/**
+ * FASE-APP-REDESIGN-HOJE-1 — espelho de `PlantaoResumoCompacto` para o
+ * outro sentido: quando o usuário é primariamente plantonista (Plantão é a
+ * operação principal), a Jornada 6x1 vira a linha secundária compacta.
+ */
+function JornadaResumoCompacta({ contexto, onAbrir }: { contexto: ContextoJornada; onAbrir: () => void }) {
+  const turnoDestaque = contexto.turnoAtual ?? (
+    contexto.hoje.trabalha
+      && contexto.hoje.inicio !== undefined
+      && contexto.hoje.fim !== undefined
+      ? contexto.hoje as IntervaloTurno
+      : null
+  );
+  return (
+    <button type="button" className="today-secondary-row" onClick={onAbrir}>
+      <span className="today-secondary-row-icon">
+        {turnoDestaque ? <IconeTurno codigo={turnoDestaque.codigo} /> : <Coffee size={18} />}
+      </span>
+      <span className="today-secondary-row-text">
+        <small>Jornada 6x1 hoje</small>
+        <strong>{turnoDestaque?.descricao ?? 'Sem turno hoje'}</strong>
+        {turnoDestaque && <span>{turnoDestaque.inicio}–{turnoDestaque.fim}</span>}
+      </span>
+      <ChevronRight size={18} />
+    </button>
+  );
+}
+
+/**
+ * FASE-APP-REDESIGN-HOJE-1 — estatísticas do Plantão do próprio usuário
+ * nesta competência (ver `estatisticasPlantaoApp`, `plantaoApp.ts`):
+ * horas totais, quantidade de plantões e quantos caem em final de semana.
+ * Reaproveita a grade `.metric-grid` já usada em outras telas do App (aba
+ * Agenda) com um modificador `.plantao-stats-grid` para o layout de 3
+ * colunas, sem alterar a regra compartilhada `.metric-grid`.
+ */
+function PlantaoStatsRow({ estatisticas }: { estatisticas: EstatisticasPlantaoApp }) {
+  return (
+    <div className="metric-grid plantao-stats-grid">
+      <article data-tone="primary">
+        <span>Horas em plantão</span>
+        <strong>{formatarMinutos(Math.round(estatisticas.horasTotais * 60))}</strong>
+        <small>nesta competência</small>
+      </article>
+      <article data-tone="neutral">
+        <span>Plantões</span>
+        <strong>{estatisticas.totalPlantoes}</strong>
+        <small>no período</small>
+      </article>
+      <article data-tone="success">
+        <span>Finais de semana</span>
+        <strong>{estatisticas.finaisDeSemana}</strong>
+        <small>sábado ou domingo</small>
+      </article>
+    </div>
+  );
+}
+
 /**
  * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — alternador entre os
  * Plantões que a equipe do usuário consulta (ex.: NOC vendo
- * COSI+DBA+Linux). Nunca mostra `grupoId` cru — sempre `grupo.nome`. Só
+ * COSI+DBA+Linux). Nunca mostra `grupoId` cru — sempre `grupo.nome` (ou o
+ * rótulo desambiguado acima, quando dois Grupos colidem no mesmo nome). Só
  * renderiza quando há mais de um Grupo monitorado (zero mudança visual
  * para o caso comum de um Grupo só).
  */
@@ -561,7 +730,7 @@ function PlantaoGrupoChips({
           <span className="plantao-grupo-chip-badge" data-identidade={indice % 8}>
             {grupo.nome.replace(/^Plantão\s+/i, '').trim().slice(0, 2).toUpperCase() || grupo.nome.slice(0, 2).toUpperCase()}
           </span>
-          {grupo.nome}
+          {rotuloDesambiguadoGrupoPlantao(grupo, grupos)}
         </button>
       ))}
     </div>
@@ -636,7 +805,7 @@ function CalendarioPlantaoApp({
 }: CalendarioPlantaoAppProps) {
   const dias = diasCivisNoPeriodo(periodoInicio, periodoFim);
   const porDia = atribuicoesPorDiaCivil(atribuicoes, timezone);
-  const espacosIniciais = dias[0] ? new Date(`${dias[0]}T12:00:00Z`).getUTCDay() : 0;
+  const espacosIniciais = dias[0] ? diaSemanaEscalaCivil(dias[0]) : 0;
 
   return (
     <div className="calendar-view">
@@ -939,9 +1108,7 @@ function CalendarioEscala({
   catalogo,
   onSelecionar,
 }: VisualizacaoEscalaProps) {
-  const espacosIniciais = datas[0]
-    ? new Date(`${datas[0]}T12:00:00Z`).getUTCDay()
-    : 0;
+  const espacosIniciais = datas[0] ? diaSemanaEscalaCivil(datas[0]) : 0;
   const espacosFinais = (7 - ((espacosIniciais + datas.length) % 7)) % 7;
 
   return (
@@ -2353,13 +2520,29 @@ export function EmployeeApp() {
     modoDemonstracao,
   });
 
+  /**
+   * FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — janela de competências que a
+   * escala de Jornada 6x1 precisa acompanhar ao mesmo tempo: a operacional
+   * de hoje, o mês-calendário corrente e as duas vizinhas (mesmo conjunto
+   * de `competenciaOperacional(dataHoje)` ± 1 mês já usado no carregamento
+   * inicial, via `competenciasCandidatas`). Sem isso, a virada do dia 26
+   * cancelava a assinatura da competência anterior e o período de 26/mês
+   * passado a 25/mês corrente sumia do PWA assim que a competência seguinte
+   * era publicada. `useMemo` evita recriar o array (e reabrir as
+   * assinaturas) a cada re-render — só muda quando o dia civil muda.
+   */
+  const janelaCompetenciasApp = useMemo(
+    () => competenciasCandidatas(dataHoje),
+    [dataHoje],
+  );
+
   useEffect(() => {
     if (!listenersLiberados || loginUsuario === null || equipeUsuario === null) {
       return undefined;
     }
-    const cancelarEscalas = observarEscalasEquipe(
+    const cancelarEscalas = observarEscalasEquipeMultiplasCompetencias(
       equipeUsuario,
-      competenciaAtiva,
+      janelaCompetenciasApp,
       setDocumentos,
       (falha) => setErro(mensagemErroFirebase(falha, 'A sincronização em tempo real foi interrompida.', ambienteFirebaseAtual)),
     );
@@ -2407,7 +2590,7 @@ export function EmployeeApp() {
       cancelarTrocas();
       cancelarNotificacoesTroca();
     };
-  }, [competenciaAtiva, equipeUsuario, listenersLiberados, loginUsuario]);
+  }, [competenciaAtiva, equipeUsuario, janelaCompetenciasApp, listenersLiberados, loginUsuario]);
 
   useEffect(() => {
     if (!listenersLiberados || loginUsuario === null) {
@@ -2551,6 +2734,32 @@ export function EmployeeApp() {
     return () => cancelar?.();
   }, [usuario, modoDemonstracao]);
 
+  // Atualiza também quando a primeira publicação chega depois do login.
+  useEffect(() => {
+    if (usuario === null || modoDemonstracao || grupoPlantaoSelecionadoId === null) return;
+    const grupo = gruposPlantaoApp.find((item) => item.grupoId === grupoPlantaoSelecionadoId);
+    if (grupo === undefined) return;
+    let cancelado = false;
+    let revisaoCarga = 0;
+    const parar = observarPublicacoesPlantao(grupo.grupoId, () => {
+      const carga = ++revisaoCarga;
+      void carregarDetalheGrupoPlantao(grupo, usuario.login).then((detalhe) => {
+        if (cancelado || carga !== revisaoCarga) return;
+        setDetalhesPlantaoPorGrupoApp((atuais) => ({ ...atuais, [grupo.grupoId]: detalhe }));
+        aplicarDetalhePlantaoSelecionado(grupo, detalhe);
+      }).catch((falha) => {
+        if (!cancelado && carga === revisaoCarga) {
+          setErroPlantaoApp(mensagemErroFirebase(falha, 'Não foi possível atualizar o Plantão.', ambienteFirebaseAtual, 'autoatendimento'));
+        }
+      });
+    }, (falha) => {
+      if (!cancelado) setErroPlantaoApp(mensagemErroFirebase(falha, 'Não foi possível acompanhar as publicações do Plantão.', ambienteFirebaseAtual, 'autoatendimento'));
+    });
+    return () => { cancelado = true; parar(); };
+    // As funções de aplicação só escrevem estado; não são dependências da assinatura.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuario, modoDemonstracao, grupoPlantaoSelecionadoId, gruposPlantaoApp, dataHoje]);
+
   // Deep link de clique em notificação de Troca (`?trocaId=...`, ver
   // `public/service-worker.js`) — aplicado depois que a sessão e a carga
   // inicial terminam, nunca perde o destino por a sessão ainda estar sendo
@@ -2658,6 +2867,24 @@ export function EmployeeApp() {
   );
   const minhaEscala = selecionarEscalaPorData(escalasDoUsuario, dataHoje);
 
+  /**
+   * FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — `minhaEscala` acima escolhe UM
+   * documento (a competência que cobre `dataHoje`) — correto para os
+   * totais/estado "de hoje", mas insuficiente para o calendário/agenda, que
+   * precisa navegar por TODAS as datas já publicadas carregadas (a
+   * competência anterior, ainda vigente até o dia 25, e a seguinte, já
+   * publicada). `escalaVisivelApp` funde os `dias` de todos os documentos
+   * do usuário na janela carregada (`mesclarDiasEscalas`,
+   * `@escala-ici/contrato`) — nenhuma data já publicada desaparece só
+   * porque outra competência foi publicada por cima. Os demais campos
+   * (competência/período/turnoPadrão) continuam vindo de `minhaEscala`
+   * (rótulos de "hoje"), nunca do documento mesclado.
+   */
+  const diasEscalaVisivelApp = mesclarDiasEscalas(escalasDoUsuario);
+  const escalaVisivelApp: TurnosMes | null = minhaEscala
+    ? { ...minhaEscala, dias: diasEscalaVisivelApp }
+    : (escalasDoUsuario[0] ? { ...escalasDoUsuario[0], dias: diasEscalaVisivelApp } : null);
+
   const totais = minhaEscala
     ? calcularTotais(minhaEscala.dias, catalogo)
     : null;
@@ -2666,6 +2893,39 @@ export function EmployeeApp() {
     catalogo,
     referencia,
   );
+  /**
+   * FASE-APP-REDESIGN-HOJE-1 — substitui `contextoHoje.proximoTurno` (ver
+   * `proximosDiasTrabalhados` acima) no metric tile "Próximo turno" da aba
+   * Agenda, que tinha o mesmo problema do card "Próximo turno" removido de
+   * "Hoje": ficava permanentemente vazio assim que o último turno do
+   * documento da competência carregada já tinha passado. Usa
+   * `escalaVisivelApp` (mesclado) para também enxergar turnos da
+   * competência seguinte, já publicada, sem esperar a virada do dia 26.
+   */
+  const proximoTurnoTrabalho = proximosDiasTrabalhados(escalaVisivelApp, catalogo, dataHoje, 1)[0] ?? null;
+
+  /**
+   * FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — a grade da aba "Equipe"
+   * (`ScheduleGrid`) sempre mostrou UMA linha por colaborador; agora que
+   * `documentos` pode conter dois documentos por pessoa (competência
+   * anterior + seguinte, ambos publicados), passar `documentos` cru
+   * duplicaria cada colega na grade. Reduz para o documento de cada login
+   * que cobre `dataHoje` — a mesma escolha de `selecionarEscalaPorData`
+   * usada para o próprio usuário — preservando o comportamento anterior
+   * (uma linha por pessoa, sempre a competência vigente agora).
+   */
+  const documentosPorLoginApp = new Map<string, TurnosMes[]>();
+  for (const documento of documentos) {
+    const lista = documentosPorLoginApp.get(documento.login);
+    if (lista) {
+      lista.push(documento);
+    } else {
+      documentosPorLoginApp.set(documento.login, [documento]);
+    }
+  }
+  const documentosEquipeAtualApp = [...documentosPorLoginApp.values()]
+    .map((docs) => selecionarEscalaPorData(docs, dataHoje))
+    .filter((documento): documento is TurnosMes => documento !== null);
 
   const escaladosNoDiaConsultado = documentos
     .map((documento) => ({
@@ -2853,7 +3113,6 @@ export function EmployeeApp() {
     } catch {
       escopoOperacional = null;
     }
-    const competencia = competenciaOperacional(dataHoje);
     /**
      * A leitura do Grupo e a leitura dos detalhes passam por regras
      * diferentes no Firestore: a Matriz de Responsáveis tem sua PRÓPRIA
@@ -2868,13 +3127,14 @@ export function EmployeeApp() {
      */
     try {
       const [competenciaPublicada, participantes] = await Promise.all([
-        obterCompetenciaPlantaoPublicada(grupo.grupoId, competencia),
+        obterCompetenciaPlantaoPublicadaNaData(grupo.grupoId, dataHoje),
         listarParticipantesPlantao(grupo.grupoId),
       ]);
       const contatos = participantes.find((participante) => participante.login === loginUsuario)?.contatos ?? [];
       if (competenciaPublicada === null) {
         return { escopoOperacional, competencia: null, periodo: null, atribuicoes: [], participantes, contatos, erro: '' };
       }
+      const competencia = competenciaPublicada.competencia;
       const atribuicoes = await listarAtribuicoesPlantaoPublicada(grupo.grupoId, competencia);
       return {
         escopoOperacional,
@@ -2927,7 +3187,20 @@ export function EmployeeApp() {
         participantesPorGrupo[item.grupoId] = detalhes[indice]!.participantes;
       });
       setDetalhesPlantaoPorGrupoApp(mapa);
-      const grupoIdPadrao = escolherGrupoPlantaoPadrao(grupos, participantesPorGrupo, usuario.login) ?? grupo.grupoId;
+      /**
+       * HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — `detalhes` (já
+       * carregado acima para TODOS os grupos, cache reaproveitado, nenhuma
+       * leitura nova) já sabe qual Grupo tem a competência do mês
+       * PUBLICADA (`detalhe.competencia !== null`). Repassar isso decide o
+       * Grupo padrão corretamente quando dois Grupos com o mesmo nome
+       * existem (migração de IDs incompleta) e o usuário participa dos
+       * dois — nunca mais escolhe "o primeiro onde participa" cegamente.
+       */
+      const temPublicacaoAtualPorGrupo: Record<string, boolean> = {};
+      grupos.forEach((item) => {
+        temPublicacaoAtualPorGrupo[item.grupoId] = mapa[item.grupoId]?.competencia !== null;
+      });
+      const grupoIdPadrao = escolherGrupoPlantaoPadrao(grupos, participantesPorGrupo, usuario.login, temPublicacaoAtualPorGrupo) ?? grupo.grupoId;
       const grupoPadrao = grupos.find((item) => item.grupoId === grupoIdPadrao) ?? grupo;
       aplicarDetalhePlantaoSelecionado(grupoPadrao, mapa[grupoPadrao.grupoId]!);
     } catch (falha) {
@@ -3698,7 +3971,11 @@ export function EmployeeApp() {
     ? operacaoEquipeApp
     : (plantaoPublicadoApp && !jornadaPublicadaApp ? 'PLANTAO' : 'JORNADA');
   const nomes = Object.fromEntries(usuarios.map((item) => [item.login, item.nome]));
-  const datas = Object.keys(minhaEscala?.dias ?? {}).sort();
+  // FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — datas de TODAS as competências
+  // carregadas (`diasEscalaVisivelApp`, mesclado acima), não só da
+  // competência de hoje — é o que permite o calendário navegar/exibir os
+  // dois períodos ao redor da virada do dia 26 sem clipar o anterior.
+  const datas = Object.keys(diasEscalaVisivelApp).sort();
   const dataHojeFormatada = formatarData(dataHoje, {
     weekday: 'long',
     day: '2-digit',
@@ -3798,35 +4075,65 @@ export function EmployeeApp() {
             </article>
           ) : (
             <div className="today-summary-grid today-dashboard-grid" data-operacao-principal={operacaoPrincipalHojeApp?.tipo ?? ''}>
-              {jornadaPublicadaApp && (
-                <>
-                  <TurnoHoje contexto={contextoHoje} />
-                  <ProximoTurno turno={contextoHoje.proximoTurno} />
-                  <ResumoSemana
-                    datas={datas}
-                    dataHoje={dataHoje}
-                    dataSelecionada={dataConsultaEquipe}
-                    escala={minhaEscala}
-                    catalogo={catalogo}
-                    onSelecionar={consultarEquipeNoDia}
-                  />
-                </>
-              )}
-              {plantaoPublicadoApp && grupoPlantaoApp != null && (
+              {/*
+                FASE-APP-REDESIGN-HOJE-1 — quando Jornada 6x1 E Plantão
+                convivem em "Hoje", só a operação PRINCIPAL do usuário
+                (`operacaoPrincipalHojeApp`, `operacoesApp.ts`) ganha o card
+                cheio (hero) — a outra vira uma linha compacta no fim,
+                nunca dois heroes competindo lado a lado pela atenção.
+                Quando só uma das duas existe, ela continua sozinha, sem
+                nenhuma mudança de comportamento.
+              */}
+              {jornadaPublicadaApp && plantaoPublicadoApp && grupoPlantaoApp != null && operacaoPrincipalHojeApp?.tipo === 'PLANTAO' ? (
                 <>
                   <PlantaoGrupoChips
                     grupos={gruposPlantaoApp}
                     grupoSelecionadoId={grupoPlantaoSelecionadoId}
                     onSelecionar={selecionarGrupoPlantaoApp}
                   />
-                  <PlantaoHojeCard
-                    grupo={grupoPlantaoApp}
-                    atribuicoes={atribuicoesPlantaoApp}
-                    participantes={participantesPlantaoApp}
-                    usuarios={usuarios}
-                    agoraIso={agora.toISOString()}
-                    loginUsuarioAtual={usuario.login}
-                  />
+                  {souPlantonistaAtivoApp && (
+                    <PlantaoStatsRow estatisticas={estatisticasPlantaoApp(usuario.login, atribuicoesPlantaoApp, grupoPlantaoApp.timezone)} />
+                  )}
+                  <JornadaResumoCompacta contexto={contextoHoje} onAbrir={() => setTela('minha')} />
+                </>
+              ) : (
+                <>
+                  {jornadaPublicadaApp && (
+                    <>
+                      <TurnoHoje contexto={contextoHoje} />
+                      <ProximosDias turnos={proximosDiasTrabalhados(escalaVisivelApp, catalogo, dataHoje, 3)} />
+                      <ResumoSemana
+                        datas={datas}
+                        dataHoje={dataHoje}
+                        dataSelecionada={dataConsultaEquipe}
+                        escala={escalaVisivelApp}
+                        catalogo={catalogo}
+                        onSelecionar={consultarEquipeNoDia}
+                      />
+                    </>
+                  )}
+                  {plantaoPublicadoApp && grupoPlantaoApp != null && (
+                    jornadaPublicadaApp ? (
+                      <PlantaoResumoCompacto
+                        grupo={grupoPlantaoApp}
+                        atribuicoes={atribuicoesPlantaoApp}
+                        usuarios={usuarios}
+                        agoraIso={agora.toISOString()}
+                        onAbrir={() => setTela('plantao')}
+                      />
+                    ) : (
+                      <>
+                        <PlantaoGrupoChips
+                          grupos={gruposPlantaoApp}
+                          grupoSelecionadoId={grupoPlantaoSelecionadoId}
+                          onSelecionar={selecionarGrupoPlantaoApp}
+                        />
+                        {souPlantonistaAtivoApp && (
+                          <PlantaoStatsRow estatisticas={estatisticasPlantaoApp(usuario.login, atribuicoesPlantaoApp, grupoPlantaoApp.timezone)} />
+                        )}
+                      </>
+                    )
+                  )}
                 </>
               )}
             </div>
@@ -4006,7 +4313,7 @@ export function EmployeeApp() {
                 <ResumoSemana
                   datas={datas}
                   dataHoje={dataHoje}
-                  escala={minhaEscala}
+                  escala={escalaVisivelApp}
                   catalogo={catalogo}
                   onSelecionar={setDataSelecionada}
                 />
@@ -4028,15 +4335,15 @@ export function EmployeeApp() {
                   <strong>{(totais?.df ?? 0) + (totais?.du ?? 0)}</strong>
                   <small>{totais?.df ?? 0} DF · {totais?.du ?? 0} DU</small>
                 </article>
-                <article className="metric-next-shift" data-tone="shift" data-code={contextoHoje.proximoTurno?.codigo ?? ''}>
+                <article className="metric-next-shift" data-tone="shift" data-code={proximoTurnoTrabalho?.codigo ?? ''}>
                   <span>Próximo turno</span>
                   <div>
-                    <i><IconeTurno codigo={contextoHoje.proximoTurno?.codigo ?? ''} /></i>
+                    <i><IconeTurno codigo={proximoTurnoTrabalho?.codigo ?? ''} /></i>
                     <p>
-                      <strong>{contextoHoje.proximoTurno?.descricao ?? 'Não encontrado'}</strong>
+                      <strong>{proximoTurnoTrabalho?.descricao ?? 'Não encontrado'}</strong>
                       <small>
-                        {contextoHoje.proximoTurno
-                          ? `${contextoHoje.proximoTurno.inicio}–${contextoHoje.proximoTurno.fim}`
+                        {proximoTurnoTrabalho
+                          ? `${proximoTurnoTrabalho.inicio}–${proximoTurnoTrabalho.fim}`
                           : 'Neste período'}
                       </small>
                     </p>
@@ -4097,7 +4404,7 @@ export function EmployeeApp() {
                       modoDemonstracao={modoDemonstracao}
                       listenersLiberados={listenersLiberados}
                       dataHoje={dataHoje}
-                      escala={minhaEscala}
+                      escala={escalaVisivelApp}
                       catalogo={catalogo}
                     />
                   ) : (
@@ -4108,7 +4415,7 @@ export function EmployeeApp() {
                             datas={datas}
                             dataHoje={dataHoje}
                             dataSelecionada={dataSelecionadaEfetiva}
-                            escala={minhaEscala}
+                            escala={escalaVisivelApp}
                             catalogo={catalogo}
                             onSelecionar={setDataSelecionada}
                           />
@@ -4117,7 +4424,7 @@ export function EmployeeApp() {
                             datas={datas}
                             dataHoje={dataHoje}
                             dataSelecionada={dataSelecionadaEfetiva}
-                            escala={minhaEscala}
+                            escala={escalaVisivelApp}
                             catalogo={catalogo}
                             onSelecionar={setDataSelecionada}
                           />
@@ -4126,7 +4433,7 @@ export function EmployeeApp() {
                       <DetalheDia
                         data={dataSelecionadaEfetiva}
                         dataHoje={dataHoje}
-                        escala={minhaEscala}
+                        escala={escalaVisivelApp}
                         catalogo={catalogo}
                         onSolicitarTroca={(diaEscolhido) => abrirNovaSolicitacaoTroca(diaEscolhido)}
                       />
@@ -4386,6 +4693,7 @@ export function EmployeeApp() {
             const intervaloProximo = resumo.proximo ? intervaloPlantaoCivil(resumo.proximo, grupo.timezone) : null;
             const souPlantonista = participantesPlantaoApp.some((participante) => participante.login === usuario.login && participante.ativo);
             const meusPlantoes = souPlantonista ? proximosPlantoesDoUsuario(usuario.login, atribuicoesPlantaoApp, agoraIso, 6) : [];
+            const estatisticas = souPlantonista ? estatisticasPlantaoApp(usuario.login, atribuicoesPlantaoApp, grupo.timezone) : null;
 
             return (
               <>
@@ -4434,6 +4742,8 @@ export function EmployeeApp() {
                     )}
                   </article>
                 </div>
+
+                {estatisticas && <PlantaoStatsRow estatisticas={estatisticas} />}
 
                 {periodoPlantaoApp && (
                   <article className="panel">
@@ -4593,10 +4903,10 @@ export function EmployeeApp() {
                       <option value="N">Noite</option>
                     </select>
                   </label>
-                  <span><Users size={16} /> {documentos.length} colaboradores</span>
+                  <span><Users size={16} /> {documentosEquipeAtualApp.length} colaboradores</span>
                 </div>
                 <ScheduleGrid
-                  documentos={documentos}
+                  documentos={documentosEquipeAtualApp}
                   usuarios={usuarios}
                   catalogo={catalogo}
                   filtroTurno={filtroTurno}

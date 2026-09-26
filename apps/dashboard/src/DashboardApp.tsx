@@ -23,6 +23,7 @@ import {
   type Dia,
   type DivergenciaPlantao,
   type ErroImportacao,
+  type FuncaoPlantao,
   type GrupoPlantao,
   type OrigemPlantao,
   type PadraoHorarioPlantaoDia,
@@ -149,13 +150,16 @@ import {
   listarGruposPlantaoPorUnidadeResponsavel,
   listarParticipantesPlantao,
   listarTodosGruposPlantao,
+  obterCompetenciaPlantaoAtual,
   obterCompetenciaPlantaoPublicada,
   obterCompetenciaPlantaoRascunho,
   obterGrupoPlantao,
 } from '@/lib/firebase/plantaoReadRepository';
 import {
   atualizarEquipeConsultaPlantao,
+  cancelarCompetenciaPlantaoPublicada,
   desativarParticipantePlantao,
+  excluirGrupoPlantao,
   salvarAtribuicoesPlantaoRascunho,
   salvarCompetenciaPlantaoRascunho,
   salvarGrupoPlantao,
@@ -185,7 +189,16 @@ import {
   resumirPorPessoa,
   type AtribuicaoPlantaoEditavel,
 } from '@/lib/editorPlantao';
+import {
+  avaliarSaudePlantao,
+  filtrarAtribuicoesPlantaoPorFuncao,
+  ROTULO_FUNCAO_PLANTAO,
+  validarFuncoesContraGrupo,
+  type FiltroFuncaoPlantao,
+} from '@/lib/plantaoMultiposto';
 import { PlantaoCalendario } from '@/components/plantao/PlantaoCalendario';
+import { CardFuncaoPlantao } from '@/components/plantao/CardFuncaoPlantao';
+import { RevisarPublicacaoPlantaoModal } from '@/components/plantao/RevisarPublicacaoPlantaoModal';
 import { PlantaoRoster } from '@/components/plantao/PlantaoRoster';
 import { QuickAddPlantaoPopover } from '@/components/plantao/QuickAddPlantaoPopover';
 import {
@@ -230,6 +243,7 @@ import {
   podeExcluirUsuario,
 } from '@/lib/adminGuards';
 import { areaNavegacaoDaTela } from '@/lib/navegacaoDashboard';
+import { competenciaOperacionalAtual } from '@/lib/competenciaOperacionalAtual';
 import {
   contextoEhJornada,
   contextoEhPlantao,
@@ -247,8 +261,9 @@ import { UnsavedChangesDialog } from '@/components/escalas/UnsavedChangesDialog'
 import { ScheduleStartWizard, type ScheduleStartWizardProps } from '@/components/escalas/ScheduleStartWizard';
 import { ResponsaveisEscalaTable } from '@/components/admin/ResponsaveisEscalaTable';
 import { ResponsavelEscalaModal } from '@/components/admin/ResponsavelEscalaModal';
+import { CancelarPublicacaoPlantaoModal } from '@/components/admin/CancelarPublicacaoPlantaoModal';
+import { AtribuirCoordenadorModal } from '@/components/admin/AtribuirCoordenadorModal';
 import {
-  COMPETENCIA_ATUAL,
   ehAdminSistema,
   equipesPermitidasEfetivas,
   perfilEfetivo,
@@ -345,11 +360,14 @@ import {
 import {
   classeSaudeOperacaoDashboard,
   derivarStatusOperacaoDashboard,
+  documentosParaAlertasJornada,
   resolverOperacoesDashboard,
   rotuloStatusOperacaoDashboard,
   type OperacaoDashboard,
   type StatusOperacaoDashboard,
 } from '@/lib/operacoesDashboard';
+import { possuiOperacaoAdministravelHub } from '@/lib/hubEscalas';
+import { HubEscalasOperacoes } from '@/components/escalas/HubEscalasOperacoes';
 import {
   usuarioPodeAdministrarAlvoOperacional,
   usuarioPodeConsultarPlantaoOperacional,
@@ -603,7 +621,10 @@ function statusJornadaResumo(resumo: ResumoJornadaDashboard | null): { temRascun
 function statusPlantaoResumo(resumo: ResumoPlantaoDashboard | null): { temRascunho: boolean; temPublicada: boolean } {
   return {
     temRascunho: resumo?.competenciaRascunho != null,
-    temPublicada: resumo?.competenciaPublicada != null,
+    // `competenciaPublicada` agora pode carregar uma competência CANCELADA
+    // (ver `obterCompetenciaPlantaoAtual()`) — só status 'PUBLICADA' conta
+    // como publicação vigente para o indicador de status operacional.
+    temPublicada: resumo?.competenciaPublicada?.status === 'PUBLICADA',
   };
 }
 
@@ -2618,6 +2639,17 @@ interface PreviewPlantaoProps {
   /** Nomes normalizados (`normalizarNome`) de participantes inativos referenciados por alguma atribuição — para o roster mostrar "Inativo" sem esconder a escala. */
   nomesInativosPlantao: ReadonlySet<string>;
   /**
+   * FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — postos do Grupo em contexto
+   * (`GrupoPlantao.funcoesEsperadas`). Vazio/ausente = Grupo de posto
+   * único (ex.: Plantão COSI): nenhuma tab/card de função aparece, e todo
+   * o restante deste componente se comporta EXATAMENTE como antes desta
+   * fase (`funcaoSelecionada` nunca deixa de ser `'TODOS'` nesse caso).
+   */
+  funcoesEsperadas: readonly FuncaoPlantao[];
+  /** Seleção PURAMENTE visual (nunca grava Firebase, nunca reprocessa importação — §11 da fase). */
+  funcaoSelecionada: FiltroFuncaoPlantao;
+  onMudarFuncaoSelecionada: (funcao: FiltroFuncaoPlantao) => void;
+  /**
    * Fase ESCOPO-CONSULTA-PLANTAO-1 — `true` quando o Plantão em contexto é
    * só consultável pela equipe (autovínculo de consulta, nunca
    * administração). Além de repassar `modo="consulta"` ao calendário
@@ -2673,21 +2705,65 @@ function PreviewPlantao({
   onSelecionarPlantonista,
   onSolicitarNovaAtribuicao,
   nomesInativosPlantao,
+  funcoesEsperadas,
+  funcaoSelecionada,
+  onMudarFuncaoSelecionada,
   somenteConsulta = false,
 }: PreviewPlantaoProps) {
   const vinculoPorParticipante = new Map(vinculos.map((vinculo) => [vinculo.participanteNomeOriginal, vinculo]));
   const nomesPendentesPlantao = new Set(
     vinculos.filter((vinculo) => vinculo.status !== 'VINCULADO').map((vinculo) => normalizarNome(vinculo.participanteNomeOriginal)),
   );
-  const conferenciaEscalaAtual = conferirEscalaAtualPlantao(atribuicoesEditaveis, duracaoPlantaoAtipica);
+  /**
+   * FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — `atribuicoesFiltradas` é a ÚNICA
+   * fonte que o calendário/roster/resumo abaixo enxergam a partir daqui
+   * (§14 da fase: "calendário deve receber dados já filtrados"). Para um
+   * Grupo de posto único (`funcoesEsperadas` vazio), `funcaoSelecionada`
+   * nunca deixa de ser `'TODOS'` (nenhuma tab aparece — ver mais abaixo),
+   * então este filtro é sempre a identidade e nada muda de comportamento
+   * em relação a antes desta fase.
+   */
+  const ehMultiposto = funcoesEsperadas.length > 0;
+  const atribuicoesFiltradas = filtrarAtribuicoesPlantaoPorFuncao(atribuicoesEditaveis, funcaoSelecionada);
+  const conferenciaEscalaAtual = conferirEscalaAtualPlantao(atribuicoesFiltradas, duracaoPlantaoAtipica);
   const resumoPorPessoa = resumirPorPessoa(
-    atribuicoesEditaveis,
+    atribuicoesFiltradas,
     participantes.map((participante) => ({ nomeOriginal: participante.nomeOriginal })),
   );
+  /**
+   * Painel de saúde por posto (§16/§51 da fase) — só calculado para Grupos
+   * multi-função; `SEMPRE` a partir de `atribuicoesEditaveis` COMPLETA
+   * (nunca da filtrada), porque cada card precisa da saúde do PRÓPRIO
+   * posto, não do posto atualmente selecionado.
+   */
+  const saudeMultiposto = ehMultiposto
+    ? avaliarSaudePlantao({
+      grupo: { funcoesEsperadas },
+      atribuicoes: atribuicoesEditaveis,
+      vinculos,
+      erros: resultado?.erros ?? [],
+      avisos: resultado?.avisos ?? [],
+    })
+    : null;
+  /**
+   * Fase 27 — `conferenciaEscalaAtual.sobreposicoes`, quando calculada
+   * sobre a lista JÁ FILTRADA por uma função específica, nunca mistura
+   * postos diferentes (todo item do array já é do mesmo posto) — correta
+   * por construção, sem filtro adicional. Só o caso `'TODOS'` de um Grupo
+   * multi-função precisa do filtro de relevância (`conflitosRelevantesPlantao`,
+   * dentro de `avaliarSaudePlantao()`), porque aí SIM há postos diferentes
+   * misturados no mesmo array.
+   */
+  const conflitosEfetivos = ehMultiposto && funcaoSelecionada === 'TODOS'
+    ? (saudeMultiposto?.todos.conflitos ?? 0)
+    : conferenciaEscalaAtual.sobreposicoes.length;
+  const pendenciasEfetivas = ehMultiposto && funcaoSelecionada !== 'TODOS'
+    ? (saudeMultiposto?.porFuncao[funcaoSelecionada]?.vinculosPendentes ?? 0)
+    : pendencias;
   const totalAlertasEditor = conferenciaEscalaAtual.quantidadeDuracoesAtipicas
-    + conferenciaEscalaAtual.sobreposicoes.length
-    + pendencias;
-  const primeiraAtipica = atribuicoesEditaveis.find((atribuicao) => duracaoPlantaoAtipica(atribuicao.duracaoMinutos));
+    + conflitosEfetivos
+    + pendenciasEfetivas;
+  const primeiraAtipica = atribuicoesFiltradas.find((atribuicao) => duracaoPlantaoAtipica(atribuicao.duracaoMinutos));
 
   /**
    * PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — antes o calendário escolhia
@@ -2719,6 +2795,29 @@ function PreviewPlantao({
       // localStorage indisponível — a preferência dura só a sessão em memória.
     }
   }
+
+  /**
+   * FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§15-18 da fase) — aba
+   * Vínculos passa a priorizar quem tem atribuição na função selecionada,
+   * sem perder o contexto ("Mostrar todos os vínculos" sempre disponível).
+   * Reseta ao trocar de função — nunca herda "mostrar todos" de uma função
+   * para outra.
+   */
+  const [mostrarTodosVinculosPlantao, setMostrarTodosVinculosPlantao] = useState(false);
+  /**
+   * Reset "durante o render" (padrão recomendado pelo React para resetar
+   * estado quando um valor muda, em vez de `useEffect` — evita o
+   * cascading-render que a regra `react-hooks/set-state-in-effect` aponta).
+   */
+  const [funcaoAnteriorParaResetVinculos, setFuncaoAnteriorParaResetVinculos] = useState(funcaoSelecionada);
+  if (funcaoAnteriorParaResetVinculos !== funcaoSelecionada) {
+    setFuncaoAnteriorParaResetVinculos(funcaoSelecionada);
+    setMostrarTodosVinculosPlantao(false);
+  }
+  const nomesNaFuncaoSelecionada = new Set(atribuicoesFiltradas.map((item) => normalizarNome(item.plantonistaNomeOriginal)));
+  const participantesExibidosVinculos = (funcaoSelecionada === 'TODOS' || mostrarTodosVinculosPlantao)
+    ? participantes
+    : participantes.filter((participante) => nomesNaFuncaoSelecionada.has(normalizarNome(participante.nomeOriginal)));
 
   return (
     <div className="plantao-preview-fluxo">
@@ -2798,6 +2897,71 @@ function PreviewPlantao({
         )
       )}
 
+      {ehMultiposto && (
+        <article className="panel plantao-preview-multiposto">
+          <div className="panel-title">
+            <div>
+              <p className="eyebrow">Postos deste Plantão</p>
+              <h2>Todos os postos, ou um de cada vez</h2>
+            </div>
+          </div>
+          <div className="segmented-control" aria-label="Filtro por posto do Plantão">
+            <button
+              type="button"
+              className={funcaoSelecionada === 'TODOS' ? 'active' : ''}
+              aria-pressed={funcaoSelecionada === 'TODOS'}
+              onClick={() => onMudarFuncaoSelecionada('TODOS')}
+            >
+              Todos
+            </button>
+            {funcoesEsperadas.map((funcao) => (
+              <button
+                key={funcao}
+                type="button"
+                className={funcaoSelecionada === funcao ? 'active' : ''}
+                aria-pressed={funcaoSelecionada === funcao}
+                onClick={() => onMudarFuncaoSelecionada(funcao)}
+              >
+                {ROTULO_FUNCAO_PLANTAO[funcao]}
+              </button>
+            ))}
+          </div>
+          {funcaoSelecionada === 'TODOS' && saudeMultiposto !== null && (
+            <div className="import-summary plantao-resumo-grid">
+              <div><span>Pessoas únicas</span><strong>{saudeMultiposto.todos.pessoasUnicas}</strong></div>
+              <div><span>Atribuições</span><strong>{saudeMultiposto.todos.atribuicoes}</strong></div>
+              <div><span>Conflitos</span><strong>{saudeMultiposto.todos.conflitos}</strong></div>
+            </div>
+          )}
+          {saudeMultiposto !== null && (
+            <div className="plantao-cards-funcao">
+              {funcoesEsperadas.map((funcao) => {
+                const saudeFuncao = saudeMultiposto.porFuncao[funcao];
+                if (saudeFuncao === undefined) {
+                  return null;
+                }
+                return (
+                  <CardFuncaoPlantao
+                    key={funcao}
+                    rotulo={ROTULO_FUNCAO_PLANTAO[funcao]}
+                    saude={saudeFuncao}
+                    selecionado={funcaoSelecionada === funcao}
+                    onSelecionar={() => {
+                      onMudarFuncaoSelecionada(funcao);
+                      onMudarAba('calendario');
+                    }}
+                    onResolverVinculos={() => {
+                      onMudarFuncaoSelecionada(funcao);
+                      onMudarAba('vinculos');
+                    }}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </article>
+      )}
+
       <article className="panel plantao-preview-principal">
         <div className="plantao-preview-toolbar">
           <div className="segmented-control" aria-label="Seções da prévia de Plantão">
@@ -2823,7 +2987,7 @@ function PreviewPlantao({
           <div className="plantao-editor-calendario">
             <div className="import-summary plantao-resumo-grid">
               <div><span>Plantonistas</span><strong>{conferenciaEscalaAtual.quantidadePessoas}</strong></div>
-              <div><span>Plantões</span><strong>{atribuicoesEditaveis.length}</strong></div>
+              <div><span>Plantões</span><strong>{atribuicoesFiltradas.length}</strong></div>
               <div><span>Horas atuais</span><strong>{formatarMinutos(conferenciaEscalaAtual.bruto.minutos)}</strong></div>
               <div><span>Alertas</span><strong>{totalAlertasEditor}</strong></div>
             </div>
@@ -2853,8 +3017,8 @@ function PreviewPlantao({
                     </button>
                   </li>
                 )}
-                {conferenciaEscalaAtual.sobreposicoes.length > 0 && (
-                  <li>⚠ {conferenciaEscalaAtual.sobreposicoes.length} sobreposição(ões) de horário</li>
+                {conflitosEfetivos > 0 && (
+                  <li>⚠ {conflitosEfetivos} sobreposição(ões) de horário</li>
                 )}
                 {pendencias > 0 && (
                   <li>
@@ -2928,7 +3092,7 @@ function PreviewPlantao({
                     periodoInicio={periodoInicio}
                     periodoFim={periodoFim}
                     dataHoje={dataHoje}
-                    atribuicoes={atribuicoesEditaveis}
+                    atribuicoes={atribuicoesFiltradas}
                     onEditarAtribuicao={onEditarAtribuicao}
                     plantonistaSelecionado={plantonistaSelecionado}
                     modo={somenteConsulta ? 'consulta' : (modoVisualizacaoPlantao === 'compacta' ? 'importacao' : 'editor')}
@@ -2949,7 +3113,7 @@ function PreviewPlantao({
               <p>Recalculada a partir do que está no calendário agora — nunca comparada automaticamente com a fonte.</p>
               <div className="import-summary plantao-resumo-grid">
                 <div><span>Plantonistas</span><strong>{conferenciaEscalaAtual.quantidadePessoas}</strong></div>
-                <div><span>Plantões</span><strong>{atribuicoesEditaveis.length}</strong></div>
+                <div><span>Plantões</span><strong>{atribuicoesFiltradas.length}</strong></div>
                 <div><span>Horas atuais</span><strong>{formatarMinutos(conferenciaEscalaAtual.bruto.minutos)}</strong></div>
                 <div><span>Durações atípicas</span><strong>{conferenciaEscalaAtual.quantidadeDuracoesAtipicas}</strong></div>
               </div>
@@ -2997,13 +3161,33 @@ function PreviewPlantao({
         )}
 
         {aba === 'vinculos' && (
+          <>
+            {ehMultiposto && (
+              <div className="plantao-vinculos-contexto-funcao">
+                <span>
+                  {funcaoSelecionada === 'TODOS'
+                    ? `Vínculos — Todos (${participantesExibidosVinculos.length} participante(s))`
+                    : `Vínculos — ${ROTULO_FUNCAO_PLANTAO[funcaoSelecionada]} (${participantesExibidosVinculos.length} participante(s))`}
+                </span>
+                {funcaoSelecionada !== 'TODOS' && !mostrarTodosVinculosPlantao && (
+                  <button type="button" className="link-button" onClick={() => setMostrarTodosVinculosPlantao(true)}>
+                    Mostrar todos os vínculos
+                  </button>
+                )}
+                {funcaoSelecionada !== 'TODOS' && mostrarTodosVinculosPlantao && (
+                  <button type="button" className="link-button" onClick={() => setMostrarTodosVinculosPlantao(false)}>
+                    Voltar para {ROTULO_FUNCAO_PLANTAO[funcaoSelecionada]}
+                  </button>
+                )}
+              </div>
+            )}
           <div className="table-scroll">
             <table className="data-table conciliation-table">
               <thead>
                 <tr><th>Participante</th><th>Encontrado na planilha</th><th>Vincular a</th><th>Status</th><th>Ação</th></tr>
               </thead>
               <tbody>
-                {participantes.map((participante) => {
+                {participantesExibidosVinculos.map((participante) => {
                   const vinculo = vinculoPorParticipante.get(participante.nomeOriginal);
                   if (vinculo === undefined) {
                     return null;
@@ -3126,6 +3310,7 @@ function PreviewPlantao({
               </tbody>
             </table>
           </div>
+          </>
         )}
       </article>
     </div>
@@ -3144,6 +3329,16 @@ export function DashboardApp() {
   const [usuarioReal, setUsuarioReal] = useState<Usuario | null>(null);
   const [simulando, setSimulando] = useState<Usuario | null>(null);
   const usuarioEfetivo = simulando ?? usuarioReal;
+  /**
+   * HOTFIX-COMPETENCIA-OPERACIONAL-DINAMICA-1 — substitui a antiga
+   * constante congelada `COMPETENCIA_ATUAL` ('lib/sessao.ts'). Calculada
+   * uma vez no mount via `competenciaOperacionalAtual()` (nunca no momento
+   * do build/import — precisa refletir o dia real do usuário). É o default
+   * operacional para contextos/wizards/exclusão administrativa; nunca é
+   * sobrescrita por navegação manual do usuário para um mês histórico
+   * durante a sessão (ver § 13 do hotfix) — só um reload/login reavalia.
+   */
+  const [competenciaOperacionalHoje] = useState(() => competenciaOperacionalAtual());
   const [modoDemo, setModoDemo] = useState(true);
   // PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — tela inicial padrão é "Visão
   // geral" (nunca "Escalas"), quando não há estado salvo intencionalmente
@@ -3257,6 +3452,17 @@ export function DashboardApp() {
    */
   const [plantonistaSelecionadoPlantao, setPlantonistaSelecionadoPlantao] = useState<string | null>(null);
   /**
+   * FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — seleção da tab Todos/DBA/Linux/
+   * Telecom/Windows. PURAMENTE visual (§11/§12 da fase): nunca grava
+   * Firebase, nunca reprocessa a importação, nunca altera `funcao` de
+   * nenhuma atribuição. Reiniciada em toda entrada nova no Editor, mesmo
+   * princípio de `plantonistaSelecionadoPlantao` acima — nunca "vaza" a
+   * função selecionada de uma prévia para a próxima.
+   */
+  const [funcaoSelecionadaPlantao, setFuncaoSelecionadaPlantao] = useState<FiltroFuncaoPlantao>('TODOS');
+  /** FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§21 da fase) — modal "Revisar publicação", só para Grupo multi-função. */
+  const [revisarPublicacaoPlantaoAberta, setRevisarPublicacaoPlantaoAberta] = useState(false);
+  /**
    * Fase ESCALAS-UX-2B — confirmação contextual do padrão do Grupo
    * (`QuickAddPlantaoPopover`), aberta por `solicitarNovaAtribuicaoPlantao()`
    * quando existe `padraoHorarioSemanal` para o dia+pessoa escolhidos.
@@ -3314,7 +3520,7 @@ export function DashboardApp() {
   const [wizardAreaId, setWizardAreaId] = useState('');
   const [wizardEquipeId, setWizardEquipeId] = useState('');
   const [wizardGrupoId, setWizardGrupoId] = useState('');
-  const [wizardCompetencia, setWizardCompetencia] = useState(COMPETENCIA_ATUAL);
+  const [wizardCompetencia, setWizardCompetencia] = useState(competenciaOperacionalHoje);
   const [wizardArquivoNome, setWizardArquivoNome] = useState('');
   const [wizardErro, setWizardErro] = useState('');
   const [wizardProcessando, setWizardProcessando] = useState(false);
@@ -3357,6 +3563,19 @@ export function DashboardApp() {
   const [carregandoEquipesPlantao, setCarregandoEquipesPlantao] = useState(true);
   const [erroEquipesPlantao, setErroEquipesPlantao] = useState('');
   const [modalGrupoPlantao, setModalGrupoPlantao] = useState<{ modo: 'criar' | 'editar'; inicial: GrupoPlantao } | null>(null);
+  const [grupoPlantaoParaExcluir, setGrupoPlantaoParaExcluir] = useState<GrupoPlantao | null>(null);
+  const [excluindoGrupoPlantao, setExcluindoGrupoPlantao] = useState(false);
+  const [erroExclusaoGrupoPlantao, setErroExclusaoGrupoPlantao] = useState('');
+  /**
+   * FASE-ESCOPO-HIERARQUICO-CODB-E-ADMIN-PLANTAO-1 — cancelamento de
+   * publicação (PUBLICADA -> CANCELADA), nunca exclusão física. Mesmo
+   * padrão de estado de `grupoPlantaoParaExcluir` acima.
+   */
+  const [publicacaoPlantaoParaCancelar, setPublicacaoPlantaoParaCancelar] = useState<
+    { grupo: GrupoPlantao; competencia: CompetenciaPlantao } | null
+  >(null);
+  const [cancelandoPublicacaoPlantao, setCancelandoPublicacaoPlantao] = useState(false);
+  const [erroCancelamentoPublicacaoPlantao, setErroCancelamentoPublicacaoPlantao] = useState('');
   const [buscaParticipanteNovo, setBuscaParticipanteNovo] = useState<Record<string, string>>({});
   const [modalContatosParticipante, setModalContatosParticipante] = useState<
     { grupoId: string; nomeExibicao: string; participante: ParticipantePlantao } | null
@@ -3411,6 +3630,15 @@ export function DashboardApp() {
   const [unidadesAdmin, setUnidadesAdmin] = useState<UnidadeOrganizacional[]>([]);
   const [escoposOperacionaisAdmin, setEscoposOperacionaisAdmin] = useState<EscopoOperacional[]>([]);
   const [modalResponsavelEscala, setModalResponsavelEscala] = useState<EscopoOperacional | null | 'novo'>(null);
+  /**
+   * FASE-ESCOPO-HIERARQUICO-CODB-E-ADMIN-PLANTAO-1 — "Atribuir coordenador
+   * de unidade", entrada simples e separada da Matriz de Responsáveis
+   * (`modalResponsavelEscala` acima, que continua existindo para exceções
+   * específicas por escala).
+   */
+  const [modalAtribuirCoordenador, setModalAtribuirCoordenador] = useState(false);
+  const [processandoAtribuicaoCoordenador, setProcessandoAtribuicaoCoordenador] = useState(false);
+  const [erroAtribuicaoCoordenador, setErroAtribuicaoCoordenador] = useState('');
   const [processandoEscopoOperacional, setProcessandoEscopoOperacional] = useState(false);
   const [erroAdmin, setErroAdmin] = useState('');
   const [formSetor, setFormSetor] = useState<Setor>({ id: '', nome: '', sigla: '', ativo: true });
@@ -3435,7 +3663,7 @@ export function DashboardApp() {
   const [usuarioParaExcluir, setUsuarioParaExcluir] = useState<Usuario | null>(null);
   const [processandoExclusaoUsuario, setProcessandoExclusaoUsuario] = useState(false);
   const [equipeExportar, setEquipeExportar] = useState('');
-  const [competenciaExportar, setCompetenciaExportar] = useState(COMPETENCIA_ATUAL);
+  const [competenciaExportar, setCompetenciaExportar] = useState(competenciaOperacionalHoje);
   const [excluirEscalaPendente, setExcluirEscalaPendente] = useState(false);
   const [processandoEscalaAdmin, setProcessandoEscalaAdmin] = useState(false);
   const inputArquivo = useRef<HTMLInputElement>(null);
@@ -3511,8 +3739,40 @@ export function DashboardApp() {
   );
   const pendenciasVinculoPlantao = contarPendenciasVinculoPlantao(vinculosPlantao);
   const previaPlantaoPodeValidar = previaPlantaoValidavel(vinculosPlantao);
+  /**
+   * FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 — lookup único do Grupo em
+   * contexto no rascunho, reaproveitado por `PreviewPlantao`, pelo Modal de
+   * atribuição e pelo gate de publicação abaixo (nunca um segundo find()
+   * divergente).
+   */
+  const grupoRascunhoPlantaoEmContexto = gruposPlantaoAdmin.find((item) => item.grupoId === grupoRascunhoEscolhido);
+  const funcoesEsperadasRascunhoPlantao = grupoRascunhoPlantaoEmContexto?.funcoesEsperadas ?? [];
+  /**
+   * §21/§25/§26 da fase — `avaliarSaudePlantao()` é a ÚNICA fonte do gate
+   * de publicação para Grupo multi-função; `null` para posto único
+   * (`funcoesEsperadasRascunhoPlantao` vazio), então `rascunhoPlantaoProntoParaPublicar`
+   * abaixo continua exatamente como antes desta fase nesse caso — zero
+   * regressão para Plantão COSI (§36 da fase).
+   */
+  const saudePlantaoRascunho = funcoesEsperadasRascunhoPlantao.length > 0
+    ? avaliarSaudePlantao({
+      grupo: { funcoesEsperadas: funcoesEsperadasRascunhoPlantao },
+      atribuicoes: atribuicoesEditaveisPlantao,
+      vinculos: vinculosPlantao,
+      erros: resultadoPlantao?.erros ?? [],
+      avisos: resultadoPlantao?.avisos ?? [],
+    })
+    : null;
   const rascunhoPlantaoProntoParaPublicar = rascunhoPlantaoSalvoEm === grupoRascunhoEscolhido
     && !plantaoPossuiAlteracoesNaoSalvas;
+  /**
+   * §25/§26 da fase — fonte NORMATIVA do gate de saúde: `null` (posto
+   * único) nunca bloqueia, exatamente como antes desta fase. Nunca usar
+   * `alertas.length > 0` aqui — um ALERTA (`status: 'ATENCAO'`) não é
+   * bloqueante; só `podePublicar === false` (equivalente a algum posto em
+   * `status: 'CRITICO'`) bloqueia de verdade.
+   */
+  const podePublicarPlantaoPelaSaude = saudePlantaoRascunho === null || saudePlantaoRascunho.podePublicar;
   /**
    * Gate na identidade REAL, nunca na simulada — a aba de Administração
    * precisa continuar acessível (para "Sair da simulação") mesmo enquanto o
@@ -3775,16 +4035,6 @@ export function DashboardApp() {
   const trocaSelecionada = trocaSelecionadaId !== null
     ? trocas.find((item) => item.trocaId === trocaSelecionadaId) ?? null
     : null;
-  const totaisGerais = useMemo(() => {
-    const totalMin = documentos.reduce((soma, documento) =>
-      soma + calcularTotais(documento.dias, catalogo).min, 0);
-    return {
-      pessoas: documentos.length,
-      dias: resultado?.totalDias ?? 0,
-      horas: formatarMinutos(totalMin),
-    };
-  }, [catalogo, documentos, resultado?.totalDias]);
-
   /**
    * Resumo operacional da Visão geral — identidade sempre vem do alvo
    * concedido pela matriz operacional: Jornada usa `Equipe.id`/`equipeId`;
@@ -3792,7 +4042,7 @@ export function DashboardApp() {
    * (`resultado`) só complementa o resumo quando é exatamente o mesmo alvo,
    * nunca como fallback para a equipe do usuário logado.
    */
-  const competenciaDashboard = contextoEscalaAtivo?.competencia ?? COMPETENCIA_ATUAL;
+  const competenciaDashboard = contextoEscalaAtivo?.competencia ?? competenciaOperacionalHoje;
   const equipeJornadaOperacionalDashboard = contextoEhJornada(contextoEscalaAtivo)
     ? escoposOperacionais.jornadasAdministraveis.find((equipe) => equipe.id === contextoEscalaAtivo.alvoId)
     : undefined;
@@ -3848,29 +4098,80 @@ export function DashboardApp() {
   const competenciaPlantaoExibidaDashboard = resumoPlantaoDashboard?.competenciaRascunho
     ?? resumoPlantaoDashboard?.competenciaPublicada
     ?? null;
-  const plantaoTotalBrutoDashboard = plantaoEmContextoDashboard && resultadoPlantao !== null
-    ? resultadoPlantao.totalBrutoCalculado
-    : (resumoPlantaoDashboard?.competenciaRascunho ?? resumoPlantaoDashboard?.competenciaPublicada)?.totalBruto ?? null;
   const participantesPlantaoDashboard = resumoPlantaoDashboard?.participantesAtivos ?? 0;
   const plantaoPossuiEscalaDashboard = estadoPlantaoOperacionalDashboard !== 'sem-escala'
     || (plantaoEmContextoDashboard && atribuicoesEditaveisPlantao.length > 0);
-  const plantaoAlertasDashboard = plantaoEmContextoDashboard && resultadoPlantao !== null
+  /**
+   * Fase DASH-SIMPLES-1A (revisão pré-commit) — mesma classe de bug do
+   * HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 abaixo, só que para
+   * Plantão: `erros`/`avisos`/`pendenciasVinculoPlantao` só existem no
+   * resultado do editor ao vivo (`resultadoPlantao`), calculado a partir de
+   * atribuições completas — ao contrário de Jornada, não existe hoje um
+   * snapshot persistido com atribuições suficiente para recalcular esses
+   * alertas fora de contexto sem duplicar o pipeline de validação do editor
+   * (fora de escopo desta fase). Diferente de Jornada, aqui o dado
+   * realmente NÃO está disponível fora do editor — então `null` (não "0")
+   * é o valor honesto: `estadoPlantaoOperacionalDashboard === 'sem-escala'`
+   * é a única situação em que "zero alertas" é uma verdade conhecida (não
+   * há nada para gerar alerta). Qualquer consumidor de
+   * `plantaoAlertasDashboard` precisa tratar `null` como "não avaliado",
+   * nunca como zero.
+   */
+  const plantaoAlertasDashboard: number | null = plantaoEmContextoDashboard && resultadoPlantao !== null
     ? resultadoPlantao.erros.length + resultadoPlantao.avisos.length + pendenciasVinculoPlantao
-    : 0;
-  const alertasJornadaDashboard = jornadaEmContextoDashboard ? alertasVisiveis.length : 0;
-  const plantaoStatusDashboard = classeSaudeOperacional(estadoPlantaoOperacionalDashboard, plantaoAlertasDashboard);
+    : (estadoPlantaoOperacionalDashboard === 'sem-escala' ? 0 : null);
+  /**
+   * HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — a Visão Geral é
+   * integrada: o indicador de alertas de uma operação NUNCA pode depender
+   * de qual operação está selecionada no seletor do header. Antes,
+   * `jornadaEmContextoDashboard ? alertasVisiveis.length : 0` zerava SOC
+   * assim que Plantão virava o contexto ativo (`alertasVisiveis` só é
+   * calculado a partir do editor único e compartilhado, `resultado`/
+   * `documentos`). `resumoJornadaDashboard` já resolve corretamente entre
+   * o editor ao vivo (em contexto) e o snapshot persistido (fora de
+   * contexto) — ver linhas acima —, então recalcular os alertas a partir
+   * DELE (em vez de reusar `alertasVisiveis`, que só existe para o
+   * contexto ativo) mantém o mesmo resultado quando em contexto e passa a
+   * mostrar o valor real, nunca zerado, quando não está.
+   */
+  const alertasJornadaCalculados = useMemo(() => {
+    if (jornadaEmContextoDashboard) {
+      return alertasVisiveis;
+    }
+    const documentosParaAlertas = documentosParaAlertasJornada(false, [], resumoJornadaDashboard?.documentos);
+    if (documentosParaAlertas.length === 0) {
+      return [];
+    }
+    const publicadasParaAlertas = resumoJornadaDashboard?.publicadas ?? [];
+    const alertasOperacionaisFora = gerarAlertasEscala([...documentosParaAlertas], catalogo);
+    return montarAlertasVisiveis(alertasOperacionaisFora, usuarios, [...documentosParaAlertas], publicadasParaAlertas);
+  }, [resumoJornadaDashboard, jornadaEmContextoDashboard, alertasVisiveis, catalogo, usuarios]);
+  const alertasJornadaDashboard = alertasJornadaCalculados.length;
+  /**
+   * `classeSaudeOperacaoDashboard` só aceita `number` (`alertas > 0`
+   * coagiria `null` para `false`, voltando a fingir "estável" quando o dado
+   * é desconhecido — o mesmo erro, um nível abaixo). Quando
+   * `plantaoAlertasDashboard` é `null`, a cor de severidade do card fica
+   * neutra (nunca verde/âmbar sem ter checado) — o rótulo de status
+   * (Rascunho/Publicada) continua exato, só a contagem de alertas é
+   * desconhecida.
+   */
+  const plantaoStatusDashboard: 'stable' | 'attention' | 'empty' | 'desconhecido' = plantaoAlertasDashboard === null
+    ? 'desconhecido'
+    : classeSaudeOperacional(estadoPlantaoOperacionalDashboard, plantaoAlertasDashboard);
   const socStatusDashboard = classeSaudeOperacional(estadoJornadaOperacionalDashboard, alertasJornadaDashboard);
   const colaboradoresJornadaDashboard = resumoJornadaDashboard?.colaboradoresAtivos ?? 0;
-  const colaboradoresOperacoesDashboard = colaboradoresJornadaDashboard + participantesPlantaoDashboard;
-  const pendenciasDashboard = alertasJornadaDashboard + plantaoAlertasDashboard + trocasPendentesGestor.length;
-  const healthBarSoc = estadoJornadaOperacionalDashboard === 'sem-escala'
-    ? 0
-    : Math.max(18, 100 - Math.min(82, alertasJornadaDashboard * 8));
-  const healthBarPlantao = plantaoStatusDashboard === 'empty'
-    ? 0
-    : Math.max(18, 100 - Math.min(82, plantaoAlertasDashboard * 12));
-  const rotuloSaudeDashboard = (status: 'stable' | 'attention' | 'empty') =>
-    status === 'stable' ? 'Operação estável' : status === 'attention' ? 'Revisão necessária' : 'Sem escala';
+  /**
+   * Pendências conhecidas — nunca soma `null` como zero (isso reintroduziria
+   * o mesmo zero falso um nível acima, no painel "Pendências"). Quando
+   * `plantaoAlertasDashboard` é `null`, o total deixa de ser confiável;
+   * `pendenciasConhecidas` só é usado para decidir o estado "tudo limpo",
+   * nunca como número exibido — `pendenciasDashboard` (com o Plantão
+   * conhecido tratado como 0 só para fins de soma) seria enganoso ali.
+   */
+  const pendenciasDashboard = alertasJornadaDashboard + (plantaoAlertasDashboard ?? 0) + trocasPendentesGestor.length;
+  /** `plantaoAlertasDashboard === null` só ocorre quando há um Grupo real com escala fora de contexto (ver comentário acima) — não precisa checar `possuiOperacaoPlantaoDashboard` de novo. */
+  const existePendenciaDesconhecida = plantaoAlertasDashboard === null;
   /**
    * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — causa raiz do card genérico
    * "Plantão": `grupoPlantaoDashboard` é `null` sempre que o usuário não
@@ -3901,9 +4202,6 @@ export function DashboardApp() {
    * status de Plantão.
    */
   const resumoPublicacaoPlantaoDashboard = resumoPublicacaoOperacao(estadoPlantaoOperacionalDashboard);
-  const plantaoMetricasDashboard = plantaoPossuiEscalaDashboard
-    ? `${participantesPlantaoDashboard} ${participantesPlantaoDashboard === 1 ? 'participante' : 'participantes'} · ${plantaoTotalBrutoDashboard?.quantidade ?? 0} ${plantaoTotalBrutoDashboard?.quantidade === 1 ? 'plantão' : 'plantões'}`
-    : `${participantesPlantaoDashboard} ${participantesPlantaoDashboard === 1 ? 'participante' : 'participantes'} · nenhum rascunho`;
   const chaveJornadasDashboard = escoposOperacionais.jornadasAdministraveis.map((equipe) => equipe.id).join('|');
   const chavePlantoesDashboard = escoposOperacionais.plantoesAdministraveis.map((grupo) => grupo.grupoId).join('|');
 
@@ -4012,7 +4310,10 @@ export function DashboardApp() {
     void Promise.all(grupoIds.map(async (grupoId): Promise<{ resumo: ResumoPlantaoDashboard; falhaParcial: unknown | null }> => {
       const resultados = await executarComLimiteDeTempo(Promise.allSettled([
         obterCompetenciaPlantaoRascunho(grupoId, competenciaDashboard),
-        obterCompetenciaPlantaoPublicada(grupoId, competenciaDashboard),
+        // Tela administrativa: precisa mostrar também uma competência
+        // CANCELADA (badge + motivo), nunca só PUBLICADA — ver
+        // `obterCompetenciaPlantaoAtual()` em `plantaoReadRepository.ts`.
+        obterCompetenciaPlantaoAtual(grupoId, competenciaDashboard),
         listarParticipantesPlantao(grupoId),
       ]));
       const [resultadoRascunho, resultadoPublicada, resultadoParticipantes] = resultados;
@@ -4173,10 +4474,10 @@ export function DashboardApp() {
     ] = await Promise.all([
       listarUsuarios(alvo.equipeId),
       listarCatalogo(alvo.equipeId),
-      carregarEscalasEquipe(alvo.equipeId, '2026-08', true),
-      carregarRascunhosEquipe(alvo.equipeId, '2026-08'),
-      listarHistoricoPublicacoes(alvo.equipeId, '2026-08'),
-      carregarEstadoPublicacao(alvo.equipeId, '2026-08'),
+      carregarEscalasEquipe(alvo.equipeId, competenciaOperacionalHoje, true),
+      carregarRascunhosEquipe(alvo.equipeId, competenciaOperacionalHoje),
+      listarHistoricoPublicacoes(alvo.equipeId, competenciaOperacionalHoje),
+      carregarEstadoPublicacao(alvo.equipeId, competenciaOperacionalHoje),
     ]);
     setUsuarios(usuariosRemotos);
     setCatalogo(catalogoRemoto);
@@ -4186,7 +4487,7 @@ export function DashboardApp() {
       ? rascunhosRemotos
       : escalasRemotas;
     const equipeAlvo = equipesAdmin.find((equipe) => equipe.id === alvo.equipeId);
-    setContextoEscalaAtivo(criarContextoEscala('JORNADA', alvo.equipeId, equipeAlvo?.nome ?? alvo.equipeId, '2026-08'));
+    setContextoEscalaAtivo(criarContextoEscala('JORNADA', alvo.equipeId, equipeAlvo?.nome ?? alvo.equipeId, competenciaOperacionalHoje));
     if (documentosCarregados.length > 0) {
       const datas = documentosCarregados.flatMap((documento) => Object.keys(documento.dias));
       const periodoInicio = datas.sort()[0] ?? '2026-07-26';
@@ -4547,12 +4848,12 @@ export function DashboardApp() {
     }
     const cancelar = observarTrocasDoGestor(
       usuarioEfetivo.equipeId,
-      contextoEscalaAtivo?.competencia ?? '2026-08',
+      contextoEscalaAtivo?.competencia ?? competenciaOperacionalHoje,
       setTrocas,
       (falha) => setErroTroca(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de escala.', ambienteFirebaseAtual)),
     );
     return cancelar;
-  }, [modoDemo, usuarioEfetivo, contextoEscalaAtivo]);
+  }, [modoDemo, usuarioEfetivo, contextoEscalaAtivo, competenciaOperacionalHoje]);
 
   function reparsear(
     buffer: ArrayBuffer,
@@ -4563,7 +4864,7 @@ export function DashboardApp() {
       equipeId: opcoes.equipeId
         ?? (contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : usuarioEfetivo?.equipeId)
         ?? EQUIPE_DEMO.id,
-      competencia: opcoes.competencia ?? '2026-08',
+      competencia: opcoes.competencia ?? competenciaOperacionalHoje,
       catalogo,
       loginParaUid,
     });
@@ -4620,7 +4921,7 @@ export function DashboardApp() {
           'JORNADA',
           equipeId,
           equipe?.nome ?? equipeId,
-          opcoes.competencia ?? parseado.documentos[0]?.competencia ?? '2026-08',
+          opcoes.competencia ?? parseado.documentos[0]?.competencia ?? competenciaOperacionalHoje,
         ));
         setContextoSemEscala(false);
       }
@@ -4662,6 +4963,7 @@ export function DashboardApp() {
     setAbaPreviaPlantao('calendario');
     setBuscaVinculoPlantao({});
     setPlantonistaSelecionadoPlantao(null);
+    setFuncaoSelecionadaPlantao('TODOS');
     const grupoIdEscolhido = opcoes.grupoId?.trim() ?? '';
     setGrupoRascunhoEscolhido(grupoIdEscolhido);
     // Fase ESCALAS-UX-1A — sugerida já na importação (não só ao validar a
@@ -4724,6 +5026,7 @@ export function DashboardApp() {
         plantonistaNomeOriginal: atribuicao.plantonistaNomeOriginal,
         inicio: atribuicao.inicio,
         fim: atribuicao.fim,
+        ...(atribuicao.funcao === undefined ? {} : { funcao: atribuicao.funcao }),
       },
     });
   }
@@ -4749,6 +5052,10 @@ export function DashboardApp() {
         plantonistaNomeOriginal: plantonistaNomeOriginal ?? plantonistaSelecionadoPlantao ?? '',
         inicio: { data: dataIso, hora: '' },
         fim: { data: dataIso, hora: '' },
+        // FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§3 da fase) — criar a partir de uma aba
+        // específica (DBA/Linux/Telecom/Windows) já preenche o posto; a partir de "Todos",
+        // o campo nasce vazio e a escolha é obrigatória (ver validarAtribuicaoEditavel()).
+        ...(funcaoSelecionadaPlantao === 'TODOS' ? {} : { funcao: funcaoSelecionadaPlantao }),
       },
     });
   }
@@ -4768,10 +5075,27 @@ export function DashboardApp() {
    * Reaproveitada por `salvarModalAtribuicaoPlantao()` (modal completo,
    * "Outro horário") E pelo quick-add ("Adicionar" do padrão do Grupo) —
    * nenhum segundo caminho que grava atribuição.
+   *
+   * FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — o Modal/quick-add ainda não têm
+   * campo de posto (dívida documentada em `docs/spec/PLANTAO_MULTIPOSTO.md`).
+   * Enquanto isso, uma nova atribuição criada com uma função específica já
+   * selecionada (aba DBA/Linux/Telecom/Windows) herda essa função — sem
+   * isso, ela nasceria sem `funcao` e desapareceria de toda aba específica,
+   * só visível em "Todos" (§31/§32: nunca um posto "sumido"). Criar a
+   * partir de "Todos" continua sem `funcao`, exatamente como antes desta
+   * fase — nunca inferida às cegas.
    */
   function criarAtribuicaoPlantaoNaWorkingCopy(valores: FormularioAtribuicaoPlantao) {
     const abaOrigem = resultadoPlantao?.atribuicoes[0]?.abaOrigem ?? '';
-    setAtribuicoesEditaveisPlantao((atuais) => adicionarAtribuicaoEditavel(atuais, { ...valores, abaOrigem }));
+    // `valores.funcao` (escolhido no Modal) sempre manda quando presente; o
+    // quick-add (construirAtribuicaoDoPadraoHorario()) ainda não tem campo
+    // de posto, então cai no fallback da aba selecionada no momento.
+    const funcaoResolvida = valores.funcao ?? (funcaoSelecionadaPlantao === 'TODOS' ? undefined : funcaoSelecionadaPlantao);
+    setAtribuicoesEditaveisPlantao((atuais) => adicionarAtribuicaoEditavel(atuais, {
+      ...valores,
+      abaOrigem,
+      ...(funcaoResolvida === undefined ? {} : { funcao: funcaoResolvida }),
+    }));
     marcarPlantaoEditadoNoEditor();
   }
 
@@ -4982,7 +5306,7 @@ export function DashboardApp() {
     setWizardAreaId(areaInicial);
     setWizardEquipeId('');
     setWizardGrupoId('');
-    setWizardCompetencia(contextoEscalaAtivo?.competencia ?? COMPETENCIA_ATUAL);
+    setWizardCompetencia(contextoEscalaAtivo?.competencia ?? competenciaOperacionalHoje);
     setWizardArquivoNome('');
     setWizardErro('');
     setWizardProcessando(false);
@@ -5109,7 +5433,7 @@ export function DashboardApp() {
       setWizardProcessando(false);
     }
   }
-  async function criarGrupoWizard(nome: string, equipeId: string) {
+  async function criarGrupoWizard(nome: string, equipeId: string, funcoesEsperadas?: readonly FuncaoPlantao[]) {
     const equipeResponsavel = equipesAdmin.find((item) => item.id === equipeId);
     if (equipeResponsavel === undefined) {
       setWizardErro('Selecione uma equipe responsável cadastrada para este Plantão.');
@@ -5145,6 +5469,7 @@ export function DashboardApp() {
         equipeResponsavel,
         criadoPorLogin: usuarioReal.login,
         criadoEm: agora,
+        funcoesEsperadas,
       });
       const errosGrupo = validarGrupoPlantao(grupo);
       if (errosGrupo.length > 0) {
@@ -5368,6 +5693,7 @@ export function DashboardApp() {
       setAbaPreviaPlantao('calendario');
       setBuscaVinculoPlantao({});
       setPlantonistaSelecionadoPlantao(null);
+      setFuncaoSelecionadaPlantao('TODOS');
       setGrupoRascunhoEscolhido(grupo.grupoId);
       setCompetenciaRascunho(competencia);
       setPeriodoInicioRascunho(periodo.periodoInicio);
@@ -5485,6 +5811,7 @@ export function DashboardApp() {
       setAbaPreviaPlantao('calendario');
       setBuscaVinculoPlantao({});
       setPlantonistaSelecionadoPlantao(null);
+      setFuncaoSelecionadaPlantao('TODOS');
       setGrupoRascunhoEscolhido(grupo.grupoId);
       setCompetenciaRascunho(competencia);
       setPeriodoInicioRascunho(periodo.periodoInicio);
@@ -5616,7 +5943,7 @@ export function DashboardApp() {
         ?? EQUIPE_DEMO.id;
       processado = processarArquivoImportado(buffer, {
         equipeId: equipeImportacaoId,
-        competencia: opcoes.competencia ?? '2026-08',
+        competencia: opcoes.competencia ?? competenciaOperacionalHoje,
         catalogo,
         loginParaUid: mapaLogins(usuarios),
       });
@@ -5672,7 +5999,22 @@ export function DashboardApp() {
       setResultado(null);
       setJornadaPossuiAlteracoesNaoSalvas(false);
       setLinhasConciliacao([]);
-      interpretarPlantao(buffer, file.name, processado.resultado, opcoesPlantao, usuariosDoGrupo);
+      /**
+       * FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§11-13/§29/§30 da fase) —
+       * valida as funções ENCONTRADAS no arquivo contra `grupo.funcoesEsperadas`
+       * ESPECIFICAMENTE (nunca só o enum global `FuncaoPlantao`, que
+       * `processarArquivoImportado()` já usa por baixo). Uma função que o
+       * enum conhece mas que este Grupo não espera vira erro BLOQUEANTE
+       * nomeado, mesclado aos erros já existentes — nunca adiciona a função
+       * a `funcoesEsperadas` sozinho, nunca cria posto/Grupo (§12). Grupo de
+       * posto único nunca passa por aqui com erro (`validarFuncoesContraGrupo`
+       * retorna `[]` quando `funcoesEsperadas` está vazio).
+       */
+      const errosFuncaoForaDoGrupo = validarFuncoesContraGrupo(processado.resultado.atribuicoes, grupo.funcoesEsperadas ?? []);
+      const resultadoPlantaoValidado = errosFuncaoForaDoGrupo.length === 0
+        ? processado.resultado
+        : { ...processado.resultado, ok: false, erros: [...processado.resultado.erros, ...errosFuncaoForaDoGrupo] };
+      interpretarPlantao(buffer, file.name, resultadoPlantaoValidado, opcoesPlantao, usuariosDoGrupo);
       return true;
     }
     setResultadoPlantao(null);
@@ -5747,7 +6089,7 @@ export function DashboardApp() {
       if (arquivo !== null) {
         const parseado = parsePlanilhaEscala(arquivo, {
           equipeId: equipeAlvoId,
-          competencia: contextoEscalaAtivo?.competencia ?? '2026-08',
+          competencia: contextoEscalaAtivo?.competencia ?? competenciaOperacionalHoje,
           catalogo,
           loginParaUid: mapaLogins(atualizados),
         });
@@ -6263,11 +6605,21 @@ export function DashboardApp() {
    * `perfil`/`escopo`/`equipeId`/`equipesPermitidas`/`unidadeId`/
    * `unidadesPermitidas`/`nivelHierarquico` via `montarCamposAcessoUsuario()`
    * puro e grava tudo de volta no MESMO estado que a área "Avançado" edita
-   * diretamente — as duas UIs nunca divergem. Para `GESTOR_UNIDADE`,
-   * `equipeId` é deliberadamente preservado (nunca zerado): esse perfil
-   * administra a unidade inteira, `equipeId` continua só metadado
-   * informativo (mesmo princípio do fallback de
-   * PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 em `salvarFormularioUsuario`).
+   * diretamente — as duas UIs nunca divergem.
+   *
+   * Correção CODB/NOC — até esta fase, `GESTOR_UNIDADE` preservava
+   * deliberadamente o `equipeId` anterior, na crença de que era "só
+   * metadado informativo". Bug real encontrado: quando `equipesPermitidas`
+   * está vazio, `minhasEquipesPermitidas()` (`firestore.rules`) cai para
+   * `[equipeId]` — se essa equipe também estiver em `responsaveisEquipe`
+   * da Matriz de alguma operação, o coordenador ganha administração dela
+   * por acidente, nunca por responsabilidade explícita (um Coordenador de
+   * Unidade com `equipeId` de uma equipe subordinada virou administrador
+   * da Jornada dessa equipe sem nunca ter sido designado responsável).
+   * Agora sempre usa `campos.equipeId` (sempre `undefined` para
+   * `GESTOR_UNIDADE`) — mesma trava reforçada em
+   * `usuarioGestorUnidadeComEquipeIdInvalido()`
+   * (`lib/perfilAcessoUsuario.ts`), que `salvarUsuario()` já rejeita.
    */
   function aplicarSelecaoAcessoUsuario(patch: {
     tipo?: TipoAcessoUsuario;
@@ -6293,7 +6645,7 @@ export function DashboardApp() {
       confirmaAcessoGlobal: selecao.confirmaAcessoGlobal,
       perfil: campos.perfil,
       escopo: campos.escopo,
-      equipeId: selecao.tipo === 'GESTOR_UNIDADE' ? formularioUsuario.equipeId : campos.equipeId,
+      equipeId: campos.equipeId,
       equipesPermitidas: campos.equipesPermitidas,
       unidadeId: campos.unidadeId,
       unidadesPermitidas: campos.unidadesPermitidas,
@@ -6450,29 +6802,20 @@ export function DashboardApp() {
     }
 
     /**
-     * PATCH-CIRURGICO-JORNADA-VINCULOS-USUARIOS-1 — `equipeId` continua um
-     * campo sempre preenchido no cadastro (histórico do produto), mesmo para
-     * GESTOR_UNIDADE, cuja autorização real vem de `unidadeId`/
-     * `unidadesPermitidas`, não deste campo. Sem equipe escolhida no select
-     * livre, usa a primeira equipe ativa da unidade só como identidade
-     * técnica — nunca como restrição de escopo — em vez de gravar `''`.
-     *
-     * PATCH-ADMIN-SIMPLIFICAR-CADASTRO-PERFIS-1 — estendido ao cadastro
-     * administrativo (`souAdmin`): o bloco simples "Gestor de unidade"
-     * nunca pede uma equipe (só a unidade), então `equipeId` pode chegar
-     * aqui `undefined` também para o admin, não só no cadastro livre de
-     * staging. `?? ''` evita `undefined.trim()`.
+     * Correção CODB/NOC — até esta fase, um `GESTOR_UNIDADE` sem equipe
+     * escolhida no select livre ganhava `equipeId` da primeira equipe ativa
+     * da unidade "só como identidade técnica" (PATCH-CIRURGICO-JORNADA-
+     * VINCULOS-USUARIOS-1/PATCH-ADMIN-SIMPLIFICAR-CADASTRO-PERFIS-1). Bug
+     * real: essa equipe preenchida automaticamente pode coincidir com
+     * `responsaveisEquipe` da Matriz de alguma Jornada, e quando
+     * `equipesPermitidas` está vazio, `minhasEquipesPermitidas()`
+     * (`firestore.rules`) cai para `[equipeId]` — o coordenador ganha
+     * administração daquela Jornada por acidente, nunca por
+     * responsabilidade explícita. `GESTOR_UNIDADE` nunca deve ter
+     * `equipeId` (`usuarioGestorUnidadeComEquipeIdInvalido()`,
+     * `lib/perfilAcessoUsuario.ts` — `salvarUsuario()` já rejeita) — este
+     * bloco de preenchimento automático foi removido, não substituído.
      */
-    if (
-      (usarCadastroLivreStaging && cadastroNovo || (souAdmin && participanteVinculoCadastro === null))
-      && candidato.perfil === 'GESTOR_UNIDADE'
-      && (candidato.equipeId ?? '').trim() === ''
-    ) {
-      const equipeFallback = equipesAdmin.find((equipe) => equipe.ativa && equipe.unidadeId === candidato.unidadeId);
-      if (equipeFallback !== undefined) {
-        candidato = { ...candidato, equipeId: equipeFallback.id };
-      }
-    }
 
     /**
      * PATCH-ADMIN-SIMPLIFICAR-CADASTRO-PERFIS-1 — validações de coerência
@@ -6695,6 +7038,38 @@ export function DashboardApp() {
     }
   }
 
+  /**
+   * FASE-ESCOPO-HIERARQUICO-CODB-E-ADMIN-PLANTAO-1 — grava a atribuição
+   * "Responsável / Responsável por" do `AtribuirCoordenadorModal`: reusa
+   * `salvarUsuario()` (mesma escrita de sempre em `usuarios/{login}`) —
+   * nenhum mecanismo de autorização novo, só a UI simples por cima do
+   * `perfil: 'GESTOR_UNIDADE'` que já existe.
+   */
+  async function salvarAtribuicaoCoordenador(usuario: Usuario) {
+    if (escritaBloqueada) {
+      setErroAtribuicaoCoordenador('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
+      return;
+    }
+    setProcessandoAtribuicaoCoordenador(true);
+    setErroAtribuicaoCoordenador('');
+    try {
+      if (!modoDemo) {
+        await salvarUsuario(usuario);
+        await registrarAuditoriaOperacional('ATRIBUIR_COORDENADOR_UNIDADE', usuario.equipeId, {
+          unidadeId: usuario.unidadeId ?? null,
+        });
+      }
+      setUsuarios((atuais) => atuais.map((existente) => (existente.login === usuario.login ? usuario : existente)));
+      setTodosUsuariosAdmin((atuais) => atuais.map((existente) => (existente.login === usuario.login ? usuario : existente)));
+      setModalAtribuirCoordenador(false);
+      setMensagem(`${usuario.nome} agora administra ${usuario.unidadeId ?? 'a unidade escolhida'} e suas equipes.`);
+    } catch (falha) {
+      setErroAtribuicaoCoordenador(mensagemErroFirebase(falha, 'Não foi possível atribuir o coordenador.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoAtribuicaoCoordenador(false);
+    }
+  }
+
   function abrirAdicionarMembroGrade() {
     setMembroGradeDraft({ login: '', turnoPadrao: 'M' });
   }
@@ -6726,7 +7101,7 @@ export function DashboardApp() {
     }
     const referencia = {
       equipeId: equipeIdDaGradeAtiva,
-      competencia: resultado.documentos[0]?.competencia ?? '2026-08',
+      competencia: resultado.documentos[0]?.competencia ?? competenciaOperacionalHoje,
       periodoInicio: resultado.periodoInicio,
       periodoFim: resultado.periodoFim,
     };
@@ -6796,9 +7171,54 @@ export function DashboardApp() {
 
   // --- Administração de Plantão (Fase PLANTÃO-3B) ---
 
+  /**
+   * HOTFIX-ESCALA-ALERTA-TROCAS-1 — `plantoesAdministraveis` (via
+   * `resolverMatrizOperacional()`) só é populado a partir de documentos
+   * `escoposOperacionais` explícitos; um Grupo recém-criado ou duplicado
+   * (ex.: por uma reimportação, o caso real que motivou esta correção)
+   * NUNCA é registrado ali automaticamente (`salvarGrupoPlantao()` só
+   * grava o próprio Grupo). Sem este segundo caminho, o botão de
+   * Editar/Excluir ficava permanentemente invisível para exatamente o
+   * Grupo problemático que o usuário precisa corrigir — mesmo já
+   * administrando-o de fato. `podeGerenciarGrupoPlantao()` (`lib/sessao.ts`)
+   * é o mirror client-side EXATO de `podeGerenciarGrupoPlantao()` em
+   * `firestore.rules` (mesma função usada pelo wizard em
+   * `criarGrupoWizard()` acima) — reconcilia aqui o gate de UX com a Rule
+   * real, em vez de manter dois sistemas de autorização divergentes.
+   */
   function podeGerenciarEsteGrupoPlantao(grupo: GrupoPlantao): boolean {
+    /**
+     * BUGFIX-HOMOLOGACAO-PLANTAO-MULTIPOSTO-1 — o fallback hierárquico
+     * abaixo (`podeGerenciarGrupoPlantao()`, `lib/sessao.ts`) é puramente
+     * de UNIDADE/EQUIPE, sem NENHUMA noção de Matriz — nunca soube
+     * distinguir "Grupo sem Matriz ainda" (o caso original que motivou
+     * este fallback, comentário acima) de "Matriz INATIVA" (um tombstone
+     * fail-closed deliberado, ex. `escoposOperacionais/PLANTAO_NOC`).
+     * Resultado real: Elton (GESTOR_UNIDADE de GEDSI_CODB) via o Grupo
+     * legado `NOC` como administrável aqui — mesmo com
+     * `resolverEscoposOperacionais()`/Rules já corretamente fechados
+     * (HOTFIX-STAGING-FALLBACK-MATRIZ-1/HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1)
+     * — porque este É um terceiro caminho de autorização, paralelo aos
+     * outros dois, que ninguém tinha atualizado ainda. Corrigido: o
+     * fallback hierárquico só entra quando NÃO existe NENHUM documento de
+     * Matriz para este alvo (mesmo critério simples — não bootstrap-aware
+     * — do fallback legado em `lib/escoposOperacionais.ts`, nunca
+     * reaproveita nem altera a semântica bootstrap-aware do resolver).
+     */
+    const existeMatrizParaEsteGrupo = escoposOperacionaisAdmin.some((escopo) =>
+      escopo.tipo === 'PLANTAO' && escopo.alvoId === grupo.grupoId);
     return usuarioReal !== null
-      && escoposOperacionais.plantoesAdministraveis.some((item) => item.grupoId === grupo.grupoId);
+      && (
+        escoposOperacionais.plantoesAdministraveis.some((item) => item.grupoId === grupo.grupoId)
+        || (
+          !existeMatrizParaEsteGrupo
+          && podeGerenciarGrupoPlantao(usuarioReal, {
+            equipeResponsavelId: grupo.equipeResponsavelId,
+            unidadeResponsavelId: grupo.unidadeResponsavelId,
+            caminhoUnidadeResponsavel: grupo.caminhoUnidadeResponsavel,
+          })
+        )
+      );
   }
 
   function abrirNovoGrupoPlantao() {
@@ -6839,6 +7259,69 @@ export function DashboardApp() {
       setModalGrupoPlantao(null);
     } catch (falha) {
       throw new Error(mensagemErroFirebase(falha, 'Não foi possível salvar o grupo de Plantão.', ambienteFirebaseAtual));
+    }
+  }
+
+  /**
+   * HOTFIX-ESCALA-ALERTA-TROCAS-1 — corrigir um Grupo criado por engano
+   * (ex.: reimportação que duplicou em vez de atualizar o existente).
+   * `excluirGrupoPlantao()` já recusa sozinha (com mensagem clara) quando
+   * existe competência publicada — aqui só propagamos essa mensagem,
+   * nunca escondemos.
+   */
+  async function confirmarExclusaoGrupoPlantao() {
+    if (grupoPlantaoParaExcluir === null) {
+      return;
+    }
+    setExcluindoGrupoPlantao(true);
+    setErroExclusaoGrupoPlantao('');
+    try {
+      if (!modoDemo) {
+        await excluirGrupoPlantao(grupoPlantaoParaExcluir.grupoId);
+      }
+      setGruposPlantaoAdmin((atuais) => atuais.filter((item) => item.grupoId !== grupoPlantaoParaExcluir.grupoId));
+      setGrupoPlantaoParaExcluir(null);
+    } catch (falha) {
+      setErroExclusaoGrupoPlantao(mensagemErroFirebase(falha, 'Não foi possível excluir o grupo de Plantão.', ambienteFirebaseAtual));
+    } finally {
+      setExcluindoGrupoPlantao(false);
+    }
+  }
+
+  /**
+   * FASE-ESCOPO-HIERARQUICO-CODB-E-ADMIN-PLANTAO-1 — corrige uma publicação
+   * de Plantão feita no Grupo/competência errado sem apagar histórico:
+   * `cancelarCompetenciaPlantaoPublicada()` grava a transição PUBLICADA ->
+   * CANCELADA (nunca delete físico); aqui só refletimos o resultado no
+   * cache local (`resumosPlantaoDashboard`) para a tela atualizar sem
+   * precisar recarregar.
+   */
+  async function confirmarCancelamentoPublicacaoPlantao(motivo: string) {
+    if (publicacaoPlantaoParaCancelar === null || usuarioReal === null) {
+      return;
+    }
+    const { grupo, competencia } = publicacaoPlantaoParaCancelar;
+    setCancelandoPublicacaoPlantao(true);
+    setErroCancelamentoPublicacaoPlantao('');
+    try {
+      const cancelada = modoDemo
+        ? { ...competencia, status: 'CANCELADA' as const, canceladaEm: new Date().toISOString(), canceladaPorLogin: usuarioReal.login, motivoCancelamento: motivo.trim() }
+        : await cancelarCompetenciaPlantaoPublicada(grupo.grupoId, competencia.competencia, motivo, usuarioReal.login);
+      setResumosPlantaoDashboard((atuais) => {
+        const chave = `${grupo.grupoId}:${competencia.competencia}`;
+        const atual = atuais[chave];
+        return atual === undefined ? atuais : { ...atuais, [chave]: { ...atual, competenciaPublicada: cancelada } };
+      });
+      await registrarAuditoriaOperacional('CANCELAR_PUBLICACAO_PLANTAO', grupo.equipeResponsavelId, {
+        unidadeId: grupo.unidadeResponsavelId ?? null,
+        competencia: competencia.competencia,
+        origem: motivo.trim(),
+      });
+      setPublicacaoPlantaoParaCancelar(null);
+    } catch (falha) {
+      setErroCancelamentoPublicacaoPlantao(mensagemErroFirebase(falha, 'Não foi possível cancelar a publicação de Plantão.', ambienteFirebaseAtual));
+    } finally {
+      setCancelandoPublicacaoPlantao(false);
     }
   }
 
@@ -7023,6 +7506,7 @@ export function DashboardApp() {
       setAbaPreviaPlantao('calendario');
       setBuscaVinculoPlantao({});
       setPlantonistaSelecionadoPlantao(null);
+      setFuncaoSelecionadaPlantao('TODOS');
       setGrupoRascunhoEscolhido(grupo.grupoId);
       setCompetenciaRascunho(reidratado.competencia.competencia);
       setPeriodoInicioRascunho(reidratado.competencia.periodoInicio);
@@ -8157,12 +8641,12 @@ export function DashboardApp() {
 
   const contextosOperacionaisValidos: ContextoEscalaAtivo[] = useMemo(() => [
     ...escoposOperacionais.jornadasAdministraveis.map((equipe) =>
-      criarContextoEscala('JORNADA', equipe.id, equipe.nome, COMPETENCIA_ATUAL)),
+      criarContextoEscala('JORNADA', equipe.id, equipe.nome, competenciaOperacionalHoje)),
     ...escoposOperacionais.plantoesAdministraveis.map((grupo) =>
-      criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, COMPETENCIA_ATUAL)),
+      criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, competenciaOperacionalHoje)),
     ...escoposOperacionais.plantoesMonitorados.map((grupo) =>
-      criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, COMPETENCIA_ATUAL)),
-  ], [escoposOperacionais]);
+      criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, competenciaOperacionalHoje)),
+  ], [escoposOperacionais, competenciaOperacionalHoje]);
   const chaveAlvosOperacionaisValidos = contextosOperacionaisValidos
     .map((contexto) => `${contexto.tipo}:${contexto.alvoId}`)
     .sort()
@@ -8186,7 +8670,12 @@ export function DashboardApp() {
     usuarioContextoRestauradoRef.current = usuarioReal.login;
     const restaurado = modoDemo || typeof window === 'undefined'
       ? { estado: 'ausente' as const }
-      : restaurarContextoEscalaPersistido(usuarioReal.login, contextosOperacionaisValidos, window.localStorage);
+      : restaurarContextoEscalaPersistido(
+        usuarioReal.login,
+        contextosOperacionaisValidos,
+        window.localStorage,
+        { competenciaInicial: competenciaOperacionalHoje },
+      );
     if (restaurado.estado === 'invalido') {
       void Promise.resolve().then(() => {
         setContextoEscalaAtivo(null);
@@ -8265,8 +8754,8 @@ export function DashboardApp() {
    * Equipe permitida (Jornada) e por Grupo de Plantão acessível
    * (Plantão), rótulos resolvidos a partir dos dados já carregados. A
    * competência de uma opção ainda não visitada herda a competência do
-   * contexto ativo (ou o único valor hoje hardcoded no restante do
-   * Dashboard, `'2026-08'`, se nenhum contexto foi selecionado ainda).
+   * contexto ativo (ou `competenciaOperacionalHoje`, se nenhum contexto
+   * foi selecionado ainda).
    */
   const areasWizard = unidadesAdministraveis(unidadesAdmin, minhasUnidadesPermitidas, souAdmin);
   const areaWizardEfetiva = wizardAreaId || (areasWizard.length === 1 ? areasWizard[0].unidadeId : null);
@@ -8315,7 +8804,7 @@ export function DashboardApp() {
   const periodoAnteriorWizardDisponivel = wizardGrupoId !== ''
     && competenciaAnteriorWizard !== null
     && (rascunhosPlantaoPorGrupo[wizardGrupoId] ?? []).some((item) => item.competencia === competenciaAnteriorWizard);
-  const competenciaParaNovasOpcoes = contextoEscalaAtivo?.competencia ?? '2026-08';
+  const competenciaParaNovasOpcoes = contextoEscalaAtivo?.competencia ?? competenciaOperacionalHoje;
   /**
    * Uma equipe responsável exclusivamente por um Grupo de Plantão não é uma
    * Jornada 6x1 adicional. O coordenador do COSI pode ter EQ_SOC e
@@ -8333,6 +8822,29 @@ export function DashboardApp() {
         ? contextoEscalaAtivo.competencia
         : competenciaParaNovasOpcoes,
     );
+  }
+  /**
+   * HOTFIX-OPERACIONAL-PLANTAO-IMPORTACAO-HUB-1 — `solicitarTrocaContexto`
+   * é um no-op quando `alvo` já é o contexto ativo (linha 8318), então um
+   * clique no card já ativo do Hub não fazia nada visível. Espelha
+   * exatamente o mesmo caminho do botão "Abrir editor"/"Abrir consulta"
+   * (linha ~9446): contexto igual → abre o editor direto; contexto
+   * diferente → passa pelo guard de alterações não salvas normalmente (o
+   * Hub vive na tela 'escalas', que está em
+   * `TELAS_DEPENDENTES_DO_CONTEXTO_ESCALA`, então a troca já abre a grade
+   * sozinha ao concluir). Nenhum editor paralelo.
+   */
+  function abrirOperacaoDoHub(operacao: OperacaoDashboard) {
+    const alvo = contextoOpcaoOperacao(operacao);
+    if (contextosEscalaIguais(contextoEscalaAtivo, alvo)) {
+      if (operacao.tipo === 'PLANTAO') {
+        abrirEditorPlantaoDashboard();
+      } else {
+        setTela('grade');
+      }
+      return;
+    }
+    solicitarTrocaContexto(alvo);
   }
   const opcoesContextoJornada: OpcaoContextoEscala[] = operacoesDashboard
     .filter((operacao) => operacao.tipo === 'JORNADA')
@@ -8386,6 +8898,56 @@ export function DashboardApp() {
         rotuloSecundario: equipesAdmin.find((item) => item.id === grupo?.equipeResponsavelId)?.nome ?? grupo?.equipeResponsavelId ?? '',
       };
     });
+  /**
+   * Fase DASH-SIMPLES-1B — pessoas/alertas por operação para os cartões do
+   * Hub de Escalas (`HubEscalasOperacoes`). Nunca uma segunda regra de
+   * autorização/status: só lê os mesmos snapshots já carregados por
+   * `operacoesDashboard`/`resumosJornadaDashboard`/`resumosPlantaoDashboard`
+   * (o mesmo efeito que já popula os cards únicos da Visão geral, § 3 acima
+   * — aqui generalizado para TODAS as Jornadas/Plantões administráveis, não
+   * só "a" operação em destaque).
+   *
+   * Alertas de Plantão fora do editor continuam `null` (nunca "0"
+   * inventado) — mesma regra de `plantaoAlertasDashboard` acima, § 8 de
+   * `docs/spec/HUB_ESCALAS.md`: só é honesto assumir 0 quando o status já
+   * confirma "sem-escala"; qualquer outro caso sem o editor aberto mostra
+   * "Abra para conferir".
+   */
+  function pessoasOperacaoHub(operacao: OperacaoDashboard): number | null {
+    if (operacao.tipo === 'JORNADA') {
+      return resumosJornadaDashboard[`${operacao.alvoId}:${competenciaDashboard}`]?.colaboradoresAtivos ?? null;
+    }
+    return resumosPlantaoDashboard[`${operacao.alvoId}:${competenciaDashboard}`]?.participantesAtivos ?? null;
+  }
+  function alertasOperacaoHub(operacao: OperacaoDashboard): number | null {
+    if (operacao.tipo === 'JORNADA') {
+      if (operacao.status === 'sem-escala') {
+        return 0;
+      }
+      const emEdicaoAoVivo = contextoEhJornada(contextoEscalaAtivo)
+        && contextoEscalaAtivo.alvoId === operacao.alvoId
+        && resultado !== null;
+      if (emEdicaoAoVivo) {
+        return alertasVisiveis.length;
+      }
+      const resumo = resumosJornadaDashboard[`${operacao.alvoId}:${competenciaDashboard}`] ?? null;
+      if (resumo === null) {
+        return null;
+      }
+      const alertasOperacionaisFora = gerarAlertasEscala(resumo.documentos, catalogo);
+      return montarAlertasVisiveis(alertasOperacionaisFora, usuarios, resumo.documentos, resumo.publicadas).length;
+    }
+    if (operacao.status === 'sem-escala') {
+      return 0;
+    }
+    const emEdicaoAoVivo = contextoEhPlantao(contextoEscalaAtivo)
+      && contextoEscalaAtivo.alvoId === operacao.alvoId
+      && resultadoPlantao !== null;
+    return emEdicaoAoVivo && resultadoPlantao !== null
+      ? resultadoPlantao.erros.length + resultadoPlantao.avisos.length + pendenciasVinculoPlantao
+      : null;
+  }
+  const possuiOperacaoAdministravel = possuiOperacaoAdministravelHub(operacoesDashboard);
   /**
    * `true` quando o contexto de Plantão ativo agora é só consultável (o
    * grupo está em `plantoesConsultaveis`, nunca em `plantoesAdministraveis`)
@@ -8485,20 +9047,34 @@ export function DashboardApp() {
       produtoHref={import.meta.env.VITE_EMPLOYEE_APP_URL ?? '/app'}
       contextoEscala={(
         <div className="schedule-context-cluster">
-          <ScheduleContextSwitcher
-            contextoAtivo={contextoEscalaAtivo}
-            rotuloContextoAtivo={rotuloContextoAtivo}
-            opcoesJornada={opcoesContextoJornada}
-            opcoesPlantao={opcoesContextoPlantao}
-            opcoesPlantaoMonitorados={opcoesContextoPlantaoMonitorados}
-            onSelecionar={solicitarTrocaContexto}
-            carregando={carregandoContexto || estadoCarregamentoOperacoes.fase === 'carregando'}
-          />
-          <ScheduleCompetenceControl
-            competencia={contextoEscalaAtivo?.competencia ?? null}
-            onMudarCompetencia={solicitarTrocaCompetencia}
-          />
-          <ScheduleStatusBadge status={statusContextoAtivo} />
+          {/*
+           * Fase DASH-SIMPLES-1A — a Visão geral já mostra as duas operações
+           * (SOC/Plantão) ao mesmo tempo, lado a lado; o seletor de contexto
+           * do header não filtra nem altera nenhum dado dela (ver
+           * `resolverOperacoesDashboard()`, HOTFIX-PLANTAO-PUBLICADO-APP-E-
+           * VISAO-GERAL-1). Mantê-lo ali era só carga cognitiva redundante —
+           * "qual escala estou trabalhando agora" só faz sentido dentro do
+           * workspace de Escalas, onde o seletor continua existindo,
+           * inalterado.
+           */}
+          {tela !== 'visao' && (
+            <>
+              <ScheduleContextSwitcher
+                contextoAtivo={contextoEscalaAtivo}
+                rotuloContextoAtivo={rotuloContextoAtivo}
+                opcoesJornada={opcoesContextoJornada}
+                opcoesPlantao={opcoesContextoPlantao}
+                opcoesPlantaoMonitorados={opcoesContextoPlantaoMonitorados}
+                onSelecionar={solicitarTrocaContexto}
+                carregando={carregandoContexto || estadoCarregamentoOperacoes.fase === 'carregando'}
+              />
+              <ScheduleCompetenceControl
+                competencia={contextoEscalaAtivo?.competencia ?? null}
+                onMudarCompetencia={solicitarTrocaCompetencia}
+              />
+              <ScheduleStatusBadge status={statusContextoAtivo} />
+            </>
+          )}
         </div>
       )}
       acoesTopo={(
@@ -8577,7 +9153,6 @@ export function DashboardApp() {
                 <span><Users size={16} /><small>Pessoas</small><strong>{colaboradoresJornadaDashboard}</strong><em>{colaboradoresJornadaDashboard === 0 ? 'Nenhum colaborador ativo encontrado para esta equipe.' : 'colaboradores'}</em></span>
                 <span><AlertTriangle size={16} /><small>Alertas</small><strong>{alertasJornadaDashboard}</strong><em>{alertasJornadaDashboard > 0 ? 'necessitam atenção' : 'nenhum pendente'}</em></span>
               </span>
-              <span className="overview-operation-health"><i style={{ width: `${healthBarSoc}%` }} /></span>
               <span className="overview-operation-action"><Pencil size={15} /> Abrir operação {nomeJornadaDashboard} <ArrowUpRight size={16} /></span>
             </button>
 
@@ -8604,28 +9179,27 @@ export function DashboardApp() {
               <span className="overview-operation-meta">
                 <span><CalendarDays size={16} /><small>Competência ativa</small><strong>{formatarCompetencia(competenciaPlantaoDashboard?.competencia ?? competenciaDashboard)}</strong><em>{periodoPlantaoDashboard}</em></span>
                 <span><Users size={16} /><small>Pessoas</small><strong>{participantesPlantaoDashboard}</strong><em>participantes</em></span>
-                <span><AlertTriangle size={16} /><small>Alertas</small><strong>{plantaoAlertasDashboard}</strong><em>{plantaoPossuiEscalaDashboard ? 'na operação' : 'nenhuma escala criada'}</em></span>
+                <span><AlertTriangle size={16} /><small>Alertas</small><strong>{plantaoAlertasDashboard ?? '—'}</strong><em>{plantaoAlertasDashboard === null ? 'abra a operação para conferir' : plantaoPossuiEscalaDashboard ? 'na operação' : 'nenhuma escala criada'}</em></span>
               </span>
-              <span className="overview-operation-health"><i style={{ width: `${healthBarPlantao}%` }} /></span>
               <span className="overview-operation-action"><Radio size={15} /> Abrir operação {nomePlantaoDashboard} <ArrowUpRight size={16} /></span>
             </button>
             )}
           </div>
 
-          <div className="metric-grid overview-summary-metrics">
-            <article><span>Colaboradores</span><strong>{colaboradoresOperacoesDashboard}</strong><small>{possuiOperacaoPlantaoDashboard ? 'ativos nas duas operações' : 'ativos na operação'}</small></article>
-            <article><span>Dias no período</span><strong>{totaisGerais.dias || 31}</strong><small>{formatarCompetencia(competenciaDashboard)}</small></article>
-            <article className="overview-health-summary">
-              <div className="overview-health-summary-heading"><span>Saúde das escalas</span><ShieldCheck size={18} /></div>
-              <div className="overview-health-row"><strong>{nomeJornadaDashboard}</strong><small className={socStatusDashboard}>{rotuloSaudeDashboard(socStatusDashboard)}</small><b>{estadoJornadaOperacionalDashboard === 'sem-escala' ? '—' : `${healthBarSoc}%`}</b><i><em style={{ width: `${healthBarSoc}%` }} /></i></div>
-              {possuiOperacaoPlantaoDashboard && (
-              <div className="overview-health-row"><strong>{nomePlantaoDashboard}</strong><small className={plantaoStatusDashboard}>{rotuloSaudeDashboard(plantaoStatusDashboard)}</small><b>{estadoPlantaoOperacionalDashboard === 'sem-escala' ? '—' : `${healthBarPlantao}%`}</b><i><em style={{ width: `${healthBarPlantao}%` }} /></i></div>
-              )}
-              <small className="overview-health-note">{pendenciasDashboard > 0 ? `${pendenciasDashboard} ${pendenciasDashboard === 1 ? 'pendência requer' : 'pendências requerem'} atenção` : 'Nenhuma pendência operacional'}</small>
-            </article>
-            <article><span>Pendências</span><strong>{pendenciasDashboard}</strong><small>requerem atenção</small></article>
-          </div>
-
+          {/*
+           * Fase DASH-SIMPLES-1A — a Visão geral parava de ser uma
+           * triagem e virava um mosaico repetindo, em texto e em barra,
+           * a MESMA informação já legível nos cards operacionais acima
+           * (status, alertas, competência). "Saúde das escalas" (barra
+           * artificial em %), "Colaboradores"/"Dias no período" e o card
+           * "Alertas por operação" saíram por não trazerem nenhuma
+           * informação operacional que os cards já não mostrassem — ver
+           * docs/spec/VISAO_GERAL_OPERACIONAL_SOC_PLANTAO.md § 7 (revisão
+           * desta fase). "Publicação da escala" continua (é a única visão
+           * lado a lado das duas operações) e um único painel "Pendências"
+           * substitui "Alertas por operação" + "Trocas pendentes", em
+           * linguagem humana, sem duplicar o que já está nos cards.
+           */}
           <div className="overview-grid overview-secondary-grid">
             <article className="panel overview-span-4 overview-publication-card">
               <div className="panel-title"><div><h2>Publicação da escala</h2><p>Disponibilidade no aplicativo</p></div><ShieldCheck /></div>
@@ -8638,26 +9212,37 @@ export function DashboardApp() {
               <button className="overview-card-link" type="button" onClick={() => setTela('escalas')}>Ver escalas e histórico <ChevronRight size={16} /></button>
             </article>
 
-            <article className="panel overview-span-4 overview-alerts-card">
-              <div className="panel-title"><div><h2>Alertas por operação</h2><p>Pontos que merecem atenção do gestor</p></div><Bell size={18} /></div>
+            <article className="panel overview-span-8 overview-pendencias-card">
+              <div className="panel-title"><div><h2>Pendências</h2><p>O que precisa da sua atenção agora</p></div><Bell size={18} /></div>
               <div className="overview-operation-list">
-                <button type="button" onClick={() => abrirOperacaoDoDashboard('JORNADA')}><ShieldCheck size={18} /><span><strong>{nomeJornadaDashboard}</strong><small>Jornada 6x1</small></span><em className={socStatusDashboard}>{alertasJornadaDashboard}</em><ChevronRight size={15} /></button>
+                <button type="button" onClick={() => setAlertaSelecionado(alertasVisiveis[0] ?? null)}>
+                  <AlertTriangle size={18} />
+                  <span><strong>{nomeJornadaDashboard}</strong><small>{alertasJornadaDashboard > 0 ? `${alertasJornadaDashboard} ${alertasJornadaDashboard === 1 ? 'alerta requer' : 'alertas requerem'} atenção` : 'Nenhum alerta pendente'}</small></span>
+                  <ChevronRight size={15} />
+                </button>
                 {possuiOperacaoPlantaoDashboard && (
-                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>{nomePlantaoDashboard}</strong><small>{plantaoMetricasDashboard}</small></span><em className={plantaoStatusDashboard}>{plantaoAlertasDashboard}</em><ChevronRight size={15} /></button>
+                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}>
+                  <AlertTriangle size={18} />
+                  <span><strong>{nomePlantaoDashboard}</strong><small>{plantaoAlertasDashboard === null ? 'Alertas não disponíveis fora do editor — abra a operação para conferir' : plantaoAlertasDashboard > 0 ? `${plantaoAlertasDashboard} ${plantaoAlertasDashboard === 1 ? 'alerta requer' : 'alertas requerem'} atenção` : 'Nenhum alerta pendente'}</small></span>
+                  <ChevronRight size={15} />
+                </button>
                 )}
+                <button type="button" onClick={abrirTrocasDoDashboard}>
+                  <ArrowLeftRight size={18} />
+                  <span><strong>Trocas</strong><small>{trocasPendentesGestor.length === 0 ? 'Nenhuma troca aguardando aprovação' : `${trocasPendentesGestor.length} ${trocasPendentesGestor.length === 1 ? 'troca aguardando' : 'trocas aguardando'} aprovação`}</small></span>
+                  <ChevronRight size={15} />
+                </button>
               </div>
-              <button className="overview-card-link" type="button" onClick={() => setAlertaSelecionado(alertasVisiveis[0] ?? null)}>Ver alertas de {nomeJornadaDashboard} <ChevronRight size={16} /></button>
-            </article>
-
-            <article className="panel overview-span-4 overview-swaps-card">
-              <div className="panel-title"><div><h2>Trocas pendentes</h2><p>Aguardando decisão do gestor</p></div><ArrowLeftRight size={18} /></div>
-              <button className="overview-swaps-summary" type="button" onClick={abrirTrocasDoDashboard}><strong>{trocasPendentesGestor.length}</strong><span>{trocasPendentesGestor.length === 1 ? 'troca aguarda' : 'trocas aguardam'} sua decisão.</span><ChevronRight size={16} /></button>
+              {trocasPendentesGestor.length > 0 && (
               <div className="overview-swap-preview">
                 {trocasPendentesGestor.slice(0, 2).map((troca) => (
                   <button key={troca.trocaId} type="button" onClick={() => { setTela('trocas'); setTrocaSelecionadaId(troca.trocaId); }}><ArrowLeftRight size={15} /><span><strong>{troca.solicitanteNome} ⇄ {troca.destinatarioNome}</strong><small>{formatarDataCurta(troca.data)} · {troca.turnoSolicitanteAntes} ⇄ {troca.turnoDestinatarioAntes}</small></span><ChevronRight size={14} /></button>
                 ))}
               </div>
-              <button className="overview-card-link" type="button" onClick={abrirTrocasDoDashboard}>Gerenciar trocas <ChevronRight size={16} /></button>
+              )}
+              {pendenciasDashboard === 0 && !existePendenciaDesconhecida && (
+                <small className="overview-health-note">Nenhuma pendência operacional no momento.</small>
+              )}
             </article>
           </div>
           </>}
@@ -8737,11 +9322,26 @@ export function DashboardApp() {
                         {salvandoRascunhoPlantao ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}
                         Salvar rascunho
                       </button>
+                      {saudePlantaoRascunho !== null && (
+                        <button
+                          className="secondary-button compact-button"
+                          type="button"
+                          onClick={() => setRevisarPublicacaoPlantaoAberta(true)}
+                        >
+                          <ShieldCheck size={15} /> Revisar publicação
+                        </button>
+                      )}
                       <button
                         className="primary-button compact-button"
                         type="button"
-                        title={!rascunhoPlantaoProntoParaPublicar ? 'Salve o rascunho atual antes de publicar.' : undefined}
-                        disabled={publicandoPlantao || salvandoRascunhoPlantao || !rascunhoPlantaoProntoParaPublicar}
+                        title={
+                          !rascunhoPlantaoProntoParaPublicar
+                            ? 'Salve o rascunho atual antes de publicar.'
+                            : !podePublicarPlantaoPelaSaude
+                              ? 'Existem problemas que precisam ser corrigidos antes de publicar — veja "Revisar publicação".'
+                              : undefined
+                        }
+                        disabled={publicandoPlantao || salvandoRascunhoPlantao || !rascunhoPlantaoProntoParaPublicar || !podePublicarPlantaoPelaSaude}
                         onClick={() => void publicarPlantaoAcao()}
                       >
                         {publicandoPlantao ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}
@@ -8965,6 +9565,9 @@ export function DashboardApp() {
               onSelecionarPlantonista={alternarPlantonistaSelecionado}
               onSolicitarNovaAtribuicao={contextoPlantaoSomenteConsulta ? NAO_OPERAR_PLANTAO_CONSULTA : solicitarNovaAtribuicaoPlantao}
               nomesInativosPlantao={nomesInativosReferenciadosPlantao}
+              funcoesEsperadas={gruposPlantaoAdmin.find((item) => item.grupoId === grupoRascunhoEscolhido)?.funcoesEsperadas ?? []}
+              funcaoSelecionada={funcaoSelecionadaPlantao}
+              onMudarFuncaoSelecionada={setFuncaoSelecionadaPlantao}
               somenteConsulta={contextoPlantaoSomenteConsulta}
             />
           )}
@@ -8976,9 +9579,25 @@ export function DashboardApp() {
               modo={modalAtribuicaoPlantao.modo}
               participantesConhecidos={participantesPlantao.map((participante) => participante.nomeOriginal)}
               padroesDisponiveis={padroesHorarioModalPlantao}
+              funcoesDisponiveis={funcoesEsperadasRascunhoPlantao}
               onFechar={fecharModalAtribuicaoPlantao}
               onSalvar={salvarModalAtribuicaoPlantao}
               onExcluir={modalAtribuicaoPlantao.modo === 'editar' ? excluirModalAtribuicaoPlantao : undefined}
+            />
+          )}
+
+          {revisarPublicacaoPlantaoAberta && saudePlantaoRascunho !== null && (
+            <RevisarPublicacaoPlantaoModal
+              nomeGrupo={grupoRascunhoPlantaoEmContexto?.nome ?? 'Plantão'}
+              competenciaRotulo={formatarCompetencia(competenciaRascunho)}
+              saude={saudePlantaoRascunho}
+              funcoesEsperadas={funcoesEsperadasRascunhoPlantao}
+              onFechar={() => setRevisarPublicacaoPlantaoAberta(false)}
+              onNavegarParaFuncao={(funcao, destino) => {
+                setFuncaoSelecionadaPlantao(funcao);
+                setAbaPreviaPlantao(destino);
+                setRevisarPublicacaoPlantaoAberta(false);
+              }}
             />
           )}
 
@@ -9098,8 +9717,8 @@ export function DashboardApp() {
       {tela === 'escalas' && (
         <section>
           <header className="page-heading">
-            <div><h1>Escalas</h1><p>Rascunhos e publicações disponíveis para a equipe.</p></div>
-            {estadoCarregamentoOperacoes.fase === 'sucesso' && !contextoPlantaoSomenteConsulta && <div className="grade-header-actions">
+            <div><h1>Escalas</h1><p>Organize, revise e publique as escalas sob sua responsabilidade.</p></div>
+            {estadoCarregamentoOperacoes.fase === 'sucesso' && possuiOperacaoAdministravel && <div className="grade-header-actions">
               <button className="secondary-button" type="button" onClick={abrirImportarEscala}>
                 <UploadCloud size={17} /> Importar escala
               </button>
@@ -9110,6 +9729,13 @@ export function DashboardApp() {
           </header>
           {painelCarregamentoOperacoes()}
           {estadoCarregamentoOperacoes.fase === 'sucesso' && <>
+          <HubEscalasOperacoes
+            operacoes={operacoesDashboard}
+            competenciaFormatada={formatarCompetencia(competenciaDashboard)}
+            pessoasPorOperacao={pessoasOperacaoHub}
+            alertasPorOperacao={alertasOperacaoHub}
+            onAbrir={abrirOperacaoDoHub}
+          />
           {avisoContextoEscala !== '' && <div className="alert warning" role="status">{avisoContextoEscala}</div>}
           {erroContextoEscala !== '' && (
             <div className="alert error" role="alert">
@@ -9325,11 +9951,22 @@ export function DashboardApp() {
               <div className="publication-history-list">
                 <div className="publication-history-entry">
                   <div className="publication-history-item">
-                    <span className="revision-dot publicacao" />
+                    <span className={`revision-dot ${resumoPlantaoDashboard.competenciaPublicada.status === 'CANCELADA' ? 'cancelada' : 'publicacao'}`} />
                     <div>
-                      <strong>Revisão {resumoPlantaoDashboard.competenciaPublicada.revisao}</strong>
+                      <strong>
+                        Revisão {resumoPlantaoDashboard.competenciaPublicada.revisao}
+                        {resumoPlantaoDashboard.competenciaPublicada.status === 'CANCELADA' && (
+                          <span className="status-badge warning" style={{ marginLeft: 8 }}>Cancelada</span>
+                        )}
+                      </strong>
                       <span>Publicada por {resumoPlantaoDashboard.competenciaPublicada.criadoPorLogin}</span>
                       <small>{participantesPlantaoDashboard} participante(s) ativo(s)</small>
+                      {resumoPlantaoDashboard.competenciaPublicada.status === 'CANCELADA' && (
+                        <small>
+                          Cancelada por {resumoPlantaoDashboard.competenciaPublicada.canceladaPorLogin} —{' '}
+                          {resumoPlantaoDashboard.competenciaPublicada.motivoCancelamento}
+                        </small>
+                      )}
                     </div>
                     <time dateTime={resumoPlantaoDashboard.competenciaPublicada.atualizadoEm}>
                       {new Intl.DateTimeFormat('pt-BR', {
@@ -9339,6 +9976,26 @@ export function DashboardApp() {
                     </time>
                   </div>
                 </div>
+                {resumoPlantaoDashboard.competenciaPublicada.status === 'PUBLICADA'
+                  && grupoPlantaoDashboard !== null
+                  && usuarioReal !== null
+                  && podeGerenciarGrupoPlantao(usuarioReal, grupoPlantaoDashboard) && (
+                  <div className="wizard-actions">
+                    <button
+                      className="secondary-button danger-button"
+                      type="button"
+                      onClick={() => {
+                        setErroCancelamentoPublicacaoPlantao('');
+                        setPublicacaoPlantaoParaCancelar({
+                          grupo: grupoPlantaoDashboard,
+                          competencia: resumoPlantaoDashboard.competenciaPublicada as CompetenciaPlantao,
+                        });
+                      }}
+                    >
+                      Cancelar publicação
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </article>
@@ -9705,6 +10362,17 @@ export function DashboardApp() {
                         <Pencil size={15} />
                       </button>
                     )}
+                    {gerencio && (
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title="Excluir grupo (corrige um duplicado criado por engano)"
+                        aria-label={`Excluir grupo ${grupo.nome}`}
+                        onClick={() => { setErroExclusaoGrupoPlantao(''); setGrupoPlantaoParaExcluir(grupo); }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="import-summary plantao-resumo-grid">
@@ -9907,6 +10575,15 @@ export function DashboardApp() {
                 <p>Você está como <strong>GESTOR_UNIDADE</strong> — acesso restrito às unidades e equipes permitidas.</p>
               )}
             </div>
+            {souAdmin && (
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => { setErroAtribuicaoCoordenador(''); setModalAtribuirCoordenador(true); }}
+              >
+                Atribuir coordenador de unidade
+              </button>
+            )}
           </header>
           {/* Fase ESCALAS-UX-2A — § 11 do redesign: "Organização" (conteúdo abaixo, inalterado) e "Grupos de Plantão" (antiga tela "Plantões") como abas da mesma área, nunca uma segunda sidebar. */}
           <AdministracaoSubnav
@@ -10306,9 +10983,9 @@ export function DashboardApp() {
                 <button className="secondary-button" type="button" onClick={() => void exportarEscalaXlsx()}>Exportar XLSX</button>
                 <button className="secondary-button" type="button" onClick={() => void imprimirEscala()}>Imprimir · Salvar PDF</button>
               </div>
-              {!podeExcluirCompetencia(competenciaExportar, COMPETENCIA_ATUAL) ? (
+              {!podeExcluirCompetencia(competenciaExportar, competenciaOperacionalHoje) ? (
                 <p className="admin-form-preview admin-form-full">
-                  A competência atual (<strong>{COMPETENCIA_ATUAL}</strong>) não pode ser excluída por aqui.
+                  A competência atual (<strong>{competenciaOperacionalHoje}</strong>) não pode ser excluída por aqui.
                 </p>
               ) : (
                 <button
@@ -10420,6 +11097,17 @@ export function DashboardApp() {
         />
       )}
 
+      {modalAtribuirCoordenador && (
+        <AtribuirCoordenadorModal
+          usuarios={todosUsuariosAdmin.length > 0 ? todosUsuariosAdmin : usuarios}
+          unidades={unidadesAdmin}
+          erro={erroAtribuicaoCoordenador || undefined}
+          processando={processandoAtribuicaoCoordenador}
+          onFechar={() => setModalAtribuirCoordenador(false)}
+          onSalvar={(usuario) => void salvarAtribuicaoCoordenador(usuario)}
+        />
+      )}
+
       {wizardInicio !== null && (
         <ScheduleStartWizard
           modo={wizardInicio}
@@ -10468,6 +11156,45 @@ export function DashboardApp() {
           erroEquipes={erroEquipesPlantao || null}
           onFechar={() => setModalGrupoPlantao(null)}
           onSalvar={salvarGrupoPlantaoDoModal}
+        />
+      )}
+
+      {grupoPlantaoParaExcluir && (
+        <ModalConfirmarComTexto
+          titulo={`Excluir ${grupoPlantaoParaExcluir.nome}`}
+          mensagem={(
+            <>
+              <p>
+                Remove permanentemente o grupo <strong>{grupoPlantaoParaExcluir.nome}</strong> (
+                <code>{grupoPlantaoParaExcluir.grupoId}</code>) e{' '}
+                {(participantesPorGrupoPlantao[grupoPlantaoParaExcluir.grupoId] ?? []).length} participante(s)
+                cadastrado(s) nele. Use para corrigir um grupo criado por engano (ex.: duplicado numa
+                reimportação).
+              </p>
+              <p>
+                Esta ação é irreversível. Se este Plantão já tiver competência publicada ou cancelada, a
+                exclusão será recusada — desative o grupo em vez disso. Para corrigir uma publicação
+                errada, cancele a publicação (painel &ldquo;Revisão publicada&rdquo;) antes de desativar o grupo.
+              </p>
+              {erroExclusaoGrupoPlantao && <div className="alert error" role="alert">{erroExclusaoGrupoPlantao}</div>}
+            </>
+          )}
+          fraseEsperada={grupoPlantaoParaExcluir.grupoId}
+          rotuloBotaoConfirmar={excluindoGrupoPlantao ? 'Excluindo…' : 'Excluir grupo'}
+          processando={excluindoGrupoPlantao}
+          onFechar={() => setGrupoPlantaoParaExcluir(null)}
+          onConfirmar={() => void confirmarExclusaoGrupoPlantao()}
+        />
+      )}
+
+      {publicacaoPlantaoParaCancelar && (
+        <CancelarPublicacaoPlantaoModal
+          grupo={publicacaoPlantaoParaCancelar.grupo}
+          competencia={publicacaoPlantaoParaCancelar.competencia}
+          erro={erroCancelamentoPublicacaoPlantao || undefined}
+          processando={cancelandoPublicacaoPlantao}
+          onFechar={() => setPublicacaoPlantaoParaCancelar(null)}
+          onConfirmar={(motivo) => void confirmarCancelamentoPublicacaoPlantao(motivo)}
         />
       )}
 
@@ -11157,6 +11884,13 @@ export function DashboardApp() {
                             </option>
                           ))}
                         </select>
+                        {(formularioUsuario.tipoAcesso === 'SUPERVISOR_EQUIPE'
+                          || formularioUsuario.tipoAcesso === 'GESTOR_EQUIPE') && (
+                          <small className="empty-inline">
+                            Alcance restrito: administra somente a equipe escolhida acima — nenhuma outra
+                            equipe da unidade é afetada.
+                          </small>
+                        )}
                       </label>
                     )}
                     {souAdmin && formularioUsuario.tipoAcesso === 'GESTOR_UNIDADE' && (
@@ -11173,6 +11907,10 @@ export function DashboardApp() {
                             </option>
                           ))}
                         </select>
+                        <div className="alert warning" role="status">
+                          <strong>Alcance amplo:</strong> administra TODAS as equipes desta unidade — inclusive
+                          equipes criadas depois, sem precisar de nenhuma nova permissão.
+                        </div>
                       </label>
                     )}
                     {souAdmin && formularioUsuario.tipoAcesso === 'ADMIN_SISTEMA' && (

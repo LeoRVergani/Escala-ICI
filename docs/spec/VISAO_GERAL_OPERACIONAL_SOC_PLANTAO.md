@@ -1,9 +1,28 @@
 # Spec — Visão geral operacional SOC + Plantão
 
-**Status:** implementada e validada em runtime  
-**Data:** agosto de 2026  
+**Status:** implementada e validada em runtime — revisada em DASH-SIMPLES-1A<br>
+**Data:** agosto de 2026 (revisão: 26/08/2026)<br>
 **Produto:** Escala ICI  
 **Escopo:** dashboard do coordenador, sem alteração de schema, regras Firebase ou persistência
+
+> **Revisão DASH-SIMPLES-1A (26/08/2026):** decisão de produto aprovada após o
+> diagnóstico de simplificação estrutural do Dashboard. Duas mudanças sobre a
+> versão original deste documento:
+> 1. O cluster de contexto (seletor SOC/Plantão + competência + status) **saiu
+>    do header quando `tela === 'visao'`** — ver § 10. Ele nunca filtrou dados
+>    da Visão geral (`resolverOperacoesDashboard()` já é independente do
+>    contexto ativo, por causa do hotfix `984504e`/HOTFIX-PLANTAO-PUBLICADO-
+>    APP-E-VISAO-GERAL-1), então mantê-lo ali era só carga cognitiva
+>    redundante. Continua existindo, inalterado, dentro do workspace Escalas.
+> 2. "Saúde das escalas" (§ 6, barra artificial em %), "Colaboradores"/"Dias
+>    no período" e o card "Alertas por operação" (§ 8) foram removidos por
+>    duplicarem informação já visível nos dois cards principais (status,
+>    alertas, competência). Um único painel **Pendências** (ver § 8 revisado)
+>    substitui "Alertas por operação" + "Trocas pendentes". "Publicação da
+>    escala" (§ 7) foi mantida — é a única visão lado a lado das duas
+>    operações e está coberta por testes de regressão que impedem a
+>    divergência de status já corrigida uma vez (FASE-PLANTAO-POS-
+>    PUBLICACAO-APP-VISUALIZACAO-1).
 
 ## 1. Objetivo
 
@@ -17,10 +36,11 @@ A composição aprovada mantém a linguagem visual do Escala ICI: sidebar azul-m
 
 A página segue a ordem abaixo, sem lacunas ou cards flutuantes:
 
-1. Cabeçalho da página, com o eyebrow **Operação integrada**, título **Visão geral**, subtítulo e ações **Nova escala** e **Importar escala**.
+1. Cabeçalho da página, com o eyebrow **Operação integrada**, título **Visão geral**, subtítulo e ações **Nova escala** e **Importar escala**. Nenhum seletor de contexto no header nesta tela (ver § 10).
 2. Dois cards principais lado a lado: **SOC** e **Plantão**.
-3. Faixa de resumo com **Colaboradores**, **Dias no período**, **Saúde das escalas** e **Pendências**.
-4. Três cards inferiores alinhados: **Publicação da escala**, **Alertas por operação** e **Trocas pendentes**.
+3. Dois cards inferiores alinhados: **Publicação da escala** e **Pendências** (alertas de cada operação + trocas aguardando aprovação, em linguagem humana).
+
+*(Histórico: a versão original desta spec tinha uma faixa "Colaboradores/Dias no período/Saúde das escalas/Pendências" e três cards inferiores — "Publicação da escala", "Alertas por operação", "Trocas pendentes". Removida em DASH-SIMPLES-1A por redundância; ver §§ 6, 8, 9 abaixo.)*
 
 Em desktop, os cards principais usam duas colunas iguais e os cards inferiores usam a grade de 12 colunas existente. Em telas menores, os cards principais empilham e os cards inferiores passam para uma coluna ou duas colunas conforme o breakpoint. Não permitir overflow horizontal causado pelo dashboard.
 
@@ -74,17 +94,9 @@ O card mostra:
 
 O card não inventa uma escala vazia. Se apenas o grupo existe, o status é **Sem escala**, a quantidade de alertas é zero e o texto informa que nenhuma escala foi criada.
 
-## 6. Faixa Saúde das escalas
+## 6. Faixa Saúde das escalas — REMOVIDA em DASH-SIMPLES-1A
 
-O card **Saúde das escalas** substitui o antigo card de horas planejadas na Visão geral. Ele compara SOC e Plantão em duas linhas, cada uma com status, barra visual e percentual de saúde de apresentação.
-
-A porcentagem não é persistida e não representa uma nova regra de negócio. Ela é uma escala visual calculada para priorização:
-
-- SOC parte de 100 e reduz por blocos de alertas, com limite inferior visual.
-- Plantão parte de 100 e reduz por blocos de erros, avisos e pendências de vínculo; sem escala, mostra um nível visual baixo e status **Sem escala**.
-- O texto inferior mostra o total de pendências operacionais, somando alertas SOC, pendências Plantão e trocas pendentes.
-
-A cor deve comunicar estado sem depender exclusivamente dela: âmbar indica revisão necessária, verde indica estável, cinza indica sem escala. O texto do status é obrigatório para acessibilidade e compreensão.
+*Seção histórica.* O card **Saúde das escalas** (barra percentual de apresentação, `healthBarSoc`/`healthBarPlantao`/`rotuloSaudeDashboard`) e a faixa "Colaboradores"/"Dias no período" foram removidos. Cada operação já mostra status (estável/revisão necessária/sem escala) e contagem de alertas no próprio card principal (§ 4/§ 5) — a barra e a faixa duplicavam essa mesma informação sem agregar nada operacional. Nenhum dado foi persistido por essas seções; a remoção não tem impacto de schema/Rules.
 
 ## 7. Card Publicação da escala
 
@@ -97,31 +109,25 @@ O card compara a disponibilidade de SOC e Plantão:
 
 Não declarar Plantão como publicado nesta fase, pois o domínio atual mantém a publicação de Plantão separada do estado Jornada.
 
-## 8. Card Alertas por operação
+## 8. Card Pendências (substitui "Alertas por operação" + "Trocas pendentes" em DASH-SIMPLES-1A)
 
-O card mostra duas linhas comparáveis:
+Um único painel `overview-pendencias-card`, em linguagem humana, com uma linha por pendência real:
 
-- SOC: contagem de `alertasVisiveis` e rótulo Jornada 6x1.
-- Plantão: contagem de erros/avisos/pendências do contexto Plantão e métrica auxiliar de participantes quando não há rascunho.
+- SOC: "N alerta(s) requer(em) atenção" (ou "Nenhum alerta pendente"), usando `alertasJornadaDashboard`. Abre o detalhe do alerta existente (`alertasVisiveis[0]`) quando houver um selecionável.
+- Plantão (só quando `possuiOperacaoPlantaoDashboard`): mesmo padrão, usando `plantaoAlertasDashboard`. Abre a operação Plantão.
+- Trocas: "N troca(s) aguardando aprovação" (ou "Nenhuma troca aguardando aprovação"), usando `trocasPendentesGestor.length`. Abre a tela `trocas` via `abrirTrocasDoDashboard`.
 
-Cada linha abre a operação correspondente. O botão **Ver alertas do SOC** abre o detalhe de alerta existente quando houver um alerta selecionável; quando não houver, não deve criar dados artificiais.
+Quando há trocas pendentes, até duas aparecem como prévia abaixo das linhas (mesmo comportamento de antes: cada prévia abre a tela de trocas e seleciona o `trocaId` correspondente). Quando não há nenhuma pendência (nenhum alerta em nenhuma operação e nenhuma troca), o painel mostra "Nenhuma pendência operacional no momento." em vez de três linhas todas "zeradas".
 
-## 9. Card Trocas pendentes
+Nenhuma linha cria dado artificial: cada contagem vem diretamente dos mesmos estados já usados pelos cards principais (§ 4/§ 5), nunca uma segunda fórmula.
 
-O card é uma ação direta para o coordenador. O resumo usa `trocasPendentesGestor.length`. O botão principal **Gerenciar trocas** chama `abrirTrocasDoDashboard`, abre a tela `trocas` e seleciona a primeira troca pendente quando houver.
+## 10. Contexto superior e competência — REMOVIDO da Visão geral em DASH-SIMPLES-1A
 
-Até duas trocas podem aparecer como prévia. Cada prévia mantém o comportamento existente: abre a tela de trocas e seleciona o `trocaId` correspondente. Quando não há trocas, o card mostra zero e uma mensagem neutra, mas continua acionável para a tela de histórico.
+A Visão geral **não exibe mais** o cluster de contexto no header (seletor SOC/Plantão, seletor de competência, badge de status). Motivo: `resolverOperacoesDashboard()` já monta a lista de operações e seus status de forma totalmente independente do `contextoEscalaAtivo` — o contexto só marcava qual operação estava "ativa" (destaque visual), nunca filtrava dado nenhum. Como a Visão geral já mostra as duas operações lado a lado o tempo todo, esse destaque não tinha função — só ocupava espaço e sugeria (incorretamente) que havia uma operação "selecionada" cujo estado era diferente das outras.
 
-## 10. Contexto superior e competência
+O cluster continua existindo, inalterado, em qualquer outra tela (`tela !== 'visao'`) — é lá que "qual escala estou trabalhando agora" tem significado real (dentro do workspace Escalas).
 
-A Visão geral mantém o cluster superior já aprovado:
-
-- seletor de contexto com Jornada SOC e Plantão;
-- seletor de competência;
-- status de rascunho/publicação/sem escala;
-- ações globais existentes.
-
-Os cards não alteram diretamente o texto do cabeçalho. Eles passam pelo mesmo `solicitarTrocaContexto`/`solicitarTrocaCompetencia` que protege alterações não salvas. O resultado esperado é:
+Os cards da Visão geral não dependem desse cluster: eles navegam diretamente via `abrirOperacaoDoDashboard(tipo)`, que internamente ainda usa `solicitarTrocaContexto`/`solicitarTrocaCompetencia` (protegendo alterações não salvas) ao entrar em Escalas — só que agora esse cluster só fica visível depois da navegação, não antes, na própria Visão geral. O resultado esperado é:
 
 | Clique | Contexto após a ação | Destino |
 |---|---|---|
@@ -143,7 +149,7 @@ Esta mudança não altera as seguintes decisões previamente aprovadas:
 | Modal D com Noturno/5h/24h e exceção manual | `PLANTAO_MODAL_D.md` |
 | Botão compacto de retorno `Escalas` | `NAVEGACAO_RETORNO_ESCALAS.md` |
 | Revisão Jornada 6x1 com roster e calendário central, sem detalhe lateral | `REVISAO_JORNADA_6X1_LAYOUT_CALENDARIO.md` |
-| Contexto SOC/Plantão no topo | `REDESIGN_WORKSPACE_ESCALAS.md` e `ScheduleContextSwitcher.tsx` |
+| Contexto SOC/Plantão no topo (fora da Visão geral — ver § 10) | `REDESIGN_WORKSPACE_ESCALAS.md` e `ScheduleContextSwitcher.tsx` |
 
 Não remover ou reverter qualquer uma dessas implementações ao alterar a Visão geral.
 
@@ -166,8 +172,8 @@ A implementação é aceita quando:
 3. Nova escala aparece ao lado de Importar escala e abre o wizard existente.
 4. O card Plantão troca o contexto superior para Plantão e a competência correspondente.
 5. O card SOC faz o mesmo para SOC.
-6. O card Trocas abre a tela de trocas e seleciona a primeira pendência quando existe.
-7. Saúde das escalas substitui Horas planejadas sem cards quebrados.
+6. A linha Trocas do painel Pendências abre a tela de trocas e seleciona a primeira pendência quando existe.
+7. O header da Visão geral não mostra seletor de contexto/competência/status (§ 10); as demais telas continuam mostrando, inalteradas.
 8. Não há overflow horizontal no desktop validado.
 9. As telas antigas e seus padrões visuais continuam intactos.
 10. Typecheck, testes, lint, build e validação de artefato passam.

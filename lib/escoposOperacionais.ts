@@ -120,16 +120,40 @@ export function resolverEscoposOperacionais(
   /**
    * STAGING-RESET-HIERARQUIA-ICI-1 — diferente de `permitirFallbackLegado`
    * (que só preenche alvos SEM entrada na Matriz), esta liberação vale
-   * MESMO quando a Matriz já cobre o alvo mas não lista este usuário —
-   * espelha `souCoordenadorOperacionalStaging()` de `firestore.rules`, que
-   * também não é bloqueado por uma Matriz existente. Nunca reaproveita nem
-   * altera a semântica de `permitirFallbackLegado` (fixada por
-   * `tests/dashboard-contexto-escala-boundaries.test.mjs`).
+   * MESMO quando a Matriz já cobre o alvo mas não o lista — espelha
+   * `souCoordenadorOperacionalStaging()` de `firestore.rules`.
+   *
+   * HOTFIX-STAGING-FALLBACK-MATRIZ-1 — "não bloqueado por uma Matriz
+   * existente" valia até esta fase mesmo para Matriz INATIVA (uma decisão
+   * operacional explícita de "este alvo está desabilitado" — ex.:
+   * `escoposOperacionais/PLANTAO_NOC`, tombstone de um Grupo legado
+   * desativado, `docs/spec/PLANTAO_CODB.md`). Corrigido: uma Matriz
+   * existente passou a sempre vencer o fallback de staging.
+   *
+   * HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — essa correção absoluta quebrou o
+   * mecanismo deliberado de bootstrap de staging: logo após um reset, toda
+   * Matriz criada pelo seed estrutural (`scripts/staging/hierarquia-ici.mjs`,
+   * `MATRIZ_INICIAL`) já existe (ativa) mas só lista o login técnico
+   * `admin` — nenhum humano ainda. Bloquear o fallback para essa Matriz
+   * também trancaria todo coordenador legítimo até alguém cadastrar
+   * manualmente o responsável real (ver `describe('ADENDO...')` em
+   * `lib/escoposOperacionais.test.ts`). Corrigido de novo, com precisão:
+   * `matriz.fallbackStagingPermitidoParaAlvo(...)` (`estadoMatrizOperacional()`
+   * em `lib/escoposOperacionaisMatriz.ts`) distingue Matriz AUSENTE/BOOTSTRAP
+   * (fallback ajuda) de Matriz CONFIGURADA/INATIVA (Matriz decide sozinha,
+   * ou fecha o alvo) — aplicado na FORMAÇÃO do conjunto, não como filtro de
+   * deduplicação depois. Nunca reaproveita nem altera a semântica de
+   * `permitirFallbackLegado` (fixada por
+   * `tests/dashboard-contexto-escala-boundaries.test.mjs`), que continua
+   * gateada só por `alvoTemMatriz` (bloqueia em qualquer Matriz existente,
+   * bootstrap incluso — comportamento já correto, não mexido nesta fase).
    */
   const permitirAmploStaging = opcoes.permitirAmploStaging === true && ehPerfilElegivelParaAmploStaging(usuarioEfetivo);
   const candidatosJornadaAmplos = equipesAdministraveis.filter((equipe) => !idsEquipeResponsavelPlantao.has(equipe.id));
   const jornadasFallback = permitirFallbackLegado ? candidatosJornadaAmplos : [];
-  const jornadasAmploStaging = permitirAmploStaging ? candidatosJornadaAmplos : [];
+  const jornadasAmploStaging = permitirAmploStaging
+    ? candidatosJornadaAmplos.filter((equipe) => matriz.fallbackStagingPermitidoParaAlvo('JORNADA', equipe.id))
+    : [];
   const jornadasAdministraveis = [
     ...matriz.jornadasAdministraveis,
     ...jornadasFallback.filter((equipe) => !matriz.alvoTemMatriz('JORNADA', equipe.id)),
@@ -140,7 +164,10 @@ export function resolverEscoposOperacionais(
     ? gruposPlantao.filter((grupo) => grupo.ativo && podeGerenciarGrupoPlantao(usuarioEfetivo, grupo))
     : [];
   const gruposPlantaoAmploStaging = permitirAmploStaging
-    ? gruposPlantao.filter((grupo) => grupo.ativo && escopoDoGrupoPlantaoNoMeuAlcance(usuarioEfetivo, grupo))
+    ? gruposPlantao.filter((grupo) =>
+      grupo.ativo
+      && matriz.fallbackStagingPermitidoParaAlvo('PLANTAO', grupo.grupoId)
+      && escopoDoGrupoPlantaoNoMeuAlcance(usuarioEfetivo, grupo))
     : [];
   const gruposPlantaoAdministraveis = [
     ...matriz.plantoesAdministraveis,

@@ -99,6 +99,42 @@ describe('editarAtribuicaoEditavel', () => {
     });
     expect(BASE).toEqual(antes);
   });
+
+  /** §7/§33 FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 — TESTE EDIÇÃO: trocar o posto move a atribuição de aba, nunca altera o cadastro. */
+  it('7b. TESTE EDIÇÃO — passar funcao troca o posto da atribuição, sem afetar mais nada', () => {
+    const comFuncao = editarAtribuicaoEditavel(BASE, 'importado-1', {
+      plantonistaNomeOriginal: 'Bruno Lima',
+      inicio: { data: '2026-07-26', hora: '19:00' },
+      fim: { data: '2026-07-27', hora: '07:00' },
+      funcao: 'DBA',
+    });
+    expect(comFuncao.find((a) => a.idLocal === 'importado-1')?.funcao).toBe('DBA');
+
+    const editadaParaLinux = editarAtribuicaoEditavel(comFuncao, 'importado-1', {
+      plantonistaNomeOriginal: 'Bruno Lima',
+      inicio: { data: '2026-07-26', hora: '19:00' },
+      fim: { data: '2026-07-27', hora: '07:00' },
+      funcao: 'LINUX',
+    });
+    expect(editadaParaLinux.find((a) => a.idLocal === 'importado-1')?.funcao).toBe('LINUX');
+    // Nada além de funcao mudou; nenhuma outra atribuição foi afetada.
+    expect(editadaParaLinux.find((a) => a.idLocal === 'importado-0')).toEqual(BASE[0]);
+  });
+
+  it('7c. editar SEM passar funcao nunca apaga um funcao já existente (edição de horário não deve limpar o posto)', () => {
+    const comFuncao = editarAtribuicaoEditavel(BASE, 'importado-1', {
+      plantonistaNomeOriginal: 'Bruno Lima',
+      inicio: { data: '2026-07-26', hora: '19:00' },
+      fim: { data: '2026-07-27', hora: '07:00' },
+      funcao: 'DBA',
+    });
+    const editadaSemTocarFuncao = editarAtribuicaoEditavel(comFuncao, 'importado-1', {
+      plantonistaNomeOriginal: 'Bruno Lima',
+      inicio: { data: '2026-07-26', hora: '20:00' },
+      fim: { data: '2026-07-27', hora: '08:00' },
+    });
+    expect(editadaSemTocarFuncao.find((a) => a.idLocal === 'importado-1')?.funcao).toBe('DBA');
+  });
 });
 
 describe('adicionarAtribuicaoEditavel', () => {
@@ -128,6 +164,32 @@ describe('adicionarAtribuicaoEditavel', () => {
     const nova = comNova[comNova.length - 1]!;
     expect(nova.idLocal.startsWith('manual-')).toBe(true);
     expect(base.some((a) => a.idLocal === nova.idLocal)).toBe(false);
+  });
+
+  /** §32 FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 — TESTE CRIAÇÃO NA ABA: funcao persiste na working copy. */
+  it('9b. TESTE CRIAÇÃO NA ABA — funcao passada persiste na atribuição criada', () => {
+    const base = criarAtribuicoesEditaveis(ATRIBUICOES_ORIGINAIS);
+    const comNova = adicionarAtribuicaoEditavel(base, {
+      plantonistaNomeOriginal: 'Daniela Rocha',
+      inicio: { data: '2026-08-02', hora: '19:00' },
+      fim: { data: '2026-08-03', hora: '07:00' },
+      abaOrigem: 'PlantaoCOSI',
+      funcao: 'LINUX',
+    });
+    const nova = comNova[comNova.length - 1]!;
+    expect(nova.funcao).toBe('LINUX');
+  });
+
+  it('9c. criar a partir de "Todos" (sem funcao) nunca inventa um posto', () => {
+    const base = criarAtribuicoesEditaveis(ATRIBUICOES_ORIGINAIS);
+    const comNova = adicionarAtribuicaoEditavel(base, {
+      plantonistaNomeOriginal: 'Daniela Rocha',
+      inicio: { data: '2026-08-02', hora: '19:00' },
+      fim: { data: '2026-08-03', hora: '07:00' },
+      abaOrigem: 'PlantaoCOSI',
+    });
+    const nova = comNova[comNova.length - 1]!;
+    expect(nova.funcao).toBeUndefined();
   });
 });
 
@@ -206,6 +268,20 @@ describe('validarAtribuicaoEditavel', () => {
 
   it('18. caso válido comum não gera nenhum erro', () => {
     expect(validarAtribuicaoEditavel(VALIDA)).toEqual([]);
+  });
+
+  /** §31 FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 — TESTE ATRIBUIÇÃO SEM FUNÇÃO em Grupo multiposto. */
+  it('18b. Grupo multiposto (funcoesEsperadas não vazio) bloqueia sem funcao', () => {
+    expect(validarAtribuicaoEditavel(VALIDA, ['DBA', 'LINUX']).length).toBeGreaterThan(0);
+  });
+
+  it('18c. Grupo multiposto aceita quando funcao está presente', () => {
+    expect(validarAtribuicaoEditavel({ ...VALIDA, funcao: 'DBA' }, ['DBA', 'LINUX'])).toEqual([]);
+  });
+
+  it('18d. Grupo de posto único (funcoesEsperadas ausente) nunca exige funcao — retrocompatibilidade', () => {
+    expect(validarAtribuicaoEditavel(VALIDA)).toEqual([]);
+    expect(validarAtribuicaoEditavel(VALIDA, [])).toEqual([]);
   });
 });
 

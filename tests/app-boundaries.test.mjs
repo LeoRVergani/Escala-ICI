@@ -238,7 +238,10 @@ test('a fase 3K-D2A unifica as cores por período em um único token, sem produt
 
   // Os cards de jornada herdam a cor do período via data-code.
   assert.match(app, /className="today-hero"[\s\S]*data-code=\{turnoDestaque\?\.codigo/);
-  assert.match(app, /className="panel next-shift-card" data-code=\{turno\?\.codigo/);
+  // FASE-APP-REDESIGN-HOJE-1 — `ProximoTurno` (card único) virou
+  // `ProximosDias` (lista); cada item continua herdando a cor do período
+  // pelo mesmo token via data-code, agora no ícone de cada linha.
+  assert.match(app, /className="proximos-dias-icone" data-code=\{turno\.codigo\}/);
 });
 
 test('a fase 3J-B mantém rascunho, publicação e rollback fora do App', async () => {
@@ -352,7 +355,11 @@ test('a fase 3K-D1 estabiliza a sessão do App e a atualização interna', async
   assert.match(sessao, /podeIniciarListeners/);
   assert.match(app, /podeIniciarListeners\(\{/);
   assert.match(app, /dadosIniciaisCarregados: dadosCarregados/);
-  assert.match(app, /\[competenciaAtiva, equipeUsuario, listenersLiberados, loginUsuario\]/);
+  // FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — a assinatura em tempo real
+  // passou a acompanhar uma janela de competências (`janelaCompetenciasApp`,
+  // não só a `competenciaAtiva`), para o período anterior nunca desaparecer
+  // quando a competência seguinte é publicada.
+  assert.match(app, /\[competenciaAtiva, equipeUsuario, janelaCompetenciasApp, listenersLiberados, loginUsuario\]/);
   assert.match(app, /Revisão \$\{maisRecente\.revisao\}/);
   assert.match(app, /toast-action/);
   assert.match(estilos, /Fase 3K-D1 — restauração de sessão e atualização interna/);

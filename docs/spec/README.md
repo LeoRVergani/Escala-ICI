@@ -17,6 +17,10 @@ Esta pasta concentra a fonte normativa atual do projeto. Checkpoints e arquivos 
 12. `NAVEGACAO_RETORNO_ESCALAS.md` — padrão de retorno visual para Escalas.
 13. `UI_CASCADE_E_HERANCA.md` — regra permanente para alterações de CSS/layout.
 14. `APP_PLANTAO_VISUALIZACAO.md` — visão "Plantão" no App/PWA do colaborador (quem está de plantão agora/próximo, meus plantões, contatos do plantonista).
+15. `INFORMACOES_ESCALA.md` — informações operacionais dia/pessoa-dia (Feriado, Treinamento, DU, Férias...), separadas de `TurnosMes` e reaproveitando 100% da Matriz para autorização. Parte B1 (domínio/Rules/repository) concluída; Dashboard/App/importação ainda pendentes.
+16. `PLANTAO_CODB.md` — Plantão CODB é UM GrupoPlantao multi-função (postos DBA/Linux/Telecom/Windows na mesma atribuição, via `FuncaoPlantao`), com anchor técnico `GEDSI_CODB_PLANTAO` — nunca quatro Equipes/Grupos/Matrizes/publicações. Separa definitivamente a responsabilidade do Coordenador CODB (Plantão CODB) da Supervisora NOC (Jornada NOC): hierarquia nunca concede escala. Parser/domínio/Rules concluídos; provisionamento em staging, Hub, Editor, importação real e App ainda pendentes.
+17. `IMPORTADOR_UNIVERSAL_ESCALAS.md` — modelo canônico neutro (`RegistroEscalaCanonico`) e entrypoint único de análise (`analisarArquivoEscalaPlantao()`) para o domínio Plantão, por trás dos parsers/detectores já existentes (nunca substituídos). Corrigiu a causa raiz real de "4 plantonistas em vez de 17" no Plantão CODB. Jornada 6x1 e o scanner genérico de qualquer estrutura tabular ainda não migrados — dívida documentada na própria spec.
+18. `PLANTAO_MULTIPOSTO.md` — spec genérica (não específica de CODB) do workspace de Plantão multi-função: tabs Todos/postos geradas de `grupo.funcoesEsperadas`, cards de saúde por posto (`CardFuncaoPlantao`), filtro único (`filtrarAtribuicoesPlantaoPorFuncao`), vínculos/conflitos/postos-faltando por posto (`lib/plantaoMultiposto.ts`), e "Nova escala" com posto único ou múltiplos postos. `FuncaoPlantao` continua o enum fechado atual — postos além dele exigem evolução de modelo, fora desta fase.
 
 ## Specs herdadas ainda válidas por domínio
 
@@ -30,6 +34,10 @@ Esta pasta concentra a fonte normativa atual do projeto. Checkpoints e arquivos 
 - `LEMBRETES.md` — módulo de Lembretes, separado de Escalas.
 - `TROCA_ESCALA_PLANO.md` — módulo de Trocas no estado atual.
 - `APP_PLANTAO_VISUALIZACAO.md` — fonte normativa da aba "Plantão" no App/PWA do colaborador e da autoatualização de contatos do plantonista.
+- `INFORMACOES_ESCALA.md` — domínio de informações operacionais dia/pessoa-dia, apartado de `TurnosMes`, sem ACL paralela à Matriz.
+- `PLANTAO_CODB.md` — Plantão CODB como GrupoPlantao multi-função (`FuncaoPlantao`), anchor técnico `GEDSI_CODB_PLANTAO`, e a separação hierarquia×responsabilidade entre Coordenador CODB e Supervisora NOC.
+- `IMPORTADOR_UNIVERSAL_ESCALAS.md` — modelo canônico e entrypoint único de análise do domínio Plantão (fonte única e multi-função), reaproveitando os parsers/detectores existentes.
+- `PLANTAO_MULTIPOSTO.md` — workspace de Plantão multi-função (tabs/cards/filtro/saúde por posto) e Nova escala com posto único ou múltiplos postos.
 
 Nota ESCOPO-OPERACIONAL-MATRIZ-1: a tela **Administração → Responsáveis por
 escala** é a interface normativa para configurar responsáveis. Seed/fixture
@@ -193,6 +201,18 @@ Plantão nunca altera perfil/cargo/equipe principal. Não implementa a visão
 detalhada de Plantão no App nesta fase (a visão detalhada chega na fase
 FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1, abaixo). Ver
 `docs/spec/EDITOR_ESCALAS.md` § 16.
+
+Nota FASE-MATRIZ-DEFINITIVA-E-INFORMACOES-DIA-1: Parte A (diagnóstico do
+`permission-denied` ao publicar Jornada SOC) encontrou o incidente já
+resolvido no ambiente: Rules de staging implantadas idênticas ao
+`firestore.rules` local, Matriz de SOC ativa com `clis` em
+`responsaveisLogin`, `config/ambiente.staging == true`, identidade de
+Claudio íntegra (Auth + `usuarios/clis`), 341/341 testes de Rules
+passando — nenhuma Rule/Matriz/identidade foi alterada por esta fase.
+Parte B1 (domínio, Rules, repository de "Informações da Escala"
+dia/pessoa-dia) concluída — ver `docs/spec/INFORMACOES_ESCALA.md`. B2
+(Dashboard), B3 (App) e B4 (importação assistida) ficam para fases
+seguintes, aguardando aprovação.
 
 Nota PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1: corrigiu dois problemas de
 navegação/apresentação — nenhuma Rule/seed/reset/publicação tocada. (1)

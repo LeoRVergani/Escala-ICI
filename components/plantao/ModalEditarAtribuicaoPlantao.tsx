@@ -1,5 +1,5 @@
-import { calcularDuracaoEntreMomentos, formatarMinutos, type MomentoPlantao } from '@escala-ici/contrato';
-import { CalendarDays, Clock3, Info, Moon, PencilLine, SunMedium, Sunset, Trash2, UserRound, X } from 'lucide-react';
+import { calcularDuracaoEntreMomentos, formatarMinutos, ROTULO_FUNCAO_PLANTAO, type FuncaoPlantao, type MomentoPlantao } from '@escala-ici/contrato';
+import { AlertTriangle, CalendarDays, Clock3, Info, Moon, PencilLine, Radio, SunMedium, Sunset, Trash2, UserRound, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { duracaoPlantaoAtipica, validarAtribuicaoEditavel } from '@/lib/editorPlantao';
@@ -17,6 +17,8 @@ export interface FormularioAtribuicaoPlantao {
   plantonistaNomeOriginal: string;
   inicio: MomentoPlantao;
   fim: MomentoPlantao;
+  /** FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 — posto desta atribuição. Ausente para Grupo de posto único (comportamento de sempre). */
+  funcao?: FuncaoPlantao;
 }
 
 function IconeTom({ tom }: { tom: TomHorarioPlantao }) {
@@ -42,6 +44,7 @@ export function ModalEditarAtribuicaoPlantao({
   modo,
   participantesConhecidos,
   padroesDisponiveis,
+  funcoesDisponiveis,
   onFechar,
   onSalvar,
   onExcluir,
@@ -51,6 +54,13 @@ export function ModalEditarAtribuicaoPlantao({
   modo: 'criar' | 'editar';
   participantesConhecidos: readonly string[];
   padroesDisponiveis?: readonly PadraoHorarioPlantaoModal[];
+  /**
+   * FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 — postos do Grupo em contexto
+   * (`grupo.funcoesEsperadas`). Ausente/vazio = Grupo de posto único: o
+   * campo "Posto" nem aparece (§5/§36 da fase). Nunca acoplado a CODB —
+   * quem chama decide a lista, este componente só a exibe.
+   */
+  funcoesDisponiveis?: readonly FuncaoPlantao[];
   onFechar: () => void;
   onSalvar: (valores: FormularioAtribuicaoPlantao) => void;
   onExcluir?: () => void;
@@ -81,6 +91,7 @@ export function ModalEditarAtribuicaoPlantao({
   const [horaFinal, setHoraFinal] = useState(valoresPresetInicial?.horaFinal ?? valoresIniciais.fim.hora);
   const [padraoSelecionado, setPadraoSelecionado] = useState<string | null>(padraoInicial?.id ?? null);
   const [horarioForaDoPadrao, setHorarioForaDoPadrao] = useState(padraoInicial === null);
+  const [funcao, setFuncao] = useState<FuncaoPlantao | ''>(valoresIniciais.funcao ?? '');
   const [erros, setErros] = useState<string[]>([]);
   useTeclaEsc(onFechar);
 
@@ -90,6 +101,19 @@ export function ModalEditarAtribuicaoPlantao({
   const duracaoValida = duracaoMinutos !== null && duracaoMinutos > 0;
   const atipica = duracaoValida && duracaoPlantaoAtipica(duracaoMinutos);
   const padraoAtual = padroes.find((padrao) => padrao.id === padraoSelecionado) ?? null;
+  const mostrarCampoPosto = funcoesDisponiveis !== undefined && funcoesDisponiveis.length > 0;
+  /**
+   * §8 da fase — confirmação simples (nunca `window.confirm()`, ver
+   * `components/escalas/UnsavedChangesDialog.tsx`): um banner explica a
+   * troca de posto ANTES de salvar, na mesma linguagem de "só nesta
+   * ocorrência" (nunca "mover para equipe X" — não é equipe
+   * organizacional). Só aparece editando uma atribuição que já tinha
+   * posto e o usuário mudou para outro.
+   */
+  const trocandoPosto = modo === 'editar'
+    && valoresIniciais.funcao !== undefined
+    && funcao !== ''
+    && funcao !== valoresIniciais.funcao;
 
   function aplicarPadrao(padrao: PadraoHorarioPlantaoModal) {
     const valores = padraoHorarioParaValores(padrao, dataInicial);
@@ -115,8 +139,13 @@ export function ModalEditarAtribuicaoPlantao({
   }
 
   function aoClicarSalvar() {
-    const valores: FormularioAtribuicaoPlantao = { plantonistaNomeOriginal, inicio, fim };
-    const errosValidacao = validarAtribuicaoEditavel(valores);
+    const valores: FormularioAtribuicaoPlantao = {
+      plantonistaNomeOriginal,
+      inicio,
+      fim,
+      ...(funcao === '' ? {} : { funcao }),
+    };
+    const errosValidacao = validarAtribuicaoEditavel(valores, funcoesDisponiveis ?? []);
     if (errosValidacao.length > 0) {
       setErros(errosValidacao);
       return;
@@ -191,6 +220,20 @@ export function ModalEditarAtribuicaoPlantao({
                 {participantesConhecidos.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
               </select>
             </label>
+            {mostrarCampoPosto && (
+              <label className="plantao-d-field">
+                <span><Radio size={14} /> Posto</span>
+                <select
+                  value={funcao}
+                  onChange={(evento) => setFuncao(evento.target.value as FuncaoPlantao | '')}
+                >
+                  <option value="">Selecione o posto</option>
+                  {funcoesDisponiveis?.map((item) => (
+                    <option key={item} value={item}>{ROTULO_FUNCAO_PLANTAO[item]}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="plantao-d-field">
               <span><CalendarDays size={14} /> Data</span>
               <input type="date" value={dataInicial} onChange={(evento) => alterarDataInicial(evento.target.value)} />
@@ -248,6 +291,12 @@ export function ModalEditarAtribuicaoPlantao({
         </div>
 
         {atipica && <p className="plantao-d-warning">⚠ Duração atípica de {formatarMinutos(duracaoMinutos ?? 0)} — confira antes de salvar.</p>}
+        {trocandoPosto && valoresIniciais.funcao !== undefined && (
+          <p className="plantao-d-warning">
+            <AlertTriangle size={15} /> Alterar o posto desta atribuição de {ROTULO_FUNCAO_PLANTAO[valoresIniciais.funcao]} para {ROTULO_FUNCAO_PLANTAO[funcao]}?
+            A pessoa será movida somente nesta ocorrência — o cadastro dela não muda.
+          </p>
+        )}
         {erros.length > 0 && <p className="admin-form-erro">{erros.join(' ')}</p>}
 
         <div className="rollback-actions plantao-d-modal-actions">

@@ -45,10 +45,13 @@ resumido do projeto, comece por
 - [`spec/REDESIGN_WORKSPACE_ESCALAS.md`](spec/REDESIGN_WORKSPACE_ESCALAS.md)
   — proposta de design/arquitetura de UX (Fase ESCALAS-UX-2): workspace
   único de escala (Jornada 6x1 + Plantão), sidebar simplificada, contexto
-  de escala no header, wireframes e matriz atual→novo. **Documento de
-  design, ainda NÃO implementado** — nenhuma microfase do plano proposto
-  foi iniciada; ver o documento para o plano completo antes de alterar a
-  navegação do Dashboard.
+  de escala no header, wireframes e matriz atual→novo. Várias microfases
+  do plano já foram implementadas (ver a tabela de status no topo do
+  documento) — consulte-o antes de alterar a navegação do Dashboard.
+- [`spec/HUB_ESCALAS.md`](spec/HUB_ESCALAS.md) — Fase DASH-SIMPLES-1B,
+  **implementada**: "Escalas" como HUB único (índice "Minhas
+  escalas"/"Acompanhamento"), normativo. Complementa
+  `REDESIGN_WORKSPACE_ESCALAS.md`.
 
 ## Operação (`docs/operacao/`)
 

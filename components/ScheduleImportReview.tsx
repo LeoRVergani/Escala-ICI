@@ -4,6 +4,7 @@ import {
   adicionarDias,
   formatarData,
   type Dia,
+  type ErroImportacao,
   type ResultadoParse,
   type TipoTurno,
   type TurnosMes,
@@ -24,7 +25,7 @@ import {
   UsersRound,
   X,
 } from 'lucide-react';
-import { useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 
 import {
   chaveIndicadorCelula,
@@ -162,6 +163,22 @@ export function ScheduleImportReview({
    */
   const [linhaErroDestacadaLogin, setLinhaErroDestacadaLogin] = useState<string | null>(null);
   const linhaGradeRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
+  /**
+   * HOTFIX-OPERACIONAL-PLANTAO-IMPORTACAO-HUB-1 — refs por célula
+   * (`usuarioUid_data`, mesma chave de `chaveIndicadorCelula`) para
+   * "Revisar"/"Ajustar" numa pendência rolar horizontalmente até a célula
+   * exata, além da linha — `linhaGradeRefs` sozinho só resolve o eixo
+   * vertical.
+   */
+  const celulaGradeRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [celulaFocoErro, setCelulaFocoErro] = useState<{ chave: string; erro: ErroImportacao } | null>(null);
+  const celulaFocoTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (celulaFocoTimeoutRef.current !== null) {
+      window.clearTimeout(celulaFocoTimeoutRef.current);
+    }
+  }, []);
 
   const documentosPorTurno = useMemo(() => {
     const grupos = new Map<string, TurnosMes[]>();
@@ -197,6 +214,24 @@ export function ScheduleImportReview({
     ]));
   }, [documentos, linhasConciliacao]);
 
+  /**
+   * HOTFIX-OPERACIONAL-PLANTAO-IMPORTACAO-HUB-1 — índice próprio dos erros
+   * de importação por célula (`usuarioUid_data`), separado de
+   * `indiceAlertas`/`chaveIndicadorCelula` (aquele é sobre 6x1/descanso, um
+   * cálculo derivado da grade final; este é sobre o que a FONTE reportou
+   * como inválido, célula a célula).
+   */
+  const errosFontePorCelula = useMemo(() => {
+    const mapa = new Map<string, ErroImportacao>();
+    for (const erro of resultado.erros) {
+      if (erro.login === undefined || erro.data === undefined) continue;
+      const documento = documentos.find((item) => item.login === erro.login);
+      if (!documento) continue;
+      mapa.set(chaveIndicadorCelula(documento.usuarioUid, erro.data), erro);
+    }
+    return mapa;
+  }, [resultado.erros, documentos]);
+
   const pendenciasConciliacaoCount = contarPendenciasConciliacao(linhasConciliacao);
   const pendenciaSelecionada = chavePendenciaSelecionada
     ? linhasConciliacao.find((linha) => linha.nomePlanilha === chavePendenciaSelecionada) ?? null
@@ -213,13 +248,27 @@ export function ScheduleImportReview({
       indiceErro: number | null;
     }> = [];
     resultado.erros.forEach((erro, indiceErro) => {
+      const documento = erro.login ? documentos.find((item) => item.login === erro.login) : undefined;
+      const nomePessoa = documento ? (nomes.get(documento.login) ?? documento.login) : erro.login;
+      const celula = `${erro.coluna}${erro.linha}`;
+      /**
+       * HOTFIX-OPERACIONAL-PLANTAO-IMPORTACAO-HUB-1 — mostrar o erro exato
+       * (pessoa · data · célula · valor encontrado) em vez de só o motivo
+       * genérico. Usa só campos que já existem em `ErroImportacao`, nunca
+       * hardcode de célula/aba.
+       */
+      const detalhePartes = [
+        nomePessoa ? `${nomePessoa}${erro.data ? ` · ${formatarDia(erro.data)}` : ''}` : undefined,
+        celula,
+        erro.valorEncontrado !== '' ? `Valor encontrado: ${erro.valorEncontrado}` : undefined,
+      ].filter((parte): parte is string => Boolean(parte));
       alertas.push({
         tipo: 'error',
         titulo: erro.motivo,
-        detalhe: erro.sugestao ?? (erro.severidade === 'ALERTA'
+        detalhe: detalhePartes.length > 0 ? detalhePartes.join(' · ') : (erro.sugestao ?? (erro.severidade === 'ALERTA'
           ? 'Pode ser uma exceção operacional legítima — confira antes de decidir.'
-          : 'Revise o valor encontrado na fonte antes de continuar.'),
-        referencia: erro.login ?? (erro.data ? formatarDia(erro.data) : `${erro.coluna}${erro.linha}`),
+          : 'Revise o valor encontrado na fonte antes de continuar.')),
+        referencia: nomePessoa ?? (erro.data ? formatarDia(erro.data) : celula),
         nomePlanilha: null,
         indiceErro,
       });
@@ -246,7 +295,7 @@ export function ScheduleImportReview({
       });
     }
     return alertas;
-  }, [linhasConciliacao, resultado.erros, resultado.avisos]);
+  }, [linhasConciliacao, resultado.erros, resultado.avisos, documentos, nomes]);
 
   function atualizarDia(delta: number) {
     const novoIndice = Math.min(datas.length - 1, Math.max(0, indiceDataSelecionada + delta));
@@ -264,7 +313,27 @@ export function ScheduleImportReview({
     }
     const documento = erro?.login ? documentos.find((item) => item.login === erro.login) : undefined;
     setLinhaErroDestacadaLogin(documento ? documento.login : null);
-    if (documento) {
+    if (documento && erro?.data) {
+      /**
+       * HOTFIX-OPERACIONAL-PLANTAO-IMPORTACAO-HUB-1 — rola verticalmente
+       * (linha) E horizontalmente (célula), foca a célula e aplica
+       * highlight temporário — clicar "Revisar"/"Ajustar" precisa chegar
+       * VISUALMENTE na célula exata, não só selecionar a data.
+       */
+      const chaveCelula = chaveIndicadorCelula(documento.usuarioUid, erro.data);
+      linhaGradeRefs.current[documento.usuarioUid]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const celula = celulaGradeRefs.current[chaveCelula];
+      celula?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      celula?.focus({ preventScroll: true });
+      if (celulaFocoTimeoutRef.current !== null) {
+        window.clearTimeout(celulaFocoTimeoutRef.current);
+      }
+      setCelulaFocoErro({ chave: chaveCelula, erro });
+      celulaFocoTimeoutRef.current = window.setTimeout(() => {
+        setCelulaFocoErro(null);
+        celulaFocoTimeoutRef.current = null;
+      }, 6000);
+    } else if (documento) {
       linhaGradeRefs.current[documento.usuarioUid]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } else {
       rolarParaPendencias();
@@ -417,6 +486,18 @@ export function ScheduleImportReview({
               <button type="button" title="Próximo dia" aria-label="Próximo dia" disabled={indiceDataSelecionada === datas.length - 1} onClick={() => atualizarDia(1)}><ChevronRight size={15} /></button>
             </div>
           </div>
+          {celulaFocoErro && (
+            <div className="soc-import-review-erro-foco" role="status">
+              <CircleAlert size={13} />
+              <span>
+                <strong>{celulaFocoErro.erro.login ?? '—'}</strong>
+                {celulaFocoErro.erro.data ? ` · ${formatarDia(celulaFocoErro.erro.data)}` : ''}
+                {` · ${celulaFocoErro.erro.coluna}${celulaFocoErro.erro.linha}`}
+                {` · Valor encontrado: ${celulaFocoErro.erro.valorEncontrado}`}
+              </span>
+              <button type="button" className="icon-button" aria-label="Fechar" onClick={() => setCelulaFocoErro(null)}><X size={13} /></button>
+            </div>
+          )}
           <div className="soc-import-review-table-scroll">
             <table className="soc-import-review-table">
               <thead>
@@ -438,11 +519,38 @@ export function ScheduleImportReview({
                       <th className="soc-import-review-name"><span>{nomeCurto(nome)}</span><strong>{documento.login}</strong></th>
                       {datas.map((data) => {
                         const dia = documento.dias[data];
-                        const indicador = indiceAlertas?.get(chaveIndicadorCelula(documento.usuarioUid, data));
+                        const chaveCelula = chaveIndicadorCelula(documento.usuarioUid, data);
+                        const indicador = indiceAlertas?.get(chaveCelula);
+                        const erroFonte = errosFontePorCelula.get(chaveCelula);
+                        const sequenciaCritica = (indicador?.sequencia ?? 0) >= 7;
+                        const emFoco = celulaFocoErro?.chave === chaveCelula;
+                        const tituloBase = `${documento.login} · ${formatarDataCompleta(data)}`;
+                        const titulo = erroFonte
+                          ? `${tituloBase} · ${erroFonte.coluna}${erroFonte.linha} · Valor encontrado: ${erroFonte.valorEncontrado}`
+                          : sequenciaCritica
+                            ? `${tituloBase} · 7º dia consecutivo de trabalho — regra 6x1 requer revisão.`
+                            : tituloBase;
                         return <td key={data} className={`${data === dataSelecionada ? 'selected' : ''} ${ehFimDeSemana(data) ? 'weekend' : ''}`}>
-                          <button type="button" className={`soc-import-review-cell ${!dia ? 'empty' : ''}`} data-code={dia?.c ?? ''} title={`${documento.login} · ${formatarDataCompleta(data)}`} onClick={() => { setDataSelecionadaEstado(data); onEditar?.(documento, data, dia ?? { c: '' }); }}>
+                          <button
+                            ref={(elemento) => { celulaGradeRefs.current[chaveCelula] = elemento; }}
+                            type="button"
+                            className={[
+                              'soc-import-review-cell',
+                              !dia ? 'empty' : '',
+                              sequenciaCritica ? 'seq-critica' : '',
+                              erroFonte ? 'erro-fonte' : '',
+                              emFoco ? 'em-foco' : '',
+                            ].filter(Boolean).join(' ')}
+                            data-code={dia?.c ?? ''}
+                            title={titulo}
+                            onClick={() => { setDataSelecionadaEstado(data); onEditar?.(documento, data, dia ?? { c: '' }); }}
+                          >
                             <span>{nomeCurto(nome)}</span><i>{dia?.c ?? '—'}</i>
+                            {indicador?.sequencia !== undefined && (
+                              <b className={`soc-import-review-cell-seq ${sequenciaCritica ? 'critica' : ''}`}>{indicador.sequencia}</b>
+                            )}
                             {indicador?.descansoInsuficiente && <AlertTriangle size={10} aria-label="Descanso insuficiente" />}
+                            {erroFonte && <CircleAlert size={10} className="soc-import-review-cell-erro-icon" aria-label="Erro reportado pela fonte" />}
                           </button>
                         </td>;
                       })}
@@ -588,8 +696,17 @@ export function ScheduleImportReview({
             const podeAjustarErro = indiceErroDaLinha !== null;
             const acionavel = linhaRelacionada !== null || podeAjustarErro;
             const Wrapper = acionavel ? 'button' : 'div';
-            const severidadeErro = alerta.indiceErro !== null ? resultado.erros[alerta.indiceErro]?.severidade : undefined;
-            const rotuloAcao = severidadeErro === 'BLOQUEANTE' ? 'Ajustar' : severidadeErro === 'ALERTA' ? 'Revisar' : (alerta.tipo === 'error' ? 'Ajustar' : 'Revisar');
+            const erroDaLinha = alerta.indiceErro !== null ? resultado.erros[alerta.indiceErro] : undefined;
+            const severidadeErro = erroDaLinha?.severidade;
+            /**
+             * HOTFIX-OPERACIONAL-PLANTAO-IMPORTACAO-HUB-1 — quando o erro
+             * tem célula física (login + data), "Ir para o erro" deixa
+             * explícito que o clique leva à célula exata na grade, não só a
+             * uma correção qualquer.
+             */
+            const rotuloAcao = erroDaLinha?.login !== undefined && erroDaLinha.data !== undefined
+              ? 'Ir para o erro'
+              : severidadeErro === 'BLOQUEANTE' ? 'Ajustar' : severidadeErro === 'ALERTA' ? 'Revisar' : (alerta.tipo === 'error' ? 'Ajustar' : 'Revisar');
             return (
               <Wrapper
                 key={`${alerta.referencia}-${indice}`}

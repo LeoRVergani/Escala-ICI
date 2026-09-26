@@ -276,20 +276,73 @@ export function atribuicoesPorDiaCivil(
 /**
  * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — quando uma equipe
  * consulta vários Grupos de Plantão (ex.: NOC vendo COSI+DBA+Linux), qual
- * deles aparece selecionado por padrão ao abrir o App. Prefere um Grupo
- * onde o usuário é participante ATIVO (mais relevante para quem também é
- * plantonista); sem nenhum, cai no primeiro retornado — mesmo
- * comportamento de antes desta fase para quem só tem um Grupo (nunca
- * regride o caso comum). `null` só quando `grupos` está vazio.
+ * deles aparece selecionado por padrão ao abrir o App.
+ *
+ * HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — causa raiz real observada:
+ * dois Grupos distintos com o MESMO `nome` ("Plantão COSI") por causa de
+ * uma migração de IDs organizacionais incompleta (`grupoId` legado
+ * `PLANTAO_COSI` convivendo com o canônico `PLANTAO_GEDSI_COSI` — ver
+ * `scripts/staging/hierarquia-ici.mjs`). Quando o usuário é participante
+ * ATIVO nos dois (arrastado pela migração) mas só UM tem a competência do
+ * mês PUBLICADA, a versão anterior desta função escolhia "o primeiro Grupo
+ * onde participa" sem olhar se aquele Grupo tem publicação — o App então
+ * abria no Grupo errado e mostrava "Nenhuma escala publicada" mesmo com a
+ * escala publicada de verdade no OUTRO Grupo com o mesmo nome.
+ *
+ * Ordem de preferência corrigida (cada critério só decide quando o
+ * anterior não encontra nenhum candidato):
+ * 1. participante ATIVO num Grupo que tem a competência atual PUBLICADA;
+ * 2. qualquer Grupo (mesmo só consultado) com a competência atual
+ *    PUBLICADA;
+ * 3. participante ATIVO em algum Grupo (comportamento desta fase antes do
+ *    hotfix, quando nenhum Grupo tem publicação ainda);
+ * 4. primeiro Grupo retornado (comportamento de antes desta fase inteira,
+ *    para quem só tem um Grupo — nunca regride o caso comum).
+ *
+ * `temPublicacaoAtual` é opcional e retrocompatível: ausente, o
+ * comportamento é idêntico ao de antes deste hotfix (critérios 3/4 só).
+ * `null` só quando `grupos` está vazio.
  */
 export function escolherGrupoPlantaoPadrao(
   grupos: readonly GrupoPlantao[],
   participantesPorGrupo: Readonly<Record<string, readonly ParticipantePlantao[]>>,
   loginUsuario: string,
+  temPublicacaoAtual: Readonly<Record<string, boolean>> = {},
 ): string | null {
-  const comParticipacaoAtiva = grupos.find((grupo) =>
-    (participantesPorGrupo[grupo.grupoId] ?? []).some((participante) => participante.login === loginUsuario && participante.ativo));
-  return comParticipacaoAtiva?.grupoId ?? grupos[0]?.grupoId ?? null;
+  const participaAtivamente = (grupo: GrupoPlantao) =>
+    (participantesPorGrupo[grupo.grupoId] ?? []).some((participante) => participante.login === loginUsuario && participante.ativo);
+  const temPublicacao = (grupo: GrupoPlantao) => temPublicacaoAtual[grupo.grupoId] === true;
+
+  return (
+    grupos.find((grupo) => participaAtivamente(grupo) && temPublicacao(grupo))?.grupoId
+    ?? grupos.find(temPublicacao)?.grupoId
+    ?? grupos.find(participaAtivamente)?.grupoId
+    ?? grupos[0]?.grupoId
+    ?? null
+  );
+}
+
+/**
+ * HOTFIX-PLANTAO-PUBLICADO-APP-E-VISAO-GERAL-1 — dois Grupos DISTINTOS
+ * (`grupoId` diferente) podem ter o MESMO `nome` (ex.: uma migração de IDs
+ * organizacionais incompleta deixou `PLANTAO_COSI` legado e
+ * `PLANTAO_GEDSI_COSI` canônico convivendo, os dois nomeados "Plantão
+ * COSI"). Mostrar dois chips idênticos, sem nenhuma diferenciação, é
+ * exatamente o sinal de dado duplicado que não pode ficar escondido do
+ * usuário — nunca mesclar os dois documentos, só rotulá-los de forma
+ * distinguível. `descricao` (quando presente e distinta) é o rótulo mais
+ * legível; sem ela, cai no `equipeResponsavelId` (técnico, mas nunca
+ * ambíguo) só para os nomes que colidem — Grupos com nome já único
+ * continuam mostrando só `nome`, sem nenhuma mudança visual.
+ */
+export function rotuloDesambiguadoGrupoPlantao(grupo: GrupoPlantao, grupos: readonly GrupoPlantao[]): string {
+  const nomeNormalizado = grupo.nome.trim().toLowerCase();
+  const colide = grupos.some((outro) => outro.grupoId !== grupo.grupoId && outro.nome.trim().toLowerCase() === nomeNormalizado);
+  if (!colide) {
+    return grupo.nome;
+  }
+  const diferenciador = grupo.descricao?.trim() || grupo.equipeResponsavelId;
+  return `${grupo.nome} (${diferenciador})`;
 }
 
 /**
@@ -349,4 +402,48 @@ export function indiceCorPlantonista(
     hash = (hash * 31 + login.charCodeAt(indice)) >>> 0;
   }
   return hash % TAMANHO_PALETA_IDENTIDADE_PLANTAO;
+}
+
+export interface EstatisticasPlantaoApp {
+  /** Soma de `duracaoMinutos` de todos os plantões do usuário, em HORAS (fracionário — ex.: 12.5 = 12h30). */
+  horasTotais: number;
+  /** Quantidade de plantões do usuário nas atribuições recebidas. */
+  totalPlantoes: number;
+  /** Quantos desses plantões caem em final de semana (sábado ou domingo). */
+  finaisDeSemana: number;
+}
+
+/**
+ * FASE-APP-REDESIGN-HOJE-1 — estatísticas do PRÓPRIO usuário no Plantão:
+ * horas totais, quantidade de plantões e quantos caem em final de semana.
+ * `atribuicoes` já deve vir filtrada pela competência de interesse (mesmo
+ * padrão de `proximosPlantoesDoUsuario` — este módulo nunca decide qual
+ * competência é "a atual", isso é responsabilidade de quem carrega os
+ * dados). Classifica cada plantão pelo dia CIVIL de início (mesmo critério
+ * de `atribuicoesPorDiaCivil`) via `Date#getUTCDay()` (0 = domingo, 6 =
+ * sábado, mesma convenção de `NOMES_DIA_SEMANA` em
+ * `modeloPlantaoPersistente.ts`) — um plantão que começa sábado à noite e
+ * termina domingo de manhã conta como UM plantão de final de semana, nunca
+ * dois, porque é um único plantão com um único dia de início.
+ */
+export function estatisticasPlantaoApp(
+  login: string,
+  atribuicoes: readonly AtribuicaoPlantaoPersistida[],
+  timezone: string,
+): EstatisticasPlantaoApp {
+  const doUsuario = atribuicoes.filter((atribuicao) => atribuicao.plantonistaLogin === login);
+  const minutosTotais = doUsuario.reduce((soma, atribuicao) => soma + atribuicao.duracaoMinutos, 0);
+  const finaisDeSemana = doUsuario.filter((atribuicao) => {
+    const intervalo = intervaloPlantaoCivil(atribuicao, timezone);
+    if (!intervalo.valido) {
+      return false;
+    }
+    const diaSemana = new Date(`${intervalo.dataInicio}T12:00:00Z`).getUTCDay();
+    return diaSemana === 0 || diaSemana === 6;
+  }).length;
+  return {
+    horasTotais: minutosTotais / 60,
+    totalPlantoes: doUsuario.length,
+    finaisDeSemana,
+  };
 }

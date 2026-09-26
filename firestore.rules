@@ -379,6 +379,19 @@ service cloud.firestore {
       return !('padraoHorarioSemanal' in dados) || padraoHorarioSemanalValido(dados.padraoHorarioSemanal);
     }
 
+    /**
+     * Correção CODB/NOC — declara os postos de um Grupo multi-função (ex.:
+     * Plantão CODB: `['DBA','LINUX','TELECOM','WINDOWS']`). Opcional: um
+     * Grupo de posto único (ex.: Plantão COSI) nunca precisa dele.
+     */
+    function funcoesEsperadasDoRequestValidas(dados) {
+      return !('funcoesEsperadas' in dados)
+        || (
+          dados.funcoesEsperadas is list
+          && ['DBA', 'LINUX', 'TELECOM', 'WINDOWS'].hasAll(dados.funcoesEsperadas)
+        );
+    }
+
     function escopoOperacionalValido(dados) {
       return dados.keys().hasOnly([
           'tipo', 'alvoId', 'alvoNome', 'unidadeId', 'caminhoUnidade',
@@ -430,6 +443,59 @@ service cloud.firestore {
           loginDoAuth() in matrizOperacional(tipo, alvoId).responsaveisLogin
           || matrizOperacional(tipo, alvoId).responsaveisEquipe.hasAny(minhasEquipesPermitidas())
         );
+    }
+
+    /**
+     * HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — espelha `LOGIN_ADMIN_TECNICO_STAGING`
+     * de `lib/escoposOperacionaisMatriz.ts`: o login técnico genérico do seed
+     * inicial de staging (`scripts/staging/hierarquia-ici.mjs`,
+     * `MATRIZ_INICIAL`), nunca uma pessoa real. Função (não variável solta)
+     * porque Rules não tem constante de módulo — centraliza a string para
+     * nunca duplicá-la pelo arquivo.
+     */
+    function loginAdminTecnicoStaging() {
+      return 'admin';
+    }
+
+    /**
+     * Mesma classificação de `estadoMatrizOperacional()` (cliente), restrita
+     * ao caso que interessa às Rules: uma Matriz ativa que ainda é só o
+     * placeholder de bootstrap (`responsaveisLogin` contém só o login
+     * técnico, `responsaveisEquipe` vazio) — nenhuma responsabilidade humana
+     * real cadastrada ainda. `escopoOperacionalValido()` já garante que uma
+     * Matriz ativa nunca tem as duas listas vazias, então não há caso
+     * "bootstrap por lista vazia" a considerar aqui.
+     *
+     * NUNCA chamar diretamente sem antes confirmar `existeMatrizOperacional(...)`
+     * — `get()` sobre documento inexistente é erro de avaliação em Rules
+     * (mesma regra não-negociável de `equipeDentroDoEscopoDeUnidade()`,
+     * acima). Toda chamada (`fallbackStagingPermitidoParaAlvo()` e o ramo de
+     * hierarquia de `podeAdministrarJornada()`, abaixo) só chega aqui depois
+     * de um `&&`/`||` já ter confirmado a existência via curto-circuito — um
+     * único `let` (em vez de repetir `matrizOperacional(...)` a cada campo)
+     * evita explodir o orçamento de expressões do avaliador de Rules, já que
+     * `podeAdministrarJornada()`/`podeAdministrarEscalaPlantao()` são
+     * expandidas em múltiplos pontos do arquivo.
+     */
+    function matrizOperacionalEhBootstrapTecnico(tipo, alvoId) {
+      let m = matrizOperacional(tipo, alvoId);
+      return m.ativo == true
+        && m.responsaveisLogin.hasOnly([loginAdminTecnicoStaging()])
+        && m.responsaveisEquipe.size() == 0;
+    }
+
+    /**
+     * `true` quando o fallback AMPLO de staging (`souCoordenadorOperacionalStaging()`)
+     * ainda pode complementar a Matriz deste alvo: sem Matriz nenhuma, OU
+     * Matriz só com o placeholder técnico de bootstrap. Uma Matriz INATIVA
+     * ou já CONFIGURADA com responsável real nunca passa por aqui — decide
+     * sozinha via `matrizConcedeAdministracao()`, ou fecha o alvo
+     * (fail-closed). Nunca usado pelo fallback LEGADO (`!existeMatrizOperacional(...)`
+     * puro, sem distinguir bootstrap) — sua semântica já era correta e não
+     * muda nesta fase.
+     */
+    function fallbackStagingPermitidoParaAlvo(tipo, alvoId) {
+      return !existeMatrizOperacional(tipo, alvoId) || matrizOperacionalEhBootstrapTecnico(tipo, alvoId);
     }
 
     function matrizConcedeConsultaPlantao(grupoId) {
@@ -485,19 +551,65 @@ service cloud.firestore {
         // administra Jornada de uma equipe da própria unidade (ou
         // descendente) sem depender de Matriz manual, espelhando o mesmo
         // caminho que Plantão já tinha via podeGerenciarGrupoPlantao().
+        //
+        // HOTFIX-STAGING-FALLBACK-MATRIZ-1 — até esta fase, staging
+        // ignorava `existeMatrizOperacional(...)` aqui de propósito
+        // (`|| souCoordenadorOperacionalStaging()`), então uma Matriz
+        // INATIVA (decisão operacional explícita de "este alvo está
+        // desabilitado") não bloqueava o coordenador de voltar a
+        // administrar pela hierarquia. Corrigido: matriz explícita
+        // (ativa OU inativa) agora sempre vence o fallback de staging
+        // também — `souCoordenadorOperacionalStaging()` removido do OR.
+        // Nunca amplia autorização (produção já não dependia deste OR,
+        // porque `souCoordenadorOperacionalStaging()` é sempre `false`
+        // fora de staging) — só passa a negar um caso que staging
+        // liberava indevidamente.
+        //
+        // HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — essa remoção também apagou o
+        // único caminho de staging que cobre GESTOR_UNIDADE por UNIDADE
+        // (`equipeDentroDoEscopoDeUnidade`, nunca por equipe — diferente do
+        // ramo `podeOperarNaEquipe()` mais abaixo, que só ajuda quando a
+        // própria equipe do ator é a equipe-alvo). Sem ele, um coordenador
+        // cuja equipe própria é outra (ex.: administra por UNIDADE, não por
+        // vínculo direto) ficava travado assim que o seed de bootstrap
+        // (`MATRIZ_INICIAL`) criava a Matriz — exatamente a regressão que
+        // este hotfix existe para consertar. Restaurado com precisão: o
+        // escape de staging só reabre quando a Matriz é AUSENTE ou
+        // BOOTSTRAP (`matrizOperacionalEhBootstrapTecnico`, só avaliado
+        // depois do curto-circuito já ter confirmado que a Matriz existe) —
+        // CONFIGURADA ou INATIVA continuam fechando este ramo.
         || (
           souGestorUnidade()
           && equipeId != null
-          && (!existeMatrizOperacional('JORNADA', equipeId) || souCoordenadorOperacionalStaging())
+          && (
+            !existeMatrizOperacional('JORNADA', equipeId)
+            || (souCoordenadorOperacionalStaging() && matrizOperacionalEhBootstrapTecnico('JORNADA', equipeId))
+          )
           && exists(/databases/$(database)/documents/equipes/$(equipeId))
           && equipeDentroDoEscopoDeUnidade(equipeId)
         )
         // STAGING-RESET-HIERARQUIA-ICI-1 — em staging, a Matriz ajuda a
         // navegação mas NUNCA trava um coordenador/supervisor dentro do
-        // próprio escopo, mesmo que exista (e não o liste) ou esteja
-        // inativa. Deliberadamente FORA do `!existeMatrizOperacional(...)`
-        // acima — é exatamente o caso que essa branch não cobre.
-        || (souCoordenadorOperacionalStaging() && podeOperarNaEquipe(equipeId));
+        // próprio escopo, QUANDO NÃO EXISTE NENHUMA MATRIZ para o alvo.
+        //
+        // HOTFIX-STAGING-FALLBACK-MATRIZ-1 — antes desta fase, esta branch
+        // era deliberadamente a ÚNICA sem `!existeMatrizOperacional(...)`
+        // (documentado como "é exatamente o caso que a outra branch não
+        // cobre") — ou seja, uma Matriz existente (mesmo inativa) NUNCA
+        // bloqueava este fallback. Corrigido: agora exige ausência de
+        // matriz também, para que "matriz explícita > fallback de
+        // staging" valha sempre, sem exceção.
+        //
+        // HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — essa correção absoluta
+        // também travava o mecanismo deliberado de bootstrap: uma Matriz
+        // recém-semeada (`MATRIZ_INICIAL`, ativa, só listando o login
+        // técnico) passou a bloquear o fallback igual a uma Matriz já
+        // CONFIGURADA — trancando todo coordenador legítimo até um humano
+        // ser cadastrado manualmente. Corrigido com precisão:
+        // `fallbackStagingPermitidoParaAlvo(...)` libera quando a Matriz
+        // está AUSENTE ou é só BOOTSTRAP técnico; bloqueia quando está
+        // CONFIGURADA (responsável real) ou INATIVA.
+        || (fallbackStagingPermitidoParaAlvo('JORNADA', equipeId) && souCoordenadorOperacionalStaging() && podeOperarNaEquipe(equipeId));
     }
 
     function podeAdministrarEscalaPlantao(grupoId) {
@@ -506,10 +618,24 @@ service cloud.firestore {
         // Mesmo fallback transitório, restrito a alvos sem matriz.
         || (!existeMatrizOperacional('PLANTAO', grupoId) && podeGerenciarGrupoPlantao(grupoPlantaoPorId(grupoId)))
         // STAGING-RESET-HIERARQUIA-ICI-1 — mesmo raciocínio de
-        // podeAdministrarJornada(): liberação de staging fica FORA do
-        // `!existeMatrizOperacional(...)`, para não ser bloqueada por uma
-        // Matriz existente que não lista o coordenador de teste.
-        || (souCoordenadorOperacionalStaging() && escopoDoGrupoPlantaoNoMeuAlcance(grupoPlantaoPorId(grupoId)));
+        // podeAdministrarJornada(): liberação de staging só quando NÃO
+        // existe matriz para o alvo.
+        //
+        // HOTFIX-STAGING-FALLBACK-MATRIZ-1 — `!existeMatrizOperacional(...)`
+        // adicionado: antes, esta branch ficava deliberadamente FORA dessa
+        // checagem ("para não ser bloqueada por uma Matriz existente que
+        // não lista o coordenador de teste"), o que também significava que
+        // uma Matriz INATIVA (ex.: `PLANTAO_NOC`, tombstone de um Grupo
+        // legado desativado — `docs/spec/PLANTAO_CODB.md`) não bloqueava
+        // este fallback hierárquico. Agora bloqueia: matriz explícita
+        // (ativa ou inativa) sempre vence.
+        //
+        // HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — refinado: uma Matriz ativa
+        // recém-semeada (só o login técnico do bootstrap, `MATRIZ_INICIAL`)
+        // continua liberando este fallback — só uma Matriz CONFIGURADA
+        // (responsável real) ou INATIVA o bloqueia, via
+        // `fallbackStagingPermitidoParaAlvo(...)`.
+        || (fallbackStagingPermitidoParaAlvo('PLANTAO', grupoId) && souCoordenadorOperacionalStaging() && escopoDoGrupoPlantaoNoMeuAlcance(grupoPlantaoPorId(grupoId)));
     }
 
     /**
@@ -1159,6 +1285,211 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    /**
+     * Informações operacionais da escala (dia/pessoa-dia) — Fase
+     * FASE-MATRIZ-DEFINITIVA-E-INFORMACOES-DIA-1, Parte B1. Documento em
+     * `informacoesEscala/{contextoId}/itens/{infoId}`: `contextoId` agrupa
+     * TODAS as informações de uma operação numa competência
+     * (`idContextoInformacoesEscala(tipoEscala, alvoId, competencia)` —
+     * concatenação simples, mesmo espírito de `idEscopoOperacional()`
+     * acima; nunca regex/sanitização aqui, só no helper cliente de
+     * exibição). Cada item também guarda `tipoEscala`/`alvoId` como campos
+     * próprios, redundantes com o path: não é autorização adicional (quem
+     * autoriza continua sendo só `podeAdministrarJornada()`/
+     * `podeAdministrarEscalaPlantao()`, nenhuma ACL paralela), mas sim o
+     * que permite a Rule de `list` provar a condição sem ler documento por
+     * documento — toda query precisa incluir esses dois campos por
+     * igualdade (ver `lib/firebase/informacoesEscalaRepository.ts`).
+     *
+     * Nunca hard delete de item PUBLICADA: cancelamento é
+     * `status -> CANCELADA`, documento preservado. RASCUNHO nunca aparece
+     * para quem não administra a operação; PUBLICADA aparece conforme
+     * `visibilidade`; GESTORES nunca é lido fora do administrador.
+     *
+     * `PUBLICADA` é imutável por completo (conteúdo e identidade) — a única
+     * transição possível a partir dela é `PUBLICADA -> CANCELADA`. Corrigir
+     * uma informação publicada incorretamente nunca edita o documento:
+     * cancela o item antigo e cria um novo `RASCUNHO` (novo `infoId`), que
+     * segue seu próprio ciclo de vida até ser publicado. Ver
+     * `docs/spec/INFORMACOES_ESCALA.md`.
+     */
+    function idContextoInformacoesEscala(tipoEscala, alvoId, competencia) {
+      return tipoEscala + '_' + alvoId + '_' + competencia;
+    }
+
+    function podeAdministrarInformacaoEscala(tipoEscala, alvoId) {
+      return tipoEscala == 'JORNADA'
+        ? podeAdministrarJornada(alvoId)
+        : podeAdministrarEscalaPlantao(alvoId);
+    }
+
+    /** Consulta (não administração) da operação — mesmo nível de acesso de leitura já usado pela grade/App. */
+    function podeConsultarOperacaoInformacaoEscala(tipoEscala, alvoId) {
+      return tipoEscala == 'JORNADA'
+        ? podeOperarNaEquipe(alvoId)
+        : podeLerEscalaPlantao(alvoId);
+    }
+
+    function informacaoEscalaValida(dados) {
+      return dados.keys().hasOnly([
+          'schemaVersion', 'infoId', 'tipoEscala', 'alvoId', 'competencia', 'data',
+          'escopo', 'usuarioLogin', 'categoria', 'titulo', 'descricao', 'visibilidade',
+          'status', 'criadoPorLogin', 'criadoEm', 'atualizadoPorLogin', 'atualizadoEm',
+          'publicadoPorLogin', 'publicadoEm', 'canceladoPorLogin', 'canceladoEm',
+          'motivoCancelamento',
+        ])
+        && dados.schemaVersion in [1]
+        && dados.infoId is string && dados.infoId.size() > 0
+        && dados.tipoEscala in ['JORNADA', 'PLANTAO']
+        && dados.alvoId is string && dados.alvoId.size() > 0
+        && dados.competencia is string && dados.competencia.size() > 0
+        && dados.data is string && dados.data.size() > 0
+        && dados.escopo in ['DIA', 'PESSOA_DIA']
+        && (
+          dados.escopo == 'DIA'
+            ? dados.usuarioLogin == null
+            : (dados.usuarioLogin is string && dados.usuarioLogin.size() > 0)
+        )
+        && dados.categoria in [
+          'GERAL', 'TREINAMENTO', 'FERIADO', 'FERIAS', 'COBERTURA_DU', 'CURSO',
+          'REUNIAO', 'OPERACAO_ESPECIAL', 'OUTRO',
+        ]
+        && dados.titulo is string && dados.titulo.size() > 0
+        && (dados.descricao == null || dados.descricao is string)
+        && dados.visibilidade in ['EQUIPE', 'PESSOAS_AFETADAS', 'GESTORES']
+        && dados.status in ['RASCUNHO', 'PUBLICADA', 'CANCELADA']
+        && dados.criadoPorLogin is string && dados.criadoPorLogin.size() > 0
+        && dados.atualizadoPorLogin is string && dados.atualizadoPorLogin.size() > 0
+        && (dados.publicadoPorLogin == null || dados.publicadoPorLogin is string)
+        && (dados.publicadoEm == null || dados.publicadoEm is string)
+        && (dados.canceladoPorLogin == null || dados.canceladoPorLogin is string)
+        && (dados.canceladoEm == null || dados.canceladoEm is string)
+        && (dados.motivoCancelamento == null || dados.motivoCancelamento is string);
+    }
+
+    /**
+     * `dadosAnteriores` é `resource.data` (o documento antes do update) —
+     * confere que os campos de CONTEÚDO do novo documento
+     * (`request.resource.data`) batem com os anteriores. Usada para provar
+     * que uma transição de status (publicar/cancelar) nunca é aproveitada
+     * para também editar conteúdo — a única forma de mudar
+     * categoria/título/descrição/visibilidade é um update que MANTÉM
+     * `status == 'RASCUNHO'` (ver `allow update` abaixo). Campos de
+     * identidade (tipoEscala/alvoId/competencia/data/escopo/usuarioLogin/
+     * criadoPorLogin/criadoEm) já são conferidos separadamente, sempre
+     * imutáveis, então não precisam entrar aqui.
+     */
+    function conteudoInformacaoEscalaPreservado(dadosAnteriores) {
+      return request.resource.data.categoria == dadosAnteriores.categoria
+        && request.resource.data.titulo == dadosAnteriores.titulo
+        && request.resource.data.descricao == dadosAnteriores.descricao
+        && request.resource.data.visibilidade == dadosAnteriores.visibilidade;
+    }
+
+    match /informacoesEscala/{contextoId}/itens/{infoId} {
+      // Administrador da operação sempre lê (qualquer status/visibilidade —
+      // precisa gerenciar RASCUNHO e itens GESTORES/PESSOAS_AFETADAS
+      // alheios). Fora disso, só PUBLICADA e conforme a visibilidade:
+      // EQUIPE para quem consulta a operação, PESSOAS_AFETADAS só para a
+      // própria pessoa. GESTORES nunca aparece fora do primeiro ramo.
+      allow read: if autenticado()
+        && (
+          podeAdministrarInformacaoEscala(resource.data.tipoEscala, resource.data.alvoId)
+          || (
+            resource.data.status == 'PUBLICADA'
+            && (
+              (
+                resource.data.visibilidade == 'EQUIPE'
+                && podeConsultarOperacaoInformacaoEscala(resource.data.tipoEscala, resource.data.alvoId)
+              )
+              || (resource.data.visibilidade == 'PESSOAS_AFETADAS' && resource.data.usuarioLogin == loginDoAuth())
+            )
+          )
+        );
+
+      allow create: if autenticado()
+        && contextoId == idContextoInformacoesEscala(
+          request.resource.data.tipoEscala, request.resource.data.alvoId, request.resource.data.competencia)
+        && informacaoEscalaValida(request.resource.data)
+        && request.resource.data.infoId == infoId
+        && request.resource.data.status == 'RASCUNHO'
+        && request.resource.data.criadoPorLogin == loginDoAuth()
+        && request.resource.data.atualizadoPorLogin == loginDoAuth()
+        && request.resource.data.publicadoPorLogin == null
+        && request.resource.data.publicadoEm == null
+        && request.resource.data.canceladoPorLogin == null
+        && request.resource.data.canceladoEm == null
+        && request.resource.data.motivoCancelamento == null
+        && podeAdministrarInformacaoEscala(request.resource.data.tipoEscala, request.resource.data.alvoId);
+
+      // Identidade — tipo/alvo/competência/DATA/escopo/pessoa/autoria/
+      // criadoEm — é imutável para sempre, desde a criação (mesmo enquanto
+      // RASCUNHO: corrigir a data de um rascunho é cancelar e recriar,
+      // nunca editar). Conteúdo (categoria/título/descrição/visibilidade)
+      // só pode mudar enquanto o item CONTINUA RASCUNHO
+      // (`RASCUNHO -> RASCUNHO`); qualquer transição de status
+      // (publicar/cancelar) tem que preservar o conteúdo intacto
+      // (`conteudoInformacaoEscalaPreservado()`). Depois de `PUBLICADA`,
+      // o item é imutável por completo — a ÚNICA transição possível é
+      // `PUBLICADA -> CANCELADA`, alterando só os campos de cancelamento.
+      // `CANCELADA` é terminal: nenhuma transição sai dela. Corrigir uma
+      // informação já publicada nunca edita o documento — cancela o item
+      // antigo e cria um novo `RASCUNHO` (novo `infoId`).
+      allow update: if autenticado()
+        && contextoId == idContextoInformacoesEscala(
+          request.resource.data.tipoEscala, request.resource.data.alvoId, request.resource.data.competencia)
+        && informacaoEscalaValida(request.resource.data)
+        && podeAdministrarInformacaoEscala(resource.data.tipoEscala, resource.data.alvoId)
+        && podeAdministrarInformacaoEscala(request.resource.data.tipoEscala, request.resource.data.alvoId)
+        && request.resource.data.infoId == resource.data.infoId
+        && request.resource.data.tipoEscala == resource.data.tipoEscala
+        && request.resource.data.alvoId == resource.data.alvoId
+        && request.resource.data.competencia == resource.data.competencia
+        && request.resource.data.data == resource.data.data
+        && request.resource.data.escopo == resource.data.escopo
+        && request.resource.data.usuarioLogin == resource.data.usuarioLogin
+        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
+        && request.resource.data.criadoEm == resource.data.criadoEm
+        && request.resource.data.atualizadoPorLogin == loginDoAuth()
+        && (
+          (
+            resource.data.status == 'RASCUNHO' && request.resource.data.status == 'RASCUNHO'
+            && request.resource.data.publicadoPorLogin == null
+            && request.resource.data.publicadoEm == null
+            && request.resource.data.canceladoPorLogin == null
+            && request.resource.data.canceladoEm == null
+            && request.resource.data.motivoCancelamento == null
+          )
+          || (
+            resource.data.status == 'RASCUNHO' && request.resource.data.status == 'PUBLICADA'
+            && conteudoInformacaoEscalaPreservado(resource.data)
+            && request.resource.data.publicadoPorLogin == loginDoAuth()
+            && request.resource.data.publicadoEm is string
+            && request.resource.data.canceladoPorLogin == null
+            && request.resource.data.canceladoEm == null
+            && request.resource.data.motivoCancelamento == null
+          )
+          || (
+            resource.data.status == 'RASCUNHO' && request.resource.data.status == 'CANCELADA'
+            && conteudoInformacaoEscalaPreservado(resource.data)
+            && request.resource.data.publicadoPorLogin == null
+            && request.resource.data.publicadoEm == null
+            && request.resource.data.canceladoPorLogin == loginDoAuth()
+            && request.resource.data.canceladoEm is string
+          )
+          || (
+            resource.data.status == 'PUBLICADA' && request.resource.data.status == 'CANCELADA'
+            && conteudoInformacaoEscalaPreservado(resource.data)
+            && request.resource.data.publicadoPorLogin == resource.data.publicadoPorLogin
+            && request.resource.data.publicadoEm == resource.data.publicadoEm
+            && request.resource.data.canceladoPorLogin == loginDoAuth()
+            && request.resource.data.canceladoEm is string
+          )
+        );
+
+      allow delete: if false;
+    }
+
     match /tiposTurno/{docId} {
       allow read: if autenticado();
       allow create: if podeAdministrarJornada(request.resource.data.equipeId);
@@ -1573,9 +1904,10 @@ service cloud.firestore {
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.criadoPorLogin == loginDoAuth()
         && padraoHorarioSemanalDoRequestValido(request.resource.data)
+        && funcoesEsperadasDoRequestValidas(request.resource.data)
         && request.resource.data.keys().hasOnly([
           'grupoId', 'nome', 'descricao', 'equipeResponsavelId', 'equipesConsulta',
-          'unidadeResponsavelId', 'caminhoUnidadeResponsavel',
+          'unidadeResponsavelId', 'caminhoUnidadeResponsavel', 'funcoesEsperadas',
           'timezone', 'ativo', 'padraoHorarioSemanal', 'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
         ]);
 
@@ -1608,9 +1940,10 @@ service cloud.firestore {
             && request.resource.data.equipesConsulta is list && request.resource.data.equipesConsulta.size() > 0
             && request.resource.data.schemaVersion in [1]
             && padraoHorarioSemanalDoRequestValido(request.resource.data)
+            && funcoesEsperadasDoRequestValidas(request.resource.data)
             && request.resource.data.keys().hasOnly([
               'grupoId', 'nome', 'descricao', 'equipeResponsavelId', 'equipesConsulta',
-              'unidadeResponsavelId', 'caminhoUnidadeResponsavel',
+              'unidadeResponsavelId', 'caminhoUnidadeResponsavel', 'funcoesEsperadas',
               'timezone', 'ativo', 'padraoHorarioSemanal', 'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
             ])
           )
@@ -1632,7 +1965,21 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if false;
+      /**
+       * HOTFIX-ESCALA-ALERTA-TROCAS-1 — antes era `if false` (nenhuma
+       * exclusão física de Grupo, nunca). Um erro de importação pode criar
+       * um Grupo duplicado/errado (mesmo `equipeResponsavelId`, nome
+       * repetido) sem nenhuma forma de corrigir além de deixá-lo ativo para
+       * sempre. Quem administra o Grupo (`podeGerenciarGrupoPlantao()`,
+       * igual `update` acima) agora pode excluí-lo — mas
+       * `competenciasPlantao` (PUBLICADA) continua com `allow delete: if
+       * false` mais abaixo, inalterado: um Grupo com histórico publicado
+       * de verdade não é removível por este caminho (o cliente,
+       * `excluirGrupoPlantao()`, recusa a operação antes de chegar aqui
+       * quando detecta competência publicada — nunca confie só nisso aqui,
+       * porque o objetivo já está garantido pela Rule da competência).
+       */
+      allow delete: if podeGerenciarGrupoPlantao(resource.data);
     }
 
     /**
@@ -1695,7 +2042,10 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if false;
+      // HOTFIX-ESCALA-ALERTA-TROCAS-1 — mesmo raciocínio do `allow delete`
+      // do Grupo (acima): precisa poder esvaziar participantes de um
+      // Grupo errado antes de excluí-lo. Mesma checagem de `create`/`update`.
+      allow delete: if autenticado() && podeAdministrarEscalaPlantao(grupoId);
     }
 
     /**
@@ -1773,6 +2123,16 @@ service cloud.firestore {
      * aqui só o formato/autorização são checados (Rules não fazem
      * aritmética de datas ISO).
      */
+    /**
+     * Correção CODB/NOC — `funcao` é o posto/especialidade dentro de um
+     * Grupo multi-função (ex.: Plantão CODB: DBA/Linux/Telecom/Windows,
+     * paralelos no MESMO Grupo — nunca quatro Grupos). Sempre opcional:
+     * um Grupo de posto único (ex.: Plantão COSI) nunca precisa dele.
+     */
+    function funcaoPlantaoValida(dados) {
+      return !('funcao' in dados) || dados.funcao in ['DBA', 'LINUX', 'TELECOM', 'WINDOWS'];
+    }
+
     match /rascunhosCompetenciasPlantao/{id}/atribuicoes/{atribuicaoId} {
       allow read: if podeLerEscalaPlantao(resource.data.grupoId);
 
@@ -1785,12 +2145,13 @@ service cloud.firestore {
         && request.resource.data.fim is string
         && request.resource.data.duracaoMinutos is int && request.resource.data.duracaoMinutos > 0
         && request.resource.data.papel in ['PRIMARIO', 'SECUNDARIO']
+        && funcaoPlantaoValida(request.resource.data)
         && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']
         && request.resource.data.revisao == 0
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.keys().hasOnly([
           'atribuicaoId', 'grupoId', 'competenciaId', 'plantonistaLogin', 'inicio', 'fim',
-          'duracaoMinutos', 'papel', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
+          'duracaoMinutos', 'papel', 'funcao', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
         ]);
 
       allow update: if autenticado()
@@ -1803,11 +2164,12 @@ service cloud.firestore {
         && request.resource.data.fim is string
         && request.resource.data.duracaoMinutos is int && request.resource.data.duracaoMinutos > 0
         && request.resource.data.papel in ['PRIMARIO', 'SECUNDARIO']
+        && funcaoPlantaoValida(request.resource.data)
         && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.keys().hasOnly([
           'atribuicaoId', 'grupoId', 'competenciaId', 'plantonistaLogin', 'inicio', 'fim',
-          'duracaoMinutos', 'papel', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
+          'duracaoMinutos', 'papel', 'funcao', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
         ]);
 
       allow delete: if autenticado() && podeAdministrarEscalaPlantao(resource.data.grupoId);
@@ -1840,7 +2202,7 @@ service cloud.firestore {
           !exists(/databases/$(database)/documents/competenciasPlantao/$(id))
           || podeLerEscalaPlantao(resource.data.grupoId)
         );
-      allow create, update: if podeAdministrarEscalaPlantao(request.resource.data.grupoId)
+      allow create: if podeAdministrarEscalaPlantao(request.resource.data.grupoId)
         && request.resource.data.id == id
         && request.resource.data.status == 'PUBLICADA'
         && request.resource.data.revisao > 0
@@ -1854,15 +2216,58 @@ service cloud.firestore {
           'id', 'grupoId', 'competencia', 'periodoInicio', 'periodoFim', 'status',
           'revisao', 'origem', 'totaisInformadosOrigem', 'totalBruto', 'schemaVersion',
           'criadoPorLogin', 'criadoEm', 'atualizadoEm',
-        ])
+        ]);
+
+      /**
+       * FASE-ESCOPO-HIERARQUICO-CODB-E-ADMIN-PLANTAO-1 — dois caminhos de
+       * `update`, nunca fundidos:
+       *
+       * 1) republicação (PUBLICADA -> PUBLICADA, revisão maior) — mesmas
+       *    invariantes de sempre desta fase, inalteradas.
+       * 2) cancelamento (PUBLICADA -> CANCELADA) — NUNCA delete físico
+       *    (`allow delete` continua `if false` abaixo; histórico e
+       *    atribuições publicadas continuam intactos). `diff().affectedKeys()`
+       *    trava exatamente os campos da transição: identidade estrutural
+       *    (grupoId/competencia/período/origem/revisão/totais/criadoPor/
+       *    criadoEm/schemaVersion) precisa continuar byte-a-byte igual — só
+       *    `status` + os três metadados de cancelamento + `atualizadoEm`
+       *    podem mudar. Uma competência já `CANCELADA` é terminal: nenhuma
+       *    das duas branches aceita `resource.data.status == 'CANCELADA'`.
+       */
+      allow update: if podeAdministrarEscalaPlantao(request.resource.data.grupoId)
+        && request.resource.data.id == id
         && (
-          !exists(/databases/$(database)/documents/competenciasPlantao/$(id))
-          || (
-            request.resource.data.grupoId == resource.data.grupoId
+          (
+            resource.data.status == 'PUBLICADA'
+            && request.resource.data.status == 'PUBLICADA'
+            && request.resource.data.revisao > 0
+            && request.resource.data.competencia is string && request.resource.data.competencia.size() > 0
+            && request.resource.data.periodoInicio is string
+            && request.resource.data.periodoFim is string
+            && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']
+            && request.resource.data.schemaVersion in [1]
+            && request.resource.data.totalBruto.keys().hasOnly(['quantidade', 'minutos'])
+            && request.resource.data.keys().hasOnly([
+              'id', 'grupoId', 'competencia', 'periodoInicio', 'periodoFim', 'status',
+              'revisao', 'origem', 'totaisInformadosOrigem', 'totalBruto', 'schemaVersion',
+              'criadoPorLogin', 'criadoEm', 'atualizadoEm',
+            ])
+            && request.resource.data.grupoId == resource.data.grupoId
             && request.resource.data.competencia == resource.data.competencia
             && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
             && request.resource.data.criadoEm == resource.data.criadoEm
             && request.resource.data.revisao > resource.data.revisao
+          )
+          || (
+            resource.data.status == 'PUBLICADA'
+            && request.resource.data.status == 'CANCELADA'
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'canceladaEm', 'canceladaPorLogin', 'motivoCancelamento', 'atualizadoEm'])
+            && request.resource.data.get('motivoCancelamento', '') is string
+            && request.resource.data.motivoCancelamento.size() > 0
+            && request.resource.data.motivoCancelamento.size() <= 500
+            && request.resource.data.get('canceladaPorLogin', '') == loginDoAuth()
+            && request.resource.data.get('canceladaEm', null) is string
           )
         );
       allow delete: if false;
@@ -1878,12 +2283,13 @@ service cloud.firestore {
         && request.resource.data.fim is string
         && request.resource.data.duracaoMinutos is int && request.resource.data.duracaoMinutos > 0
         && request.resource.data.papel in ['PRIMARIO', 'SECUNDARIO']
+        && funcaoPlantaoValida(request.resource.data)
         && request.resource.data.origem in ['IMPORTADO', 'MANUAL', 'GERADO', 'COPIADO']
         && request.resource.data.revisao > 0
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.keys().hasOnly([
           'atribuicaoId', 'grupoId', 'competenciaId', 'plantonistaLogin', 'inicio', 'fim',
-          'duracaoMinutos', 'papel', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
+          'duracaoMinutos', 'papel', 'funcao', 'origem', 'revisao', 'schemaVersion', 'criadoEm', 'atualizadoEm',
         ])
         && (
           !exists(/databases/$(database)/documents/competenciasPlantao/$(id)/atribuicoes/$(atribuicaoId))

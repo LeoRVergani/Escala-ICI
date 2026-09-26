@@ -1,10 +1,24 @@
 import { CalendarDays, CheckCircle2, ChevronDown, FileSpreadsheet, LoaderCircle, Pencil, Plus, Radio, RotateCcw, UploadCloud, X } from 'lucide-react';
 import { useMemo, useState, type ChangeEvent } from 'react';
-import type { GrupoPlantao } from '@escala-ici/contrato';
+import { FUNCOES_PLANTAO_VALIDAS, ROTULO_FUNCAO_PLANTAO, type FuncaoPlantao, type GrupoPlantao } from '@escala-ici/contrato';
 import type { Equipe, UnidadeOrganizacional } from '@/lib/modelos';
 import { formatarData } from '@escala-ici/contrato';
 import { periodoDaCompetencia } from '@/lib/montagemRascunhoPlantao';
 import { sugerirNomeGrupoPlantao } from '@/lib/gruposPlantaoProvisionamento';
+
+/**
+ * FASE-PLANTAO-MULTIPOSTO-WORKSPACE-1 — estrutura do Plantão sendo criado
+ * (§35/§36/§37/§40 da fase). `POSTO_UNICO` é o comportamento de sempre
+ * (nenhum `funcoesEsperadas`, ex.: Plantão COSI); `MULTIPLOS_POSTOS`
+ * grava `funcoesEsperadas` com os postos marcados — sempre dentro do
+ * enum fechado `FuncaoPlantao` hoje (DBA/Linux/Telecom/Windows). Um posto
+ * customizado (ex.: "N1"/"Cloud"/"SOC" citados na fase como exemplo
+ * futuro) exige evoluir `FuncaoPlantao` para além do enum fechado atual —
+ * decisão de arquitetura explicitamente fora desta fase (§39: "Claude
+ * deve parar e propor evolução compatível antes de permitir funções
+ * arbitrárias"), então esta tela só oferece os postos já conhecidos.
+ */
+type EstruturaGrupoPlantao = 'POSTO_UNICO' | 'MULTIPLOS_POSTOS';
 
 type ModoInicioEscala = 'NOVA' | 'IMPORTAR';
 type TipoInicioEscala = 'JORNADA' | 'PLANTAO';
@@ -31,7 +45,7 @@ export interface ScheduleStartWizardProps {
   onAbrirRascunhoExistente?: () => void | Promise<void>;
   rascunhoExistente?: boolean;
   onCriarEquipe: (nome: string, sigla: string) => void | Promise<void>;
-  onCriarGrupo: (nome: string, equipeId: string) => void | Promise<void>;
+  onCriarGrupo: (nome: string, equipeId: string, funcoesEsperadas?: readonly FuncaoPlantao[]) => void | Promise<void>;
   onUsarPeriodoAnterior?: () => void | Promise<void>;
   periodoAnteriorDisponivel?: boolean;
   erro: string;
@@ -71,6 +85,8 @@ export function ScheduleStartWizard({
   const [nomeEquipe, setNomeEquipe] = useState('');
   const [siglaEquipe, setSiglaEquipe] = useState('');
   const [nomeGrupo, setNomeGrupo] = useState('');
+  const [estruturaGrupo, setEstruturaGrupo] = useState<EstruturaGrupoPlantao>('POSTO_UNICO');
+  const [postosSelecionados, setPostosSelecionados] = useState<FuncaoPlantao[]>([]);
   const periodo = useMemo(
     () => /^\d{4}-\d{2}$/u.test(competencia.trim()) ? periodoDaCompetencia(competencia.trim()) : null,
     [competencia],
@@ -105,11 +121,25 @@ export function ScheduleStartWizard({
     setCriacaoEquipeAberta(false);
   }
 
+  const grupoMultipostoValido = estruturaGrupo === 'POSTO_UNICO' || postosSelecionados.length > 0;
+
   async function criarGrupo() {
-    if (nomeGrupo.trim() === '' || equipeId === '') return;
-    await onCriarGrupo(nomeGrupo.trim(), equipeId);
+    if (nomeGrupo.trim() === '' || equipeId === '' || !grupoMultipostoValido) return;
+    await onCriarGrupo(
+      nomeGrupo.trim(),
+      equipeId,
+      estruturaGrupo === 'MULTIPLOS_POSTOS' ? postosSelecionados : undefined,
+    );
     setNomeGrupo('');
     setCriacaoGrupoAberta(false);
+    setEstruturaGrupo('POSTO_UNICO');
+    setPostosSelecionados([]);
+  }
+
+  function alternarPostoSelecionado(posto: FuncaoPlantao) {
+    setPostosSelecionados((atuais) => (
+      atuais.includes(posto) ? atuais.filter((item) => item !== posto) : [...atuais, posto]
+    ));
   }
 
   function selecionarEquipeResponsavelPlantao(novoEquipeId: string) {
@@ -284,7 +314,43 @@ export function ScheduleStartWizard({
                         <div className="wizard-inline-fields">
                           <label htmlFor="wizard-grupo-nome">Nome<input id="wizard-grupo-nome" value={nomeGrupo} onChange={(evento) => setNomeGrupo(evento.target.value)} /></label>
                           {equipes.length > 1 || equipeId === '' ? <label htmlFor="wizard-grupo-equipe">Equipe responsável<select id="wizard-grupo-equipe" value={equipeId} onChange={(evento) => selecionarEquipeResponsavelPlantao(evento.target.value)}><option value="">Selecione a equipe responsável</option>{equipes.map((equipe) => <option key={equipe.id} value={equipe.id}>{equipe.nome} / {equipe.id}</option>)}</select></label> : <div className="wizard-resolved-field"><CheckCircle2 size={16} />{equipes[0].nome} / {equipes[0].id}<small>responsável resolvida automaticamente</small></div>}
-                          <button className="primary-button compact-button" type="button" disabled={processando || nomeGrupo.trim() === '' || equipeId === ''} onClick={() => void criarGrupo()}>{processando ? <LoaderCircle className="spin" size={15} /> : <Plus size={15} />} Criar Plantão</button>
+                          <fieldset className="wizard-grupo-estrutura">
+                            <legend>Estrutura</legend>
+                            <label>
+                              <input
+                                type="radio"
+                                name="wizard-grupo-estrutura"
+                                checked={estruturaGrupo === 'POSTO_UNICO'}
+                                onChange={() => setEstruturaGrupo('POSTO_UNICO')}
+                              /> Posto único
+                            </label>
+                            <label>
+                              <input
+                                type="radio"
+                                name="wizard-grupo-estrutura"
+                                checked={estruturaGrupo === 'MULTIPLOS_POSTOS'}
+                                onChange={() => setEstruturaGrupo('MULTIPLOS_POSTOS')}
+                              /> Múltiplos postos
+                            </label>
+                          </fieldset>
+                          {estruturaGrupo === 'MULTIPLOS_POSTOS' && (
+                            <fieldset className="wizard-grupo-postos">
+                              <legend>Postos/Funções</legend>
+                              {FUNCOES_PLANTAO_VALIDAS.map((posto) => (
+                                <label key={posto}>
+                                  <input
+                                    type="checkbox"
+                                    checked={postosSelecionados.includes(posto)}
+                                    onChange={() => alternarPostoSelecionado(posto)}
+                                  /> {ROTULO_FUNCAO_PLANTAO[posto]}
+                                </label>
+                              ))}
+                              {postosSelecionados.length === 0 && (
+                                <p className="admin-form-erro">Selecione ao menos um posto.</p>
+                              )}
+                            </fieldset>
+                          )}
+                          <button className="primary-button compact-button" type="button" disabled={processando || nomeGrupo.trim() === '' || equipeId === '' || !grupoMultipostoValido} onClick={() => void criarGrupo()}>{processando ? <LoaderCircle className="spin" size={15} /> : <Plus size={15} />} Criar Plantão</button>
                         </div>
                       )}
                     </div>

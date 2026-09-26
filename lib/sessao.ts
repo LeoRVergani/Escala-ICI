@@ -3,12 +3,15 @@ import type { Equipe, PerfilUsuario, EscopoUsuario, Usuario } from './modelos';
 export type TipoProduto = 'dashboard' | 'app';
 
 /**
- * O sistema hoje só opera sobre uma única competência ativa por vez — usada
- * na carga inicial de dados (`autenticar()`/`carregarDadosDaEquipe` no
- * Dashboard) e na trava de "não excluir a competência atual" (ver
- * `podeExcluirCompetencia` em `lib/adminGuards.ts`).
+ * HOTFIX-COMPETENCIA-OPERACIONAL-DINAMICA-1 — removida a constante
+ * congelada `COMPETENCIA_ATUAL` (`'2026-08'`), que nunca virava com o
+ * calendário real e fazia o Dashboard iniciar num mês passado a partir do
+ * dia 26. A competência operacional atual agora é sempre calculada em
+ * runtime por `competenciaOperacionalAtual()`
+ * (`lib/competenciaOperacionalAtual.ts`), que reaproveita
+ * `competenciaOperacional()`/`dataIsoLocal()` de `@escala-ici/contrato` —
+ * nunca uma segunda regra 26→25.
  */
-export const COMPETENCIA_ATUAL = '2026-08';
 
 /**
  * Estados possíveis da restauração de sessão do Firebase Auth.
