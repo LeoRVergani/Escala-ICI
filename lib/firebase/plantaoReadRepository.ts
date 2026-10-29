@@ -5,7 +5,7 @@ import {
   type GrupoPlantao,
   type ParticipantePlantao,
 } from '@escala-ici/contrato';
-import { collection, doc, getDoc, getDocs, orderBy, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 
 import { exigirFirebase } from './shared';
 
@@ -30,7 +30,11 @@ export async function listarGruposPlantaoPermitidos(equipeId: string): Promise<G
     collection(db, 'gruposPlantao'),
     where('equipesConsulta', 'array-contains', equipeId),
   ));
-  return resultado.docs.map((snapshot) => snapshot.data() as GrupoPlantao);
+  // Grupos inativos/tombstones podem manter a ACL histórica para auditoria,
+  // mas nunca são operações ativas do App.
+  return resultado.docs
+    .map((snapshot) => snapshot.data() as GrupoPlantao)
+    .filter((grupo) => grupo.ativo);
 }
 
 /**
@@ -133,6 +137,35 @@ export async function obterCompetenciaPlantaoPublicada(
 ): Promise<CompetenciaPlantao | null> {
   const atual = await obterCompetenciaPlantaoAtual(grupoId, competencia);
   return atual !== null && atual.status === 'PUBLICADA' ? atual : null;
+}
+
+/** Consulta o período publicado real, sem impor o corte da Jornada 6x1 ao Plantão. */
+export async function obterCompetenciaPlantaoPublicadaNaData(
+  grupoId: string,
+  data: string,
+): Promise<CompetenciaPlantao | null> {
+  const { db } = exigirFirebase();
+  const resultado = await getDocs(query(
+    collection(db, 'competenciasPlantao'),
+    where('grupoId', '==', grupoId),
+  ));
+  const publicadas = resultado.docs.map((snapshot) => snapshot.data() as CompetenciaPlantao);
+  return publicadas
+    .filter((item) => item.status === 'PUBLICADA' && item.periodoInicio <= data && data <= item.periodoFim)
+    .sort((a, b) => b.periodoInicio.localeCompare(a.periodoInicio)
+      || b.atualizadoEm.localeCompare(a.atualizadoEm)
+      || a.id.localeCompare(b.id))[0] ?? null;
+}
+
+/** Uma publicação altera a competência no mesmo batch das atribuições. */
+export function observarPublicacoesPlantao(
+  grupoId: string,
+  aoAtualizar: () => void,
+  aoFalhar: (erro: Error) => void,
+): () => void {
+  const { db } = exigirFirebase();
+  return onSnapshot(query(collection(db, 'competenciasPlantao'), where('grupoId', '==', grupoId)),
+    aoAtualizar, aoFalhar);
 }
 
 /**

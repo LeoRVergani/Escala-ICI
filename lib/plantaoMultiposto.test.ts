@@ -11,6 +11,7 @@ import {
   funcaoDoErroPlantao,
   funcaoPermitidaNoGrupo,
   validarFuncoesContraGrupo,
+  validarEstruturaArquivoContraGrupo,
   vinculosPendentesPorFuncao,
 } from './plantaoMultiposto';
 
@@ -195,6 +196,15 @@ describe('funcaoDoErroPlantao (§26)', () => {
 });
 
 describe('avaliarSaudePlantao — status e podePublicar', () => {
+  it('Plantão multiposto com zero atribuições fica SEM DADOS e bloqueia publicação', () => {
+    const saude = avaliarSaudePlantao({ grupo: { funcoesEsperadas: FUNCOES_CODB }, atribuicoes: [], vinculos: [], erros: [], avisos: [] });
+
+    expect(saude.todos.semDados).toBe(true);
+    expect(saude.todos.status).toBe('CRITICO');
+    expect(saude.podePublicar).toBe(false);
+    expect(saude.bloqueiosGlobais).toContain('Sem dados: o Plantão multiposto não possui atribuições.');
+  });
+
   it('sem nenhum problema, status OK e podePublicar true', () => {
     const atribuicoes = [
       atribuicao({ plantonistaNomeOriginal: 'João', funcao: 'DBA' }),
@@ -297,5 +307,23 @@ describe('validarFuncoesContraGrupo — validação da importação contra o Gru
   it('Grupo de posto único nunca valida função — retrocompatibilidade total', () => {
     const atribuicoes = [atribuicao({ plantonistaNomeOriginal: 'João', funcao: 'TELECOM' })];
     expect(validarFuncoesContraGrupo(atribuicoes, [])).toEqual([]);
+  });
+});
+
+describe('validarEstruturaArquivoContraGrupo — bloqueio antes do Editor', () => {
+  it('bloqueia planilha COSI de posto único quando o destino é CODB multiposto', () => {
+    const erros = validarEstruturaArquivoContraGrupo(
+      [atribuicao({ plantonistaNomeOriginal: 'Ana' })],
+      FUNCOES_CODB,
+    );
+    expect(erros).toHaveLength(1);
+    expect(erros[0]?.motivo).toMatch(/posto único.*não é compatível.*multiposto/i);
+  });
+
+  it('preserva o fluxo COSI de posto único', () => {
+    expect(validarEstruturaArquivoContraGrupo(
+      [atribuicao({ plantonistaNomeOriginal: 'Ana' })],
+      [],
+    )).toEqual([]);
   });
 });

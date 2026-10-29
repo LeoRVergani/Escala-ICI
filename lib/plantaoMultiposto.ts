@@ -224,6 +224,40 @@ export function validarFuncoesContraGrupo(
   }));
 }
 
+/**
+ * Bloqueia, antes de abrir o Editor, uma fonte de posto único enviada a
+ * um Grupo multiposto. Validar apenas funções conhecidas não basta: um XLS
+ * COSI não traz `funcao`, logo a validação antiga devolvia zero erros e o
+ * arquivo parecia compatível com CODB. O Grupo continua sendo a fonte de
+ * verdade e nenhuma função é inferida por nome de pessoa/arquivo.
+ */
+export function validarEstruturaArquivoContraGrupo(
+  atribuicoes: readonly { funcao?: FuncaoPlantao }[],
+  funcoesEsperadas: readonly FuncaoPlantao[],
+): ErroImportacaoPlantao[] {
+  if (funcoesEsperadas.length === 0 || atribuicoes.length === 0) {
+    return [];
+  }
+  const comFuncao = atribuicoes.filter((atribuicao) => atribuicao.funcao !== undefined).length;
+  if (comFuncao === 0) {
+    return [{
+      linha: 1,
+      coluna: 'Estrutura do arquivo',
+      valorEncontrado: 'PLANTAO_POSTO_UNICO',
+      motivo: `Este arquivo é de Plantão de posto único e não é compatível com o Grupo multiposto selecionado (${funcoesEsperadas.map((funcao) => ROTULO_FUNCAO_PLANTAO[funcao]).join(', ')}). Selecione o Grupo correto antes de importar.`,
+    }];
+  }
+  if (comFuncao < atribuicoes.length) {
+    return [{
+      linha: 1,
+      coluna: 'Estrutura do arquivo',
+      valorEncontrado: `${atribuicoes.length - comFuncao} atribuição(ões) sem posto`,
+      motivo: 'O arquivo mistura atribuições com e sem posto e não pode ser importado em um Grupo multiposto.',
+    }];
+  }
+  return validarFuncoesContraGrupo(atribuicoes, funcoesEsperadas);
+}
+
 export type StatusSaudePlantao = 'OK' | 'ATENCAO' | 'CRITICO';
 
 export interface SaudeFuncaoPlantao {
@@ -245,6 +279,8 @@ export interface SaudeFuncaoPlantao {
   atribuicoesSemFuncao: number;
   /** Total de ocorrências do PERÍODO (grupo inteiro — §22 da fase) — o mesmo valor em `todos` e em cada função, já que todo posto é esperado em toda ocorrência de um Grupo multiposto. */
   ocorrencias: number;
+  /** Grupo multiposto sem nenhuma atribuição para este recorte. Nunca pode aparecer como saudável. */
+  semDados: boolean;
   status: StatusSaudePlantao;
 }
 
@@ -263,6 +299,7 @@ function calcularStatusSaude(saude: Omit<SaudeFuncaoPlantao, 'status'>): StatusS
     || saude.conflitos > 0
     || saude.errosOrigem > 0
     || saude.atribuicoesSemFuncao > 0
+    || saude.semDados
   ) {
     return 'CRITICO';
   }
@@ -315,6 +352,7 @@ export function avaliarSaudePlantao(params: {
     const atribuicoesSemFuncao = filtro === 'TODOS' && ehMultiposto
       ? params.atribuicoes.filter((atribuicao) => atribuicao.funcao === undefined).length
       : 0;
+    const semDados = ehMultiposto && atribuicoesFiltradas.length === 0;
 
     const base = {
       atribuicoes: atribuicoesFiltradas.length,
@@ -327,6 +365,7 @@ export function avaliarSaudePlantao(params: {
       errosOrigem,
       avisos,
       atribuicoesSemFuncao,
+      semDados,
     };
     return { ...base, status: calcularStatusSaude(base) };
   }
@@ -338,6 +377,9 @@ export function avaliarSaudePlantao(params: {
   }
 
   const bloqueiosGlobais: string[] = [];
+  if (todos.semDados) {
+    bloqueiosGlobais.push('Sem dados: o Plantão multiposto não possui atribuições.');
+  }
   if (todos.postosFaltando > 0) {
     bloqueiosGlobais.push(`${todos.postosFaltando} posto(s) sem plantonista.`);
   }

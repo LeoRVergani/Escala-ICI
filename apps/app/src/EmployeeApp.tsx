@@ -8,6 +8,7 @@ import {
   converterInstanteUtcParaMomento,
   formatarCompetencia,
   formatarData,
+  diaSemanaEscalaCivil,
   formatarMinutos,
   formatarPeriodo,
   MAXIMO_CONTATOS_PLANTONISTA,
@@ -112,7 +113,8 @@ import {
   listarAtribuicoesPlantaoPublicada,
   listarGruposPlantaoPermitidos,
   listarParticipantesPlantao,
-  obterCompetenciaPlantaoPublicada,
+  obterCompetenciaPlantaoPublicadaNaData,
+  observarPublicacoesPlantao,
 } from '@/lib/firebase/plantaoReadRepository';
 import { atualizarContatosPlantonista, atualizarCorPlantonista } from '@/lib/firebase/plantaoWriteRepository';
 import {
@@ -802,7 +804,7 @@ function CalendarioPlantaoApp({
 }: CalendarioPlantaoAppProps) {
   const dias = diasCivisNoPeriodo(periodoInicio, periodoFim);
   const porDia = atribuicoesPorDiaCivil(atribuicoes, timezone);
-  const espacosIniciais = dias[0] ? new Date(`${dias[0]}T12:00:00Z`).getUTCDay() : 0;
+  const espacosIniciais = dias[0] ? diaSemanaEscalaCivil(dias[0]) : 0;
 
   return (
     <div className="calendar-view">
@@ -1105,9 +1107,7 @@ function CalendarioEscala({
   catalogo,
   onSelecionar,
 }: VisualizacaoEscalaProps) {
-  const espacosIniciais = datas[0]
-    ? new Date(`${datas[0]}T12:00:00Z`).getUTCDay()
-    : 0;
+  const espacosIniciais = datas[0] ? diaSemanaEscalaCivil(datas[0]) : 0;
   const espacosFinais = (7 - ((espacosIniciais + datas.length) % 7)) % 7;
 
   return (
@@ -2717,6 +2717,32 @@ export function EmployeeApp() {
     return () => cancelar?.();
   }, [usuario, modoDemonstracao]);
 
+  // Atualiza também quando a primeira publicação chega depois do login.
+  useEffect(() => {
+    if (usuario === null || modoDemonstracao || grupoPlantaoSelecionadoId === null) return;
+    const grupo = gruposPlantaoApp.find((item) => item.grupoId === grupoPlantaoSelecionadoId);
+    if (grupo === undefined) return;
+    let cancelado = false;
+    let revisaoCarga = 0;
+    const parar = observarPublicacoesPlantao(grupo.grupoId, () => {
+      const carga = ++revisaoCarga;
+      void carregarDetalheGrupoPlantao(grupo, usuario.login).then((detalhe) => {
+        if (cancelado || carga !== revisaoCarga) return;
+        setDetalhesPlantaoPorGrupoApp((atuais) => ({ ...atuais, [grupo.grupoId]: detalhe }));
+        aplicarDetalhePlantaoSelecionado(grupo, detalhe);
+      }).catch((falha) => {
+        if (!cancelado && carga === revisaoCarga) {
+          setErroPlantaoApp(mensagemErroFirebase(falha, 'Não foi possível atualizar o Plantão.', ambienteFirebaseAtual, 'autoatendimento'));
+        }
+      });
+    }, (falha) => {
+      if (!cancelado) setErroPlantaoApp(mensagemErroFirebase(falha, 'Não foi possível acompanhar as publicações do Plantão.', ambienteFirebaseAtual, 'autoatendimento'));
+    });
+    return () => { cancelado = true; parar(); };
+    // As funções de aplicação só escrevem estado; não são dependências da assinatura.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuario, modoDemonstracao, grupoPlantaoSelecionadoId, gruposPlantaoApp, dataHoje]);
+
   // Deep link de clique em notificação de Troca (`?trocaId=...`, ver
   // `public/service-worker.js`) — aplicado depois que a sessão e a carga
   // inicial terminam, nunca perde o destino por a sessão ainda estar sendo
@@ -3027,7 +3053,6 @@ export function EmployeeApp() {
     } catch {
       escopoOperacional = null;
     }
-    const competencia = competenciaOperacional(dataHoje);
     /**
      * A leitura do Grupo e a leitura dos detalhes passam por regras
      * diferentes no Firestore: a Matriz de Responsáveis tem sua PRÓPRIA
@@ -3042,13 +3067,14 @@ export function EmployeeApp() {
      */
     try {
       const [competenciaPublicada, participantes] = await Promise.all([
-        obterCompetenciaPlantaoPublicada(grupo.grupoId, competencia),
+        obterCompetenciaPlantaoPublicadaNaData(grupo.grupoId, dataHoje),
         listarParticipantesPlantao(grupo.grupoId),
       ]);
       const contatos = participantes.find((participante) => participante.login === loginUsuario)?.contatos ?? [];
       if (competenciaPublicada === null) {
         return { escopoOperacional, competencia: null, periodo: null, atribuicoes: [], participantes, contatos, erro: '' };
       }
+      const competencia = competenciaPublicada.competencia;
       const atribuicoes = await listarAtribuicoesPlantaoPublicada(grupo.grupoId, competencia);
       return {
         escopoOperacional,
@@ -4001,14 +4027,6 @@ export function EmployeeApp() {
                     grupoSelecionadoId={grupoPlantaoSelecionadoId}
                     onSelecionar={selecionarGrupoPlantaoApp}
                   />
-                  <PlantaoHojeCard
-                    grupo={grupoPlantaoApp}
-                    atribuicoes={atribuicoesPlantaoApp}
-                    participantes={participantesPlantaoApp}
-                    usuarios={usuarios}
-                    agoraIso={agora.toISOString()}
-                    loginUsuarioAtual={usuario.login}
-                  />
                   {souPlantonistaAtivoApp && (
                     <PlantaoStatsRow estatisticas={estatisticasPlantaoApp(usuario.login, atribuicoesPlantaoApp, grupoPlantaoApp.timezone)} />
                   )}
@@ -4045,14 +4063,6 @@ export function EmployeeApp() {
                           grupos={gruposPlantaoApp}
                           grupoSelecionadoId={grupoPlantaoSelecionadoId}
                           onSelecionar={selecionarGrupoPlantaoApp}
-                        />
-                        <PlantaoHojeCard
-                          grupo={grupoPlantaoApp}
-                          atribuicoes={atribuicoesPlantaoApp}
-                          participantes={participantesPlantaoApp}
-                          usuarios={usuarios}
-                          agoraIso={agora.toISOString()}
-                          loginUsuarioAtual={usuario.login}
                         />
                         {souPlantonistaAtivoApp && (
                           <PlantaoStatsRow estatisticas={estatisticasPlantaoApp(usuario.login, atribuicoesPlantaoApp, grupoPlantaoApp.timezone)} />

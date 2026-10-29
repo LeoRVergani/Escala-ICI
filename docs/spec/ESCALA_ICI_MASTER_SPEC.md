@@ -1,5 +1,7 @@
 # Spec Mestre — Projeto Escala ICI
 
+> Checkpoint executado em 2026-08-30: [`../validation/CORRECAO-COMPLETA-2026-08-30.md`](../validation/CORRECAO-COMPLETA-2026-08-30.md). Registra COSI/CODB, competência 26→25, permissões, App/Dashboard e planilhas reais sem substituir as regras normativas desta spec.
+
 **Produto:** Escala ICI  
 **Status:** implementação local acumulada  
 **Data:** agosto de 2026  
@@ -304,6 +306,21 @@ após persistência bem-sucedida. O cadastro usa a equipe responsável pelo Grup
 de Plantão, nunca a equipe/UID do operador autenticado. As Firestore Rules
 validam esse vínculo pelo Grupo e pela Matriz, sem abrir acesso geral a outras
 equipes.
+
+### 17.1 Jornada com pendências de importação
+
+Na Jornada (SOC/NOC), erros estruturais e alertas continuam destacados e
+acionáveis na revisão, mas não impedem salvar o rascunho nem publicar a parte
+válida da escala. A decisão pertence ao responsável operacional: publicar com
+qualquer pendência abre confirmação, lista os erros e exige uma justificativa
+de pelo menos três caracteres.
+
+As pendências aceitas são persistidas no rascunho, na escala publicada e no
+histórico da revisão, junto com a justificativa. Assim, recarregar a competência
+não apaga o aviso e uma correção posterior pode ser publicada como nova revisão.
+Pendência de vínculo de identidade continua impedindo a gravação até ser
+resolvida ou explicitamente ignorada, pois o sistema não pode escolher outra
+pessoa em nome do gestor.
 
 ## 18. Cadastro e delegação de coordenadores
 

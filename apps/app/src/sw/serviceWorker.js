@@ -5,7 +5,7 @@ import {
   processarMensagemEmSegundoPlano,
 } from './pushClickRouting.js';
 
-const VERSION = 'fase-3k-c-v1';
+const VERSION = 'fase-3k-c-v2';
 const PUSH_DIAGNOSTIC_VERSION = 'push-pwa-2b2d';
 const CACHE_SHELL = `escala-ici-shell-${VERSION}`;
 const CACHE_RUNTIME = `escala-ici-runtime-${VERSION}`;

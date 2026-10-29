@@ -86,7 +86,11 @@ describe('inicioEscala', () => {
     const administraveis = gruposPlantaoAdministraveis(grupos, (item) => item.grupoId === 'G1' || item.grupoId === 'G2');
     expect(administraveis.map((item) => item.grupoId)).toEqual(['G1', 'G2']);
     expect(resolverGrupoParaPlantao(grupos, (item) => item.grupoId === 'G1')).toMatchObject({ estado: 'RESOLVIDO' });
-    expect(resolverGrupoParaPlantao(grupos, () => false)).toEqual({ estado: 'CRIAR' });
+    expect(resolverGrupoParaPlantao(grupos, () => false)).toMatchObject({
+      estado: 'EXISTENTE_SEM_ACESSO',
+      opcoes: [{ grupoId: 'G1' }, { grupoId: 'G2' }],
+    });
+    expect(resolverGrupoParaPlantao([], () => false)).toEqual({ estado: 'CRIAR' });
   });
 
   it('normaliza identificadores inline e valida campos obrigatórios', () => {

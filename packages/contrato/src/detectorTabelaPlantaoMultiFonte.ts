@@ -22,6 +22,13 @@ export interface LocalizacaoTabelaPlantaoMultiFonte {
 
 const PREFIXO_PLANTONISTA = 'Plantonista';
 
+function ehCabecalhoPlantonistaOperacional(valor: string): boolean {
+  // A tabela lateral de contabilidade usa o plural "Plantonistas". Ela
+  // não é uma fonte operacional e nunca pode transformar COSI (uma coluna
+  // "Plantonista Segurança") em uma falsa planilha multifonte.
+  return /^plantonista(?:\s+.+)?$/iu.test(valor.trim());
+}
+
 /**
  * "Plantonista DBA" -> "DBA". Quando o cabeçalho é literalmente
  * "Plantonista" (sem sufixo), devolve o texto original — nunca inventa um
@@ -83,7 +90,7 @@ export function localizarTabelaPlantaoMultiFonte(
       for (let coluna = intervalo.s.c; coluna <= intervalo.e.c; coluna += 1) {
         const celula = obterCelula(planilha, linha, coluna);
         const chave = normalizarChaveEstrutural(valorCelula(celula));
-        if (chave.startsWith('PLANTONISTA')) {
+        if (chave.startsWith('PLANTONISTA') && ehCabecalhoPlantonistaOperacional(textoCelula(celula))) {
           colunasPlantonista.push({ coluna, fonte: extrairFonte(textoCelula(celula)) });
         } else if (chave === 'DATAINICIO') {
           colInicio = coluna;

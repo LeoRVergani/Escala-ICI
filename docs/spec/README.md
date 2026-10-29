@@ -1,5 +1,7 @@
 # Specs oficiais — Escala ICI
 
+Checkpoint mais recente da correção com planilhas reais: [`../validation/CORRECAO-COMPLETA-2026-08-30.md`](../validation/CORRECAO-COMPLETA-2026-08-30.md).
+
 Esta pasta concentra a fonte normativa atual do projeto. Checkpoints e arquivos de entrega são histórico: eles ajudam a entender o que foi feito, mas não substituem as specs listadas aqui.
 
 ## Ordem de leitura para alterações no Dashboard

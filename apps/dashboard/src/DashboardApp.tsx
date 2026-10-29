@@ -167,6 +167,7 @@ import {
   publicarCompetenciaPlantao,
 } from '@/lib/firebase/plantaoWriteRepository';
 import {
+  analisarCompetenciaImportacaoPlantao,
   competenciaAnterior,
   copiarAtribuicoesParaNovaCompetencia,
   dataPertenceCompetencia,
@@ -194,6 +195,7 @@ import {
   filtrarAtribuicoesPlantaoPorFuncao,
   ROTULO_FUNCAO_PLANTAO,
   validarFuncoesContraGrupo,
+  validarEstruturaArquivoContraGrupo,
   type FiltroFuncaoPlantao,
 } from '@/lib/plantaoMultiposto';
 import { PlantaoCalendario } from '@/components/plantao/PlantaoCalendario';
@@ -3350,14 +3352,12 @@ export function DashboardApp() {
   const [usuarios, setUsuarios] = useState<Usuario[]>(USUARIOS_DEMO);
   const [catalogo, setCatalogo] = useState(CATALOGO_SOC);
   const [resultado, setResultado] = useState<ResultadoParse | null>(null);
-  /**
-   * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — `true` só quando há
-   * erro BLOQUEANTE de verdade (nunca por causa de um ALERTA, que permite
-   * salvar rascunho e só exige justificativa para publicar). Substitui
-   * `!resultado?.ok` em todo gate de "Salvar rascunho"/"Publicar".
+  /** Erros permanecem visíveis e auditáveis, mas o gestor pode assumir a
+   * pendência e publicar. A única trava de fonte é não haver documento
+   * algum para persistir; publicação com qualquer erro exige justificativa.
    */
-  const resultadoTemBloqueio = resultado === null || temErroBloqueante(resultado.erros);
-  const resultadoTemAlertaSemBloqueio = resultado !== null && !resultadoTemBloqueio && resultado.erros.length > 0;
+  const resultadoTemBloqueio = resultado !== null && temErroBloqueante(resultado.erros);
+  const resultadoTemErros = resultado !== null && resultado.erros.length > 0;
   /**
    * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — "Ajustar"
    * (`ScheduleImportReview`) leva até a linha exata na tabela "Corrigir
@@ -3527,6 +3527,8 @@ export function DashboardApp() {
   // --- Administração de Plantão (Fase PLANTÃO-3B) — Grupos/participantes/contatos/rascunho ---
   const [gruposPlantaoAdmin, setGruposPlantaoAdmin] = useState<GrupoPlantao[]>([]);
   const [participantesPorGrupoPlantao, setParticipantesPorGrupoPlantao] = useState<Record<string, ParticipantePlantao[]>>({});
+  const [usuariosPorGrupoPlantao, setUsuariosPorGrupoPlantao] = useState<Record<string, Usuario[]>>({});
+  const [carregandoPessoasPlantao, setCarregandoPessoasPlantao] = useState<Record<string, boolean>>({});
   const [grupoPlantaoExpandido, setGrupoPlantaoExpandido] = useState<string | null>(null);
   const [erroPlantaoAdmin, setErroPlantaoAdmin] = useState('');
   /** FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — busca por nome/sigla na listagem de Grupos de Plantão (Administração). */
@@ -4492,14 +4494,15 @@ export function DashboardApp() {
       const datas = documentosCarregados.flatMap((documento) => Object.keys(documento.dias));
       const periodoInicio = datas.sort()[0] ?? '2026-07-26';
       const periodoFim = datas.sort().at(-1) ?? '2026-08-25';
+      const pendenciasImportacao = documentosCarregados[0]?.pendenciasImportacao ?? [];
       setResultado({
-        ok: true,
+        ok: pendenciasImportacao.length === 0,
         equipeNome: alvo.equipeId,
         periodoInicio,
         periodoFim,
         totalDias: new Set(datas).size,
         documentos: documentosCarregados,
-        erros: [],
+        erros: pendenciasImportacao,
         avisos: [],
       });
       setJornadaPossuiAlteracoesNaoSalvas(false);
@@ -4520,6 +4523,8 @@ export function DashboardApp() {
     setErroContextoEscala('');
     setAvisoContextoEscala('');
     setUsuarioReal(autenticado);
+    setUsuariosPorGrupoPlantao({});
+    setCarregandoPessoasPlantao({});
     setModoDemo(demonstracao);
     if (demonstracao) {
       // Laboratório local sem Firestore: semeia os dois contextos do COSI.
@@ -5345,10 +5350,8 @@ export function DashboardApp() {
       setWizardEquipeId(resolucao.estado === 'RESOLVIDO' ? resolucao.valor.id : '');
       setWizardGrupoId('');
     } else {
-      const resolucao = resolverGrupoParaPlantao(
-        gruposPlantaoAdmin.filter((grupo) => equipes.some((equipe) => equipe.id === grupo.equipeResponsavelId)),
-        podeGerenciarEsteGrupoPlantao,
-      );
+      const gruposNaArea = gruposPlantaoAdmin.filter((grupo) => equipes.some((equipe) => equipe.id === grupo.equipeResponsavelId));
+      const resolucao = resolverGrupoParaPlantao(gruposNaArea, podeGerenciarEsteGrupoPlantao);
       const resolucaoEquipe = resolverEquipeResponsavelParaPlantao(equipes, equipeJornadaReferenciaId);
       setWizardGrupoId(resolucao.estado === 'RESOLVIDO' ? resolucao.valor.grupoId : '');
       setWizardEquipeId(
@@ -5356,6 +5359,9 @@ export function DashboardApp() {
           ? resolucao.valor.equipeResponsavelId
           : resolucaoEquipe.estado === 'RESOLVIDO' ? resolucaoEquipe.valor.id : '',
       );
+      if (resolucao.estado === 'EXISTENTE_SEM_ACESSO') {
+        setWizardErro('Já existe um Grupo de Plantão nesta área, mas ele não está disponível para sua administração. Revise o responsável e a Matriz de Escopo Operacional; não crie outro grupo.');
+      }
     }
   }
   function mudarAreaWizard(areaId: string) {
@@ -5372,10 +5378,8 @@ export function DashboardApp() {
       setWizardEquipeId(resolucao.estado === 'RESOLVIDO' ? resolucao.valor.id : '');
       setWizardGrupoId('');
     } else if (wizardTipo === 'PLANTAO') {
-      const resolucao = resolverGrupoParaPlantao(
-        gruposPlantaoAdmin.filter((grupo) => equipes.some((equipe) => equipe.id === grupo.equipeResponsavelId)),
-        podeGerenciarEsteGrupoPlantao,
-      );
+      const gruposNaArea = gruposPlantaoAdmin.filter((grupo) => equipes.some((equipe) => equipe.id === grupo.equipeResponsavelId));
+      const resolucao = resolverGrupoParaPlantao(gruposNaArea, podeGerenciarEsteGrupoPlantao);
       const resolucaoEquipe = resolverEquipeResponsavelParaPlantao(equipes, equipeJornadaReferenciaId);
       setWizardGrupoId(resolucao.estado === 'RESOLVIDO' ? resolucao.valor.grupoId : '');
       setWizardEquipeId(
@@ -5383,6 +5387,10 @@ export function DashboardApp() {
           ? resolucao.valor.equipeResponsavelId
           : resolucaoEquipe.estado === 'RESOLVIDO' ? resolucaoEquipe.valor.id : '',
       );
+      setWizardErro(resolucao.estado === 'EXISTENTE_SEM_ACESSO'
+        ? 'Já existe um Grupo de Plantão nesta área, mas ele não está disponível para sua administração. Revise o responsável e a Matriz de Escopo Operacional; não crie outro grupo.'
+        : '');
+      return;
     }
     setWizardErro('');
   }
@@ -5462,6 +5470,13 @@ export function DashboardApp() {
     setWizardProcessando(true);
     setWizardErro('');
     try {
+      if (!modoDemo) {
+        const grupoExistente = await obterGrupoPlantao(identificador);
+        if (grupoExistente !== null) {
+          setWizardErro('Este Grupo de Plantão já existe. Se ele não aparece como destino, revise o responsável e a Matriz de Escopo Operacional; não crie uma duplicata.');
+          return;
+        }
+      }
       const agora = new Date().toISOString();
       const grupo = construirGrupoPlantaoOficial({
         grupoId: identificador,
@@ -5983,6 +5998,32 @@ export function DashboardApp() {
       if (grupo === undefined) {
         return falhar('O Grupo de Plantão selecionado não foi encontrado. Recarregue as operações e tente novamente.');
       }
+      const errosEstrutura = validarEstruturaArquivoContraGrupo(
+        processado.resultado.atribuicoes,
+        grupo.funcoesEsperadas ?? [],
+      );
+      if (errosEstrutura.length > 0) {
+        return falhar(errosEstrutura.map((erro) => erro.motivo).join(' '));
+      }
+      const analiseCompetencia = analisarCompetenciaImportacaoPlantao(processado.resultado.atribuicoes);
+      if (analiseCompetencia.estado === 'AMBIGUA') {
+        const encontradas = analiseCompetencia.competenciasEncontradas.length > 0
+          ? ` (${analiseCompetencia.competenciasEncontradas.join(', ')})`
+          : '';
+        return falhar(`A planilha contém mais de uma competência operacional real${encontradas}. Separe o arquivo por competência antes de importar.`);
+      }
+      if (analiseCompetencia.estado === 'VAZIA' && (grupo.funcoesEsperadas?.length ?? 0) > 0) {
+        return falhar('Sem dados: o arquivo não contém atribuições para o Plantão multiposto selecionado.');
+      }
+      const competenciaDetectada = analiseCompetencia.estado === 'UNICA' ? analiseCompetencia.competencia : undefined;
+      const competenciaInformada = opcoesPlantao.competencia;
+      const competenciaFoiAjustada = competenciaDetectada !== undefined
+        && competenciaInformada !== undefined
+        && competenciaInformada !== competenciaDetectada;
+      const opcoesPlantaoAjustadas = {
+        ...opcoesPlantao,
+        competencia: competenciaDetectada ?? competenciaInformada,
+      };
       let usuariosDoGrupo = usuarios;
       if (!modoDemo) {
         try {
@@ -6014,7 +6055,10 @@ export function DashboardApp() {
       const resultadoPlantaoValidado = errosFuncaoForaDoGrupo.length === 0
         ? processado.resultado
         : { ...processado.resultado, ok: false, erros: [...processado.resultado.erros, ...errosFuncaoForaDoGrupo] };
-      interpretarPlantao(buffer, file.name, resultadoPlantaoValidado, opcoesPlantao, usuariosDoGrupo);
+      interpretarPlantao(buffer, file.name, resultadoPlantaoValidado, opcoesPlantaoAjustadas, usuariosDoGrupo);
+      if (competenciaFoiAjustada) {
+        setMensagem(`Competência ajustada de ${competenciaInformada} para ${competenciaDetectada} com base nas ocorrências da planilha (janela 26→25).`);
+      }
       return true;
     }
     setResultadoPlantao(null);
@@ -6109,11 +6153,10 @@ export function DashboardApp() {
   }
 
   async function salvar() {
-    // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — salvar rascunho só
-    // trava por erro BLOQUEANTE (estrutural). Um ALERTA (ex.: sequência de
-    // trabalho fora do padrão) pode ser uma exceção operacional legítima —
-    // ver tabela de severidade em ErroImportacao/temErroBloqueante().
-    if (resultado === null || usuarioEfetivo === null || temErroBloqueante(resultado.erros)) {
+    // O gestor pode salvar uma prévia parcial mesmo com erro de origem para
+    // corrigir depois. Os erros continuam no preview; vínculos de identidade
+    // ainda precisam estar resolvidos para não gravar uma pessoa errada.
+    if (resultado === null || usuarioEfetivo === null) {
       return;
     }
     if (escritaBloqueada) {
@@ -6146,10 +6189,13 @@ export function DashboardApp() {
         documentos: resultado.documentos.map((documento) => ({
           ...documento,
           status: 'RASCUNHO',
+          pendenciasImportacao: resultado.erros,
         })),
       });
       setJornadaPossuiAlteracoesNaoSalvas(false);
-      setMensagem('Rascunho salvo com sucesso. Nenhum arquivo foi enviado.');
+      setMensagem(resultado.erros.length > 0
+        ? `Rascunho salvo com ${resultado.erros.length} pendência(s) registrada(s) para correção posterior.`
+        : 'Rascunho salvo com sucesso. Nenhum arquivo foi enviado.');
       setTela('escalas');
     } catch (falha) {
       setMensagem(mensagemErroEscritaOperacional(falha, 'Não foi possível salvar.', matrizReconheceUsuario));
@@ -6160,12 +6206,11 @@ export function DashboardApp() {
 
   async function publicar() {
     setErroPublicacao('');
-    // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — publicar também só
-    // trava por erro BLOQUEANTE. Com ALERTA presente e nenhum BLOQUEANTE,
-    // a publicação segue, mas exige justificativa (ver checagem de
-    // motivoPublicacao abaixo, agora também disparada por ALERTA).
-    if (resultado === null || usuarioEfetivo === null || temErroBloqueante(resultado.erros)) {
-      setErroPublicacao('Corrija todos os logins e inconsistências antes de publicar.');
+    // Publicar com qualquer erro de origem é uma decisão explícita do gestor:
+    // o modal lista as pendências e exige justificativa para a trilha de
+    // revisão. Isso permite publicar a parte válida e corrigir depois.
+    if (resultado === null || usuarioEfetivo === null) {
+      setErroPublicacao('Nenhuma escala está pronta para publicação.');
       return;
     }
     if (escritaBloqueada) {
@@ -6176,10 +6221,10 @@ export function DashboardApp() {
       setErroPublicacao('Resolva as pendências de conciliação de nomes antes de publicar.');
       return;
     }
-    const publicandoComAlerta = resultado.erros.length > 0;
-    if ((revisaoAtual > 0 || publicandoComAlerta) && motivoPublicacao.trim().length < 3) {
-      setErroPublicacao(publicandoComAlerta
-        ? 'Explique a justificativa da exceção antes de publicar com alerta.'
+    const publicandoComErro = resultado.erros.length > 0;
+    if ((revisaoAtual > 0 || publicandoComErro) && motivoPublicacao.trim().length < 3) {
+      setErroPublicacao(publicandoComErro
+        ? 'Explique por que a escala será publicada ciente das pendências.'
         : 'Informe um motivo curto para explicar o que mudou nesta publicação.');
       return;
     }
@@ -6201,6 +6246,7 @@ export function DashboardApp() {
           resultado.documentos,
           usuarioEfetivo.login,
           motivoPublicacao,
+          resultado.erros,
         );
         setHistorico((atual) => [publicacao, ...atual]);
         setRevisaoAtual(publicacao.revisao);
@@ -6219,7 +6265,9 @@ export function DashboardApp() {
         })),
       });
       setJornadaPossuiAlteracoesNaoSalvas(false);
-      setMensagem('Escala publicada para a equipe.');
+      setMensagem(resultado.erros.length > 0
+        ? `Escala publicada com ${resultado.erros.length} pendência(s) assumida(s) e justificativa registrada.`
+        : 'Escala publicada para a equipe.');
       setPublicacaoPendente(false);
       setMotivoPublicacao('');
     } catch (falha) {
@@ -7406,14 +7454,24 @@ export function DashboardApp() {
     // próprio, independente do de participantes) para a seção "Rascunhos"
     // aparecer assim que o card expande, sem um segundo botão/toggle.
     void garantirRascunhosDoGrupoCarregados(grupoId);
-    if (modoDemo || participantesPorGrupoPlantao[grupoId] !== undefined) {
+    if (modoDemo || grupoPlantaoExpandido === grupoId) {
       return;
     }
+    const grupo = gruposPlantaoAdmin.find((item) => item.grupoId === grupoId);
+    if (grupo === undefined) return;
+    setCarregandoPessoasPlantao((atuais) => ({ ...atuais, [grupoId]: true }));
+    setErroPlantaoAdmin('');
     try {
-      const participantes = await listarParticipantesPlantao(grupoId);
+      const [participantes, candidatos] = await Promise.all([
+        listarParticipantesPlantao(grupoId),
+        listarUsuariosElegiveisPlantao(grupo.equipeResponsavelId, grupoId, grupo.unidadeResponsavelId, grupo.equipesConsulta),
+      ]);
       setParticipantesPorGrupoPlantao((atuais) => ({ ...atuais, [grupoId]: participantes }));
+      setUsuariosPorGrupoPlantao((atuais) => ({ ...atuais, [grupoId]: candidatos }));
     } catch (falha) {
       setErroPlantaoAdmin(mensagemErroFirebase(falha, 'Não foi possível carregar os participantes deste grupo.', ambienteFirebaseAtual));
+    } finally {
+      setCarregandoPessoasPlantao((atuais) => ({ ...atuais, [grupoId]: false }));
     }
   }
 
@@ -8556,14 +8614,15 @@ export function DashboardApp() {
       }
       const datas = documentosExistentes.flatMap((documento) => Object.keys(documento.dias));
       const periodo = periodoDaCompetencia(alvo.competencia);
+      const pendenciasImportacao = documentosExistentes[0]?.pendenciasImportacao ?? [];
       setResultado({
-        ok: true,
+        ok: pendenciasImportacao.length === 0,
         equipeNome: alvo.label,
         periodoInicio: datas.sort()[0] ?? periodo?.periodoInicio ?? '',
         periodoFim: datas.sort().at(-1) ?? periodo?.periodoFim ?? '',
         totalDias: new Set(datas).size,
         documentos: documentosExistentes,
-        erros: [],
+        erros: pendenciasImportacao,
         avisos: [],
       });
       setJornadaPossuiAlteracoesNaoSalvas(false);
@@ -8785,8 +8844,10 @@ export function DashboardApp() {
   const equipesWizard = wizardTipo === 'JORNADA'
     ? equipesAdministraveisNaUnidade(equipesAdmin, areaWizardEfetiva, minhasEquipesDeJornadaPermitidas, souAdmin)
     : equipesCandidatasParaPlantao(equipesWizardCompletas, equipeJornadaReferenciaId);
-  const gruposWizard = escoposOperacionais.plantoesAdministraveis
-    .filter((grupo) => equipesWizardCompletas.some((equipe) => equipe.id === grupo.equipeResponsavelId));
+  const gruposExistentesWizard = gruposPlantaoAdmin
+    .filter((grupo) => grupo.ativo && equipesWizardCompletas.some((equipe) => equipe.id === grupo.equipeResponsavelId));
+  const gruposWizard = gruposExistentesWizard.filter(podeGerenciarEsteGrupoPlantao);
+  const grupoExistenteSemAdministracaoWizard = gruposWizard.length === 0 && gruposExistentesWizard.length > 0;
   /**
    * Fase CORRECAO-WIZARD-PLANTAO-EQUIPE-1 — "área de gestão" a EXIBIR no
    * Wizard nunca deveria dizer "não cadastrada" quando a equipe já
@@ -9260,7 +9321,11 @@ export function DashboardApp() {
                   <span>Escalas</span>
                 </button>
               </div>
-              <p className="eyebrow">Importação segura</p><h1>Importar escala</h1><p>O arquivo é processado somente na memória deste navegador.</p>
+              <p className="eyebrow">Gestão de escalas</p>
+              <h1>{tipoArquivoDetectado === 'PLANTAO' && origemPlantaoAtual !== null ? 'Editar escala de Plantão' : 'Importar escala'}</h1>
+              <p>{tipoArquivoDetectado === 'PLANTAO' && origemPlantaoAtual !== null
+                ? 'Escolha uma pessoa, preencha os plantões e salve. Publique para disponibilizar à equipe.'
+                : 'O arquivo é processado somente na memória deste navegador.'}</p>
             </div>
           </header>
           {tipoArquivoDetectado === 'PLANTAO' && origemPlantaoAtual !== null ? (
@@ -9493,9 +9558,7 @@ export function DashboardApp() {
                     <div>
                       <strong>{nomeArquivo}</strong>
                       <span>
-                        {resultadoTemBloqueio
-                          ? 'Aguardando correções'
-                          : resultadoTemAlertaSemBloqueio ? 'Pronto para salvar (com alerta)' : 'Pronto para salvar'}
+                        {resultadoTemErros ? 'Pronto para salvar com pendências' : 'Pronto para salvar'}
                       </span>
                     </div>
                     {processando
@@ -9511,7 +9574,7 @@ export function DashboardApp() {
                     <button
                       className="primary-button"
                       type="button"
-                      disabled={resultadoTemBloqueio || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
+                      disabled={processando || escritaBloqueada || conciliacaoBloqueiaPublicacao || !resultado?.documentos.length}
                       onClick={() => void salvar()}
                     >
                       <Save size={17} /> Salvar rascunho
@@ -9620,9 +9683,7 @@ export function DashboardApp() {
                   <div>
                     <h2>Corrigir inconsistências</h2>
                     <p>
-                      {resultadoTemBloqueio
-                        ? 'Nada será gravado enquanto houver erros bloqueantes.'
-                        : 'Sem erros bloqueantes — dá para salvar rascunho. Publicar vai pedir confirmação e justificativa.'}
+                      Os erros permanecem destacados, mas é possível salvar. Para publicar com pendências, confirme a decisão e informe uma justificativa.
                     </p>
                   </div>
                   {resultado.erros.some((erro) => erro.motivo.includes('loginParaUid')) && (
@@ -9800,7 +9861,7 @@ export function DashboardApp() {
                 {contextoEhJornada(contextoEscalaAtivo) && <button
                   className="primary-button"
                   type="button"
-                  disabled={!documentos.length || resultadoTemBloqueio || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
+                  disabled={!documentos.length || processando || escritaBloqueada || conciliacaoBloqueiaPublicacao}
                   onClick={() => {
                     setErroPublicacao('');
                     setPublicacaoPendente(true);
@@ -10029,7 +10090,15 @@ export function DashboardApp() {
                   <button className="secondary-button" type="button" disabled={escritaBloqueada || !usuarios.length} onClick={abrirAdicionarMembroGrade}>
                     <UserPlus size={15} /> Adicionar colaborador
                   </button>
-                  <button className="primary-button" type="button" disabled={!documentos.length || escritaBloqueada} onClick={() => void salvar()}>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={!documentos.length || escritaBloqueada || conciliacaoBloqueiaPublicacao}
+                    title={conciliacaoBloqueiaPublicacao
+                        ? 'Resolva os vínculos pendentes antes de salvar.'
+                        : undefined}
+                    onClick={() => void salvar()}
+                  >
                     <Save size={15} /> Salvar alterações
                   </button>
                 </>
@@ -10333,7 +10402,7 @@ export function DashboardApp() {
             const expandido = grupoPlantaoExpandido === grupo.grupoId;
             const equipeResponsavel = equipesAdmin.find((item) => item.id === grupo.equipeResponsavelId);
             const termoBusca = buscaParticipanteNovo[grupo.grupoId] ?? '';
-            const poolBusca = souAdmin ? todosUsuariosAdmin : usuarios;
+            const poolBusca = modoDemo ? usuarios : souAdmin ? todosUsuariosAdmin : (usuariosPorGrupoPlantao[grupo.grupoId] ?? []);
             const resultadosBusca = termoBusca.trim() === ''
               ? []
               : buscarUsuariosPlantao(poolBusca, termoBusca)
@@ -10399,7 +10468,8 @@ export function DashboardApp() {
                       </thead>
                       <tbody>
                         {participantesDoGrupo.map((participante) => {
-                          const usuarioParticipante = usuarios.find((item) => item.login === participante.login)
+                          const usuarioParticipante = (usuariosPorGrupoPlantao[grupo.grupoId] ?? []).find((item) => item.login === participante.login)
+                            ?? usuarios.find((item) => item.login === participante.login)
                             ?? todosUsuariosAdmin.find((item) => item.login === participante.login);
                           const nomeExibicao = usuarioParticipante?.nome ?? participante.login;
                           return (
@@ -10465,9 +10535,14 @@ export function DashboardApp() {
                               [grupo.grupoId]: evento.target.value,
                             }))}
                             placeholder="Buscar usuário por nome ou login para adicionar…"
+                            disabled={carregandoPessoasPlantao[grupo.grupoId] === true}
                             aria-label={`Buscar usuário para adicionar ao grupo ${grupo.nome}`}
                           />
                         </label>
+                        {carregandoPessoasPlantao[grupo.grupoId] && <p role="status">Carregando pessoas deste Plantão…</p>}
+                        {!carregandoPessoasPlantao[grupo.grupoId] && termoBusca.trim() !== '' && resultadosBusca.length === 0 && (
+                          <p role="status">Nenhuma pessoa disponível com esse nome ou login neste Plantão.</p>
+                        )}
                         {resultadosBusca.length > 0 && (
                           <ul className="plantao-busca-resultados">
                             {resultadosBusca.map((candidato) => (
@@ -11121,6 +11196,7 @@ export function DashboardApp() {
           equipeId={wizardEquipeId}
           onMudarEquipe={mudarEquipeWizard}
           grupos={gruposWizard}
+          grupoExistenteSemAdministracao={grupoExistenteSemAdministracaoWizard}
           grupoId={wizardGrupoId}
           onMudarGrupo={mudarGrupoWizard}
           competencia={wizardCompetencia}
@@ -11284,8 +11360,8 @@ export function DashboardApp() {
               <div>
                 <p className="eyebrow">Comunicação da mudança</p>
                 <h2 id="publication-title">
-                  {resultadoTemAlertaSemBloqueio
-                    ? `Esta escala possui ${resultado?.erros.length ?? 0} alerta(s). Deseja publicar mesmo assim?`
+                  {resultadoTemErros
+                    ? `Esta escala possui ${resultado?.erros.length ?? 0} pendência(s). Deseja publicar mesmo assim?`
                     : 'Publicar nova versão da escala?'}
                 </h2>
                 <p>Os colaboradores afetados receberão esta informação no sino do App.</p>
@@ -11299,7 +11375,7 @@ export function DashboardApp() {
                 <X size={18} />
               </button>
             </div>
-            {resultadoTemAlertaSemBloqueio && (
+            {resultadoTemErros && (
               <ul className="admin-form-preview">
                 {resultado?.erros.map((erro, indice) => (
                   <li key={indice}>{erro.login ? `${erro.login}: ` : ''}{erro.motivo}</li>
@@ -11307,12 +11383,12 @@ export function DashboardApp() {
               </ul>
             )}
             <label className="publication-reason">
-              {resultadoTemAlertaSemBloqueio ? 'Justificativa da exceção' : 'Motivo da publicação'}
+              {resultadoTemErros ? 'Justificativa para publicar com pendências' : 'Motivo da publicação'}
               <textarea
                 value={motivoPublicacao}
                 onChange={(evento) => setMotivoPublicacao(evento.target.value)}
-                placeholder={resultadoTemAlertaSemBloqueio
-                  ? 'Ex.: Colaborador estará em curso no período da tarde.'
+                placeholder={resultadoTemErros
+                  ? 'Ex.: Publicação autorizada; o conflito de 18/09 será corrigido na próxima revisão.'
                   : 'Ex.: Ajuste da cobertura da madrugada'}
                 maxLength={180}
                 autoFocus
@@ -11327,7 +11403,7 @@ export function DashboardApp() {
               <button
                 className="primary-button"
                 type="button"
-                disabled={processando || ((revisaoAtual > 0 || resultadoTemAlertaSemBloqueio) && motivoPublicacao.trim().length < 3)}
+                disabled={processando || ((revisaoAtual > 0 || resultadoTemErros) && motivoPublicacao.trim().length < 3)}
                 onClick={() => void publicar()}
               >
                 {processando ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
