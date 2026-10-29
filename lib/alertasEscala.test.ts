@@ -9,7 +9,9 @@ import {
   detectarSequencias6x1,
   gerarAlertasEscala,
   isDiaDeTrabalho,
+  MINIMO_DESCANSO_APOS_FOLGA_HORAS,
   temDescansoInsuficiente,
+  tituloAlertaDescanso,
 } from './alertasEscala';
 
 function diaTrabalho(codigo: string): Dia {
@@ -182,6 +184,9 @@ describe('descanso mínimo de 11 horas', () => {
       dataAtual: '2026-08-06',
       codigoAtual: 'M',
       descansoHoras: 6,
+      minimoHoras: 11,
+      regra: 'INTERJORNADA',
+      datasFolga: [],
     });
   });
 
@@ -227,7 +232,129 @@ describe('agregação e índice para a grade', () => {
       '2026-08-06': diaTrabalho('M'),
     });
     const indice = construirIndiceAlertasGrade([doc], CATALOGO_SOC);
-    expect(indice.get('uid-ana_2026-08-06')).toEqual({ sequencia: 2, descansoInsuficiente: true });
+    expect(indice.get('uid-ana_2026-08-06')).toEqual({
+      sequencia: 2,
+      descansoInsuficiente: true,
+      descansoMinimoHoras: 11,
+    });
     expect(indice.get('uid-ana_2026-08-05')).toEqual({ sequencia: 1 });
+  });
+});
+
+/**
+ * HOTFIX-DSR-35H-1 — regras do Controle de Plantão: após folga, o descanso
+ * entre o fim do último turno e o retorno precisa ser de 35h (DSR 24h +
+ * interjornada 11h).
+ */
+describe('descanso após folga (DSR 24h + 11h = 35h)', () => {
+  it('o mínimo é 35h', () => {
+    expect(MINIMO_DESCANSO_APOS_FOLGA_HORAS).toBe(35);
+  });
+
+  it('caso real: Noite 13/11, DF 14/11, Manhã 15/11 = 30h → alerta', () => {
+    const doc = documento({
+      '2026-11-13': diaTrabalho('N'),
+      '2026-11-14': diaDescanso('DF'),
+      '2026-11-15': diaTrabalho('M'),
+    });
+    const alertas = detectarDescansoInsuficiente(doc, CATALOGO_SOC);
+    expect(alertas).toHaveLength(1);
+    expect(alertas[0]).toMatchObject({
+      dataAnterior: '2026-11-13',
+      codigoAnterior: 'N',
+      dataAtual: '2026-11-15',
+      codigoAtual: 'M',
+      descansoHoras: 30,
+      minimoHoras: 35,
+      regra: 'DSR',
+      datasFolga: ['2026-11-14'],
+    });
+    expect(tituloAlertaDescanso(alertas[0]!)).toBe('Descanso inferior a 35h após folga');
+  });
+
+  it('o ajuste feito (retorno à Tarde, 36h) passa', () => {
+    const doc = documento({
+      '2026-11-13': diaTrabalho('N'),
+      '2026-11-14': diaDescanso('DF'),
+      '2026-11-15': { c: 'HE', t: 'T', i: '13:00', f: '19:00', vd: false },
+    });
+    expect(detectarDescansoInsuficiente(doc, CATALOGO_SOC)).toEqual([]);
+  });
+
+  it('Noite no sábado não pode ser seguida de Manhã na segunda (folga no domingo)', () => {
+    const doc = documento({
+      '2026-11-21': diaTrabalho('N'),
+      '2026-11-22': diaDescanso('DF'),
+      '2026-11-23': diaTrabalho('M'),
+    });
+    expect(detectarDescansoInsuficiente(doc, CATALOGO_SOC)).toEqual([
+      expect.objectContaining({ regra: 'DSR', descansoHoras: 30, minimoHoras: 35 }),
+    ]);
+  });
+
+  it('Tarde antes da folga e Madrugada no retorno (30h) → alerta', () => {
+    const doc = documento({
+      '2026-11-05': diaTrabalho('T'),
+      '2026-11-06': diaDescanso('DU'),
+      '2026-11-07': diaTrabalho('MD'),
+    });
+    expect(detectarDescansoInsuficiente(doc, CATALOGO_SOC)).toEqual([
+      expect.objectContaining({ regra: 'DSR', descansoHoras: 30 }),
+    ]);
+  });
+
+  it('exatamente 35h não é insuficiente', () => {
+    // Noite termina 01:00 do dia 14; retorno 12:00 do dia 15 = 35h.
+    const doc = documento({
+      '2026-11-13': diaTrabalho('N'),
+      '2026-11-14': diaDescanso('DF'),
+      '2026-11-15': { c: 'M', i: '12:00', f: '18:00', m: 360, vd: false },
+    });
+    expect(detectarDescansoInsuficiente(doc, CATALOGO_SOC)).toEqual([]);
+  });
+
+  it('mesmo turno antes e depois da folga (Manhã → DF → Manhã = 42h) passa', () => {
+    const doc = documento({
+      '2026-11-13': diaTrabalho('M'),
+      '2026-11-14': diaDescanso('DF'),
+      '2026-11-15': diaTrabalho('M'),
+    });
+    expect(detectarDescansoInsuficiente(doc, CATALOGO_SOC)).toEqual([]);
+  });
+
+  it('folga de feriado também conta como DSR', () => {
+    const doc = documento({
+      '2026-11-01': diaTrabalho('N'),
+      '2026-11-02': diaDescanso('FOLGA'),
+      '2026-11-03': diaTrabalho('M'),
+    });
+    expect(detectarDescansoInsuficiente(doc, CATALOGO_SOC)).toHaveLength(1);
+  });
+
+  it('não aplica a regra quando há férias ou dia sem escala no intervalo', () => {
+    const comFerias = documento({
+      '2026-11-13': diaTrabalho('N'),
+      '2026-11-14': diaDescanso('X'),
+      '2026-11-15': diaTrabalho('M'),
+    });
+    const semEscala = documento({
+      '2026-11-13': diaTrabalho('N'),
+      '2026-11-15': diaTrabalho('M'),
+    }, { periodoInicio: '2026-11-13', periodoFim: '2026-11-15' });
+    expect(detectarDescansoInsuficiente(comFerias, CATALOGO_SOC)).toEqual([]);
+    expect(detectarDescansoInsuficiente(semEscala, CATALOGO_SOC)).toEqual([]);
+  });
+
+  it('marca o dia de retorno na grade com o mínimo de 35h', () => {
+    const doc = documento({
+      '2026-11-13': diaTrabalho('N'),
+      '2026-11-14': diaDescanso('DF'),
+      '2026-11-15': diaTrabalho('M'),
+    });
+    expect(construirIndiceAlertasGrade([doc], CATALOGO_SOC).get('uid-ana_2026-11-15')).toEqual({
+      sequencia: 1,
+      descansoInsuficiente: true,
+      descansoMinimoHoras: 35,
+    });
   });
 });
