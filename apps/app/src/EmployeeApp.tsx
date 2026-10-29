@@ -22,6 +22,7 @@ import {
   type ContextoJornada,
   type GrupoPlantao,
   type IntervaloTurno,
+  type JornadaDia,
   type ParticipantePlantao,
   type TurnosMes,
 } from '@escala-ici/contrato';
@@ -356,6 +357,34 @@ function IconeTurno({ codigo }: { codigo: string }) {
   return <Coffee />;
 }
 
+/**
+ * HOTFIX-HE-TURNO-1 — chip do dia. A cor vem do período real
+ * (`jornada.periodo`): numa Hora Extra à tarde o chip é laranja com "T",
+ * mais o selo "HE" para não perder a informação de que é hora extra.
+ */
+function ChipJornada({
+  jornada,
+  as: Elemento = 'span',
+  vazio = '—',
+}: {
+  jornada: Pick<JornadaDia, 'codigo' | 'periodo' | 'horaExtra'>;
+  as?: 'span' | 'strong';
+  vazio?: string;
+}) {
+  return (
+    <Elemento
+      className="shift-chip"
+      data-code={jornada.periodo}
+      data-hora-extra={jornada.horaExtra && jornada.periodo !== jornada.codigo ? '' : undefined}
+    >
+      {jornada.periodo || vazio}
+      {jornada.horaExtra && jornada.periodo !== jornada.codigo && (
+        <span className="shift-chip-he" aria-label="Hora extra">HE</span>
+      )}
+    </Elemento>
+  );
+}
+
 function TurnoHoje({ contexto }: { contexto: ContextoJornada }) {
   const turnoDestaque = contexto.turnoAtual ?? (
     contexto.hoje.trabalha
@@ -370,14 +399,14 @@ function TurnoHoje({ contexto }: { contexto: ContextoJornada }) {
     <article
       className="today-hero"
       data-state={trabalhando ? contexto.estado : 'DESCANSO'}
-      data-code={turnoDestaque?.codigo ?? ''}
+      data-code={turnoDestaque?.periodo ?? ''}
     >
       <header className="today-card-heading">
         <span>Seu turno hoje</span>
       </header>
       <div className="today-hero-heading">
         <span className="today-hero-icon">
-          {turnoDestaque ? <IconeTurno codigo={turnoDestaque.codigo} /> : <Coffee />}
+          {turnoDestaque ? <IconeTurno codigo={turnoDestaque.periodo} /> : <Coffee />}
         </span>
         <div>
           <strong className="today-shift-name">
@@ -404,9 +433,7 @@ function TurnoHoje({ contexto }: { contexto: ContextoJornada }) {
       {turnoDestaque ? (
         <div className="today-meta">
           <span className="live-badge"><i /> {textoEstado(contexto)}</span>
-          <span className="shift-chip" data-code={turnoDestaque.codigo}>
-            {turnoDestaque.codigo}
-          </span>
+          <ChipJornada jornada={turnoDestaque} />
           <span>{formatarMinutos(turnoDestaque.duracaoMinutos)}</span>
           {turnoDestaque.viraDia && <span>termina no dia seguinte</span>}
         </div>
@@ -444,8 +471,8 @@ function ProximosDias({ turnos }: { turnos: IntervaloTurno[] }) {
                 <strong>{formatarData(turno.data, { day: '2-digit' })}</strong>
                 <small>{capitalizar(formatarData(turno.data, { weekday: 'short' }).replace('.', ''))}</small>
               </span>
-              <span className="proximos-dias-icone" data-code={turno.codigo}>
-                <IconeTurno codigo={turno.codigo} />
+              <span className="proximos-dias-icone" data-code={turno.periodo}>
+                <IconeTurno codigo={turno.periodo} />
               </span>
               <span className="proximos-dias-info">
                 <strong>{turno.descricao}</strong>
@@ -1009,9 +1036,7 @@ function ResumoSemana({
             >
               <small>{formatarData(data, { weekday: 'short' }).replace('.', '')}</small>
               <strong>{formatarData(data, { day: '2-digit' })}</strong>
-              <span className="shift-chip" data-code={jornada.codigo}>
-                {jornada.codigo || '—'}
-              </span>
+              <ChipJornada jornada={jornada} />
             </button>
           );
         })}
@@ -1041,9 +1066,9 @@ function DetalheDia({
         <strong>{capitalizar(formatarData(data, { weekday: 'long' }))}</strong>
         <span>{formatarData(data, { day: '2-digit', month: 'long' })}</span>
       </div>
-      <div className="selected-day-shift" data-code={jornada.codigo}>
+      <div className="selected-day-shift" data-code={jornada.periodo}>
         <span className="selected-day-icon">
-          <IconeTurno codigo={jornada.codigo} />
+          <IconeTurno codigo={jornada.periodo} />
         </span>
         <div>
           <strong>{jornada.descricao}</strong>
@@ -1053,7 +1078,9 @@ function DetalheDia({
               : 'Sem horário de trabalho'}
           </span>
         </div>
-        <b>{jornada.codigo || '—'}</b>
+        <b>{jornada.horaExtra && jornada.periodo !== jornada.codigo
+          ? `${jornada.periodo} · ${jornada.codigo}`
+          : jornada.codigo || '—'}</b>
       </div>
       <div className="selected-day-facts">
         <div>
@@ -1083,7 +1110,7 @@ function DetalheDia({
           </strong>
         </div>
       </div>
-      {onSolicitarTroca && jornada.trabalha && (
+      {onSolicitarTroca && jornada.trabalha && !jornada.horaExtra && (
         <button
           className="secondary-button selected-day-troca-button"
           type="button"
@@ -1144,9 +1171,7 @@ function CalendarioEscala({
                 {formatarData(data, { day: 'numeric' })}
                 <small>{formatarData(data, { month: 'short' }).replace('.', '')}</small>
               </span>
-              <strong className="shift-chip" data-code={jornada.codigo}>
-                {jornada.codigo || '—'}
-              </strong>
+              <ChipJornada jornada={jornada} as="strong" />
               <small>
                 {jornada.trabalha && jornada.inicio && jornada.fim
                   ? `${jornada.inicio}–${jornada.fim}`
@@ -1180,7 +1205,7 @@ function AgendaEscala({
           <button
             key={data}
             type="button"
-            data-code={jornada.codigo}
+            data-code={jornada.periodo}
             className={[
               data === dataHoje ? 'today' : '',
               selecionado ? 'selected' : '',
@@ -1193,8 +1218,8 @@ function AgendaEscala({
               <strong>{formatarData(data, { day: '2-digit' })}</strong>
               <small>{formatarData(data, { month: 'short' }).replace('.', '')}</small>
             </span>
-            <span className="agenda-shift-icon" data-code={jornada.codigo}>
-              <IconeTurno codigo={jornada.codigo} />
+            <span className="agenda-shift-icon" data-code={jornada.periodo}>
+              <IconeTurno codigo={jornada.periodo} />
             </span>
             <span className="agenda-description">
               <strong>{jornada.descricao}</strong>
@@ -1723,7 +1748,7 @@ function AssistenteNovaTroca({
       .filter((documento) => documento.login !== usuario.login)
       .filter((documento) => usuarios.find((item) => item.login === documento.login)?.ativo !== false)
       .map((documento) => ({ documento, jornada: resolverJornadaDia(documento, catalogo, data) }))
-      .filter(({ jornada }) => jornada.trabalha)
+      .filter(({ jornada }) => jornada.trabalha && !jornada.horaExtra)
     : [];
   const destinatario = colegasNoDia.find(({ documento }) => documento.login === destinatarioLogin);
   const nomeDestinatario = destinatarioLogin
@@ -1754,7 +1779,7 @@ function AssistenteNovaTroca({
           <div className="troca-wizard-lista">
             {datas.map((diaIso) => {
               const jornada = resolverJornadaDia(minhaEscala, catalogo, diaIso);
-              if (!jornada.trabalha) {
+              if (!jornada.trabalha || jornada.horaExtra) {
                 return null;
               }
               return (
@@ -2945,7 +2970,7 @@ export function EmployeeApp() {
       jornada: resolverJornadaDia(documento, catalogo, dataConsultaEquipe),
     }))
     .filter(({ jornada }) => jornada.trabalha)
-    .filter(({ jornada }) => filtroTurno === 'TODOS' || jornada.codigo === filtroTurno)
+    .filter(({ jornada }) => filtroTurno === 'TODOS' || jornada.periodo === filtroTurno)
     .filter(({ documento }) => {
       const pessoa = usuarios.find((item) => item.login === documento.login);
       return `${pessoa?.nome ?? ''} ${documento.login}`
@@ -4207,7 +4232,7 @@ export function EmployeeApp() {
                 {turnosExibidos.map((turno) => {
                   const tipo = catalogo[turno];
                   const pessoas = escaladosNoDiaConsultado.filter(
-                    ({ jornada }) => jornada.codigo === turno,
+                    ({ jornada }) => jornada.periodo === turno,
                   );
                   return (
                     <section key={turno} className="shift-group">
@@ -4231,7 +4256,10 @@ export function EmployeeApp() {
                             </span>
                             <div>
                               <strong>{nomes[documento.login] ?? documento.login}</strong>
-                              <small>{jornada.inicio}–{jornada.fim} · {documento.login}</small>
+                              <small>
+                                {jornada.inicio}–{jornada.fim} · {documento.login}
+                                {jornada.horaExtra ? ' · Hora extra' : ''}
+                              </small>
                             </div>
                             {documento.login === usuario.login
                               ? <CheckCircle2 size={17} aria-label="Você" />
@@ -4356,10 +4384,10 @@ export function EmployeeApp() {
                   <strong>{(totais?.df ?? 0) + (totais?.du ?? 0)}</strong>
                   <small>{totais?.df ?? 0} DF · {totais?.du ?? 0} DU</small>
                 </article>
-                <article className="metric-next-shift" data-tone="shift" data-code={proximoTurnoTrabalho?.codigo ?? ''}>
+                <article className="metric-next-shift" data-tone="shift" data-code={proximoTurnoTrabalho?.periodo ?? ''}>
                   <span>Próximo turno</span>
                   <div>
-                    <i><IconeTurno codigo={proximoTurnoTrabalho?.codigo ?? ''} /></i>
+                    <i><IconeTurno codigo={proximoTurnoTrabalho?.periodo ?? ''} /></i>
                     <p>
                       <strong>{proximoTurnoTrabalho?.descricao ?? 'Não encontrado'}</strong>
                       <small>

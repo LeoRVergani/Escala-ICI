@@ -20,6 +20,15 @@ export interface JornadaDia {
   duracaoMinutos: number;
   viraDia: boolean;
   trabalha: boolean;
+  /**
+   * HOTFIX-HE-TURNO-1 — código que define cor, ícone e horário na tela:
+   * o turno real (`Dia.t`) numa Hora Extra com turno; nos demais dias, o
+   * próprio `codigo`. Use `periodo` para `data-code`/ícone e `codigo` para
+   * regra de negócio (totais, filtros por tipo de dia).
+   */
+  periodo: string;
+  /** Verdadeiro quando o dia é de categoria EXTRA (ex.: `HE`). */
+  horaExtra: boolean;
 }
 
 export interface IntervaloTurno extends JornadaDia {
@@ -278,31 +287,50 @@ export function resolverJornadaDia(
       duracaoMinutos: 0,
       viraDia: false,
       trabalha: false,
+      periodo: '',
+      horaExtra: false,
     };
   }
 
   const tipo = catalogo[dia.c];
-  const inicio = dia.i ?? tipo?.horaInicio;
-  const fim = dia.f ?? tipo?.horaFim;
-  const duracaoMinutos = dia.m ?? tipo?.duracaoMinutos ?? 0;
+  const horaExtra = tipo?.categoria === 'EXTRA';
+  /**
+   * HOTFIX-HE-TURNO-1 — numa Hora Extra com turno (`dia.t`), horário,
+   * duração e virada de dia vêm do turno real; o tipo `HE` do catálogo
+   * não tem horário próprio.
+   */
+  const turnoBase = horaExtra && dia.t !== undefined ? catalogo[dia.t] : undefined;
+  const inicio = dia.i ?? turnoBase?.horaInicio ?? tipo?.horaInicio;
+  const fim = dia.f ?? turnoBase?.horaFim ?? tipo?.horaFim;
+  const duracaoMinutos = dia.m
+    ?? (turnoBase !== undefined ? turnoBase.duracaoMinutos : undefined)
+    ?? tipo?.duracaoMinutos
+    ?? 0;
   const trabalha = (duracaoMinutos > 0 || categoriaTrabalha(tipo?.categoria))
     && inicio !== undefined
     && fim !== undefined;
+  const periodo = horaExtra && dia.t !== undefined ? dia.t : dia.c;
+  const descricaoBase = tipo?.descricao ?? dia.c;
+  const descricao = horaExtra && dia.t !== undefined
+    ? `${turnoBase?.descricao ?? dia.t} · ${descricaoBase}`
+    : descricaoBase;
 
   return {
     data: dataIso,
     codigo: dia.c,
-    descricao: tipo?.descricao ?? dia.c,
+    descricao,
     categoria: tipo?.categoria ?? (trabalha ? 'TRABALHO' : 'SEM_ESCALA'),
     inicio,
     fim,
     duracaoMinutos,
-    viraDia: tipo?.viraDia ?? (
+    viraDia: turnoBase?.viraDia ?? tipo?.viraDia ?? (
       inicio !== undefined
       && fim !== undefined
       && minutosHora(fim) <= minutosHora(inicio)
     ),
     trabalha,
+    periodo,
+    horaExtra,
   };
 }
 

@@ -21,6 +21,16 @@ import {
 
 export const LIMITE_DIAS_CONSECUTIVOS_TRABALHO = 6;
 export const MINIMO_DESCANSO_HORAS = 11;
+/**
+ * HOTFIX-DSR-35H-1 — descanso mínimo quando há folga (DSR) entre dois
+ * turnos: 24h do DSR + 11h de interjornada. Mesma regra do Controle de
+ * Plantão ("não cumpriu o descanso de 35h (DSR 24h + Interjornada 11h)
+ * após folga"). Ex.: Noite no sábado (termina domingo 01:00), DF no
+ * domingo e Manhã na segunda 07:00 = 30h → violação.
+ */
+export const MINIMO_DESCANSO_APOS_FOLGA_HORAS = 24 + MINIMO_DESCANSO_HORAS;
+
+export type RegraDescanso = 'INTERJORNADA' | 'DSR';
 
 export interface AlertaSequencia6x1 {
   tipo: 'SEQUENCIA_6X1';
@@ -43,6 +53,11 @@ export interface AlertaDescansoInsuficiente {
   codigoAtual: string;
   horarioAtual: string;
   descansoHoras: number;
+  /** HOTFIX-DSR-35H-1 — 11h (dias seguidos) ou 35h (com folga no meio). */
+  minimoHoras: number;
+  regra: RegraDescanso;
+  /** Dias de folga entre os dois turnos (vazio na interjornada). */
+  datasFolga: string[];
 }
 
 export type AlertaEscala = AlertaSequencia6x1 | AlertaDescansoInsuficiente;
@@ -151,37 +166,77 @@ export function temDescansoInsuficiente(
   return calcularIntervaloDescansoHoras(anterior, atual) < minimoHoras;
 }
 
-/** Só compara dias de calendário consecutivos (D e D+1) em que ambos trabalham. */
+function ehDiaDeFolga(
+  documento: TurnosMes,
+  catalogo: Record<string, TipoTurno>,
+  data: string,
+): boolean {
+  const codigo = documento.dias[data]?.c;
+  return codigo !== undefined && catalogo[codigo]?.categoria === 'DESCANSO';
+}
+
+/**
+ * Compara cada turno com o turno trabalhado anterior:
+ *
+ * - dias de calendário seguidos (D e D+1): mínimo de 11h (interjornada);
+ * - HOTFIX-DSR-35H-1 — separados só por folga (categoria DESCANSO: DF, DU,
+ *   Folga feriado, Aniversário): mínimo de 35h (DSR 24h + 11h).
+ *
+ * Se entre os dois turnos houver qualquer dia que não seja folga (férias,
+ * atestado, BH, dia sem escala), a regra não se aplica — não há como
+ * afirmar que houve DSR.
+ */
 export function detectarDescansoInsuficiente(
   documento: TurnosMes,
   catalogo: Record<string, TipoTurno>,
   minimoHoras: number = MINIMO_DESCANSO_HORAS,
+  minimoAposFolgaHoras: number = MINIMO_DESCANSO_APOS_FOLGA_HORAS,
 ): AlertaDescansoInsuficiente[] {
   const datas = intervaloDatas(documento.periodoInicio, documento.periodoFim);
   const alertas: AlertaDescansoInsuficiente[] = [];
+  let turnoAnterior: JornadaDia | null = null;
+  let datasFolga: string[] = [];
+  let intervaloSoDeFolga = true;
 
-  for (let indice = 0; indice < datas.length - 1; indice += 1) {
-    const jornadaAtual = resolverJornadaDia(documento, catalogo, datas[indice]!);
-    const jornadaSeguinte = resolverJornadaDia(documento, catalogo, datas[indice + 1]!);
-    if (!jornadaAtual.trabalha || !jornadaSeguinte.trabalha) {
+  for (const data of datas) {
+    const jornada = resolverJornadaDia(documento, catalogo, data);
+    if (!jornada.trabalha) {
+      if (turnoAnterior !== null) {
+        if (ehDiaDeFolga(documento, catalogo, data)) {
+          datasFolga.push(data);
+        } else {
+          intervaloSoDeFolga = false;
+        }
+      }
       continue;
     }
 
-    const descansoHoras = calcularIntervaloDescansoHoras(jornadaAtual, jornadaSeguinte);
-    if (descansoHoras < minimoHoras) {
-      alertas.push({
-        tipo: 'DESCANSO_INSUFICIENTE',
-        usuarioUid: documento.usuarioUid,
-        login: documento.login,
-        dataAnterior: jornadaAtual.data,
-        codigoAnterior: jornadaAtual.codigo,
-        horarioAnterior: `${jornadaAtual.inicio}–${jornadaAtual.fim}`,
-        dataAtual: jornadaSeguinte.data,
-        codigoAtual: jornadaSeguinte.codigo,
-        horarioAtual: `${jornadaSeguinte.inicio}–${jornadaSeguinte.fim}`,
-        descansoHoras,
-      });
+    if (turnoAnterior !== null && intervaloSoDeFolga) {
+      const regra: RegraDescanso = datasFolga.length === 0 ? 'INTERJORNADA' : 'DSR';
+      const minimo = regra === 'DSR' ? minimoAposFolgaHoras : minimoHoras;
+      const descansoHoras = calcularIntervaloDescansoHoras(turnoAnterior, jornada);
+      if (descansoHoras < minimo) {
+        alertas.push({
+          tipo: 'DESCANSO_INSUFICIENTE',
+          usuarioUid: documento.usuarioUid,
+          login: documento.login,
+          dataAnterior: turnoAnterior.data,
+          codigoAnterior: turnoAnterior.periodo,
+          horarioAnterior: `${turnoAnterior.inicio}–${turnoAnterior.fim}`,
+          dataAtual: jornada.data,
+          codigoAtual: jornada.periodo,
+          horarioAtual: `${jornada.inicio}–${jornada.fim}`,
+          descansoHoras,
+          minimoHoras: minimo,
+          regra,
+          datasFolga,
+        });
+      }
     }
+
+    turnoAnterior = jornada;
+    datasFolga = [];
+    intervaloSoDeFolga = true;
   }
 
   return alertas;
@@ -210,6 +265,8 @@ export function bloqueiaPublicacaoPorAlerta(alertas: readonly AlertaEscala[]): b
 export interface IndicadorCelulaAlerta {
   sequencia?: number;
   descansoInsuficiente?: boolean;
+  /** HOTFIX-DSR-35H-1 — mínimo violado (11 ou 35) para o texto da célula. */
+  descansoMinimoHoras?: number;
 }
 
 export function chaveIndicadorCelula(usuarioUid: string, data: string): string {
@@ -234,9 +291,29 @@ export function construirIndiceAlertasGrade(
     }
     for (const alerta of detectarDescansoInsuficiente(documento, catalogo)) {
       const chave = chaveIndicadorCelula(alerta.usuarioUid, alerta.dataAtual);
-      indice.set(chave, { ...indice.get(chave), descansoInsuficiente: true });
+      indice.set(chave, {
+        ...indice.get(chave),
+        descansoInsuficiente: true,
+        descansoMinimoHoras: alerta.minimoHoras,
+      });
     }
   }
 
   return indice;
+}
+
+/**
+ * HOTFIX-DSR-35H-1 — título e explicação de um alerta de descanso, no
+ * mesmo texto em todas as telas (sino, grade, troca, publicação).
+ */
+export function tituloAlertaDescanso(alerta: AlertaDescansoInsuficiente): string {
+  return alerta.regra === 'DSR'
+    ? `Descanso inferior a ${alerta.minimoHoras}h após folga`
+    : `Descanso inferior a ${alerta.minimoHoras} horas`;
+}
+
+export function regraAlertaDescanso(alerta: AlertaDescansoInsuficiente): string {
+  return alerta.regra === 'DSR'
+    ? `DSR 24h + interjornada ${MINIMO_DESCANSO_HORAS}h = ${alerta.minimoHoras}h`
+    : `interjornada mínima de ${alerta.minimoHoras}h`;
 }

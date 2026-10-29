@@ -3,6 +3,7 @@ export * from './celulas.js';
 export * from './detectorPlanilha.js';
 export * from './detectorTabelaPlantaoMultiFonte.js';
 export * from './documentos.js';
+export * from './horaExtra.js';
 export * from './importacao/analisadorEscala.js';
 export * from './importacao/modeloCanonico.js';
 export * from './jornada.js';

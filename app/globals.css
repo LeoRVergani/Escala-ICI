@@ -1011,6 +1011,34 @@ button.shift-chip:disabled { cursor: default; }
   border-color: var(--periodo-border, var(--border));
 }
 
+/*
+ * HOTFIX-HE-TURNO-1 — Hora Extra com turno: o chip usa a cor do período
+ * real (`data-code="T"` etc.) e ganha este selo "HE" no canto, igual em
+ * calendário, semana, grade do Dashboard e legenda. Borda tracejada reforça
+ * que não é um dia da escala regular sem depender só do selo.
+ */
+.shift-chip[data-hora-extra] {
+  border-style: dashed;
+  border-color: var(--periodo-text, var(--border-strong));
+}
+.shift-chip-he {
+  position: absolute;
+  top: -6px;
+  right: -9px;
+  z-index: 1;
+  min-width: 0;
+  padding: 1px 3px;
+  border-radius: 4px;
+  background: var(--primary, #2563eb);
+  color: #fff;
+  font-size: 7px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  box-shadow: 0 0 0 1.5px var(--surface, #fff);
+}
+
 .toolbar { min-height: 48px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: space-between; margin-bottom: 12px; }
 .toolbar label { min-height: var(--control-height); min-width: 0; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-control); padding: 0 12px; display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .toolbar select, .toolbar input { border: 0; outline: 0; background: transparent; color: var(--text); min-width: 0; width: 150px; max-width: 100%; }

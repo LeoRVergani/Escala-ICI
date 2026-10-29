@@ -71,7 +71,7 @@ test('7. jornadaPossuiAlteracoesNaoSalvas vira true em editarCelula (mutação l
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const ocorrenciasTrue = dashboard.match(/setJornadaPossuiAlteracoesNaoSalvas\(true\)/gu) ?? [];
   assert.equal(ocorrenciasTrue.length, 4, 'quatro pontos marcam a Jornada como não salva: criação vazia, editarCelula, aplicarConciliacao e cadastrarFaltantes');
-  const editarCelula = /function editarCelula\(codigo: string\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  const editarCelula = /function editarCelula\(codigo: string(?:, turnoHoraExtra\?: string)?\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(editarCelula, 'editarCelula precisa existir');
   assert.match(editarCelula[1], /setJornadaPossuiAlteracoesNaoSalvas\(true\)/u, 'a mutação local de célula precisa marcar dirty=true');
   const aplicarConciliacao = /function aplicarConciliacao\(buffer: ArrayBuffer, linhas: LinhaConciliacao\[\](?:, opcoes: OpcoesInicioImportacao = \{\})?(?:, usuariosParaMapa: Usuario\[\] = usuarios)?\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);

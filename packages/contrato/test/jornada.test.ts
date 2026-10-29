@@ -219,3 +219,54 @@ describe('contexto da jornada', () => {
     expect(jornada.trabalha).toBe(true);
   });
 });
+
+describe('Hora Extra com turno (HOTFIX-HE-TURNO-1)', () => {
+  const documentoHe: TurnosMes = {
+    ...documentoBase,
+    dias: {
+      '2026-08-01': { c: 'HE', t: 'T', i: '13:00', f: '19:00', vd: false },
+      '2026-08-02': { c: 'HE' },
+      '2026-08-03': { c: 'HE', t: 'N' },
+    },
+  };
+
+  it('usa cor/ícone e horário do turno real, mantendo o código HE', () => {
+    expect(resolverJornadaDia(documentoHe, CATALOGO_SOC, '2026-08-01')).toMatchObject({
+      codigo: 'HE',
+      periodo: 'T',
+      horaExtra: true,
+      descricao: 'Tarde · Hora Extra',
+      inicio: '13:00',
+      fim: '19:00',
+      duracaoMinutos: 360,
+      trabalha: true,
+      categoria: 'EXTRA',
+    });
+  });
+
+  it('HE antiga, sem turno, continua sem horário', () => {
+    expect(resolverJornadaDia(documentoHe, CATALOGO_SOC, '2026-08-02')).toMatchObject({
+      codigo: 'HE',
+      periodo: 'HE',
+      horaExtra: true,
+      descricao: 'Hora Extra',
+      trabalha: false,
+    });
+  });
+
+  it('completa horário e virada de dia pelo catálogo quando o dia só tem `t`', () => {
+    expect(resolverJornadaDia(documentoHe, CATALOGO_SOC, '2026-08-03')).toMatchObject({
+      periodo: 'N',
+      inicio: '19:00',
+      fim: '01:00',
+      viraDia: true,
+      trabalha: true,
+    });
+  });
+
+  it('dias comuns têm periodo igual ao código e horaExtra falso', () => {
+    expect(resolverJornadaDia(documentoBase, CATALOGO_SOC, '2026-07-29')).toMatchObject({
+      codigo: 'M', periodo: 'M', horaExtra: false,
+    });
+  });
+});

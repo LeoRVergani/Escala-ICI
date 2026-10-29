@@ -3,6 +3,7 @@
 import {
   adicionarDias,
   calcularTotais,
+  codigoPeriodoDia,
   formatarData,
   type Dia,
   type TipoTurno,
@@ -133,7 +134,11 @@ export function ScheduleGrid({
             sequenciaCritica !== null
               ? `${sequenciaCritica}º dia consecutivo de trabalho`
               : null,
-            indicador?.descansoInsuficiente ? 'Descanso inferior a 11 horas' : null,
+            indicador?.descansoInsuficiente
+              ? (indicador.descansoMinimoHoras !== undefined && indicador.descansoMinimoHoras > 11
+                ? `Descanso inferior a ${indicador.descansoMinimoHoras}h após folga (DSR 24h + 11h)`
+                : 'Descanso inferior a 11 horas')
+              : null,
           ].filter((aviso): aviso is string => aviso !== null);
           const editavel = onEditar !== undefined;
           if (!dia && !editavel) {
@@ -144,14 +149,22 @@ export function ScheduleGrid({
               <button
                 type="button"
                 className={`shift-chip ${dia ? '' : 'shift-chip-vazio'}`}
-                data-code={dia?.c ?? ''}
+                data-code={codigoPeriodoDia(dia)}
+                data-hora-extra={dia?.t !== undefined ? '' : undefined}
                 title={dia
-                  ? [`${data} · ${catalogo[dia.c]?.descricao ?? dia.c}`, ...avisos].join(' · ')
+                  ? [
+                      `${data} · ${catalogo[dia.c]?.descricao ?? dia.c}`
+                        + (dia.t !== undefined ? ` (${catalogo[dia.t]?.descricao ?? dia.t})` : ''),
+                      ...avisos,
+                    ].join(' · ')
                   : `${data} · Sem turno definido — clique para atribuir`}
                 onClick={() => onEditar?.(documento, data, dia ?? { c: '' })}
                 disabled={!editavel}
               >
-                {dia ? dia.c : '+'}
+                {dia ? codigoPeriodoDia(dia) : '+'}
+                {dia?.t !== undefined && (
+                  <span className="shift-chip-he" aria-hidden="true">{dia.c}</span>
+                )}
                 {sequenciaCritica !== null && (
                   <span className="grade-alert-badge grade-alert-sequencia" aria-hidden="true">
                     {sequenciaCritica}
