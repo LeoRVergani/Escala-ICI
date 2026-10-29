@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 
+import { criarDiaHoraExtra } from './horaExtra.js';
 import { montarChaveDia, normalizarTexto } from './normalizar.js';
 import { calcularTotais } from './totais.js';
 import {
@@ -713,7 +714,26 @@ export function parsePlanilhaEscala(
       }
 
       const tipo = porAlias.get(chaveAlias(valor));
-      const dia = tipo === undefined ? undefined : criarDiaTexto(tipo);
+      let dia = tipo === undefined ? undefined : criarDiaTexto(tipo);
+      /**
+       * HOTFIX-HE-TURNO-1 — Hora Extra: a Escalistas só diz `HE`; o turno
+       * em que ela acontece vem da aba Escala (mesmo índice usado para os
+       * dias numéricos). Sem turno na aba Escala, a HE é mantida sem
+       * horário (comportamento anterior) e um aviso orienta a conferência.
+       */
+      if (tipo?.categoria === 'EXTRA') {
+        const turnoReal = indiceTurnosEscala.mapa.get(
+          `${chaveAlias(login)}|${colunaDia.data}`,
+        );
+        if (turnoReal !== undefined) {
+          dia = criarDiaHoraExtra(tipo, turnoReal);
+        } else if (indiceTurnosEscala.disponivel) {
+          avisos.push(
+            `${login} em ${colunaDia.data}: ${tipo.codigo} sem turno na aba Escala; `
+            + 'a Hora Extra ficará sem horário. Ajuste o turno no editor antes de publicar.',
+          );
+        }
+      }
       if (tipo === undefined || dia === undefined) {
         erros.push({
           linha: linha + 1,

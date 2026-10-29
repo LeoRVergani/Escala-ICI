@@ -4,6 +4,7 @@ import {
   CATALOGO_SOC,
   calcularTotais,
   conferirContabilidadePlantao,
+  criarDiaHoraExtra,
   dataIsoLocal,
   equipesConsultaEfetivas,
   formatarCompetencia,
@@ -315,6 +316,8 @@ import {
   detectarDescansoInsuficiente,
   detectarSequencias6x1,
   gerarAlertasEscala,
+  regraAlertaDescanso,
+  tituloAlertaDescanso,
   type AlertaEscala,
 } from '@/lib/alertasEscala';
 import {
@@ -723,15 +726,18 @@ function montarAlertasVisiveis(
         severidade: 'critico',
       };
     }
+    const aposFolga = alerta.regra === 'DSR';
     return {
       id: `desc-${alerta.usuarioUid}-${indice}`,
-      titulo: 'Descanso inferior a 11 horas',
+      titulo: tituloAlertaDescanso(alerta),
       colaborador: nome,
       data: alerta.dataAtual,
-      tipo: 'Descanso insuficiente',
-      descricao: `${nome} tem apenas ${formatarHorasDescanso(alerta.descansoHoras)} de descanso entre o turno de ${formatarDataCurta(alerta.dataAnterior)} (${alerta.horarioAnterior}) e o de ${formatarDataCurta(alerta.dataAtual)} (${alerta.horarioAtual}).`,
-      sugestao: 'Ajuste um dos turnos para garantir pelo menos 11 horas de descanso entre eles.',
-      severidade: 'aviso',
+      tipo: aposFolga ? 'Descanso após folga (DSR)' : 'Descanso insuficiente',
+      descricao: `${nome} tem apenas ${formatarHorasDescanso(alerta.descansoHoras)} de descanso entre o turno de ${formatarDataCurta(alerta.dataAnterior)} (${alerta.horarioAnterior}) e o de ${formatarDataCurta(alerta.dataAtual)} (${alerta.horarioAtual})${aposFolga ? `, com folga em ${alerta.datasFolga.map(formatarDataCurta).join(', ')}` : ''}. Mínimo: ${regraAlertaDescanso(alerta)}.`,
+      sugestao: aposFolga
+        ? `Ajuste o turno anterior ou o de retorno (ex.: retorno à tarde em vez de manhã) para fechar pelo menos ${alerta.minimoHoras} horas de descanso.`
+        : `Ajuste um dos turnos para garantir pelo menos ${alerta.minimoHoras} horas de descanso entre eles.`,
+      severidade: aposFolga ? 'critico' : 'aviso',
     };
   });
 
@@ -797,12 +803,12 @@ function AlertasOperacionaisBell({
           </header>
           <div className="notification-list">
             {alertas.length === 0 ? (
-              <div className="notification-empty"><ShieldCheck size={22} /><span>6x1 e descanso mínimo dentro da regra.</span></div>
+              <div className="notification-empty"><ShieldCheck size={22} /><span>6x1, interjornada (11h) e descanso após folga (35h) dentro da regra.</span></div>
             ) : alertas.map((alerta, indice) => (
               <article key={`${alerta.tipo}-${alerta.usuarioUid}-${indice}`} className="alert-item">
                 <AlertTriangle
                   size={15}
-                  className={alerta.tipo === 'SEQUENCIA_6X1' ? 'alert-icon-critico' : 'alert-icon-aviso'}
+                  className={alerta.tipo === 'SEQUENCIA_6X1' || alerta.regra === 'DSR' ? 'alert-icon-critico' : 'alert-icon-aviso'}
                 />
                 {alerta.tipo === 'SEQUENCIA_6X1' ? (
                   <div>
@@ -814,7 +820,7 @@ function AlertasOperacionaisBell({
                   </div>
                 ) : (
                   <div>
-                    <strong>{nomeColaborador(alerta.usuarioUid, alerta.login)} — descanso inferior a 11 horas</strong>
+                    <strong>{nomeColaborador(alerta.usuarioUid, alerta.login)} — {tituloAlertaDescanso(alerta).toLowerCase()}</strong>
                     <small>
                       Anterior: {formatarDataCurta(alerta.dataAnterior)} {alerta.horarioAnterior} · Seguinte:{' '}
                       {formatarDataCurta(alerta.dataAtual)} {alerta.horarioAtual} · Descanso calculado:{' '}
@@ -2122,7 +2128,7 @@ function ModalDetalheTrocaGestor({
                 <li key={indice}>
                   {alerta.tipo === 'SEQUENCIA_6X1'
                     ? `${alerta.login} passaria a ter 7 dias consecutivos de trabalho (crítico em ${formatarDataCurta(alerta.diaCritico)}).`
-                    : `${alerta.login} teria menos de 11h de descanso entre ${formatarDataCurta(alerta.dataAnterior)} e ${formatarDataCurta(alerta.dataAtual)}.`}
+                    : `${alerta.login} teria só ${formatarHorasDescanso(alerta.descansoHoras)} de descanso entre ${formatarDataCurta(alerta.dataAnterior)} e ${formatarDataCurta(alerta.dataAtual)} (mínimo: ${regraAlertaDescanso(alerta)}).`}
                 </li>
               ))}
             </ul>
@@ -4027,6 +4033,14 @@ export function DashboardApp() {
     () => montarAlertasVisiveis(alertasOperacionais, usuarios, documentos, publicados),
     [alertasOperacionais, usuarios, documentos, publicados],
   );
+  /**
+   * HOTFIX-DSR-35H-1 — publicar com violação de 6x1, interjornada (11h) ou
+   * descanso após folga (35h) pede justificativa, como já acontecia com o
+   * ALERTA da importação. Não bloqueia: o gestor decide (pode ser exceção).
+   */
+  const publicacaoExigeJustificativa = resultadoTemErros || alertasOperacionais.length > 0;
+  const totalAlertasPublicacao = (resultadoTemErros ? resultado?.erros.length ?? 0 : 0)
+    + alertasOperacionais.length;
   const trocasPendentesGestor = trocas.filter((item) => item.status === 'PENDENTE_GESTOR');
   const trocasAprovadas = trocas.filter((item) => item.status === 'APROVADA_PUBLICADA');
   const trocasRecusadas = trocas.filter((item) => item.status === 'RECUSADA_GESTOR' || item.status === 'RECUSADA_USUARIO');
@@ -6221,7 +6235,9 @@ export function DashboardApp() {
       setErroPublicacao('Resolva as pendências de conciliação de nomes antes de publicar.');
       return;
     }
-    const publicandoComErro = resultado.erros.length > 0;
+    // HOTFIX-DSR-35H-1 — violação de 6x1/interjornada/DSR também exige
+    // justificativa para publicar, junto com as pendências da importação.
+    const publicandoComErro = resultado.erros.length > 0 || alertasOperacionais.length > 0;
     if ((revisaoAtual > 0 || publicandoComErro) && motivoPublicacao.trim().length < 3) {
       setErroPublicacao(publicandoComErro
         ? 'Explique por que a escala será publicada ciente das pendências.'
@@ -6419,7 +6435,7 @@ export function DashboardApp() {
     setCelulaEditando({ documento, data, dia });
   }
 
-  function editarCelula(codigo: string) {
+  function editarCelula(codigo: string, turnoHoraExtra?: string) {
     if (celulaEditando === null || resultado === null) {
       return;
     }
@@ -6427,6 +6443,8 @@ export function DashboardApp() {
     if (tipo === undefined) {
       return;
     }
+    const turnoExtra = turnoHoraExtra !== undefined ? catalogo[turnoHoraExtra] : undefined;
+    // HOTFIX-HE-TURNO-1 — HE escolhida com turno grava `t` + horário do turno.
     const novoDia: Dia = tipo.categoria === 'TRABALHO'
       ? {
           c: tipo.codigo,
@@ -6436,7 +6454,9 @@ export function DashboardApp() {
           vd: tipo.viraDia,
           seq: celulaEditando.dia.seq ?? 1,
         }
-      : { c: tipo.codigo };
+      : tipo.categoria === 'EXTRA' && turnoExtra !== undefined
+        ? criarDiaHoraExtra(tipo, turnoExtra)
+        : { c: tipo.codigo };
 
     const documentoAlvo = resultado.documentos.find(
       (documento) => documento.usuarioUid === celulaEditando.documento.usuarioUid,
@@ -11360,8 +11380,8 @@ export function DashboardApp() {
               <div>
                 <p className="eyebrow">Comunicação da mudança</p>
                 <h2 id="publication-title">
-                  {resultadoTemErros
-                    ? `Esta escala possui ${resultado?.erros.length ?? 0} pendência(s). Deseja publicar mesmo assim?`
+                  {publicacaoExigeJustificativa
+                    ? `Esta escala possui ${totalAlertasPublicacao} pendência(s). Deseja publicar mesmo assim?`
                     : 'Publicar nova versão da escala?'}
                 </h2>
                 <p>Os colaboradores afetados receberão esta informação no sino do App.</p>
@@ -11375,19 +11395,24 @@ export function DashboardApp() {
                 <X size={18} />
               </button>
             </div>
-            {resultadoTemErros && (
+            {publicacaoExigeJustificativa && (
               <ul className="admin-form-preview">
-                {resultado?.erros.map((erro, indice) => (
-                  <li key={indice}>{erro.login ? `${erro.login}: ` : ''}{erro.motivo}</li>
+                {resultadoTemErros && resultado?.erros.map((erro, indice) => (
+                  <li key={`erro-${indice}`}>{erro.login ? `${erro.login}: ` : ''}{erro.motivo}</li>
                 ))}
+                {alertasVisiveis
+                  .filter((alerta) => alerta.id !== 'publicacao-incompleta')
+                  .map((alerta) => (
+                    <li key={alerta.id}>{alerta.titulo}: {alerta.descricao}</li>
+                  ))}
               </ul>
             )}
             <label className="publication-reason">
-              {resultadoTemErros ? 'Justificativa para publicar com pendências' : 'Motivo da publicação'}
+              {publicacaoExigeJustificativa ? 'Justificativa para publicar com pendências' : 'Motivo da publicação'}
               <textarea
                 value={motivoPublicacao}
                 onChange={(evento) => setMotivoPublicacao(evento.target.value)}
-                placeholder={resultadoTemErros
+                placeholder={publicacaoExigeJustificativa
                   ? 'Ex.: Publicação autorizada; o conflito de 18/09 será corrigido na próxima revisão.'
                   : 'Ex.: Ajuste da cobertura da madrugada'}
                 maxLength={180}
@@ -11403,7 +11428,7 @@ export function DashboardApp() {
               <button
                 className="primary-button"
                 type="button"
-                disabled={processando || ((revisaoAtual > 0 || resultadoTemErros) && motivoPublicacao.trim().length < 3)}
+                disabled={processando || ((revisaoAtual > 0 || publicacaoExigeJustificativa) && motivoPublicacao.trim().length < 3)}
                 onClick={() => void publicar()}
               >
                 {processando ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
@@ -11504,12 +11529,37 @@ export function DashboardApp() {
                 </label>
               )}
               <div className="code-picker">
-              {Object.values(catalogo).map((tipo) => (
-                <button key={tipo.codigo} type="button" data-code={tipo.codigo} onClick={() => editarCelula(tipo.codigo)}>
-                  <span className="shift-chip" data-code={tipo.codigo}>{tipo.codigo}</span>
-                  <strong>{tipo.descricao}</strong>
-                </button>
-              ))}
+              {Object.values(catalogo).flatMap((tipo) => {
+                /**
+                 * HOTFIX-HE-TURNO-1 — Hora Extra sempre com turno: em vez de
+                 * um botão "HE" sem horário, um botão por turno de trabalho
+                 * (HE · Manhã, HE · Tarde...), para o App mostrar cor e horário.
+                 */
+                if (tipo.categoria === 'EXTRA') {
+                  return Object.values(catalogo)
+                    .filter((turno) => turno.categoria === 'TRABALHO')
+                    .map((turno) => (
+                      <button
+                        key={`${tipo.codigo}-${turno.codigo}`}
+                        type="button"
+                        data-code={turno.codigo}
+                        onClick={() => editarCelula(tipo.codigo, turno.codigo)}
+                      >
+                        <span className="shift-chip" data-code={turno.codigo} data-hora-extra="">
+                          {turno.codigo}
+                          <span className="shift-chip-he" aria-hidden="true">{tipo.codigo}</span>
+                        </span>
+                        <strong>{tipo.descricao} · {turno.descricao}</strong>
+                      </button>
+                    ));
+                }
+                return [(
+                  <button key={tipo.codigo} type="button" data-code={tipo.codigo} onClick={() => editarCelula(tipo.codigo)}>
+                    <span className="shift-chip" data-code={tipo.codigo}>{tipo.codigo}</span>
+                    <strong>{tipo.descricao}</strong>
+                  </button>
+                )];
+              })}
             </div>
           </section>
         </div>

@@ -29,6 +29,14 @@ export interface Dia {
   m?: number;
   vd?: boolean;
   seq?: number;
+  /**
+   * HOTFIX-HE-TURNO-1 — turno de trabalho (MD/M/T/N) em que uma Hora Extra
+   * acontece. Só existe quando `c` é de categoria EXTRA (ex.: `HE`). O
+   * código `c` continua `HE` (é ele que conta em `totais.he`); `t` diz em
+   * qual período a pessoa trabalha, para a tela mostrar cor e horário do
+   * turno real. Sem `t`, a HE continua aparecendo como antes (sem horário).
+   */
+  t?: string;
 }
 
 export interface Totais {

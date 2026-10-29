@@ -576,3 +576,62 @@ describe('parsePlanilhaEscala com trocas pontuais de turno (aba Escala complemen
     );
   });
 });
+
+/**
+ * HOTFIX-HE-TURNO-1 — Hora Extra: a Escalistas diz só `HE`; o turno real
+ * (ex.: Tarde) vem da aba Escala. Cenário real: lvergani (base Manhã) faz
+ * HE à tarde no feriado de 15/11.
+ */
+function construirPlanilhaComHoraExtra(opts?: { lverganiNaAbaEscala: boolean }): ArrayBuffer {
+  const escalistas = XLSX.utils.aoa_to_sheet([
+    ['Equipe Teste HE'],
+    [],
+    [null, 'Turno', 'DIA/MÊS', '14/11', '15/11', '16/11'],
+    [],
+    [null, null, 'COLABORADOR'],
+    [null, 'Manhã', 'lvergani', 'DF', 'HE', 1],
+  ]);
+  const escala = XLSX.utils.aoa_to_sheet([
+    ['Dia', null, 'Turno - Presencial'],
+    [null, null, 'Madrugada', 'Manhã', 'Tarde', 'Noite'],
+    ['15/11/2026 Domingo', null, null, null, opts?.lverganiNaAbaEscala === false ? null : 'lvergani', null],
+    ['16/11/2026 Segunda-feira', null, null, 'lvergani', null, null],
+  ]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, escalistas, 'Escalistas');
+  XLSX.utils.book_append_sheet(workbook, escala, 'Escala');
+  return XLSX.write(workbook, { type: 'array', bookType: 'xls' }) as ArrayBuffer;
+}
+
+describe('parsePlanilhaEscala com Hora Extra (turno vem da aba Escala)', () => {
+  it('grava HE com o turno real e o horário da Tarde', () => {
+    const resultado = parsePlanilhaEscala(construirPlanilhaComHoraExtra(), OPCOES_SOC);
+    const documento = resultado.documentos.find(({ login }) => login === 'lvergani');
+
+    expect(resultado.erros).toEqual([]);
+    expect(documento?.dias['2026-11-15']).toEqual({
+      c: 'HE', t: 'T', i: '13:00', f: '19:00', vd: false,
+    });
+  });
+
+  it('continua contando a HE só em totais.he, sem somar nas horas de jornada', () => {
+    const resultado = parsePlanilhaEscala(construirPlanilhaComHoraExtra(), OPCOES_SOC);
+    const totais = resultado.documentos.find(({ login }) => login === 'lvergani')?.totais;
+
+    expect(totais).toMatchObject({ he: 1, diasTrabalhados: 1, min: 360, df: 1 });
+  });
+
+  it('sem o login na aba Escala, mantém HE sem horário e avisa', () => {
+    const resultado = parsePlanilhaEscala(
+      construirPlanilhaComHoraExtra({ lverganiNaAbaEscala: false }),
+      OPCOES_SOC,
+    );
+    const documento = resultado.documentos.find(({ login }) => login === 'lvergani');
+
+    expect(documento?.dias['2026-11-15']).toEqual({ c: 'HE' });
+    expect(resultado.erros).toEqual([]);
+    expect(resultado.avisos).toEqual([
+      expect.stringContaining('lvergani em 2026-11-15: HE sem turno na aba Escala'),
+    ]);
+  });
+});

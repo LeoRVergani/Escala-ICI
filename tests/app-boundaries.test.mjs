@@ -237,11 +237,13 @@ test('a fase 3K-D2A unifica as cores por período em um único token, sem produt
   assert.doesNotMatch(estilos, /\.app-shell\.product-app \.shift-chip\[data-code="MD"\]\s*\{/);
 
   // Os cards de jornada herdam a cor do período via data-code.
-  assert.match(app, /className="today-hero"[\s\S]*data-code=\{turnoDestaque\?\.codigo/);
+  // HOTFIX-HE-TURNO-1 — a cor vem de `periodo` (turno real; numa HE é o
+  // turno em que ela acontece), não mais de `codigo`.
+  assert.match(app, /className="today-hero"[\s\S]*data-code=\{turnoDestaque\?\.periodo/);
   // FASE-APP-REDESIGN-HOJE-1 — `ProximoTurno` (card único) virou
   // `ProximosDias` (lista); cada item continua herdando a cor do período
   // pelo mesmo token via data-code, agora no ícone de cada linha.
-  assert.match(app, /className="proximos-dias-icone" data-code=\{turno\.codigo\}/);
+  assert.match(app, /className="proximos-dias-icone" data-code=\{turno\.periodo\}/);
 });
 
 test('a fase 3J-B mantém rascunho, publicação e rollback fora do App', async () => {

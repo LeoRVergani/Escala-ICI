@@ -39,6 +39,15 @@ export function ScheduleLegend({
             {tipo.descricao}
           </span>
         ))}
+        {/* HOTFIX-HE-TURNO-1 — HE aparece com a cor do turno em que acontece. */}
+        {catalogo.HE !== undefined && (
+          <span>
+            <i className="shift-chip" data-code="T" data-hora-extra="">
+              T<span className="shift-chip-he" aria-hidden="true">HE</span>
+            </i>
+            {catalogo.HE.descricao} (cor do turno)
+          </span>
+        )}
       </div>
     </article>
   );

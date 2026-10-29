@@ -124,7 +124,16 @@ export function LembretesCalendario({
               <span>{formatarData(data, { day: 'numeric' })}</span>
               <span className="lembretes-grid-meta">
                 {jornada.codigo && (
-                  <strong className="shift-chip" data-code={jornada.codigo}>{jornada.codigo}</strong>
+                  <strong
+                    className="shift-chip"
+                    data-code={jornada.periodo}
+                    data-hora-extra={jornada.horaExtra && jornada.periodo !== jornada.codigo ? '' : undefined}
+                  >
+                    {jornada.periodo}
+                    {jornada.horaExtra && jornada.periodo !== jornada.codigo && (
+                      <span className="shift-chip-he" aria-hidden="true">HE</span>
+                    )}
+                  </strong>
                 )}
                 {temLembrete && <i className="lembrete-indicador" aria-hidden="true" />}
               </span>
