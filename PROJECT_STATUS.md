@@ -1,5 +1,19 @@
 # Estado atual do projeto — Escala ICI
 
+## Retomada de 2026-09-09 — correção operacional em branch
+
+Base remota conferida: `main` em `ee2634a` (25/08), posterior ao resumo
+histórico abaixo. `feature/push-fcm-staging` já está no remoto em `7a9b55c`;
+não havia PR aberto na consulta desta retomada.
+
+Correções em `fix/escala-operacional-codb-cosi`: candidatos de participantes
+carregados por Grupo de Plantão, consulta da publicação pelo período real,
+acompanhamento de publicações no App e título claro do editor manual.
+Ver `CHECKPOINT-ESCALA-OPERACIONAL-CODB-COSI.md` para evidência e limitações.
+Sem deploy; funcionamento com dados reais ainda depende do reteste de staging.
+
+O texto abaixo é histórico e não substitui a consulta atual de Git/ambientes.
+
 Atualizado em: 2026-08-15
 Commit auditado: `3aab9a676f8b0434ae966566e538d12f5bade78c` (`main` local,
 merge do ciclo Lembretes/consulta diária)

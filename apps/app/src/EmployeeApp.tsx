@@ -4155,6 +4155,28 @@ export function EmployeeApp() {
                       />
                     </>
                   )}
+                  {plantaoPublicadoApp && grupoPlantaoApp != null && (
+                    jornadaPublicadaApp ? (
+                      <PlantaoResumoCompacto
+                        grupo={grupoPlantaoApp}
+                        atribuicoes={atribuicoesPlantaoApp}
+                        usuarios={usuarios}
+                        agoraIso={agora.toISOString()}
+                        onAbrir={() => setTela('plantao')}
+                      />
+                    ) : (
+                      <>
+                        <PlantaoGrupoChips
+                          grupos={gruposPlantaoApp}
+                          grupoSelecionadoId={grupoPlantaoSelecionadoId}
+                          onSelecionar={selecionarGrupoPlantaoApp}
+                        />
+                        {souPlantonistaAtivoApp && (
+                          <PlantaoStatsRow estatisticas={estatisticasPlantaoApp(usuario.login, atribuicoesPlantaoApp, grupoPlantaoApp.timezone)} />
+                        )}
+                      </>
+                    )
+                  )}
                 </>
               )}
             </div>

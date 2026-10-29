@@ -3811,6 +3811,15 @@ describe('Plantão — Grupo/Participantes/Contatos/Competência (Fase PLANTÃO-
   });
 
   describe('competência PUBLICADA — leitura e escrita operacional por responsável', () => {
+    it('permite consultar períodos publicados pelo grupo para resolver a data no App', async () => {
+      const db = autenticarComo(usuarios.externo);
+      const resultado = await assertSucceeds(getDocs(query(
+        collection(db, 'competenciasPlantao'),
+        where('grupoId', '==', 'PLANTAO_TESTE'),
+      )));
+      expect(resultado.docs.map((item) => item.id)).toContain('PLANTAO_TESTE_2026-08');
+    });
+
     it('consulta autorizada lê a competência publicada', async () => {
       const db = autenticarComo(usuarios.externo);
       const documento = await assertSucceeds(

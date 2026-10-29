@@ -233,6 +233,15 @@ export function ScheduleImportReview({
   }, [resultado.erros, documentos]);
 
   const pendenciasConciliacaoCount = contarPendenciasConciliacao(linhasConciliacao);
+  const errosBloqueantesFonteCount = resultado.erros.filter((erro) => erro.severidade === 'BLOQUEANTE').length;
+  const alertasFonteCount = resultado.erros.filter((erro) => erro.severidade === 'ALERTA').length;
+  const statusRevisao = pendenciasConciliacaoCount > 0
+    ? { classe: 'warning', texto: `${pendenciasConciliacaoCount} vínculo(s) pendente(s)` }
+    : errosBloqueantesFonteCount > 0
+      ? { classe: 'danger', texto: `${errosBloqueantesFonteCount} erro(s) na fonte · publicação permitida com justificativa` }
+      : alertasFonteCount > 0
+        ? { classe: 'warning', texto: `Vínculos conciliados · ${alertasFonteCount} alerta(s)` }
+        : { classe: 'success', texto: 'Tudo conciliado' };
   const pendenciaSelecionada = chavePendenciaSelecionada
     ? linhasConciliacao.find((linha) => linha.nomePlanilha === chavePendenciaSelecionada) ?? null
     : null;
@@ -571,10 +580,15 @@ export function ScheduleImportReview({
             <h2>Pendências e vínculos</h2>
             <p>Associe, crie ou ignore cada nome pendente da planilha antes de salvar ou publicar.</p>
           </div>
-          <span className={`status-badge ${pendenciasConciliacaoCount > 0 ? 'warning' : 'success'}`}>
-            {pendenciasConciliacaoCount > 0 ? `${pendenciasConciliacaoCount} pendência(s)` : 'Tudo conciliado'}
+          <span className={`status-badge ${statusRevisao.classe}`}>
+            {statusRevisao.texto}
           </span>
         </div>
+        {pendenciasConciliacaoCount === 0 && errosBloqueantesFonteCount > 0 && (
+          <div className="alert error" role="alert">
+            Os nomes estão vinculados, mas a planilha possui erro estrutural. Você pode salvar e publicar ciente da pendência; a publicação exigirá justificativa e o erro continuará indicado para correção posterior.
+          </div>
+        )}
         {linhasConciliacao.length === 0 ? (
           <p className="soc-import-review-alerts-empty"><CircleCheck size={15} /> Nenhum nome da planilha precisa de conciliação.</p>
         ) : (

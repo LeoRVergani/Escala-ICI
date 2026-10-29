@@ -41,6 +41,17 @@ function construirArquivoDesconhecido(): ArrayBuffer {
   return XLSX.write(workbook, { type: 'array', bookType: 'xls' }) as ArrayBuffer;
 }
 
+function construirArquivoCosiComContabilidadeLateral(): ArrayBuffer {
+  const planilha = XLSX.utils.aoa_to_sheet([
+    ['Relatório: Plantões', '', '', '', '', '', '', '', '', 'Contabilidade dos Plantões no mês'],
+    ['Plantonista Segurança', 'Data Inicio', 'Data Fim', '', '', '', '', '', '', 'Plantonistas'],
+    ['Ana Costa', 'Terça-feira, 25/08/2026 - 00:00', 'Quarta-feira, 26/08/2026 - 07:00', '', '', '', '', '', '', 'Ana Costa'],
+  ]);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, planilha, 'PlantaoCOSI');
+  return XLSX.write(workbook, { type: 'array', bookType: 'xls' }) as ArrayBuffer;
+}
+
 describe('processarArquivoImportado (roteador puro 6x1/Plantão)', () => {
   it('1. um XLS de escala 6x1 entra no fluxo ESCALA_6X1 e usa parsePlanilhaEscala', () => {
     const resultado = processarArquivoImportado(carregar(FIXTURE_6X1), OPCOES_6X1_MINIMAS);
@@ -57,6 +68,16 @@ describe('processarArquivoImportado (roteador puro 6x1/Plantão)', () => {
     if (resultado.tipo === 'PLANTAO') {
       expect(resultado.resultado.atribuicoes).toHaveLength(32);
       expect(resultado.resultado.ok).toBe(true);
+    }
+  });
+
+  it('3. COSI com coluna lateral plural "Plantonistas" continua posto único, nunca falso multifonte', () => {
+    const resultado = processarArquivoImportado(construirArquivoCosiComContabilidadeLateral(), OPCOES_6X1_MINIMAS);
+    expect(resultado.tipo).toBe('PLANTAO');
+    if (resultado.tipo === 'PLANTAO') {
+      expect(resultado.resultado.atribuicoes).toHaveLength(1);
+      expect(resultado.resultado.atribuicoes[0]?.funcao).toBeUndefined();
+      expect(resultado.resultado.abaOrigem).toBe('PlantaoCOSI');
     }
   });
 

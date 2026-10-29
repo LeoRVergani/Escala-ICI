@@ -5,6 +5,16 @@ import test from 'node:test';
 const ler = (caminho) => readFile(new URL(`../${caminho}`, import.meta.url), 'utf8');
 const semComentarios = (fonte) => fonte.replace(/\/\*[\s\S]*?\*\//g, '');
 
+test('participantes carrega candidatos do grupo aberto, sem depender da última Jornada visitada', async () => {
+  const app = await ler('apps/dashboard/src/DashboardApp.tsx');
+  const inicio = app.indexOf('async function abrirParticipantesDoGrupo(');
+  const fim = app.indexOf('async function garantirRascunhosDoGrupoCarregados(', inicio);
+  const abrir = app.slice(inicio, fim);
+  assert.match(abrir, /listarUsuariosElegiveisPlantao\(grupo\.equipeResponsavelId, grupoId, grupo\.unidadeResponsavelId, grupo\.equipesConsulta\)/u);
+  assert.match(abrir, /setUsuariosPorGrupoPlantao/u);
+  assert.match(app, /usuariosPorGrupoPlantao\[grupo\.grupoId\] \?\? \[\]/u);
+});
+
 // Fase PLANTÃO-3B: administração de Grupos/participantes/contatos/rascunho
 // no Dashboard. Ver docs/spec/PLANTOES.md, seção 21, e
 // docs/spec/HIERARQUIA_ORGANIZACIONAL.md, §§ 7 e 9.
@@ -125,7 +135,7 @@ test('7. apps/app (colaborador) continua sem qualquer símbolo ADMINISTRATIVO de
    * (`atualizarCorPlantonista`), mesmo padrão de escopo (só o próprio
    * documento, nunca administração).
    */
-  assert.match(app, /import \{\s*listarAtribuicoesPlantaoPublicada,\s*listarGruposPlantaoPermitidos,\s*listarParticipantesPlantao,\s*obterCompetenciaPlantaoPublicada,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
+  assert.match(app, /import \{\s*listarAtribuicoesPlantaoPublicada,\s*listarGruposPlantaoPermitidos,\s*listarParticipantesPlantao,\s*obterCompetenciaPlantaoPublicadaNaData,\s*observarPublicacoesPlantao,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
   assert.match(app, /import \{ atualizarContatosPlantonista, atualizarCorPlantonista \} from '@\/lib\/firebase\/plantaoWriteRepository';/u);
 });
 
