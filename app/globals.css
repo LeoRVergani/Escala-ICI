@@ -6731,10 +6731,7 @@ fieldset.checkbox-card-list > legend {
 .soc-import-review-person { display: flex; min-width: 0; align-items: center; gap: 7px; padding: 5px 2px; border-radius: 7px; }
 .soc-import-review-person:hover { background: var(--surface-muted); }
 .soc-import-review-avatar { display: inline-flex; width: 26px; height: 26px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 8px; background: var(--primary-soft); color: var(--primary-bright); font-size: 9px; font-weight: 800; }
-.soc-import-review-avatar[data-code="MD"] { background: color-mix(in srgb, #7c5ce0 12%, white); color: #6543ba; }
-.soc-import-review-avatar[data-code="M"] { background: color-mix(in srgb, #13b99a 12%, white); color: #0a8c76; }
-.soc-import-review-avatar[data-code="T"] { background: color-mix(in srgb, #e99b38 15%, white); color: #b66b12; }
-.soc-import-review-avatar[data-code="N"] { background: color-mix(in srgb, #2e8be6 12%, white); color: #1d6fc1; }
+.soc-import-review-avatar[data-code]:not([data-code=""]) { background: var(--periodo-bg, var(--surface-muted)); color: var(--periodo-text, var(--text)); }
 .soc-import-review-person-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 1px; }
 .soc-import-review-person-copy strong { overflow: hidden; color: var(--text); font-size: 10px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .soc-import-review-person-copy small { overflow: hidden; color: var(--muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
@@ -6769,25 +6766,45 @@ fieldset.checkbox-card-list > legend {
 .soc-import-review-table thead th span { display: block; margin-top: 2px; font-size: 8px; font-weight: 500; }
 .soc-import-review-table thead th.weekend strong { color: var(--danger, #d64545); }
 .soc-import-review-table thead th.selected { background: color-mix(in srgb, var(--primary-soft) 72%, var(--surface-muted)); color: var(--primary-bright); }
-.soc-import-review-table .soc-import-review-group-row th { position: sticky; left: 0; z-index: 2; height: 26px; padding: 4px 9px; background: color-mix(in srgb, var(--surface-muted) 78%, white); color: var(--muted); text-align: left; font-size: 9px; font-weight: 600; }
+.soc-import-review-table .soc-import-review-group-row th { position: sticky; left: 0; z-index: 2; height: 26px; padding: 4px 9px; background: color-mix(in srgb, var(--surface-muted) 78%, var(--surface)); color: var(--muted); text-align: left; font-size: 9px; font-weight: 600; }
 .soc-import-review-group-row .shift-chip { margin-right: 6px; padding: 2px 4px; font-size: 8px; }
 .soc-import-review-table .soc-import-review-name { position: sticky; left: 0; z-index: 2; width: 142px; min-width: 142px; padding: 5px 8px; background: var(--surface); text-align: left; }
 .soc-import-review-name > span { display: inline-flex; width: 21px; height: 21px; margin-right: 5px; align-items: center; justify-content: center; border-radius: 6px; background: var(--primary-soft); color: var(--primary-bright); font-size: 8px; font-weight: 800; vertical-align: middle; }
 .soc-import-review-name > strong { color: var(--text); font-size: 9px; font-weight: 600; vertical-align: middle; }
 .soc-import-review-table td { width: 43px; min-width: 43px; height: 31px; padding: 3px; background: var(--surface); text-align: center; }
-.soc-import-review-table td.weekend { background: color-mix(in srgb, var(--surface-muted) 60%, white); }
+.soc-import-review-table td.weekend { background: color-mix(in srgb, var(--surface-muted) 60%, var(--surface)); }
 .soc-import-review-table td.selected { background: color-mix(in srgb, var(--primary-soft) 55%, var(--surface)); box-shadow: inset 1px 0 0 var(--primary-bright), inset -1px 0 0 var(--primary-bright); }
 .soc-import-review-cell { display: inline-flex; width: 100%; min-height: 22px; align-items: center; justify-content: space-between; gap: 2px; padding: 3px 4px; border: 1px solid transparent; border-radius: 5px; background: var(--surface-muted); color: var(--text); font: inherit; font-size: 8px; font-weight: 650; }
 .soc-import-review-cell > span { overflow: hidden; color: var(--muted); font-size: 7px; text-overflow: ellipsis; }
 .soc-import-review-cell > i { font-style: normal; font-size: 8px; font-weight: 800; }
-.soc-import-review-cell[data-code="MD"] { border-color: color-mix(in srgb, #7c5ce0 28%, var(--border)); background: color-mix(in srgb, #7c5ce0 8%, white); color: #6543ba; }
-.soc-import-review-cell[data-code="M"] { border-color: color-mix(in srgb, #13b99a 28%, var(--border)); background: color-mix(in srgb, #13b99a 8%, white); color: #0a8c76; }
-.soc-import-review-cell[data-code="T"] { border-color: color-mix(in srgb, #e99b38 28%, var(--border)); background: color-mix(in srgb, #e99b38 9%, white); color: #b66b12; }
-.soc-import-review-cell[data-code="N"] { border-color: color-mix(in srgb, #2e8be6 28%, var(--border)); background: color-mix(in srgb, #2e8be6 8%, white); color: #1d6fc1; }
-.soc-import-review-cell[data-code="X"] { border-color: color-mix(in srgb, #e35c6c 25%, var(--border)); background: color-mix(in srgb, #e35c6c 8%, white); color: #c03c4e; }
-.soc-import-review-cell[data-code="DF"],
-.soc-import-review-cell[data-code="DU"] { border-color: color-mix(in srgb, #4ba87b 25%, var(--border)); background: color-mix(in srgb, #4ba87b 8%, white); color: #317a59; }
-.soc-import-review-cell[data-code="BH"] { border-color: color-mix(in srgb, #dbad3b 30%, var(--border)); background: color-mix(in srgb, #dbad3b 10%, white); color: #9a6f0d; }
+/*
+ * CHECKUP-VISUAL-1 — células e avatares da revisão usam os MESMOS tokens de
+ * período do resto do produto (`[data-code]` → `--periodo-*`), com valores
+ * próprios no tema escuro. Antes, cores fixas misturadas com `white`
+ * deixavam a grade clara no modo escuro, e FOLGA/AN/HE ficavam sem cor.
+ */
+/* `:where` mantém especificidade baixa: destaques de 7º dia/erro de fonte (abaixo) continuam vencendo. */
+.soc-import-review-cell:where([data-code]:not([data-code=""])) {
+  border-color: var(--periodo-border, var(--border));
+  background: var(--periodo-bg, var(--surface-muted));
+  color: var(--periodo-text, var(--text));
+}
+.soc-import-review-cell[data-code="FOLGA"] > i { font-size: 6.5px; letter-spacing: -.01em; }
+/* HOTFIX-HE-TURNO-1 — Hora Extra: cor do turno + borda tracejada + selo "HE". */
+.soc-import-review-cell[data-hora-extra] { border-style: dashed; border-color: var(--periodo-text, var(--border-strong)); }
+.soc-import-review-cell-he {
+  display: inline-block;
+  margin-left: 2px;
+  padding: 0 2px;
+  border-radius: 3px;
+  background: var(--primary, #2563eb);
+  color: #fff;
+  font-style: normal;
+  font-size: 5.5px;
+  font-weight: 800;
+  line-height: 1.5;
+  vertical-align: middle;
+}
 .soc-import-review-cell.empty { color: var(--muted); opacity: .55; }
 /*
  * HOTFIX-OPERACIONAL-PLANTAO-IMPORTACAO-HUB-1 — sequência 1..6 (badge
@@ -6839,12 +6856,6 @@ fieldset.checkbox-card-list > legend {
 .soc-import-review-erro-foco strong { font-weight: 700; }
 .soc-import-review-erro-foco span { flex: 1; min-width: 0; }
 .soc-import-review-erro-foco .icon-button { color: inherit; }
-.soc-import-review-density-legend { display: flex; align-items: center; gap: 5px; padding: 8px 10px; color: var(--muted); font-size: 8px; }
-.soc-import-review-density-legend > i { width: 16px; height: 7px; border-radius: 2px; background: color-mix(in srgb, var(--primary-bright) 10%, white); }
-.soc-import-review-density-legend > i.density-mid { background: color-mix(in srgb, var(--primary-bright) 25%, white); }
-.soc-import-review-density-legend > i.density-high { background: color-mix(in srgb, var(--primary-bright) 48%, white); }
-.soc-import-review-no-data { display: inline-flex; align-items: center; gap: 4px; margin-left: 7px; }
-.soc-import-review-no-data i { display: inline-block; width: 8px; height: 8px; background: var(--surface-muted); }
 .soc-import-review-alerts { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-sm); }
 .soc-import-review-alerts-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 11px 13px; border-bottom: 1px solid var(--border); }
 .soc-import-review-alerts-heading > div { display: flex; align-items: center; gap: 7px; }
@@ -6854,8 +6865,8 @@ fieldset.checkbox-card-list > legend {
 .soc-import-review-alert-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) 130px auto; align-items: center; gap: 8px; min-height: 48px; padding: 7px 13px; border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent); }
 .soc-import-review-alert-row:last-child { border-bottom: 0; }
 .soc-import-review-alert-icon { display: inline-flex; width: 23px; height: 23px; align-items: center; justify-content: center; border-radius: 7px; }
-.soc-import-review-alert-icon.error { background: color-mix(in srgb, var(--danger, #d64545) 11%, white); color: var(--danger, #d64545); }
-.soc-import-review-alert-icon.warning { background: color-mix(in srgb, var(--warning, #b7791f) 12%, white); color: var(--warning, #9a6718); }
+.soc-import-review-alert-icon.error { background: color-mix(in srgb, var(--danger, #d64545) 11%, var(--surface)); color: var(--danger, #d64545); }
+.soc-import-review-alert-icon.warning { background: color-mix(in srgb, var(--warning, #b7791f) 12%, var(--surface)); color: var(--warning, #9a6718); }
 .soc-import-review-alert-row > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .soc-import-review-alert-row strong { overflow: hidden; color: var(--text); font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .soc-import-review-alert-row small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
@@ -7142,3 +7153,9 @@ button.soc-import-review-alert-row:focus-visible { background: var(--surface-mut
 @media (max-width: 620px) {
   .cycle-assist-toggle { margin-top: 12px; }
 }
+
+/* CHECKUP-VISUAL-1 — legenda abaixo da grade de revisão (substitui a de densidade, que não tinha dado). */
+.soc-import-review-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 10px; padding: 8px 4px 0; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+.soc-import-review-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+.soc-import-review-legend .shift-chip { min-width: 22px; padding: 2px 5px; font-size: 9px; }
+.soc-import-review-legend .soc-import-review-legend-marca { display: inline-grid; place-items: center; min-width: 14px; height: 14px; border-radius: 4px; background: var(--surface-muted); color: var(--text); font-size: 9px; font-weight: 800; }

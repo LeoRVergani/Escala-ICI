@@ -68,3 +68,28 @@ describe('diferenças entre revisões', () => {
       usuarioUid === 'caio' && codigoNovo === null)).toBe(true);
   });
 });
+
+describe('CHECKUP-VISUAL-1 — alterações de Hora Extra com turno', () => {
+  it('registra o turno real antes/depois quando o dia é HE com turno', () => {
+    const antes = escala('ana', { '2026-11-15': { c: 'HE' } });
+    const depois = escala('ana', { '2026-11-15': { c: 'HE', t: 'T', i: '13:00', f: '19:00', vd: false } });
+    const [alteracao] = calcularAlteracoesEscala([antes], [depois]);
+    expect(alteracao).toEqual({
+      usuarioUid: 'ana',
+      login: 'ana',
+      data: '2026-11-15',
+      codigoAnterior: 'HE',
+      horarioAnterior: null,
+      codigoNovo: 'HE',
+      horarioNovo: '13:00–19:00',
+      turnoNovo: 'T',
+    });
+    expect(alteracao).not.toHaveProperty('turnoAnterior');
+  });
+
+  it('trocar só o turno da HE conta como alteração', () => {
+    const antes = escala('ana', { '2026-11-15': { c: 'HE', t: 'M' } });
+    const depois = escala('ana', { '2026-11-15': { c: 'HE', t: 'T' } });
+    expect(calcularAlteracoesEscala([antes], [depois])).toHaveLength(1);
+  });
+});

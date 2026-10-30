@@ -20,6 +20,7 @@ function assinatura(dia: Dia | undefined): string {
     m: dia.m ?? null,
     vd: dia.vd ?? null,
     seq: dia.seq ?? null,
+    t: dia.t ?? null,
   });
 }
 
@@ -63,6 +64,8 @@ export function calcularAlteracoesEscala(
         horarioAnterior: horario(antes),
         codigoNovo: depois?.c ?? null,
         horarioNovo: horario(depois),
+        ...(antes?.t !== undefined ? { turnoAnterior: antes.t } : {}),
+        ...(depois?.t !== undefined ? { turnoNovo: depois.t } : {}),
       });
     }
   }

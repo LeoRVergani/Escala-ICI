@@ -53,7 +53,10 @@ test('4. o calendário/agenda/lembretes da Jornada usam a escala MESCLADA (escal
   const app = semComentarios(await ler('apps/app/src/EmployeeApp.tsx'));
   assert.match(app, /const diasEscalaVisivelApp = mesclarDiasEscalas\(escalasDoUsuario\);/u);
   assert.match(app, /const datas = Object\.keys\(diasEscalaVisivelApp\)\.sort\(\);/u);
-  const usosEscalaVisivel = app.match(/escala=\{escalaVisivelApp\}/gu) ?? [];
+  // CHECKUP-VISUAL-1 — calendário/agenda/detalhe navegam por competência
+  // (setas ‹ ›) e caem na escala mesclada quando não há competência
+  // escolhida; os dois formatos contam como "recebe a escala mesclada".
+  const usosEscalaVisivel = app.match(/escala=\{(?:escalaDaCompetenciaAtual \?\? )?escalaVisivelApp\}/gu) ?? [];
   assert.ok(usosEscalaVisivel.length >= 4, 'CalendarioEscala/AgendaEscala/DetalheDia/LembretesView precisam receber a escala mesclada');
 });
 
