@@ -1917,8 +1917,21 @@ function ModalConfirmarComTexto({
         </div>
         {mensagem}
         <label>
-          Digite <code>{aceitas.join('</code> ou <code>')}</code> para confirmar
-          <input value={valor} onChange={(evento) => setValor(evento.target.value)} autoFocus />
+          <span>
+            Digite{' '}
+            {aceitas.map((frase, indice) => (
+              <span key={frase}>{indice > 0 && ' ou '}<code>{frase}</code></span>
+            ))}{' '}
+            para confirmar
+          </span>
+          <input
+            value={valor}
+            onChange={(evento) => setValor(evento.target.value)}
+            placeholder={aceitas[0]}
+            autoComplete="off"
+            spellCheck={false}
+            autoFocus
+          />
         </label>
         <div className="rollback-actions">
           <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
@@ -2048,7 +2061,7 @@ function ModalExcluirUsuario({
           </div>
         )}
         <label htmlFor="excluir-usuario-confirmacao-login">
-          Digite <code>{candidato.login}</code> para confirmar
+          <span>Digite <code>{candidato.login}</code> para confirmar</span>
           <input
             id="excluir-usuario-confirmacao-login"
             value={valorLogin}
@@ -11400,29 +11413,35 @@ export function DashboardApp() {
                 {vinculos?.carregando ? (
                   <p role="status"><LoaderCircle className="spin" size={14} /> Verificando o que está vinculado a este grupo…</p>
                 ) : (
-                  <ul className="admin-form-preview vinculos-exclusao">
-                    <li><strong>Equipe responsável:</strong> {nomeEquipe(grupo.equipeResponsavelId)} (<code>{grupo.equipeResponsavelId}</code>)</li>
-                    <li><strong>Equipes que consultam:</strong> {grupo.equipesConsulta.length === 0 ? 'nenhuma' : grupo.equipesConsulta.map(nomeEquipe).join(', ')}</li>
+                  <ul className="vinculos-exclusao">
+                    <li><strong>Equipe responsável</strong><span>{nomeEquipe(grupo.equipeResponsavelId)} <code>{grupo.equipeResponsavelId}</code></span></li>
+                    <li><strong>Equipes que consultam</strong><span>{grupo.equipesConsulta.length === 0 ? 'nenhuma' : grupo.equipesConsulta.map(nomeEquipe).join(', ')}</span></li>
                     <li>
-                      <strong>Participantes:</strong>{' '}
-                      {(vinculos?.participantes.length ?? 0) === 0
-                        ? 'nenhum'
-                        : vinculos?.participantes.map((item) => item.login).join(', ')}
+                      <strong>Participantes</strong>
+                      <span>
+                        {(vinculos?.participantes.length ?? 0) === 0
+                          ? 'nenhum'
+                          : vinculos?.participantes.map((item) => item.login).join(', ')}
+                      </span>
                     </li>
                     <li>
-                      <strong>Responsáveis na Matriz:</strong>{' '}
-                      {escoposDoGrupo.length === 0
-                        ? 'nenhum vínculo'
-                        : escoposDoGrupo.map((escopo) => `${escopo.responsaveisLogin.join(', ') || 'sem login'}${escopo.ativo ? '' : ' (inativo)'}`).join(' · ')}
+                      <strong>Responsáveis na Matriz</strong>
+                      <span>
+                        {escoposDoGrupo.length === 0
+                          ? 'nenhum vínculo'
+                          : escoposDoGrupo.map((escopo) => `${escopo.responsaveisLogin.join(', ') || 'sem login'}${escopo.ativo ? '' : ' (inativo)'}`).join(' · ')}
+                      </span>
                     </li>
-                    <li><strong>Rascunhos:</strong> {(vinculos?.rascunhos.length ?? 0) === 0 ? 'nenhum' : vinculos?.rascunhos.map((item) => item.competencia).join(', ')}</li>
+                    <li><strong>Rascunhos</strong><span>{(vinculos?.rascunhos.length ?? 0) === 0 ? 'nenhum' : vinculos?.rascunhos.map((item) => item.competencia).join(', ')}</span></li>
                     <li>
-                      <strong>Competências publicadas/canceladas:</strong>{' '}
-                      {temPublicadas
-                        ? vinculos?.publicadas.map((item) => `${item.competencia} (${item.status === 'CANCELADA' ? 'cancelada' : 'publicada'})`).join(', ')
-                        : 'nenhuma'}
+                      <strong>Competências publicadas</strong>
+                      <span>
+                        {temPublicadas
+                          ? vinculos?.publicadas.map((item) => `${item.competencia} (${item.status === 'CANCELADA' ? 'cancelada' : 'publicada'})`).join(', ')
+                          : 'nenhuma'}
+                      </span>
                     </li>
-                    {vinculos?.falhaLeitura && <li>Parte dos vínculos não pôde ser lida agora — a lista pode estar incompleta.</li>}
+                    {vinculos?.falhaLeitura && <li className="vinculos-exclusao-aviso">Parte dos vínculos não pôde ser lida agora — a lista pode estar incompleta.</li>}
                   </ul>
                 )}
                 <p>

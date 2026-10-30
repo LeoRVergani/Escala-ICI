@@ -7194,3 +7194,129 @@ button.soc-import-review-alert-row:focus-visible { background: var(--surface-mut
   border-radius: 999px;
   letter-spacing: -0.01em;
 }
+
+/* =====================================================================
+ * MODAIS-PADRAO-1 — padrão visual único para todos os modais (`.edit-modal`).
+ * Seletores com `:where()` têm especificidade baixa de propósito: estilos
+ * próprios de cada modal (grades de formulário, pickers) continuam
+ * prevalecendo; isto só preenche o que estava sem estilo — a causa do
+ * campo "invisível" do modal de confirmação (input sem borda nem fundo).
+ * ===================================================================== */
+.edit-modal {
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 24px 64px rgba(3, 8, 16, 0.28), 0 2px 8px rgba(3, 8, 16, 0.08);
+}
+.edit-modal > .panel-title {
+  align-items: flex-start;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.edit-modal > .panel-title h2 { margin: 0; font-size: 18px; font-weight: 750; line-height: 1.3; color: var(--text); }
+.edit-modal > .panel-title p { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.edit-modal :where(p:not([class])) { font-size: 13px; line-height: 1.55; color: var(--text); }
+.edit-modal :where(code:not([class])) {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-muted);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+/* Campos de texto, seleção e área de texto: sempre com borda e fundo visíveis. */
+.edit-modal :where(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]),
+  select,
+  textarea
+) {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.edit-modal :where(textarea) { min-height: 96px; resize: vertical; line-height: 1.45; }
+.edit-modal :where(input, select, textarea):where(:hover:not(:disabled)) {
+  border-color: color-mix(in srgb, var(--primary-bright) 45%, var(--border-strong));
+}
+.edit-modal :where(input, select, textarea):where(:focus, :focus-visible) {
+  outline: none;
+  border-color: var(--primary-bright);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-bright) 22%, transparent);
+}
+.edit-modal :where(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
+.edit-modal :where(input, select, textarea):where(:disabled) { background: var(--surface-muted); opacity: 0.7; cursor: not-allowed; }
+.edit-modal :where(input[type="checkbox"], input[type="radio"]) { width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; }
+
+/* Rótulo solto (sem classe) direto no modal: texto em cima, campo ocupando a largura toda. */
+.edit-modal > label:not([class]) { display: block; font-size: 12px; font-weight: 700; color: var(--text); }
+.edit-modal > label:not([class]) > :where(
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea
+) { display: block; width: 100%; margin-top: 8px; }
+
+/* Rodapé de ações separado do conteúdo. */
+.edit-modal > .rollback-actions { padding-top: 16px; border-top: 1px solid var(--border); }
+
+/* Botão de perigo sólido: antes "primary + danger" ficava azul com texto vermelho. */
+.primary-button.danger-button {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+.primary-button.danger-button:hover:not(:disabled) {
+  color: #fff;
+  background: color-mix(in srgb, var(--danger) 86%, #000);
+  border-color: color-mix(in srgb, var(--danger) 86%, #000);
+}
+.primary-button.danger-button:disabled { opacity: 0.45; }
+
+/* Lista de vínculos do modal de exclusão de Grupo de Plantão: rótulo | valor. */
+.edit-modal ul.vinculos-exclusao {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 4px 14px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+.edit-modal ul.vinculos-exclusao > li {
+  display: grid;
+  grid-template-columns: minmax(150px, 38%) 1fr;
+  gap: 12px;
+  padding: 8px 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.edit-modal ul.vinculos-exclusao > li + li { border-top: 1px solid var(--border); }
+.edit-modal ul.vinculos-exclusao > li > strong { color: var(--muted); font-weight: 650; }
+.edit-modal ul.vinculos-exclusao > li.vinculos-exclusao-aviso { display: block; color: var(--warning); }
+@media (max-width: 520px) {
+  .edit-modal { padding: 18px; }
+  .edit-modal ul.vinculos-exclusao > li { grid-template-columns: 1fr; gap: 2px; }
+}
+/* Rótulo com campo de texto em qualquer nível do modal: texto em cima, campo embaixo.
+ * Especificidade zero — qualquer classe própria (plantao-d-field, select-with-icon...) prevalece. */
+:where(.edit-modal label:not(.checkbox-row):not(.checkbox-inline):not(.checkbox-card):not(.cycle-assist-toggle):has(
+  > input:not([type="checkbox"]):not([type="radio"]),
+  > select,
+  > textarea
+)) {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
