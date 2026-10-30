@@ -1959,6 +1959,7 @@ const OPCOES_EXCLUSAO_USUARIO: Array<{
   { campo: 'rascunhos', titulo: 'Rascunhos', descricao: () => 'Remove rascunhosTurnosMes vinculados' },
   { campo: 'trocas', titulo: 'Trocas vinculadas', descricao: () => 'Remove solicitações de troca relacionadas' },
   { campo: 'notificacoes', titulo: 'Notificações vinculadas', descricao: () => 'Remove notificações relacionadas' },
+  { campo: 'participacoesPlantao', titulo: 'Participação em Plantões', descricao: () => 'Remove o usuário de todos os Grupos de Plantão' },
 ];
 
 /**
@@ -1976,12 +1977,15 @@ function ModalExcluirUsuario({
   candidato,
   zeraGestores,
   processando,
+  erro,
   onFechar,
   onConfirmar,
 }: {
   candidato: Usuario;
   zeraGestores: boolean;
   processando: boolean;
+  /** EXCLUSAO-USUARIO-1 — erro mostrado DENTRO do modal (antes ia para a página, atrás dele). */
+  erro?: string;
   onFechar: () => void;
   onConfirmar: (opcoes: OpcoesExclusaoUsuario) => void;
 }) {
@@ -1991,7 +1995,20 @@ function ModalExcluirUsuario({
     rascunhos: false,
     trocas: false,
     notificacoes: false,
+    participacoesPlantao: false,
   });
+  const todasMarcadas = OPCOES_EXCLUSAO_USUARIO.every(({ campo }) => opcoes[campo] === true);
+  /** EXCLUSAO-USUARIO-1 — usuário de teste: um clique marca tudo, para não sobrar nada aparecendo. */
+  function marcarTudo(valor: boolean) {
+    setOpcoes({
+      cadastro: valor,
+      escalasPublicadas: valor,
+      rascunhos: valor,
+      trocas: valor,
+      notificacoes: valor,
+      participacoesPlantao: valor,
+    });
+  }
   const [confirmacaoZeraGestores, setConfirmacaoZeraGestores] = useState(false);
   const [valorLogin, setValorLogin] = useState('');
   useTeclaEsc(onFechar);
@@ -2029,7 +2046,12 @@ function ModalExcluirUsuario({
           <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar"><X size={18} /></button>
         </div>
         <fieldset className="checkbox-card-list">
-          <legend>O que apagar</legend>
+          <legend>
+            O que apagar{' '}
+            <button type="button" className="link-button" onClick={() => marcarTudo(!todasMarcadas)}>
+              {todasMarcadas ? 'Desmarcar tudo' : 'Marcar tudo (usuário de teste)'}
+            </button>
+          </legend>
           {OPCOES_EXCLUSAO_USUARIO.map(({ campo, titulo, descricao }) => (
             <label key={campo} className="checkbox-card" htmlFor={`excluir-usuario-${campo}`}>
               <input
@@ -2066,9 +2088,13 @@ function ModalExcluirUsuario({
             id="excluir-usuario-confirmacao-login"
             value={valorLogin}
             onChange={(evento) => setValorLogin(evento.target.value)}
+            placeholder={candidato.login}
+            autoComplete="off"
+            spellCheck={false}
             autoFocus
           />
         </label>
+        {erro && <div className="alert error" role="alert">{erro}</div>}
         <div className="rollback-actions">
           <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
           <button
@@ -3720,6 +3746,7 @@ export function DashboardApp() {
   const [gestorParaSimular, setGestorParaSimular] = useState('');
   const [usuarioParaExcluir, setUsuarioParaExcluir] = useState<Usuario | null>(null);
   const [processandoExclusaoUsuario, setProcessandoExclusaoUsuario] = useState(false);
+  const [erroExclusaoUsuario, setErroExclusaoUsuario] = useState('');
   const [equipeExportar, setEquipeExportar] = useState('');
   const [competenciaExportar, setCompetenciaExportar] = useState(competenciaOperacionalHoje);
   const [excluirEscalaPendente, setExcluirEscalaPendente] = useState(false);
@@ -8117,17 +8144,47 @@ export function DashboardApp() {
     // impede outro re-render de trocar a seleção antes da resposta chegar).
     const candidato = usuarioParaExcluir;
     setProcessandoExclusaoUsuario(true);
+    setErroExclusaoUsuario('');
     try {
-      if (!modoDemo) {
-        await excluirUsuario(candidato, opcoes);
-      }
-      if (opcoes.cadastro) {
+      const resultado = modoDemo
+        ? { concluidas: [], falhas: [], cadastroExcluido: opcoes.cadastro }
+        : await excluirUsuario(candidato, opcoes, { gruposPlantaoIds: gruposPlantaoAdmin.map((grupo) => grupo.grupoId) });
+      // EXCLUSAO-USUARIO-1 — some de TODAS as listas na hora (antes só da
+      // lista da Administração; a tela Usuários e as grades só mudavam
+      // depois de recarregar a página).
+      if (resultado.cadastroExcluido) {
         setTodosUsuariosAdmin((atuais) => atuais.filter((item) => item.login !== candidato.login));
+        setUsuarios((atuais) => atuais.filter((item) => item.login !== candidato.login));
+      }
+      if (opcoes.participacoesPlantao) {
+        setParticipantesPorGrupoPlantao((atuais) => Object.fromEntries(Object.entries(atuais)
+          .map(([grupoId, lista]) => [grupoId, lista.filter((item) => item.login !== candidato.login)])));
+      }
+      if (opcoes.escalasPublicadas || opcoes.rascunhos) {
+        setResultado((atual) => (atual === null ? atual : {
+          ...atual,
+          documentos: atual.documentos.filter((documento) => documento.login !== candidato.login),
+        }));
+      }
+      if (!modoDemo) {
+        await registrarAuditoriaOperacional('EXCLUIR_USUARIO', candidato.equipeId, {
+          usuarioVinculadoLogin: candidato.login,
+          origem: resultado.concluidas.join(', ') || null,
+        });
+      }
+      if (resultado.falhas.length > 0) {
+        setErroExclusaoUsuario([
+          resultado.concluidas.length > 0 ? `Excluído: ${resultado.concluidas.join(', ')}.` : '',
+          `Não foi possível excluir: ${resultado.falhas
+            .map(({ etapa, erro }) => `${etapa} (${mensagemErroFirebase(erro, 'erro desconhecido', ambienteFirebaseAtual)})`)
+            .join('; ')}.`,
+        ].filter(Boolean).join(' '));
+        return;
       }
       setMensagem(`Dados de ${candidato.nome} excluídos conforme selecionado.`);
       setUsuarioParaExcluir(null);
     } catch (falha) {
-      setErroAdmin(mensagemErroFirebase(falha, 'Não foi possível excluir os dados selecionados.', ambienteFirebaseAtual));
+      setErroExclusaoUsuario(mensagemErroFirebase(falha, 'Não foi possível excluir os dados selecionados.', ambienteFirebaseAtual));
     } finally {
       setProcessandoExclusaoUsuario(false);
     }
@@ -10485,6 +10542,19 @@ export function DashboardApp() {
                             >
                               <Bell size={15} />
                             </button>
+                            {/* EXCLUSAO-USUARIO-1 — antes só existia em Administração → Usuários. */}
+                            {souAdmin && (
+                              <button
+                                className="icon-button danger-button"
+                                type="button"
+                                title={podeExcluirUsuario(item, usuarioReal) ? 'Excluir usuário' : 'Não é possível excluir a própria conta logada'}
+                                aria-label={`Excluir ${item.nome}`}
+                                disabled={escritaBloqueada || !podeExcluirUsuario(item, usuarioReal)}
+                                onClick={() => { setErroExclusaoUsuario(''); setUsuarioParaExcluir(item); }}
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -11135,7 +11205,7 @@ export function DashboardApp() {
                             title={autoExclusao ? 'Não é possível excluir a própria conta logada' : 'Excluir dados'}
                             aria-label={autoExclusao ? 'Não é possível excluir a própria conta logada' : `Excluir dados de ${item.nome}`}
                             disabled={autoExclusao}
-                            onClick={() => setUsuarioParaExcluir(item)}
+                            onClick={() => { setErroExclusaoUsuario(''); setUsuarioParaExcluir(item); }}
                           >
                             <Trash2 size={15} />
                           </button>
@@ -11528,7 +11598,8 @@ export function DashboardApp() {
           candidato={usuarioParaExcluir}
           zeraGestores={exclusaoZeraGestores(todosUsuariosAdmin, usuarioParaExcluir.login)}
           processando={processandoExclusaoUsuario}
-          onFechar={() => setUsuarioParaExcluir(null)}
+          erro={erroExclusaoUsuario || undefined}
+          onFechar={() => { setUsuarioParaExcluir(null); setErroExclusaoUsuario(''); }}
           onConfirmar={(opcoes) => void confirmarExclusaoUsuario(opcoes)}
         />
       )}
