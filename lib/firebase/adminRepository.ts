@@ -46,67 +46,92 @@ export interface OpcoesExclusaoUsuario {
   rascunhos: boolean;
   trocas: boolean;
   notificacoes: boolean;
+  /** EXCLUSAO-USUARIO-1 — remove o usuário dos Grupos de Plantão informados. */
+  participacoesPlantao?: boolean;
 }
 
 /**
- * Exclusão seletiva — o admin escolhe quais categorias de dados vinculadas
- * ao login apagar. `cadastro` (usuarios/{login}) vem por último de
- * propósito: se algo falhar nas categorias acima, a identidade do usuário
- * continua existindo e a operação pode ser repetida com segurança.
- *
- * Recebe `equipeId` do candidato (não só o login) porque as rules de leitura
- * de `turnosMes`/`rascunhosTurnosMes`/`trocasEscala`/`notificacoesTroca`
- * autorizam o ADMIN_SISTEMA cross-equipe checando `resource.data.equipeId`
- * — e uma consulta (`list`) só avalia essa condição sem erro quando a
- * própria consulta também filtra por `equipeId` (confirmado com teste
- * isolado no emulador; ver comentário em firestore.rules). Por isso toda
- * consulta abaixo inclui `where('equipeId', '==', candidato.equipeId)`
- * junto do filtro por login.
+ * EXCLUSAO-USUARIO-1 — resultado por etapa. Antes, a primeira etapa que
+ * falhasse (ex.: escalas) interrompia tudo e o cadastro nunca era apagado;
+ * agora cada etapa roda de forma independente e o chamador mostra o que
+ * deu certo e o que falhou.
  */
+export interface ResultadoExclusaoUsuario {
+  concluidas: string[];
+  falhas: Array<{ etapa: string; erro: unknown }>;
+  cadastroExcluido: boolean;
+}
+
 export async function excluirUsuario(
   candidato: Pick<Usuario, 'login' | 'equipeId'>,
   opcoes: OpcoesExclusaoUsuario,
-): Promise<void> {
+  contexto: { gruposPlantaoIds?: readonly string[] } = {},
+): Promise<ResultadoExclusaoUsuario> {
   exigirEscritaAdministrativaHabilitada();
   const { db } = exigirFirebase();
   const { login, equipeId } = candidato;
   const porEquipe = where('equipeId', '==', equipeId);
+  const resultado: ResultadoExclusaoUsuario = { concluidas: [], falhas: [], cadastroExcluido: false };
+
+  async function etapa(nome: string, executar: () => Promise<unknown>) {
+    try {
+      await executar();
+      resultado.concluidas.push(nome);
+    } catch (erro) {
+      resultado.falhas.push({ etapa: nome, erro });
+    }
+  }
 
   if (opcoes.escalasPublicadas) {
-    await excluirPorConsultaEmLotes(
+    await etapa('Escalas publicadas', () => excluirPorConsultaEmLotes(
       db,
       query(collection(db, 'turnosMes'), porEquipe, where('login', '==', login)),
-    );
+    ));
   }
   if (opcoes.rascunhos) {
-    await excluirPorConsultaEmLotes(
+    await etapa('Rascunhos', () => excluirPorConsultaEmLotes(
       db,
       query(collection(db, 'rascunhosTurnosMes'), porEquipe, where('login', '==', login)),
-    );
+    ));
   }
   if (opcoes.trocas) {
-    await excluirPorConsultaEmLotes(
-      db,
-      query(collection(db, 'trocasEscala'), porEquipe, where('solicitanteLogin', '==', login)),
-    );
-    await excluirPorConsultaEmLotes(
-      db,
-      query(collection(db, 'trocasEscala'), porEquipe, where('destinatarioLogin', '==', login)),
-    );
+    await etapa('Trocas', async () => {
+      await excluirPorConsultaEmLotes(
+        db,
+        query(collection(db, 'trocasEscala'), porEquipe, where('solicitanteLogin', '==', login)),
+      );
+      await excluirPorConsultaEmLotes(
+        db,
+        query(collection(db, 'trocasEscala'), porEquipe, where('destinatarioLogin', '==', login)),
+      );
+    });
   }
   if (opcoes.notificacoes) {
-    await excluirPorConsultaEmLotes(
-      db,
-      query(collection(db, 'notificacoesTroca'), porEquipe, where('destinatarioLogin', '==', login)),
-    );
-    await excluirPorConsultaEmLotes(
-      db,
-      query(collection(db, 'notificacoesTroca'), porEquipe, where('criadoPorLogin', '==', login)),
-    );
+    await etapa('Notificações', async () => {
+      await excluirPorConsultaEmLotes(
+        db,
+        query(collection(db, 'notificacoesTroca'), porEquipe, where('destinatarioLogin', '==', login)),
+      );
+      await excluirPorConsultaEmLotes(
+        db,
+        query(collection(db, 'notificacoesTroca'), porEquipe, where('criadoPorLogin', '==', login)),
+      );
+    });
   }
+  if (opcoes.participacoesPlantao && (contexto.gruposPlantaoIds?.length ?? 0) > 0) {
+    await etapa('Participação em Plantões', async () => {
+      for (const grupoId of contexto.gruposPlantaoIds ?? []) {
+        await deleteDoc(doc(db, 'gruposPlantao', grupoId, 'participantes', login));
+      }
+    });
+  }
+  // Cadastro por último: as demais etapas usam o login, e mesmo que alguma
+  // falhe o cadastro ainda é apagado quando foi pedido.
   if (opcoes.cadastro) {
-    await deleteDoc(doc(db, 'usuarios', login));
+    await etapa('Cadastro', () => deleteDoc(doc(db, 'usuarios', login)));
+    resultado.cadastroExcluido = resultado.concluidas.includes('Cadastro');
   }
+  return resultado;
 }
 
 /**
