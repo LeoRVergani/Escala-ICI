@@ -146,6 +146,7 @@ import { ambienteFirebaseAtual } from '@/lib/firebase/shared';
 import {
   listarAtribuicoesPlantaoPublicada,
   listarAtribuicoesPlantaoRascunho,
+  listarCompetenciasPlantaoPublicadasDoGrupo,
   listarCompetenciasPlantaoRascunho,
   listarGruposPlantaoPermitidos,
   listarGruposPlantaoPorUnidadeResponsavel,
@@ -3597,6 +3598,17 @@ export function DashboardApp() {
   const [erroEquipesPlantao, setErroEquipesPlantao] = useState('');
   const [modalGrupoPlantao, setModalGrupoPlantao] = useState<{ modo: 'criar' | 'editar'; inicial: GrupoPlantao } | null>(null);
   const [grupoPlantaoParaExcluir, setGrupoPlantaoParaExcluir] = useState<GrupoPlantao | null>(null);
+  /**
+   * EXCLUSAO-GRUPO-ADMIN-1 — o que está vinculado ao Grupo que vai ser
+   * excluído, carregado ao abrir a confirmação (nunca excluir às cegas).
+   */
+  const [vinculosGrupoParaExcluir, setVinculosGrupoParaExcluir] = useState<{
+    carregando: boolean;
+    participantes: ParticipantePlantao[];
+    publicadas: CompetenciaPlantao[];
+    rascunhos: CompetenciaPlantao[];
+    falhaLeitura: boolean;
+  } | null>(null);
   const [excluindoGrupoPlantao, setExcluindoGrupoPlantao] = useState(false);
   const [erroExclusaoGrupoPlantao, setErroExclusaoGrupoPlantao] = useState('');
   /**
@@ -7298,6 +7310,12 @@ export function DashboardApp() {
      * — do fallback legado em `lib/escoposOperacionais.ts`, nunca
      * reaproveita nem altera a semântica bootstrap-aware do resolver).
      */
+    // EXCLUSAO-GRUPO-ADMIN-1 — ADMIN_SISTEMA administra qualquer Grupo
+    // (as Rules já concedem: `souAdminSistema()`); antes, um Grupo com Matriz
+    // que não listava o admin aparecia para ele como "só consulta".
+    if (souAdmin) {
+      return true;
+    }
     const existeMatrizParaEsteGrupo = escoposOperacionaisAdmin.some((escopo) =>
       escopo.tipo === 'PLANTAO' && escopo.alvoId === grupo.grupoId);
     return usuarioReal !== null
@@ -7362,6 +7380,41 @@ export function DashboardApp() {
    * existe competência publicada — aqui só propagamos essa mensagem,
    * nunca escondemos.
    */
+  /** EXCLUSAO-GRUPO-ADMIN-1 — abre a confirmação já buscando tudo o que está vinculado ao Grupo. */
+  function abrirExclusaoGrupoPlantao(grupo: GrupoPlantao) {
+    setErroExclusaoGrupoPlantao('');
+    setGrupoPlantaoParaExcluir(grupo);
+    if (modoDemo) {
+      setVinculosGrupoParaExcluir({
+        carregando: false,
+        participantes: participantesPorGrupoPlantao[grupo.grupoId] ?? [],
+        publicadas: [],
+        rascunhos: rascunhosPlantaoPorGrupo[grupo.grupoId] ?? [],
+        falhaLeitura: false,
+      });
+      return;
+    }
+    setVinculosGrupoParaExcluir({ carregando: true, participantes: [], publicadas: [], rascunhos: [], falhaLeitura: false });
+    void Promise.allSettled([
+      listarParticipantesPlantao(grupo.grupoId),
+      listarCompetenciasPlantaoPublicadasDoGrupo(grupo.grupoId),
+      listarCompetenciasPlantaoRascunho(grupo.grupoId),
+    ]).then(([participantes, publicadas, rascunhos]) => {
+      setVinculosGrupoParaExcluir({
+        carregando: false,
+        participantes: valorLeitura(participantes, []),
+        publicadas: valorLeitura(publicadas, []),
+        rascunhos: valorLeitura(rascunhos, []),
+        falhaLeitura: [participantes, publicadas, rascunhos].some((item) => item.status === 'rejected'),
+      });
+    });
+  }
+
+  function fecharExclusaoGrupoPlantao() {
+    setGrupoPlantaoParaExcluir(null);
+    setVinculosGrupoParaExcluir(null);
+  }
+
   async function confirmarExclusaoGrupoPlantao() {
     if (grupoPlantaoParaExcluir === null) {
       return;
@@ -7370,10 +7423,37 @@ export function DashboardApp() {
     setErroExclusaoGrupoPlantao('');
     try {
       if (!modoDemo) {
-        await excluirGrupoPlantao(grupoPlantaoParaExcluir.grupoId);
+        await excluirGrupoPlantao(grupoPlantaoParaExcluir.grupoId, { manterHistoricoPublicado: souAdmin });
       }
+      // EXCLUSAO-GRUPO-ADMIN-1 — vínculos da Matriz que apontavam para este
+      // Grupo são desativados (a Rule não permite apagar escopo; desativar
+      // tira o Grupo excluído do seletor e da tela de Responsáveis).
+      const escoposDoGrupo = escoposOperacionaisAdmin.filter((escopo) =>
+        escopo.tipo === 'PLANTAO' && escopo.alvoId === grupoPlantaoParaExcluir.grupoId && escopo.ativo);
+      if (!modoDemo && usuarioReal !== null) {
+        for (const escopo of escoposDoGrupo) {
+          try {
+            await salvarEscopoOperacional({
+              ...escopo,
+              ativo: false,
+              atualizadoEm: new Date().toISOString(),
+              atualizadoPorLogin: usuarioReal.login,
+            });
+          } catch (falhaEscopo) {
+            console.warn('[exclusao-grupo] não foi possível desativar o vínculo da Matriz', escopo.alvoId, falhaEscopo);
+          }
+        }
+      }
+      setEscoposOperacionaisAdmin((atuais) => atuais.map((escopo) => (
+        escopo.tipo === 'PLANTAO' && escopo.alvoId === grupoPlantaoParaExcluir.grupoId ? { ...escopo, ativo: false } : escopo
+      )));
+      await registrarAuditoriaOperacional('EXCLUIR_GRUPO_PLANTAO', grupoPlantaoParaExcluir.equipeResponsavelId, {
+        unidadeId: grupoPlantaoParaExcluir.unidadeResponsavelId ?? null,
+        origem: grupoPlantaoParaExcluir.grupoId,
+      });
       setGruposPlantaoAdmin((atuais) => atuais.filter((item) => item.grupoId !== grupoPlantaoParaExcluir.grupoId));
       setGrupoPlantaoParaExcluir(null);
+      setVinculosGrupoParaExcluir(null);
     } catch (falha) {
       setErroExclusaoGrupoPlantao(mensagemErroFirebase(falha, 'Não foi possível excluir o grupo de Plantão.', ambienteFirebaseAtual));
     } finally {
@@ -10468,7 +10548,8 @@ export function DashboardApp() {
                 <div className="panel-title">
                   <div>
                     <h2>{grupo.nome}</h2>
-                    <p>{grupo.descricao || 'Sem descrição.'}</p>
+                    {/* EXCLUSAO-GRUPO-ADMIN-1 — o ID diferencia grupos com o mesmo nome. */}
+                    <p>{grupo.descricao || 'Sem descrição.'} · ID <code className="login-code">{grupo.grupoId}</code></p>
                   </div>
                   <div className="import-actions">
                     <span className={`status-badge ${grupo.ativo ? 'success' : 'neutral'}`}>
@@ -10492,7 +10573,7 @@ export function DashboardApp() {
                         type="button"
                         title="Excluir grupo (corrige um duplicado criado por engano)"
                         aria-label={`Excluir grupo ${grupo.nome}`}
-                        onClick={() => { setErroExclusaoGrupoPlantao(''); setGrupoPlantaoParaExcluir(grupo); }}
+                        onClick={() => abrirExclusaoGrupoPlantao(grupo)}
                       >
                         <Trash2 size={15} />
                       </button>
@@ -10501,7 +10582,9 @@ export function DashboardApp() {
                 </div>
                 <div className="import-summary plantao-resumo-grid">
                   <div><span>Equipe responsável</span><strong>{equipeResponsavel?.nome ?? grupo.equipeResponsavelId}</strong></div>
-                  <div><span>Equipes que consultam</span><strong>{grupo.equipesConsulta.length}</strong></div>
+                  <div title={grupo.equipesConsulta.map((equipeId) => equipesAdmin.find((item) => item.id === equipeId)?.nome ?? equipeId).join(', ')}>
+                    <span>Equipes que consultam</span><strong>{grupo.equipesConsulta.length}</strong>
+                  </div>
                   <div><span>Timezone</span><strong>{grupo.timezone}</strong></div>
                   <div><span>Participantes ativos</span><strong>{participantesDoGrupo.filter((item) => item.ativo).length}</strong></div>
                 </div>
@@ -11290,33 +11373,79 @@ export function DashboardApp() {
         />
       )}
 
-      {grupoPlantaoParaExcluir && (
-        <ModalConfirmarComTexto
-          titulo={`Excluir ${grupoPlantaoParaExcluir.nome}`}
-          mensagem={(
-            <>
-              <p>
-                Remove permanentemente o grupo <strong>{grupoPlantaoParaExcluir.nome}</strong> (
-                <code>{grupoPlantaoParaExcluir.grupoId}</code>) e{' '}
-                {(participantesPorGrupoPlantao[grupoPlantaoParaExcluir.grupoId] ?? []).length} participante(s)
-                cadastrado(s) nele. Use para corrigir um grupo criado por engano (ex.: duplicado numa
-                reimportação).
-              </p>
-              <p>
-                Esta ação é irreversível. Se este Plantão já tiver competência publicada ou cancelada, a
-                exclusão será recusada — desative o grupo em vez disso. Para corrigir uma publicação
-                errada, cancele a publicação (painel &ldquo;Revisão publicada&rdquo;) antes de desativar o grupo.
-              </p>
-              {erroExclusaoGrupoPlantao && <div className="alert error" role="alert">{erroExclusaoGrupoPlantao}</div>}
-            </>
-          )}
-          fraseEsperada={grupoPlantaoParaExcluir.grupoId}
-          rotuloBotaoConfirmar={excluindoGrupoPlantao ? 'Excluindo…' : 'Excluir grupo'}
-          processando={excluindoGrupoPlantao}
-          onFechar={() => setGrupoPlantaoParaExcluir(null)}
-          onConfirmar={() => void confirmarExclusaoGrupoPlantao()}
-        />
-      )}
+      {grupoPlantaoParaExcluir && (() => {
+        /**
+         * EXCLUSAO-GRUPO-ADMIN-1 — antes de confirmar, mostra TUDO o que está
+         * vinculado ao Grupo: equipes, pessoas, vínculos da Matriz e
+         * competências. Nunca excluir às cegas um Grupo com nome repetido.
+         */
+        const grupo = grupoPlantaoParaExcluir;
+        const vinculos = vinculosGrupoParaExcluir;
+        const nomeEquipe = (equipeId: string) => equipesAdmin.find((item) => item.id === equipeId)?.nome ?? equipeId;
+        const escoposDoGrupo = escoposOperacionaisAdmin.filter((escopo) => escopo.tipo === 'PLANTAO' && escopo.alvoId === grupo.grupoId);
+        const outrosComMesmoNome = gruposPlantaoAdmin.filter((item) => item.grupoId !== grupo.grupoId && normalizarNome(item.nome) === normalizarNome(grupo.nome));
+        const temPublicadas = (vinculos?.publicadas.length ?? 0) > 0;
+        const bloqueado = temPublicadas && !souAdmin;
+        return (
+          <ModalConfirmarComTexto
+            titulo={`Excluir ${grupo.nome}`}
+            mensagem={(
+              <>
+                <p>
+                  Grupo <strong>{grupo.nome}</strong> · ID <code>{grupo.grupoId}</code>
+                  {outrosComMesmoNome.length > 0 && (
+                    <> — existe(m) outro(s) com o mesmo nome: {outrosComMesmoNome.map((item) => <code key={item.grupoId}>{item.grupoId}</code>)}. Confira o ID antes de excluir.</>
+                  )}
+                </p>
+                {vinculos?.carregando ? (
+                  <p role="status"><LoaderCircle className="spin" size={14} /> Verificando o que está vinculado a este grupo…</p>
+                ) : (
+                  <ul className="admin-form-preview vinculos-exclusao">
+                    <li><strong>Equipe responsável:</strong> {nomeEquipe(grupo.equipeResponsavelId)} (<code>{grupo.equipeResponsavelId}</code>)</li>
+                    <li><strong>Equipes que consultam:</strong> {grupo.equipesConsulta.length === 0 ? 'nenhuma' : grupo.equipesConsulta.map(nomeEquipe).join(', ')}</li>
+                    <li>
+                      <strong>Participantes:</strong>{' '}
+                      {(vinculos?.participantes.length ?? 0) === 0
+                        ? 'nenhum'
+                        : vinculos?.participantes.map((item) => item.login).join(', ')}
+                    </li>
+                    <li>
+                      <strong>Responsáveis na Matriz:</strong>{' '}
+                      {escoposDoGrupo.length === 0
+                        ? 'nenhum vínculo'
+                        : escoposDoGrupo.map((escopo) => `${escopo.responsaveisLogin.join(', ') || 'sem login'}${escopo.ativo ? '' : ' (inativo)'}`).join(' · ')}
+                    </li>
+                    <li><strong>Rascunhos:</strong> {(vinculos?.rascunhos.length ?? 0) === 0 ? 'nenhum' : vinculos?.rascunhos.map((item) => item.competencia).join(', ')}</li>
+                    <li>
+                      <strong>Competências publicadas/canceladas:</strong>{' '}
+                      {temPublicadas
+                        ? vinculos?.publicadas.map((item) => `${item.competencia} (${item.status === 'CANCELADA' ? 'cancelada' : 'publicada'})`).join(', ')
+                        : 'nenhuma'}
+                    </li>
+                    {vinculos?.falhaLeitura && <li>Parte dos vínculos não pôde ser lida agora — a lista pode estar incompleta.</li>}
+                  </ul>
+                )}
+                <p>
+                  Serão removidos: o grupo, os participantes e os rascunhos. Vínculos ativos da Matriz serão desativados.
+                  {temPublicadas && souAdmin && ' As competências publicadas ficam guardadas no banco como histórico de auditoria, sem grupo, e deixam de aparecer no App e no Dashboard.'}
+                </p>
+                {bloqueado && (
+                  <div className="alert warning" role="status">
+                    Este Plantão já tem competência publicada. Só um administrador do sistema pode excluí-lo.
+                  </div>
+                )}
+                <p>Esta ação é irreversível.</p>
+                {erroExclusaoGrupoPlantao && <div className="alert error" role="alert">{erroExclusaoGrupoPlantao}</div>}
+              </>
+            )}
+            fraseEsperada={grupo.grupoId}
+            rotuloBotaoConfirmar={excluindoGrupoPlantao ? 'Excluindo…' : 'Excluir grupo'}
+            processando={excluindoGrupoPlantao || (vinculos?.carregando ?? false) || bloqueado}
+            onFechar={fecharExclusaoGrupoPlantao}
+            onConfirmar={() => void confirmarExclusaoGrupoPlantao()}
+          />
+        );
+      })()}
 
       {publicacaoPlantaoParaCancelar && (
         <CancelarPublicacaoPlantaoModal
