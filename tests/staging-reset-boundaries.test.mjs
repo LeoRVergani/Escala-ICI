@@ -131,4 +131,18 @@ test('package.json expõe staging:backup/reset/seed/validate, todos passando pel
   assert.equal(pacote.scripts['staging:reset'], 'node scripts/staging/reset-staging.mjs');
   assert.equal(pacote.scripts['staging:seed'], 'node scripts/staging/seed-hierarquia-ici.mjs');
   assert.equal(pacote.scripts['staging:validate'], 'node scripts/staging/validate-staging.mjs');
+  assert.equal(pacote.scripts['staging:repair:cosi'], 'node scripts/staging/auditar-reparar-plantao-cosi.mjs');
+});
+
+test('reparo COSI é staging-only, dry-run e nunca move/apaga dados operacionais', async () => {
+  const codigo = await ler('scripts/staging/auditar-reparar-plantao-cosi.mjs');
+  assert.match(codigo, /CONFIRMACAO = 'REPARAR_PLANTAO_COSI'/u);
+  assert.match(codigo, /apply && !confirmado/u);
+  assert.match(codigo, /DRY-RUN/u);
+  assert.match(codigo, /inicializarAdminStaging/u, 'precisa herdar a trava literal de projeto do Admin SDK');
+  assert.match(codigo, /totalDadosOperacionais\(dadosLegados\[indice\]\)/u, 'precisa abortar se o legado tiver dado real');
+  assert.doesNotMatch(codigo, /\.delete\(|recursiveDelete|\.collection\(['"]atribuicoesPlantao/u, 'nunca apaga nem regrava atribuições');
+  assert.match(codigo, /GRUPO_PLANTAO/u, 'estrutura canônica vem da mesma fonte do seed');
+  assert.match(codigo, /funcoesEsperadas: \[\]/u, 'COSI precisa permanecer posto único');
+  assert.match(codigo, /ativo: false/u, 'legados vazios são desativados, nunca excluídos');
 });

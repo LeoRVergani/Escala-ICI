@@ -36,6 +36,9 @@ function formatarMinutosCard(minutos: number): string {
 export function CardFuncaoPlantao({ rotulo, saude, selecionado, onSelecionar, onResolverVinculos }: CardFuncaoPlantaoProps) {
   const varianteStatus = saude.status === 'OK' ? 'stable' : 'attention';
   const problemas: string[] = [];
+  if (saude.semDados) {
+    problemas.push('Sem dados para este posto');
+  }
   if (saude.postosFaltando > 0) {
     problemas.push(`${saude.postosFaltando} posto(s) sem plantonista`);
   }

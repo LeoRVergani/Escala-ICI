@@ -5,6 +5,7 @@ import type { GrupoPlantao } from '@escala-ici/contrato';
 export type ResultadoResolucao<T> =
   | { estado: 'RESOLVIDO'; valor: T }
   | { estado: 'SELECIONAR'; opcoes: T[] }
+  | { estado: 'EXISTENTE_SEM_ACESSO'; opcoes: T[] }
   | { estado: 'CRIAR' };
 
 export function resolverUnicoOuAmbiguo<T>(opcoes: readonly T[]): ResultadoResolucao<T> {
@@ -79,7 +80,12 @@ export function resolverGrupoParaPlantao(
   grupos: readonly GrupoPlantao[],
   podeGerenciar: (grupo: GrupoPlantao) => boolean,
 ): ResultadoResolucao<GrupoPlantao> {
-  return resolverUnicoOuAmbiguo(gruposPlantaoAdministraveis(grupos, podeGerenciar));
+  const ativos = grupos.filter((grupo) => grupo.ativo);
+  const administraveis = gruposPlantaoAdministraveis(ativos, podeGerenciar);
+  if (administraveis.length === 0 && ativos.length > 0) {
+    return { estado: 'EXISTENTE_SEM_ACESSO', opcoes: ativos };
+  }
+  return resolverUnicoOuAmbiguo(administraveis);
 }
 
 /**

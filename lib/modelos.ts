@@ -1,4 +1,4 @@
-import type { TipoTurno, TurnosMes } from '@escala-ici/contrato';
+import type { ErroImportacao, TipoTurno, TurnosMes } from '@escala-ici/contrato';
 
 /**
  * Perfil = O QUE o usuário pode fazer (autorização explícita). Diferente de
@@ -297,6 +297,8 @@ export interface PublicacaoEscala {
   revisaoSubstituida: number | null;
   totalDocumentos: number;
   motivo?: string;
+  totalPendenciasImportacao?: number;
+  pendenciasImportacao?: ErroImportacao[];
   totalColaboradoresAfetados?: number;
   totalDiasAlterados?: number;
   publicadoPor: string;

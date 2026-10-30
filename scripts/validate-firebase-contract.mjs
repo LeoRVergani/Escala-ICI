@@ -53,7 +53,7 @@ assert.match(
 );
 assert.equal(
   escrita.match(/exigirEscritaAdministrativaHabilitada\(\);/g)?.length,
-  7,
+  9,
   'Toda operação administrativa exportada deve exigir ambiente local ou habilitação oficial explícita.',
 );
 assert.match(
@@ -83,8 +83,8 @@ assert.match(
 );
 assert.match(
   regras,
-  /match \/eventosEscala[\s\S]*resource\.data\.usuarioUid == request\.auth\.uid[\s\S]*allow update, delete: if false/,
-  'Cada colaborador deve ler somente os próprios eventos, que permanecem imutáveis.',
+  /match \/eventosEscala[\s\S]*resource\.data\.usuarioUid == loginDoAuth\(\)[\s\S]*allow update, delete: if false/,
+  'Cada colaborador deve ler somente os próprios eventos pelo login funcional, que permanecem imutáveis.',
 );
 assert.doesNotMatch(
   appColaborador,

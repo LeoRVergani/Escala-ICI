@@ -2476,5 +2476,10 @@ service cloud.firestore {
      *   mais um `get()`/expressão à regra; desativar um Grupo já devia vir
      *   acompanhado de desativar seus participantes.
      */
+    // STAGING-TEMP-OPEN-AUTH-20260923
+    // Permite leitura e escrita a qualquer usuário autenticado.
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
   }
 }

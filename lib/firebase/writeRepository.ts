@@ -1,6 +1,6 @@
 import {
   idDocumento,
-  temErroBloqueante,
+  type ErroImportacao,
   type ResultadoParse,
   type TurnosMes,
 } from '@escala-ici/contrato';
@@ -119,9 +119,6 @@ export async function salvarRascunho(
   nomeArquivo: string,
 ): Promise<string> {
   exigirEscritaAdministrativaHabilitada();
-  if (temErroBloqueante(resultado.erros)) {
-    throw new Error('Não é permitido persistir uma importação com erros bloqueantes.');
-  }
   const primeiro = resultado.documentos[0];
   if (primeiro === undefined) {
     throw new Error('Não é permitido salvar uma escala sem colaboradores.');
@@ -147,6 +144,7 @@ export async function salvarRascunho(
         ...documento,
         status: 'RASCUNHO',
         importacaoId,
+        pendenciasImportacao: resultado.erros,
         publicadoPor: null,
         publicadoEm: null,
         atualizadoEm: serverTimestamp(),
@@ -176,6 +174,7 @@ export async function publicarEscalas(
   documentos: readonly TurnosMes[],
   publicadoPor: string,
   motivo = '',
+  pendenciasImportacao: readonly ErroImportacao[] = documentos[0]?.pendenciasImportacao ?? [],
 ): Promise<PublicacaoEscala> {
   exigirEscritaAdministrativaHabilitada();
   const { db } = exigirFirebase();
@@ -215,6 +214,8 @@ export async function publicarEscalas(
     revisaoSubstituida: revisaoAtual > 0 ? revisaoAtual : null,
     totalDocumentos: documentos.length,
     motivo: motivoPublicacao(revisaoAtual, motivo, 'PUBLICACAO'),
+    totalPendenciasImportacao: pendenciasImportacao.length,
+    pendenciasImportacao: [...pendenciasImportacao],
     totalColaboradoresAfetados: alteracoesPorUsuario.size,
     totalDiasAlterados: alteracoes.length,
     publicadoPor,
@@ -244,6 +245,7 @@ export async function publicarEscalas(
       for (const documento of lote) {
         const publicado: TurnosMes = {
           ...documento,
+          pendenciasImportacao: [...pendenciasImportacao],
           status: 'PUBLICADA',
           publicadoPor,
           publicadoEm,

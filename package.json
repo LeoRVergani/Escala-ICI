@@ -61,6 +61,7 @@
     "validate:firebase-contract": "node scripts/validate-firebase-contract.mjs",
     "validate:deployments": "node scripts/validate-deployments.mjs",
     "validate:staging": "node scripts/validate-staging-contract.mjs",
+    "validate:real-spreadsheets": "node --import tsx scripts/validate-real-spreadsheets.ts",
     "preflight:firebase": "node scripts/preflight-firebase.mjs",
     "test:firebase-preflight": "node --test tests/firebase-preflight.test.mjs",
     "test:staging-contract": "node --test tests/staging-boundaries.test.mjs",
@@ -78,6 +79,7 @@
     "staging:reset": "node scripts/staging/reset-staging.mjs",
     "staging:seed": "node scripts/staging/seed-hierarquia-ici.mjs",
     "staging:validate": "node scripts/staging/validate-staging.mjs",
+    "staging:repair:cosi": "node scripts/staging/auditar-reparar-plantao-cosi.mjs",
     "lint": "node scripts/run-local-tool.mjs lint",
     "db:generate": "node scripts/run-local-tool.mjs db-generate",
     "seed": "vite-node seed/seed.ts"

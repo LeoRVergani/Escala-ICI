@@ -22,6 +22,7 @@ import {
 } from './editorPlantao';
 import {
   competenciaAnterior,
+  analisarCompetenciaImportacaoPlantao,
   competenciaDoDia,
   copiarAtribuicoesParaNovaCompetencia,
   montarAtribuicoesPlantaoRascunho,
@@ -95,6 +96,46 @@ describe('periodoDaCompetencia — janela 26→25 (Fase ESCALAS-UX-1A)', () => {
   it('competência malformada devolve null', () => {
     expect(periodoDaCompetencia('2026-8')).toBeNull();
     expect(periodoDaCompetencia('não-é-competencia')).toBeNull();
+  });
+});
+
+describe('analisarCompetenciaImportacaoPlantao — competência real do arquivo', () => {
+  it('resolve CODB como 2026-08 e trata 25/07 e 26/08 somente como contexto', () => {
+    const atribuicoes = [
+      atribuicaoBruta({ inicio: { data: '2026-07-25', hora: '19:00' }, fim: { data: '2026-07-26', hora: '00:00' } }),
+      atribuicaoBruta({ inicio: { data: '2026-07-26', hora: '19:00' }, fim: { data: '2026-07-27', hora: '00:00' } }),
+      atribuicaoBruta({ inicio: { data: '2026-08-10', hora: '19:00' }, fim: { data: '2026-08-11', hora: '00:00' } }),
+      atribuicaoBruta({ inicio: { data: '2026-08-25', hora: '19:00' }, fim: { data: '2026-08-26', hora: '00:00' } }),
+      atribuicaoBruta({ inicio: { data: '2026-08-26', hora: '19:00' }, fim: { data: '2026-08-27', hora: '00:00' } }),
+    ];
+
+    expect(analisarCompetenciaImportacaoPlantao(atribuicoes)).toEqual({
+      estado: 'UNICA',
+      competencia: '2026-08',
+      periodoInicio: '2026-07-26',
+      periodoFim: '2026-08-25',
+      ocorrenciasContexto: 2,
+    });
+  });
+
+  it('atribuição iniciada em 25/08 pertence a 2026-08 mesmo terminando em 26/08', () => {
+    expect(analisarCompetenciaImportacaoPlantao([
+      atribuicaoBruta({ inicio: { data: '2026-08-25', hora: '19:00' }, fim: { data: '2026-08-26', hora: '00:00' } }),
+    ])).toMatchObject({ estado: 'UNICA', competencia: '2026-08' });
+  });
+
+  it('bloqueia quando existem duas competências reais, fora dos dias de contexto', () => {
+    expect(analisarCompetenciaImportacaoPlantao([
+      atribuicaoBruta({ inicio: { data: '2026-08-10', hora: '19:00' } }),
+      atribuicaoBruta({ inicio: { data: '2026-09-10', hora: '19:00' }, fim: { data: '2026-09-11', hora: '07:00' } }),
+    ])).toEqual({
+      estado: 'AMBIGUA',
+      competencia: null,
+      periodoInicio: null,
+      periodoFim: null,
+      ocorrenciasContexto: 0,
+      competenciasEncontradas: ['2026-08', '2026-09'],
+    });
   });
 });
 
@@ -1172,7 +1213,29 @@ describe('reidratarRascunhoPlantao — Fase ESCALAS-UX-1B.1 (reabrir rascunho no
     expect(resultado.atribuicoesEditaveis[0]?.plantonistaNomeOriginal).toBe('usuario-removido');
   });
 
-  it('14. CRÍTICO — round-trip completo: working copy A → persistir → reidratar → working copy B semanticamente igual (data/hora/login/duração/quantidade/origem/competência)', () => {
+  it('14. CRÍTICO CODB — reabrir publicação preserva a função de cada atribuição e nunca zera os cartões por posto', () => {
+    const resultado = reidratarRascunhoPlantao({
+      grupo: { ...GRUPO, funcoesEsperadas: ['DBA', 'LINUX', 'TELECOM', 'WINDOWS'] },
+      competencia: competenciaPersistida({ status: 'PUBLICADA', revisao: 1 }),
+      atribuicoesPersistidas: [
+        atribuicaoPersistida({ atribuicaoId: '0001', funcao: 'DBA' }),
+        atribuicaoPersistida({ atribuicaoId: '0002', funcao: 'LINUX', plantonistaLogin: 'blima' }),
+        atribuicaoPersistida({ atribuicaoId: '0003', funcao: 'TELECOM' }),
+        atribuicaoPersistida({ atribuicaoId: '0004', funcao: 'WINDOWS', plantonistaLogin: 'blima' }),
+      ],
+      participantes: [participantePlantao({ login: 'acosta' }), participantePlantao({ login: 'blima' })],
+      usuarios: USUARIOS,
+    });
+
+    expect(resultado.atribuicoesEditaveis.map((item) => item.funcao)).toEqual([
+      'DBA',
+      'LINUX',
+      'TELECOM',
+      'WINDOWS',
+    ]);
+  });
+
+  it('15. CRÍTICO — round-trip completo: working copy A → persistir → reidratar → working copy B semanticamente igual (data/hora/login/duração/quantidade/origem/competência)', () => {
     const vinculosIniciais = vinculosDeParticipantesGrupoPlantao(
       [participantePlantao({ login: 'acosta' }), participantePlantao({ login: 'blima' })],
       USUARIOS,

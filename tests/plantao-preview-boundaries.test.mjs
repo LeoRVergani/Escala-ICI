@@ -105,7 +105,7 @@ test('a importação e a reabertura de Plantão carregam usuários da equipe res
   );
   assert.match(
     dashboard,
-    /interpretarPlantao\(buffer, file\.name, resultadoPlantaoValidado, opcoesPlantao, usuariosDoGrupo\)/u,
+    /interpretarPlantao\(buffer, file\.name, resultadoPlantaoValidado, opcoesPlantaoAjustadas, usuariosDoGrupo\)/u,
     'o preview precisa receber a lista recém-carregada (já validada contra o Grupo), sem depender do setState assíncrono',
   );
 });

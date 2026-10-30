@@ -35,6 +35,8 @@ export interface ScheduleStartWizardProps {
   equipeId: string;
   onMudarEquipe: (equipeId: string) => void;
   grupos: GrupoPlantao[];
+  /** Há Grupo ativo na área, mas o usuário não tem escopo administrativo para ele. Nunca oferecer criação duplicada. */
+  grupoExistenteSemAdministracao?: boolean;
   grupoId: string;
   onMudarGrupo: (grupoId: string) => void;
   competencia: string;
@@ -64,6 +66,7 @@ export function ScheduleStartWizard({
   equipeId,
   onMudarEquipe,
   grupos,
+  grupoExistenteSemAdministracao = false,
   grupoId,
   onMudarGrupo,
   competencia,
@@ -264,7 +267,12 @@ export function ScheduleStartWizard({
                     <div className="wizard-resolved-field"><CheckCircle2 size={16} />{grupos[0].nome}<small>resolvido automaticamente</small></div>
                   ) : (
                     <div className="wizard-inline-create">
-                      {equipes.length === 0 ? (
+                      {grupoExistenteSemAdministracao ? (
+                        <div className="wizard-inline-create nested">
+                          <p>Já existe um Grupo de Plantão nesta área, mas ele não está disponível para sua administração.</p>
+                          <p className="admin-form-preview">Revise o responsável e a Matriz de Escopo Operacional. Um grupo duplicado não será criado.</p>
+                        </div>
+                      ) : equipes.length === 0 ? (
                         <div className="wizard-inline-create nested">
                           <p>Nenhum Grupo de Plantão administrável nesta área.</p>
                           <p className="admin-form-preview">Nenhuma equipe responsável disponível nesta área.</p>
@@ -292,7 +300,7 @@ export function ScheduleStartWizard({
                           <p>Existe equipe de Plantão nesta área, mas ainda não há Grupo de Plantão vinculado. Crie o grupo para importar ou montar a escala.</p>
                         </>
                       )}
-                      {equipes.length === 0 ? null : !criacaoGrupoAberta ? (
+                      {grupoExistenteSemAdministracao || equipes.length === 0 ? null : !criacaoGrupoAberta ? (
                         <button
                           className="secondary-button compact-button"
                           type="button"

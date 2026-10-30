@@ -132,6 +132,22 @@ describe('publicarEscalas', () => {
     expect(turnosMesCriado?.id).not.toBe(idPorUidAntigo);
     expect(turnosMesCriado?.dados?.login).toBe('lvergani');
   });
+
+  it('registra as pendências e a justificativa na versão publicada', async () => {
+    const pendencia = erro('BLOQUEANTE');
+    const publicacao = await publicarEscalas(
+      [documento('colab-1')],
+      'gestora-login',
+      'Conflito será corrigido na próxima revisão.',
+      [pendencia],
+    );
+
+    expect(publicacao.totalPendenciasImportacao).toBe(1);
+    expect(publicacao.pendenciasImportacao).toEqual([pendencia]);
+    expect(publicacao.motivo).toBe('Conflito será corrigido na próxima revisão.');
+    const publicado = estado.operacoes.find((operacao) => operacao.colecao === 'turnosMes');
+    expect(publicado?.dados?.pendenciasImportacao).toEqual([pendencia]);
+  });
 });
 
 const GESTORA: Usuario = {
@@ -171,13 +187,6 @@ function resultadoParse(erros: ErroImportacao[]): ResultadoParse {
   };
 }
 
-/**
- * FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — regressão do hotfix:
- * `salvarRascunho()` bloqueava por `!resultado.ok` (== `erros.length > 0`),
- * o que impedia salvar um rascunho com só ALERTA (nunca deveria travar,
- * só um erro BLOQUEANTE de verdade deveria). Ver `temErroBloqueante()` em
- * `packages/contrato/src/tipos.ts`.
- */
 describe('salvarRascunho', () => {
   it('persiste normalmente quando só existe ALERTA (nenhum BLOQUEANTE)', async () => {
     const resultado = resultadoParse([erro('ALERTA')]);
@@ -186,16 +195,16 @@ describe('salvarRascunho', () => {
 
     const gravado = estado.operacoes.find((operacao) => operacao.colecao === 'rascunhosTurnosMes');
     expect(gravado).toBeDefined();
+    expect(gravado?.dados?.pendenciasImportacao).toEqual(resultado.erros);
   });
 
-  it('continua recusando persistir quando existe erro BLOQUEANTE', async () => {
+  it('persiste também quando existe erro BLOQUEANTE para correção posterior', async () => {
     const resultado = resultadoParse([erro('BLOQUEANTE')]);
 
-    await expect(salvarRascunho(resultado, GESTORA, 'Escala.xls'))
-      .rejects.toThrow('Não é permitido persistir uma importação com erros bloqueantes.');
+    await expect(salvarRascunho(resultado, GESTORA, 'Escala.xls')).resolves.toEqual(expect.any(String));
 
     const gravado = estado.operacoes.find((operacao) => operacao.colecao === 'rascunhosTurnosMes');
-    expect(gravado).toBeUndefined();
+    expect(gravado).toBeDefined();
   });
 });
 

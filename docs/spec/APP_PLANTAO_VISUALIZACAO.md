@@ -1,5 +1,20 @@
 # App/PWA — visão "Plantão" (FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1)
 
+## Atualização operacional de 09/09/2026
+
+Para a consulta atual, o período publicado (`periodoInicio` até `periodoFim`,
+inclusive) determina a competência de Plantão, sem impor o corte 26 da
+Jornada 6x1. A consulta filtra `competenciasPlantao` pelo `grupoId` autorizado
+e seleciona o período que contém a data. Se houver sobreposição, prefere o
+início mais recente e depois a atualização mais recente. Sem período válido,
+mantém o estado de ausência de escala; não transforma erro de leitura em folga.
+
+O grupo selecionado acompanha publicações pelo Firestore e recarrega o detalhe
+quando a publicação muda, inclusive a primeira publicação posterior ao login.
+A assinatura é encerrada ao mudar sessão/grupo/data e respostas antigas são
+ignoradas. Isso substitui a carga única por sessão descrita no histórico abaixo.
+Não há escrita administrativa nova no App nem mudança nas Rules.
+
 Spec normativa da primeira versão funcional da aba "Plantão" no App do
 colaborador (`apps/app/src/EmployeeApp.tsx`). Complementa
 `docs/spec/PLANTOES.md` § 33 (contexto completo da fase, incluindo o lado

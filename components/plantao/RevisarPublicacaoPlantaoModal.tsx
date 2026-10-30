@@ -39,6 +39,7 @@ function destinoDoProblema(saude: SaudeFuncaoPlantao): 'calendario' | 'vinculos'
 
 function descreverProblemas(saude: SaudeFuncaoPlantao): string[] {
   const problemas: string[] = [];
+  if (saude.semDados) problemas.push('Sem dados para publicar');
   if (saude.postosFaltando > 0) problemas.push(`${saude.postosFaltando} posto(s) sem plantonista`);
   if (saude.vinculosPendentes > 0) problemas.push(`${saude.vinculosPendentes} vínculo(s) pendente(s)`);
   if (saude.conflitos > 0) problemas.push(`${saude.conflitos} conflito(s) de horário`);

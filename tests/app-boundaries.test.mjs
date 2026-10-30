@@ -277,7 +277,10 @@ test('o laboratório importa XLS na equipe autenticada e limita a leitura do App
   assert.match(dashboard, /const responsavelDoAlvo = \{ \.\.\.usuarioEfetivo, equipeId: equipeAlvoId \}/);
   assert.match(dashboard, /novoUsuario\([\s\S]{0,220}?usuarios\.length \+ indice \+ 1,[\s\S]{0,220}?responsavelDoAlvo,[\s\S]{0,220}?login,[\s\S]{0,220}?true,[\s\S]{0,220}?turnoPorLogin\.get\(login\) \?\? ''/);
   assert.match(dashboard, /salvarUsuarios\(novos\)/);
-  assert.match(dashboard, /!resultado\?\.ok/);
+  assert.match(dashboard, /resultadoTemErros/);
+  assert.match(dashboard, /Justificativa para publicar com pendências/);
+  assert.doesNotMatch(escrita, /temErroBloqueante\(resultado\.erros\)/, 'erro de fonte não impede salvar a Jornada');
+  assert.match(escrita, /pendenciasImportacao/, 'a decisão de salvar/publicar com pendências permanece auditável');
   assert.match(app, /autenticado\.equipeId/);
   assert.match(leitura, /where\('equipeId', '==', equipeId\)/);
   assert.match(usuarios, /equipeId: gestor\.equipeId/);
@@ -724,7 +727,7 @@ test('o cabeçalho do AppFrame mostra o cargo real (rotuloCargoExibicao), nunca 
 test('o App não trata mais ausência de Jornada 6x1 como erro global — operacoesApp.ts decide por operação', async () => {
   const app = await ler('apps/app/src/EmployeeApp.tsx');
 
-  assert.match(app, /import \{\s*listarAtribuicoesPlantaoPublicada,\s*listarGruposPlantaoPermitidos,\s*listarParticipantesPlantao,\s*obterCompetenciaPlantaoPublicada,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
+  assert.match(app, /import \{\s*listarAtribuicoesPlantaoPublicada,\s*listarGruposPlantaoPermitidos,\s*listarParticipantesPlantao,\s*obterCompetenciaPlantaoPublicadaNaData,\s*observarPublicacoesPlantao,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
   assert.doesNotMatch(app, /async function mensagemAusenciaEscalaAcao/u, 'a função antiga (que jogava a ausência de Jornada no alerta global) precisa ter sido removida');
   assert.doesNotMatch(app, /setErro\(await mensagemAusenciaEscalaAcao/u);
   assert.doesNotMatch(app, /'Nenhuma escala publicada foi encontrada para o seu login neste período\.'/u, 'a mensagem genérica antiga não pode mais aparecer sozinha para este caso');

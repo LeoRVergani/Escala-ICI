@@ -500,8 +500,9 @@ function construirIndiceTurnosPorDia(
 /**
  * Converte a planilha em documentos prontos para preview.
  *
- * `documentos` continua preenchido quando `ok` é falso. Quem chama deve
- * obrigatoriamente bloquear qualquer persistência enquanto houver erros.
+ * `documentos` continua preenchido quando `ok` é falso. A parte válida pode
+ * ser salva e publicada por decisão explícita do gestor; a interface mantém
+ * os erros visíveis e exige justificativa na publicação.
  */
 export function parsePlanilhaEscala(
   arquivo: ArrayBuffer,

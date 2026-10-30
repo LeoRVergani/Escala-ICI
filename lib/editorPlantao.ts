@@ -80,6 +80,13 @@ export function criarAtribuicaoEditavelDePersistida(opcoes: {
   inicio: MomentoPlantao;
   fim: MomentoPlantao;
   duracaoMinutos: number;
+  /**
+   * Posto da atribuição persistida. Precisa atravessar a reidratação: sem
+   * ele, uma competência CODB continua com 128 atribuições no total, mas
+   * todas voltam ao Editor sem DBA/LINUX/TELECOM/WINDOWS e os cartões por
+   * posto aparecem zerados depois da publicação.
+   */
+  funcao?: FuncaoPlantao;
 }): AtribuicaoPlantaoEditavel {
   return {
     plantonistaNomeOriginal: opcoes.plantonistaNomeOriginal,
@@ -90,6 +97,7 @@ export function criarAtribuicaoEditavelDePersistida(opcoes: {
     abaOrigem: '',
     idLocal: `rehidratado-${opcoes.atribuicaoId}`,
     origemImportacao: true,
+    ...(opcoes.funcao === undefined ? {} : { funcao: opcoes.funcao }),
   };
 }
 

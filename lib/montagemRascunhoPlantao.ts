@@ -202,6 +202,74 @@ export function sugerirCompetenciaPlantao(
   return { competencia, ...periodo };
 }
 
+export type AnaliseCompetenciaImportacaoPlantao =
+  | { estado: 'VAZIA'; competencia: null; periodoInicio: null; periodoFim: null; ocorrenciasContexto: 0 }
+  | { estado: 'UNICA'; competencia: string; periodoInicio: string; periodoFim: string; ocorrenciasContexto: number }
+  | { estado: 'AMBIGUA'; competencia: null; periodoInicio: null; periodoFim: null; ocorrenciasContexto: number; competenciasEncontradas: string[] };
+
+/**
+ * Resolve a competência REAL de uma importação pelo início de cada
+ * ocorrência, não pelo fim do intervalo e não pelo mês selecionado no
+ * Wizard. Linhas exatamente no dia anterior/seguinte à janela 26→25 são
+ * contexto visual permitido; qualquer outra segunda competência real é
+ * ambígua e precisa ser bloqueada antes do Editor.
+ */
+export function analisarCompetenciaImportacaoPlantao(
+  atribuicoes: readonly AtribuicaoPlantaoBruta[],
+): AnaliseCompetenciaImportacaoPlantao {
+  const ocorrencias = [...new Map(atribuicoes.map((atribuicao) => [
+    `${atribuicao.inicio.data}T${atribuicao.inicio.hora}|${atribuicao.fim.data}T${atribuicao.fim.hora}`,
+    atribuicao,
+  ])).values()];
+  if (ocorrencias.length === 0) {
+    return { estado: 'VAZIA', competencia: null, periodoInicio: null, periodoFim: null, ocorrenciasContexto: 0 };
+  }
+
+  const contagem = new Map<string, number>();
+  for (const ocorrencia of ocorrencias) {
+    const competencia = competenciaDoDia(ocorrencia.inicio.data);
+    if (competencia !== null) {
+      contagem.set(competencia, (contagem.get(competencia) ?? 0) + 1);
+    }
+  }
+  const candidata = [...contagem.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
+  const periodo = candidata === undefined ? null : periodoDaCompetencia(candidata);
+  if (candidata === undefined || periodo === null) {
+    return { estado: 'AMBIGUA', competencia: null, periodoInicio: null, periodoFim: null, ocorrenciasContexto: 0, competenciasEncontradas: [] };
+  }
+
+  const diaContextoAnterior = adicionarDias(periodo.periodoInicio, -1);
+  const diaContextoSeguinte = adicionarDias(periodo.periodoFim, 1);
+  let ocorrenciasContexto = 0;
+  const competenciasForaDaJanela = new Set<string>();
+  for (const ocorrencia of ocorrencias) {
+    const data = ocorrencia.inicio.data;
+    if (data >= periodo.periodoInicio && data <= periodo.periodoFim) {
+      continue;
+    }
+    if (data === diaContextoAnterior || data === diaContextoSeguinte) {
+      ocorrenciasContexto += 1;
+      continue;
+    }
+    const competencia = competenciaDoDia(data);
+    if (competencia !== null) {
+      competenciasForaDaJanela.add(competencia);
+    }
+  }
+  if (competenciasForaDaJanela.size > 0) {
+    return {
+      estado: 'AMBIGUA',
+      competencia: null,
+      periodoInicio: null,
+      periodoFim: null,
+      ocorrenciasContexto,
+      competenciasEncontradas: [...new Set([candidata, ...competenciasForaDaJanela])].sort(),
+    };
+  }
+  return { estado: 'UNICA', competencia: candidata, ...periodo, ocorrenciasContexto };
+}
+
 /**
  * Monta os participantes a gravar a partir dos vínculos confirmados —
  * preserva `contatos`/`ordem` de quem já era participante do grupo (nunca
@@ -437,6 +505,7 @@ export function reidratarRascunhoPlantao(dados: {
       inicio: converterInstanteUtcParaMomento(persistida.inicio, grupo.timezone),
       fim: converterInstanteUtcParaMomento(persistida.fim, grupo.timezone),
       duracaoMinutos: persistida.duracaoMinutos,
+      funcao: persistida.funcao,
     });
   });
 
