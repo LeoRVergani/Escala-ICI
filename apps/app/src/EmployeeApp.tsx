@@ -376,6 +376,8 @@ function ChipJornada({
       className="shift-chip"
       data-code={jornada.periodo}
       data-hora-extra={jornada.horaExtra && jornada.periodo !== jornada.codigo ? '' : undefined}
+      // NOTIFICACOES-CLARAS-1 — códigos com mais de 2 letras (FOLGA, AFA) viram pílula no calendário.
+      data-longo={(jornada.periodo || '').length > 2 ? '' : undefined}
     >
       {jornada.periodo || vazio}
       {jornada.horaExtra && jornada.periodo !== jornada.codigo && (
@@ -1255,6 +1257,65 @@ function descricaoMudanca(
   return horario ? `${descricao} · ${horario}` : descricao;
 }
 
+/**
+ * NOTIFICACOES-CLARAS-1 — turno de um dia de alteração. Usa o turno gravado
+ * (`turnoAnterior`/`turnoNovo`); em eventos antigos de Hora Extra, que não
+ * têm esse campo, deduz o turno pelo horário (13:00–19:00 → Tarde).
+ */
+function turnoDaAlteracao(
+  codigo: string | null,
+  horario: string | null,
+  turnoGravado: string | undefined,
+  catalogo: typeof CATALOGO_SOC,
+): string | undefined {
+  if (turnoGravado !== undefined) {
+    return turnoGravado;
+  }
+  if (codigo === null || horario === null || catalogo[codigo]?.categoria !== 'EXTRA') {
+    return undefined;
+  }
+  return Object.values(catalogo).find((tipo) => tipo.categoria === 'TRABALHO'
+    && `${tipo.horaInicio}–${tipo.horaFim}` === horario)?.codigo;
+}
+
+/** NOTIFICACOES-CLARAS-1 — um lado (antes/agora) de uma mudança: chip colorido + texto. */
+function LadoMudanca({
+  rotulo,
+  codigo,
+  horario,
+  turno,
+  catalogo,
+  removido,
+}: {
+  rotulo: string;
+  codigo: string | null;
+  horario: string | null;
+  turno: string | undefined;
+  catalogo: typeof CATALOGO_SOC;
+  removido: boolean;
+}) {
+  const periodo = turno ?? codigo ?? '';
+  const horaExtra = codigo !== null && catalogo[codigo]?.categoria === 'EXTRA';
+  return (
+    <span className="notification-change-side">
+      <small>{rotulo}</small>
+      <span className="notification-change-value">
+        {codigo !== null && (
+          <i
+            className="shift-chip"
+            data-code={periodo}
+            data-hora-extra={horaExtra && turno !== undefined ? '' : undefined}
+          >
+            {periodo}
+            {horaExtra && turno !== undefined && <span className="shift-chip-he" aria-hidden="true">HE</span>}
+          </i>
+        )}
+        <span>{descricaoMudanca(codigo, horario, catalogo, removido, turno)}</span>
+      </span>
+    </span>
+  );
+}
+
 interface NotificationBellProps {
   eventos: EventoEscala[];
   idsLidos: ReadonlySet<string>;
@@ -1297,21 +1358,55 @@ function NotificationBell({
             {eventos.length === 0 ? (
               <div className="notification-empty"><Bell size={22} /><span>Nenhuma atualização publicada.</span></div>
             ) : eventos.slice(0, 8).map((evento) => (
+              /*
+               * NOTIFICACOES-CLARAS-1 — cada atualização diz o que é (motivo),
+               * de qual mês/revisão, quantos dias mudaram e, por dia, "Antes"
+               * e "Agora" lado a lado com o chip colorido do turno.
+               */
               <article className={idsLidos.has(evento.id) ? '' : 'unread'} key={evento.id}>
                 <div className="notification-title">
                   <span className="revision-dot" />
-                  <div><strong>{evento.motivo}</strong><small>Revisão {evento.revisao} · {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(evento.publicadoEm))}</small></div>
+                  <div>
+                    <strong>{evento.motivo || 'Escala atualizada'}</strong>
+                    <small>
+                      {formatarCompetencia(evento.competencia)} · Revisão {evento.revisao} · publicada em{' '}
+                      {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(evento.publicadoEm))}
+                    </small>
+                    <small className="notification-summary">
+                      {evento.alteracoes.length === 1
+                        ? '1 dia da sua escala mudou'
+                        : `${evento.alteracoes.length} dias da sua escala mudaram`}
+                    </small>
+                  </div>
                 </div>
                 <div className="notification-changes">
-                  {evento.alteracoes.slice(0, 3).map((alteracao) => (
-                    <div key={`${evento.id}-${alteracao.data}`}>
-                      <strong>{formatarData(alteracao.data, { day: '2-digit', month: 'short' }).replace('.', '')}</strong>
-                      <span>{descricaoMudanca(alteracao.codigoAnterior, alteracao.horarioAnterior, catalogo, false, alteracao.turnoAnterior)}</span>
-                      <b>→</b>
-                      <span>{descricaoMudanca(alteracao.codigoNovo, alteracao.horarioNovo, catalogo, true, alteracao.turnoNovo)}</span>
+                  {evento.alteracoes.slice(0, 4).map((alteracao) => (
+                    <div key={`${evento.id}-${alteracao.data}`} className="notification-change">
+                      <strong className="notification-change-date">
+                        {formatarData(alteracao.data, { weekday: 'short', day: '2-digit', month: '2-digit' }).replace('.', '')}
+                      </strong>
+                      <LadoMudanca
+                        rotulo="Antes"
+                        codigo={alteracao.codigoAnterior}
+                        horario={alteracao.horarioAnterior}
+                        turno={turnoDaAlteracao(alteracao.codigoAnterior, alteracao.horarioAnterior, alteracao.turnoAnterior, catalogo)}
+                        catalogo={catalogo}
+                        removido={false}
+                      />
+                      <b aria-hidden="true">→</b>
+                      <LadoMudanca
+                        rotulo="Agora"
+                        codigo={alteracao.codigoNovo}
+                        horario={alteracao.horarioNovo}
+                        turno={turnoDaAlteracao(alteracao.codigoNovo, alteracao.horarioNovo, alteracao.turnoNovo, catalogo)}
+                        catalogo={catalogo}
+                        removido
+                      />
                     </div>
                   ))}
-                  {evento.alteracoes.length > 3 && <small>+ {evento.alteracoes.length - 3} outra(s) mudança(s)</small>}
+                  {evento.alteracoes.length > 4 && (
+                    <small>+ {evento.alteracoes.length - 4} outro(s) dia(s) — veja no calendário</small>
+                  )}
                 </div>
               </article>
             ))}

@@ -262,6 +262,15 @@ textarea:focus-visible,
   gap: 24px;
   padding: 0 30px;
   isolation: isolate;
+  /*
+   * NOTIFICACOES-CLARAS-1 — estas três linhas estavam por engano dentro de
+   * `.topbar::before`, então o cabeçalho não tinha camada própria e os
+   * cards da página (posicionados depois dele) cobriam o painel do sino e o
+   * menu do usuário. Os modais (z-index 200) continuam acima.
+   */
+  position: sticky;
+  top: 0;
+  z-index: 60;
 }
 .topbar::before {
   content: "";
@@ -271,9 +280,6 @@ textarea:focus-visible,
   height: 3px;
   background: linear-gradient(90deg, var(--primary), var(--cyan) 52%, transparent 100%);
   opacity: 0.92;
-  position: sticky;
-  top: 0;
-  z-index: 20;
 }
 
 .competence-control span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 5px; }
@@ -1170,11 +1176,27 @@ button.shift-chip:disabled { cursor: default; }
 .notification-title > div { display: grid; gap: 3px; }
 .notification-title strong { font-size: 11px; }
 .notification-title small { color: var(--muted); font-size: 9px; }
-.notification-changes { display: grid; gap: 5px; margin: 9px 0 0 20px; }
-.notification-changes > div { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; font-size: 9px; }
-.notification-changes > div > strong { color: var(--primary-bright); text-transform: uppercase; }
-.notification-changes > div > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.notification-changes > div > b { color: var(--muted); }
+.notification-changes { display: grid; gap: 6px; margin: 9px 0 0 20px; }
+/* NOTIFICACOES-CLARAS-1 — data | Antes | → | Agora, com chip colorido do turno. */
+.notification-change {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 6px 7px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 10px;
+}
+.notification-change-date { color: var(--primary-bright); font-size: 9.5px; text-transform: capitalize; line-height: 1.25; }
+.notification-change > b { color: var(--muted); }
+.notification-change-side { display: grid; gap: 2px; min-width: 0; }
+.notification-change-side > small { color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.notification-change-value { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.notification-change-value > span { min-width: 0; line-height: 1.25; overflow-wrap: anywhere; }
+.notification-change-value > .shift-chip { position: relative; flex: 0 0 auto; min-width: 22px; padding: 1px 5px; font-size: 9px; font-style: normal; }
+.notification-summary { color: var(--text); font-weight: 650; }
 .notification-changes > small { color: var(--muted); font-size: 9px; }
 .notification-empty { min-height: 120px; display: grid; place-items: center; align-content: center; gap: 8px; color: var(--muted); font-size: 11px; }
 .notification-list > button.notification-item-button { display: block; width: 100%; text-align: left; padding: 12px; border-radius: 8px; border: 0; background: transparent; cursor: pointer; font: inherit; color: inherit; }
@@ -7159,3 +7181,16 @@ button.soc-import-review-alert-row:focus-visible { background: var(--surface-mut
 .soc-import-review-legend > span { display: inline-flex; align-items: center; gap: 5px; }
 .soc-import-review-legend .shift-chip { min-width: 22px; padding: 2px 5px; font-size: 9px; }
 .soc-import-review-legend .soc-import-review-legend-marca { display: inline-grid; place-items: center; min-width: 14px; height: 14px; border-radius: 4px; background: var(--surface-muted); color: var(--text); font-size: 9px; font-weight: 800; }
+
+/*
+ * NOTIFICACOES-CLARAS-1 — o chip do calendário/semana é um círculo de
+ * largura fixa; códigos longos (FOLGA, AFA) vazavam para fora dele. Viram
+ * pílula. Especificidade maior que as regras de breakpoint, de propósito.
+ */
+.app-shell.product-app .calendar-grid > button .shift-chip[data-longo],
+.app-shell.product-app .week-days > button .shift-chip[data-longo] {
+  width: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  letter-spacing: -0.01em;
+}

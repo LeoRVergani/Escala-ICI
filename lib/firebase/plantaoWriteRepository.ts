@@ -52,12 +52,23 @@ export async function salvarGrupoPlantao(grupo: GrupoPlantao): Promise<void> {
  * removidos — só há dado descartável ali quando o Grupo é mesmo um
  * engano recente.
  */
-export async function excluirGrupoPlantao(grupoId: string): Promise<void> {
+/**
+ * EXCLUSAO-GRUPO-ADMIN-1 — `manterHistoricoPublicado: true` (só oferecido
+ * ao ADMIN_SISTEMA) exclui o Grupo mesmo com competência publicada ou
+ * cancelada. As competências publicadas NÃO são apagadas: a Rule de
+ * `competenciasPlantao` bloqueia exclusão física de propósito (trilha de
+ * auditoria). Elas ficam guardadas no banco, sem Grupo, invisíveis no App
+ * e no Dashboard. Rascunhos, participantes e o Grupo são removidos.
+ */
+export async function excluirGrupoPlantao(
+  grupoId: string,
+  opcoes: { manterHistoricoPublicado?: boolean } = {},
+): Promise<void> {
   exigirEscritaAdministrativaHabilitada();
   const { db } = exigirFirebase();
 
   const competenciasPublicadas = await getDocs(query(collection(db, 'competenciasPlantao'), where('grupoId', '==', grupoId)));
-  if (!competenciasPublicadas.empty) {
+  if (!competenciasPublicadas.empty && opcoes.manterHistoricoPublicado !== true) {
     throw new Error('Este Plantão já tem competência publicada ou cancelada e não pode ser excluído. Desative-o em vez de excluir.');
   }
 

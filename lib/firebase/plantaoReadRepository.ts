@@ -239,3 +239,16 @@ export async function listarAtribuicoesPlantaoPublicada(
   ));
   return resultado.docs.map((snapshot) => snapshot.data() as AtribuicaoPlantaoPersistida);
 }
+
+/**
+ * EXCLUSAO-GRUPO-ADMIN-1 — competências já publicadas ou canceladas de um
+ * Grupo, para a tela de exclusão mostrar o que existe vinculado a ele.
+ */
+export async function listarCompetenciasPlantaoPublicadasDoGrupo(grupoId: string): Promise<CompetenciaPlantao[]> {
+  const { db } = exigirFirebase();
+  const resultado = await getDocs(query(
+    collection(db, 'competenciasPlantao'),
+    where('grupoId', '==', grupoId),
+  ));
+  return resultado.docs.map((snapshot) => snapshot.data() as CompetenciaPlantao);
+}
