@@ -270,6 +270,13 @@ export interface AlteracaoEscala {
   horarioAnterior: string | null;
   codigoNovo: string | null;
   horarioNovo: string | null;
+  /**
+   * CHECKUP-VISUAL-1 — turno real de uma Hora Extra (`Dia.t`), antes e
+   * depois. Opcionais: eventos antigos não têm, e só são gravados quando o
+   * dia é HE com turno (nunca `undefined` no Firestore).
+   */
+  turnoAnterior?: string;
+  turnoNovo?: string;
 }
 
 export interface EventoEscala {

@@ -1242,11 +1242,16 @@ function descricaoMudanca(
   horario: string | null,
   catalogo: typeof CATALOGO_SOC,
   removido: boolean,
+  turno?: string,
 ): string {
   if (codigo === null) {
     return removido ? 'Removido da escala' : 'Sem escala';
   }
-  const descricao = catalogo[codigo]?.descricao ?? codigo;
+  // CHECKUP-VISUAL-1 — Hora Extra com turno: "Tarde · Hora Extra · 13:00–19:00".
+  const descricaoCodigo = catalogo[codigo]?.descricao ?? codigo;
+  const descricao = turno !== undefined
+    ? `${catalogo[turno]?.descricao ?? turno} · ${descricaoCodigo}`
+    : descricaoCodigo;
   return horario ? `${descricao} · ${horario}` : descricao;
 }
 
@@ -1301,9 +1306,9 @@ function NotificationBell({
                   {evento.alteracoes.slice(0, 3).map((alteracao) => (
                     <div key={`${evento.id}-${alteracao.data}`}>
                       <strong>{formatarData(alteracao.data, { day: '2-digit', month: 'short' }).replace('.', '')}</strong>
-                      <span>{descricaoMudanca(alteracao.codigoAnterior, alteracao.horarioAnterior, catalogo, false)}</span>
+                      <span>{descricaoMudanca(alteracao.codigoAnterior, alteracao.horarioAnterior, catalogo, false, alteracao.turnoAnterior)}</span>
                       <b>→</b>
-                      <span>{descricaoMudanca(alteracao.codigoNovo, alteracao.horarioNovo, catalogo, true)}</span>
+                      <span>{descricaoMudanca(alteracao.codigoNovo, alteracao.horarioNovo, catalogo, true, alteracao.turnoNovo)}</span>
                     </div>
                   ))}
                   {evento.alteracoes.length > 3 && <small>+ {evento.alteracoes.length - 3} outra(s) mudança(s)</small>}
@@ -2914,9 +2919,6 @@ export function EmployeeApp() {
     ? { ...minhaEscala, dias: diasEscalaVisivelApp }
     : (escalasDoUsuario[0] ? { ...escalasDoUsuario[0], dias: diasEscalaVisivelApp } : null);
 
-  const totais = minhaEscala
-    ? calcularTotais(minhaEscala.dias, catalogo)
-    : null;
   const contextoHoje = resolverContextoJornada(
     minhaEscala,
     catalogo,
@@ -4037,6 +4039,12 @@ export function EmployeeApp() {
     : escalasPorPeriodo.findIndex(
       (escala) => escala.periodoInicio === escalaDaCompetenciaAtual.periodoInicio,
     );
+  /**
+   * CHECKUP-VISUAL-1 — os cards de métricas acompanham a competência que o
+   * calendário está mostrando (setas ‹ ›), não só a de hoje.
+   */
+  const escalaDosCards = escalaDaCompetenciaAtual ?? minhaEscala;
+  const totaisDosCards = escalaDosCards ? calcularTotais(escalaDosCards.dias, catalogo) : null;
   const datasCompetenciaEscala = escalaDaCompetenciaAtual
     ? diasCivisNoPeriodo(escalaDaCompetenciaAtual.periodoInicio, escalaDaCompetenciaAtual.periodoFim)
     : [];
@@ -4391,20 +4399,38 @@ export function EmployeeApp() {
               </div>
 
               <div className="metric-grid employee-metrics">
+                {/*
+                 * CHECKUP-VISUAL-1 — os quatro cards descrevem a MESMA
+                 * competência (a de hoje, `minhaEscala`). Antes "Total de dias"
+                 * contava as datas da escala mesclada (duas competências → 61),
+                 * enquanto Trabalhados/Descansos contavam só a de hoje (31).
+                 * Descansos agora inclui Folga feriado, e Trabalhados mostra a
+                 * Hora Extra à parte (ela não entra nas horas de jornada).
+                 */}
                 <article data-tone="neutral">
                   <span>Total de dias</span>
-                  <strong>{datas.length}</strong>
-                  <small>dias no período</small>
+                  <strong>{escalaDosCards ? Object.keys(escalaDosCards.dias).length : 0}</strong>
+                  <small>
+                    {escalaDosCards
+                      ? `${formatarData(escalaDosCards.periodoInicio, { day: '2-digit', month: '2-digit' })} a ${formatarData(escalaDosCards.periodoFim, { day: '2-digit', month: '2-digit' })}`
+                      : 'dias no período'}
+                  </small>
                 </article>
                 <article data-tone="primary">
                   <span>Trabalhados</span>
-                  <strong>{totais?.diasTrabalhados ?? 0}</strong>
-                  <small>{formatarMinutos(totais?.min ?? 0)} de jornada</small>
+                  <strong>{totaisDosCards?.diasTrabalhados ?? 0}</strong>
+                  <small>
+                    {formatarMinutos(totaisDosCards?.min ?? 0)} de jornada
+                    {(totaisDosCards?.he ?? 0) > 0 ? ` · +${totaisDosCards?.he} HE` : ''}
+                  </small>
                 </article>
                 <article data-tone="success">
                   <span>Descansos</span>
-                  <strong>{(totais?.df ?? 0) + (totais?.du ?? 0)}</strong>
-                  <small>{totais?.df ?? 0} DF · {totais?.du ?? 0} DU</small>
+                  <strong>{(totaisDosCards?.df ?? 0) + (totaisDosCards?.du ?? 0) + (totaisDosCards?.folga ?? 0)}</strong>
+                  <small>
+                    {totaisDosCards?.df ?? 0} DF · {totaisDosCards?.du ?? 0} DU
+                    {(totaisDosCards?.folga ?? 0) > 0 ? ` · ${totaisDosCards?.folga} Folga` : ''}
+                  </small>
                 </article>
                 <article className="metric-next-shift" data-tone="shift" data-code={proximoTurnoTrabalho?.periodo ?? ''}>
                   <span>Próximo turno</span>

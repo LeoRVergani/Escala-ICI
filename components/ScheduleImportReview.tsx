@@ -8,6 +8,7 @@ import {
   type ResultadoParse,
   type TipoTurno,
   type TurnosMes,
+  codigoPeriodoDia,
 } from '@escala-ici/contrato';
 import {
   AlertTriangle,
@@ -112,6 +113,21 @@ function formatarDataCompleta(data: string): string {
 function ehFimDeSemana(data: string): boolean {
   const dia = new Date(`${data}T12:00:00`).getDay();
   return dia === 0 || dia === 6;
+}
+
+/**
+ * CHECKUP-VISUAL-1 — texto do dia para a dica da célula: descrição do
+ * código e, numa Hora Extra com turno, o turno real e o horário
+ * ("Hora Extra · Tarde 13:00–19:00").
+ */
+function descreverDiaGrade(dia: Dia | undefined, catalogo: Record<string, TipoTurno>): string {
+  if (dia === undefined || dia.c === '') {
+    return 'Sem turno definido';
+  }
+  const descricao = catalogo[dia.c]?.descricao ?? dia.c;
+  const turno = dia.t !== undefined ? ` · ${catalogo[dia.t]?.descricao ?? dia.t}` : '';
+  const horario = dia.i !== undefined && dia.f !== undefined ? ` ${dia.i}–${dia.f}` : '';
+  return `${descricao}${turno}${horario}`;
 }
 
 function descricaoTurno(documento: TurnosMes, catalogo: Record<string, TipoTurno>): string {
@@ -481,6 +497,11 @@ export function ScheduleImportReview({
           </div>
           <div className="soc-import-review-mini-legend">
             {ORDEM_TURNOS.concat(['X', 'DF', 'DU', 'BH']).map((codigo) => catalogo[codigo] ? <span key={codigo}><i className="shift-chip" data-code={codigo}>{codigo}</i></span> : null)}
+            {catalogo.HE !== undefined && (
+              <span title="Hora Extra — cor do turno trabalhado">
+                <i className="shift-chip" data-code="T" data-hora-extra="">T<span className="shift-chip-he" aria-hidden="true">HE</span></i>
+              </span>
+            )}
           </div>
         </aside>
 
@@ -533,7 +554,9 @@ export function ScheduleImportReview({
                         const erroFonte = errosFontePorCelula.get(chaveCelula);
                         const sequenciaCritica = (indicador?.sequencia ?? 0) >= 7;
                         const emFoco = celulaFocoErro?.chave === chaveCelula;
-                        const tituloBase = `${documento.login} · ${formatarDataCompleta(data)}`;
+                        const tituloBase = `${documento.login} · ${formatarDataCompleta(data)} · ${descreverDiaGrade(dia, catalogo)}`;
+                        const periodoDia = codigoPeriodoDia(dia);
+                        const horaExtraComTurno = dia?.t !== undefined;
                         const titulo = erroFonte
                           ? `${tituloBase} · ${erroFonte.coluna}${erroFonte.linha} · Valor encontrado: ${erroFonte.valorEncontrado}`
                           : sequenciaCritica
@@ -550,11 +573,16 @@ export function ScheduleImportReview({
                               erroFonte ? 'erro-fonte' : '',
                               emFoco ? 'em-foco' : '',
                             ].filter(Boolean).join(' ')}
-                            data-code={dia?.c ?? ''}
+                            data-code={periodoDia}
+                            data-hora-extra={horaExtraComTurno ? '' : undefined}
                             title={titulo}
                             onClick={() => { setDataSelecionadaEstado(data); onEditar?.(documento, data, dia ?? { c: '' }); }}
                           >
-                            <span>{nomeCurto(nome)}</span><i>{dia?.c ?? '—'}</i>
+                            <span>{nomeCurto(nome)}</span>
+                            <i>
+                              {periodoDia || '—'}
+                              {horaExtraComTurno && <em className="soc-import-review-cell-he">{dia?.c}</em>}
+                            </i>
                             {indicador?.sequencia !== undefined && (
                               <b className={`soc-import-review-cell-seq ${sequenciaCritica ? 'critica' : ''}`}>{indicador.sequencia}</b>
                             )}
@@ -569,7 +597,24 @@ export function ScheduleImportReview({
               ))}
             </table>
           </div>
-          <div className="soc-import-review-density-legend"><span>Baixa</span><i className="density-low" /><i className="density-mid" /><i className="density-high" /><span>Alta</span><span className="soc-import-review-no-data"><i /> Sem dados</span></div>
+          {/*
+           * CHECKUP-VISUAL-1 — a legenda de "densidade" (Baixa/Alta/Sem dados)
+           * não correspondia a nada na grade. Substituída por uma legenda do
+           * que a grade realmente mostra.
+           */}
+          <div className="soc-import-review-legend" aria-label="Legenda da grade">
+            {ORDEM_TURNOS.concat(['X', 'DF', 'DU', 'FOLGA', 'BH']).map((codigo) => catalogo[codigo] ? (
+              <span key={codigo}><i className="shift-chip" data-code={codigo}>{codigo}</i>{catalogo[codigo]!.descricao}</span>
+            ) : null)}
+            {catalogo.HE !== undefined && (
+              <span>
+                <i className="shift-chip" data-code="T" data-hora-extra="">T<span className="shift-chip-he" aria-hidden="true">HE</span></i>
+                Hora Extra (cor do turno trabalhado)
+              </span>
+            )}
+            <span><b className="soc-import-review-legend-marca">3</b>dias seguidos de trabalho</span>
+            <span><AlertTriangle size={12} aria-hidden="true" />descanso abaixo do mínimo (11h ou 35h após folga)</span>
+          </div>
         </section>
 
       </div>

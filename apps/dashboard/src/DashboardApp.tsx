@@ -759,6 +759,31 @@ function montarAlertasVisiveis(
   return [...doMonitoramento, ...publicacaoIncompleta];
 }
 
+/**
+ * CHECKUP-VISUAL-1 — "alertas" nos contadores (Visão geral, Hub de Escalas)
+ * são só violações de regra (6x1, interjornada 11h, descanso 35h), o mesmo
+ * que o sino e a revisão da importação contam. "Publicação incompleta" é
+ * status da escala (já mostrado no selo Rascunho), não alerta — antes o Hub
+ * dizia "1 alerta" enquanto a revisão dizia "0 alertas" para a mesma escala.
+ */
+function contarAlertasDeRegra(alertas: readonly AlertaVisivel[]): number {
+  return alertas.filter((alerta) => alerta.id !== 'publicacao-incompleta').length;
+}
+
+/**
+ * CHECKUP-VISUAL-1 — pessoas de uma Jornada = quem está NA escala da
+ * competência (mesmo número do cartão da escala, "9 colaboradores"). Sem
+ * escala ainda, cai para os usuários ativos da equipe. Antes o Hub mostrava
+ * os ativos da equipe (10, incluindo quem não é escalado, como o
+ * coordenador) e o cartão logo abaixo mostrava 9.
+ */
+function pessoasDaJornada(resumo: { documentos: readonly unknown[]; colaboradoresAtivos: number } | null | undefined): number | null {
+  if (resumo === null || resumo === undefined) {
+    return null;
+  }
+  return resumo.documentos.length > 0 ? resumo.documentos.length : resumo.colaboradoresAtivos;
+}
+
 interface AlertasOperacionaisBellProps {
   alertas: AlertaEscala[];
   usuarios: Usuario[];
@@ -4162,7 +4187,7 @@ export function DashboardApp() {
     const alertasOperacionaisFora = gerarAlertasEscala([...documentosParaAlertas], catalogo);
     return montarAlertasVisiveis(alertasOperacionaisFora, usuarios, [...documentosParaAlertas], publicadasParaAlertas);
   }, [resumoJornadaDashboard, jornadaEmContextoDashboard, alertasVisiveis, catalogo, usuarios]);
-  const alertasJornadaDashboard = alertasJornadaCalculados.length;
+  const alertasJornadaDashboard = contarAlertasDeRegra(alertasJornadaCalculados);
   /**
    * `classeSaudeOperacaoDashboard` só aceita `number` (`alertas > 0`
    * coagiria `null` para `false`, voltando a fingir "estável" quando o dado
@@ -4176,7 +4201,7 @@ export function DashboardApp() {
     ? 'desconhecido'
     : classeSaudeOperacional(estadoPlantaoOperacionalDashboard, plantaoAlertasDashboard);
   const socStatusDashboard = classeSaudeOperacional(estadoJornadaOperacionalDashboard, alertasJornadaDashboard);
-  const colaboradoresJornadaDashboard = resumoJornadaDashboard?.colaboradoresAtivos ?? 0;
+  const colaboradoresJornadaDashboard = pessoasDaJornada(resumoJornadaDashboard) ?? 0;
   /**
    * Pendências conhecidas — nunca soma `null` como zero (isso reintroduziria
    * o mesmo zero falso um nível acima, no painel "Pendências"). Quando
@@ -8996,7 +9021,10 @@ export function DashboardApp() {
    */
   function pessoasOperacaoHub(operacao: OperacaoDashboard): number | null {
     if (operacao.tipo === 'JORNADA') {
-      return resumosJornadaDashboard[`${operacao.alvoId}:${competenciaDashboard}`]?.colaboradoresAtivos ?? null;
+      const emEdicao = contextoEhJornada(contextoEscalaAtivo) && contextoEscalaAtivo.alvoId === operacao.alvoId && resultado !== null;
+      return emEdicao
+        ? pessoasDaJornada({ documentos, colaboradoresAtivos: 0 })
+        : pessoasDaJornada(resumosJornadaDashboard[`${operacao.alvoId}:${competenciaDashboard}`]);
     }
     return resumosPlantaoDashboard[`${operacao.alvoId}:${competenciaDashboard}`]?.participantesAtivos ?? null;
   }
@@ -9009,14 +9037,14 @@ export function DashboardApp() {
         && contextoEscalaAtivo.alvoId === operacao.alvoId
         && resultado !== null;
       if (emEdicaoAoVivo) {
-        return alertasVisiveis.length;
+        return contarAlertasDeRegra(alertasVisiveis);
       }
       const resumo = resumosJornadaDashboard[`${operacao.alvoId}:${competenciaDashboard}`] ?? null;
       if (resumo === null) {
         return null;
       }
       const alertasOperacionaisFora = gerarAlertasEscala(resumo.documentos, catalogo);
-      return montarAlertasVisiveis(alertasOperacionaisFora, usuarios, resumo.documentos, resumo.publicadas).length;
+      return contarAlertasDeRegra(montarAlertasVisiveis(alertasOperacionaisFora, usuarios, resumo.documentos, resumo.publicadas));
     }
     if (operacao.status === 'sem-escala') {
       return 0;
@@ -9984,12 +10012,19 @@ export function DashboardApp() {
                             <div className="history-change-list">
                               {alteracoes.map((alteracao) => {
                                 const pessoa = usuarios.find((item) => item.login === alteracao.login);
+                                // CHECKUP-VISUAL-1 — HE com turno mostra o turno real ("Tarde · Hora Extra").
+                                const turnoAntes = alteracao.turnoAnterior !== undefined
+                                  ? `${catalogo[alteracao.turnoAnterior]?.descricao ?? alteracao.turnoAnterior} · `
+                                  : '';
+                                const turnoDepois = alteracao.turnoNovo !== undefined
+                                  ? `${catalogo[alteracao.turnoNovo]?.descricao ?? alteracao.turnoNovo} · `
+                                  : '';
                                 const antes = alteracao.codigoAnterior === null
                                   ? 'Sem escala'
-                                  : `${catalogo[alteracao.codigoAnterior]?.descricao ?? alteracao.codigoAnterior}${alteracao.horarioAnterior ? ` · ${alteracao.horarioAnterior}` : ''}`;
+                                  : `${turnoAntes}${catalogo[alteracao.codigoAnterior]?.descricao ?? alteracao.codigoAnterior}${alteracao.horarioAnterior ? ` · ${alteracao.horarioAnterior}` : ''}`;
                                 const depois = alteracao.codigoNovo === null
                                   ? 'Removido da escala'
-                                  : `${catalogo[alteracao.codigoNovo]?.descricao ?? alteracao.codigoNovo}${alteracao.horarioNovo ? ` · ${alteracao.horarioNovo}` : ''}`;
+                                  : `${turnoDepois}${catalogo[alteracao.codigoNovo]?.descricao ?? alteracao.codigoNovo}${alteracao.horarioNovo ? ` · ${alteracao.horarioNovo}` : ''}`;
                                 return (
                                   <div className="history-change" key={`${alteracao.login}-${alteracao.data}`}>
                                     <div>
