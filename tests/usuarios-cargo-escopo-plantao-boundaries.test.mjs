@@ -30,7 +30,8 @@ test('2. criar E editar usuário gravam o cargo digitado no formulário (candida
 
 test('3. editar usuário (loginOriginal existente) parte de `...original` e sobrescreve só os campos do formulário — nunca reconstrói do zero perdendo campos não editados', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  assert.match(dashboard, /const original = usuarios\.find\(\(item\) => item\.login === formularioUsuario\.loginOriginal\);/u);
+  // EXCLUSAO-USUARIO-2 — o admin também edita a partir da lista completa (todosUsuariosAdmin).
+  assert.match(dashboard, /const original = usuarios\.find\(\(item\) => item\.login === formularioUsuario\.loginOriginal\)(?:\s*\?\? todosUsuariosAdmin\.find\(\(item\) => item\.login === formularioUsuario\.loginOriginal\))?;/u);
   assert.match(dashboard, /candidato = \{\s*\.\.\.original,\s*nome: formularioUsuario\.nome,\s*email: formularioUsuario\.email,\s*cargo: formularioUsuario\.cargo,/u);
 });
 

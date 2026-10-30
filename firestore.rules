@@ -991,7 +991,20 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if souAdminSistema();
+      // EXCLUSAO-USUARIO-2 — além do ADMIN_SISTEMA, quem administra a
+      // Jornada da equipe do usuário (Matriz, fallback legado ou
+      // GESTOR_UNIDADE da unidade — mesma função de turnosMes/rascunhos)
+      // pode excluir o cadastro. Travas: nunca a própria conta e nunca uma
+      // conta de gestão (ADMIN_SISTEMA, GESTOR_UNIDADE, GESTOR_EQUIPE) —
+      // essas continuam exclusivas do ADMIN_SISTEMA.
+      allow delete: if souAdminSistema()
+        || (
+          autenticado()
+          && loginDoAuth() != login
+          && resource.data.get('equipeId', null) != null
+          && !(perfilDe(resource.data) in ['ADMIN_SISTEMA', 'GESTOR_UNIDADE', 'GESTOR_EQUIPE'])
+          && podeAdministrarJornada(resource.data.equipeId)
+        );
     }
 
     /**

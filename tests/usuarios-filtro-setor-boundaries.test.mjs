@@ -21,7 +21,9 @@ test('2. a tela Usuários aplica a ordem correta: pool do contexto (usuarios) ->
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   assert.match(
     dashboard,
-    /const usuariosAposFiltroSetor = grupoPlantaoParaFiltroUsuarios !== undefined\s*\? usuarios\.filter\(\(item\) => usuarioPertenceAoFiltroSetorPlantao\(item, filtroSetorUsuario, grupoPlantaoParaFiltroUsuarios, loginsParticipantesAtivosDoGrupoAtivo\)\)\s*: usuarios;/u,
+    // EXCLUSAO-USUARIO-2 — só o ADMIN_SISTEMA ganha um ramo próprio (lista completa + filtro por
+    // equipe); para os demais perfis a ordem continua: pool `usuarios` -> setor -> busca.
+    /const usuariosAposFiltroSetor = souAdmin\s*\? usuariosBaseTela\.filter\([\s\S]*?\)\s*: grupoPlantaoParaFiltroUsuarios !== undefined\s*\? usuarios\.filter\(\(item\) => usuarioPertenceAoFiltroSetorPlantao\(item, filtroSetorUsuario, grupoPlantaoParaFiltroUsuarios, loginsParticipantesAtivosDoGrupoAtivo\)\)\s*: usuarios;/u,
     'o filtro de setor precisa partir do pool `usuarios` já carregado pelo contexto — nenhuma consulta nova',
   );
   assert.match(
@@ -44,7 +46,7 @@ test('4. o seletor de setor só aparece quando o contexto ativo é um Grupo de P
     dashboard,
     /const grupoPlantaoParaFiltroUsuarios = contextoEhPlantao\(contextoEscalaAtivo\)\s*\? gruposPlantaoAdmin\.find\(\(item\) => item\.grupoId === contextoEscalaAtivo\.alvoId\)\s*: undefined;/u,
   );
-  assert.match(dashboard, /\{opcoesFiltroSetorUsuarios\.length > 0 && \(/u, 'o <select> só pode renderizar quando há opções (contexto Plantão)');
+  assert.match(dashboard, /\{(?:!souAdmin && )?opcoesFiltroSetorUsuarios\.length > 0 && \(/u, 'o <select> só pode renderizar quando há opções (contexto Plantão)');
 });
 
 test('5. as opções do seletor nunca hardcodam sigla — vêm de opcoesFiltroSetorUsuariosPlantao(grupo, nomePorEquipeId, nomePorUnidadeId), geradas a partir do próprio Grupo', async () => {
@@ -98,7 +100,9 @@ test('9. busca textual cobre nome/login/e-mail/aliases/cargo — nunca só nome+
 
 test('10. contador mostra "N usuários" quando o filtro/busca não reduz nada, e "M de N usuários" quando reduz', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  assert.match(dashboard, /usuariosFiltrados\.length === usuarios\.length\s*\? `\$\{usuarios\.length\} usuário\$\{usuarios\.length === 1 \? '' : 's'\}`\s*: `\$\{usuariosFiltrados\.length\} de \$\{usuarios\.length\} usuários`/u);
+  // EXCLUSAO-USUARIO-2 — a base é `usuariosBaseTela` (lista completa para o admin, `usuarios` para os demais).
+  assert.match(dashboard, /usuariosFiltrados\.length === usuariosBaseTela\.length\s*\? `\$\{usuariosBaseTela\.length\} usuário\$\{usuariosBaseTela\.length === 1 \? '' : 's'\}`\s*: `\$\{usuariosFiltrados\.length\} de \$\{usuariosBaseTela\.length\} usuários`/u);
+  assert.match(dashboard, /const usuariosBaseTela = souAdmin && todosUsuariosAdmin\.length > 0 \? todosUsuariosAdmin : usuarios;/u);
 });
 
 test('11. estado vazio mostra "Nenhum usuário encontrado para este filtro." em vez de uma tabela vazia', async () => {

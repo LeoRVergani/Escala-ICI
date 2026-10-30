@@ -2102,7 +2102,7 @@ describe('ADMIN_SISTEMA — perfil explícito e acesso global', () => {
     }));
   });
 
-  it('permite ao admin excluir usuario, troca e notificação; nega para gestor e colaborador', async () => {
+  it('permite ao admin excluir usuario, troca e notificação; nega trocas/notificações para gestor e colaborador', async () => {
     await ambiente.withSecurityRulesDisabled(async (contexto) => {
       await setDoc(
         doc(contexto.firestore(), 'notificacoesTroca', 'notif-para-excluir'),
@@ -2115,11 +2115,27 @@ describe('ADMIN_SISTEMA — perfil explícito e acesso global', () => {
 
     await assertFails(deleteDoc(doc(gestor, 'trocasEscala', 'troca-1')));
     await assertFails(deleteDoc(doc(colaborador, 'notificacoesTroca', 'notif-para-excluir')));
-    await assertFails(deleteDoc(doc(gestor, 'usuarios', usuarios.colaborador.login)));
+    // EXCLUSAO-USUARIO-2 — gestor pode excluir colaborador da Jornada que
+    // administra (ver teste próprio abaixo); aqui só as travas que continuam.
+    await assertFails(deleteDoc(doc(gestor, 'usuarios', usuarios.admin.login)));
+    await assertFails(deleteDoc(doc(gestor, 'usuarios', usuarios.externo.login)));
+    await assertFails(deleteDoc(doc(gestor, 'usuarios', usuarios.gestor.login)));
+    await assertFails(deleteDoc(doc(colaborador, 'usuarios', usuarios.gestor.login)));
 
     await assertSucceeds(deleteDoc(doc(admin, 'notificacoesTroca', 'notif-para-excluir')));
     await assertSucceeds(deleteDoc(doc(admin, 'trocasEscala', 'troca-1')));
     await assertSucceeds(deleteDoc(doc(admin, 'usuarios', usuarios.colaborador.login)));
+  });
+
+  it('EXCLUSAO-USUARIO-2 — coordenador exclui colaborador da Jornada que administra, nunca conta de gestão nem de outra equipe', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    const colaborador = autenticarComo(usuarios.colaborador);
+
+    await assertFails(deleteDoc(doc(colaborador, 'usuarios', usuarios.colega.login)));
+    await assertFails(deleteDoc(doc(gestor, 'usuarios', usuarios.externo.login)));
+    await assertFails(deleteDoc(doc(gestor, 'usuarios', usuarios.admin.login)));
+    await assertFails(deleteDoc(doc(gestor, 'usuarios', usuarios.gestor.login)));
+    await assertSucceeds(deleteDoc(doc(gestor, 'usuarios', usuarios.colaborador.login)));
   });
 
   /**
