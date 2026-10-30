@@ -1959,8 +1959,19 @@ const OPCOES_EXCLUSAO_USUARIO: Array<{
   { campo: 'rascunhos', titulo: 'Rascunhos', descricao: () => 'Remove rascunhosTurnosMes vinculados' },
   { campo: 'trocas', titulo: 'Trocas vinculadas', descricao: () => 'Remove solicitações de troca relacionadas' },
   { campo: 'notificacoes', titulo: 'Notificações vinculadas', descricao: () => 'Remove notificações relacionadas' },
-  { campo: 'participacoesPlantao', titulo: 'Participação em Plantões', descricao: () => 'Remove o usuário de todos os Grupos de Plantão' },
+  { campo: 'participacoesPlantao', titulo: 'Participação em Plantões', descricao: () => 'Remove o usuário dos Grupos de Plantão' },
 ];
+
+/** EXCLUSAO-USUARIO-2 — trocas e notificações continuam exclusivas do ADMIN_SISTEMA (Rules). */
+const OPCOES_EXCLUSAO_USUARIO_COORDENADOR: ReadonlyArray<keyof OpcoesExclusaoUsuario> = [
+  'cadastro',
+  'escalasPublicadas',
+  'rascunhos',
+  'participacoesPlantao',
+];
+
+/** Perfis que só o ADMIN_SISTEMA pode excluir — espelha `firestore.rules` (match /usuarios). */
+const PERFIS_EXCLUSAO_SO_ADMIN: ReadonlyArray<string> = ['ADMIN_SISTEMA', 'GESTOR_UNIDADE', 'GESTOR_EQUIPE'];
 
 /**
  * Exclusão seletiva de usuário: o admin escolhe quais categorias de dados
@@ -1978,6 +1989,7 @@ function ModalExcluirUsuario({
   zeraGestores,
   processando,
   erro,
+  opcoesPermitidas,
   onFechar,
   onConfirmar,
 }: {
@@ -1986,9 +1998,16 @@ function ModalExcluirUsuario({
   processando: boolean;
   /** EXCLUSAO-USUARIO-1 — erro mostrado DENTRO do modal (antes ia para a página, atrás dele). */
   erro?: string;
+  /**
+   * EXCLUSAO-USUARIO-2 — o que este ator pode apagar. Coordenador não apaga
+   * trocas/notificações (as Rules reservam isso ao ADMIN_SISTEMA).
+   */
+  opcoesPermitidas?: ReadonlyArray<keyof OpcoesExclusaoUsuario>;
   onFechar: () => void;
   onConfirmar: (opcoes: OpcoesExclusaoUsuario) => void;
 }) {
+  const opcoesVisiveis = OPCOES_EXCLUSAO_USUARIO
+    .filter(({ campo }) => opcoesPermitidas === undefined || opcoesPermitidas.includes(campo));
   const [opcoes, setOpcoes] = useState<OpcoesExclusaoUsuario>({
     cadastro: false,
     escalasPublicadas: false,
@@ -1997,16 +2016,15 @@ function ModalExcluirUsuario({
     notificacoes: false,
     participacoesPlantao: false,
   });
-  const todasMarcadas = OPCOES_EXCLUSAO_USUARIO.every(({ campo }) => opcoes[campo] === true);
+  const todasMarcadas = opcoesVisiveis.every(({ campo }) => opcoes[campo] === true);
   /** EXCLUSAO-USUARIO-1 — usuário de teste: um clique marca tudo, para não sobrar nada aparecendo. */
   function marcarTudo(valor: boolean) {
-    setOpcoes({
-      cadastro: valor,
-      escalasPublicadas: valor,
-      rascunhos: valor,
-      trocas: valor,
-      notificacoes: valor,
-      participacoesPlantao: valor,
+    setOpcoes((atual) => {
+      const proximo = { ...atual };
+      for (const { campo } of opcoesVisiveis) {
+        proximo[campo] = valor;
+      }
+      return proximo;
     });
   }
   const [confirmacaoZeraGestores, setConfirmacaoZeraGestores] = useState(false);
@@ -2052,7 +2070,7 @@ function ModalExcluirUsuario({
               {todasMarcadas ? 'Desmarcar tudo' : 'Marcar tudo (usuário de teste)'}
             </button>
           </legend>
-          {OPCOES_EXCLUSAO_USUARIO.map(({ campo, titulo, descricao }) => (
+          {opcoesVisiveis.map(({ campo, titulo, descricao }) => (
             <label key={campo} className="checkbox-card" htmlFor={`excluir-usuario-${campo}`}>
               <input
                 id={`excluir-usuario-${campo}`}
@@ -3747,6 +3765,7 @@ export function DashboardApp() {
   const [usuarioParaExcluir, setUsuarioParaExcluir] = useState<Usuario | null>(null);
   const [processandoExclusaoUsuario, setProcessandoExclusaoUsuario] = useState(false);
   const [erroExclusaoUsuario, setErroExclusaoUsuario] = useState('');
+  const [filtroEquipeTelaUsuarios, setFiltroEquipeTelaUsuarios] = useState('');
   const [equipeExportar, setEquipeExportar] = useState('');
   const [competenciaExportar, setCompetenciaExportar] = useState(competenciaOperacionalHoje);
   const [excluirEscalaPendente, setExcluirEscalaPendente] = useState(false);
@@ -4078,9 +4097,43 @@ export function DashboardApp() {
   const opcoesFiltroSetorUsuarios = grupoPlantaoParaFiltroUsuarios !== undefined
     ? opcoesFiltroSetorUsuariosPlantao(grupoPlantaoParaFiltroUsuarios, nomePorEquipeIdParaFiltroUsuarios, nomePorUnidadeIdParaFiltroUsuarios)
     : [];
-  const usuariosAposFiltroSetor = grupoPlantaoParaFiltroUsuarios !== undefined
-    ? usuarios.filter((item) => usuarioPertenceAoFiltroSetorPlantao(item, filtroSetorUsuario, grupoPlantaoParaFiltroUsuarios, loginsParticipantesAtivosDoGrupoAtivo))
-    : usuarios;
+  /**
+   * EXCLUSAO-USUARIO-2 — o ADMIN_SISTEMA vê TODOS os usuários na tela
+   * Usuários (antes só os da operação selecionada no topo, ex.: só NOC),
+   * com filtro por equipe. Os demais perfis continuam vendo o pool do
+   * contexto ativo, como antes.
+   */
+  const usuariosBaseTela = souAdmin && todosUsuariosAdmin.length > 0 ? todosUsuariosAdmin : usuarios;
+  /**
+   * EXCLUSAO-USUARIO-2 — mesmo critério de `firestore.rules` (match
+   * /usuarios, allow delete): admin exclui qualquer conta menos a própria;
+   * coordenador exclui só colaborador/supervisor das equipes cuja Jornada
+   * administra. `null` = pode excluir; texto = motivo do bloqueio (dica do botão).
+   */
+  const podeVerBotaoExcluirUsuario = souAdmin || escoposOperacionais.jornadasAdministraveis.length > 0;
+  function motivoBloqueioExclusaoUsuario(item: Usuario): string | null {
+    if (usuarioReal === null) {
+      return 'Sessão não carregada.';
+    }
+    if (!podeExcluirUsuario(item, usuarioReal)) {
+      return 'Não é possível excluir a própria conta logada';
+    }
+    if (souAdmin) {
+      return null;
+    }
+    if (PERFIS_EXCLUSAO_SO_ADMIN.includes(perfilEfetivo(item))) {
+      return 'Contas de gestão só podem ser excluídas pelo administrador do sistema';
+    }
+    if (!escoposOperacionais.jornadasAdministraveis.some((equipe) => equipe.id === item.equipeId)) {
+      return 'Você não administra a equipe deste usuário';
+    }
+    return null;
+  }
+  const usuariosAposFiltroSetor = souAdmin
+    ? usuariosBaseTela.filter((item) => filtroEquipeTelaUsuarios === '' || item.equipeId === filtroEquipeTelaUsuarios)
+    : grupoPlantaoParaFiltroUsuarios !== undefined
+      ? usuarios.filter((item) => usuarioPertenceAoFiltroSetorPlantao(item, filtroSetorUsuario, grupoPlantaoParaFiltroUsuarios, loginsParticipantesAtivosDoGrupoAtivo))
+      : usuarios;
   const usuariosFiltrados = usuariosAposFiltroSetor.filter((item) => usuarioCorrespondeBuscaTextual(item, buscaUsuario));
 
   const documentos = useMemo(
@@ -6928,7 +6981,8 @@ export function DashboardApp() {
         ...metadadosCadastro,
       };
     } else {
-      const original = usuarios.find((item) => item.login === formularioUsuario.loginOriginal);
+      const original = usuarios.find((item) => item.login === formularioUsuario.loginOriginal)
+        ?? todosUsuariosAdmin.find((item) => item.login === formularioUsuario.loginOriginal);
       if (original === undefined) {
         return;
       }
@@ -7127,6 +7181,12 @@ export function DashboardApp() {
       setUsuarios((atuais) => (atuais.some((item) => item.login === usuarioSalvo.login)
         ? atuais.map((item) => (item.login === usuarioSalvo.login ? usuarioSalvo : item))
         : [...atuais, usuarioSalvo]));
+      // EXCLUSAO-USUARIO-2 — a tela Usuários do admin lê a lista completa.
+      if (souAdmin) {
+        setTodosUsuariosAdmin((atuais) => (atuais.some((item) => item.login === usuarioSalvo.login)
+          ? atuais.map((item) => (item.login === usuarioSalvo.login ? usuarioSalvo : item))
+          : [...atuais, usuarioSalvo]));
+      }
       if (participanteVinculoCadastro !== null) {
         confirmarVinculoPlantaoAcao(participanteVinculoCadastro, usuarioSalvo);
         setMensagem(cadastroReaproveitado
@@ -7178,6 +7238,7 @@ export function DashboardApp() {
         await registrarAuditoriaOperacional('ATIVAR_DESATIVAR_USUARIO', atualizado.equipeId);
       }
       setUsuarios((atuais) => atuais.map((existente) => (existente.login === item.login ? atualizado : existente)));
+      setTodosUsuariosAdmin((atuais) => atuais.map((existente) => (existente.login === item.login ? atualizado : existente)));
     } catch (falha) {
       setMensagem(mensagemErroFirebase(falha, 'Não foi possível atualizar o status do usuário.', ambienteFirebaseAtual));
     }
@@ -8148,7 +8209,10 @@ export function DashboardApp() {
     try {
       const resultado = modoDemo
         ? { concluidas: [], falhas: [], cadastroExcluido: opcoes.cadastro }
-        : await excluirUsuario(candidato, opcoes, { gruposPlantaoIds: gruposPlantaoAdmin.map((grupo) => grupo.grupoId) });
+        : await excluirUsuario(candidato, opcoes, {
+          // Coordenador só remove participação dos Grupos que administra.
+          gruposPlantaoIds: gruposPlantaoAdmin.filter(podeGerenciarEsteGrupoPlantao).map((grupo) => grupo.grupoId),
+        });
       // EXCLUSAO-USUARIO-1 — some de TODAS as listas na hora (antes só da
       // lista da Administração; a tela Usuários e as grades só mudavam
       // depois de recarregar a página).
@@ -8306,6 +8370,31 @@ export function DashboardApp() {
       cancelado = true;
     };
   }, [tela, podeAcessarAdministracao, souAdmin, modoDemo]);
+
+  /**
+   * EXCLUSAO-USUARIO-2 — na tela Usuários, o ADMIN_SISTEMA vê todos os
+   * usuários (antes só os da operação selecionada no topo).
+   */
+  useEffect(() => {
+    if (tela !== 'usuarios' || !souAdmin || modoDemo) {
+      return undefined;
+    }
+    let cancelado = false;
+    void listarTodosUsuarios()
+      .then((todos) => {
+        if (!cancelado) {
+          setTodosUsuariosAdmin(todos);
+        }
+      })
+      .catch((falha: unknown) => {
+        if (!cancelado) {
+          setMensagem(mensagemErroFirebase(falha, 'Não foi possível carregar todos os usuários.', ambienteFirebaseAtual));
+        }
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [tela, souAdmin, modoDemo]);
 
   /**
    * Carrega os Grupos de Plantão administráveis/consultáveis (Fase
@@ -10472,7 +10561,20 @@ export function DashboardApp() {
                * plantonistas com equipes que só consultam). Contexto Jornada
                * continua exatamente como antes — sem seletor.
                */}
-              {opcoesFiltroSetorUsuarios.length > 0 && (
+              {souAdmin && (
+                <select
+                  className="filtro-setor-usuarios"
+                  value={filtroEquipeTelaUsuarios}
+                  onChange={(evento) => setFiltroEquipeTelaUsuarios(evento.target.value)}
+                  aria-label="Filtrar por equipe"
+                >
+                  <option value="">Todas as equipes</option>
+                  {[...equipesAdmin].sort((a, b) => a.nome.localeCompare(b.nome)).map((equipe) => (
+                    <option key={equipe.id} value={equipe.id}>{equipe.nome}</option>
+                  ))}
+                </select>
+              )}
+              {!souAdmin && opcoesFiltroSetorUsuarios.length > 0 && (
                 <select
                   className="filtro-setor-usuarios"
                   value={filtroSetorUsuario}
@@ -10485,9 +10587,9 @@ export function DashboardApp() {
               <span>
                 <Users size={16} />
                 {' '}
-                {usuariosFiltrados.length === usuarios.length
-                  ? `${usuarios.length} usuário${usuarios.length === 1 ? '' : 's'}`
-                  : `${usuariosFiltrados.length} de ${usuarios.length} usuários`}
+                {usuariosFiltrados.length === usuariosBaseTela.length
+                  ? `${usuariosBaseTela.length} usuário${usuariosBaseTela.length === 1 ? '' : 's'}`
+                  : `${usuariosFiltrados.length} de ${usuariosBaseTela.length} usuários`}
               </span>
             </div>
             {usuariosFiltrados.length === 0 ? (
@@ -10542,19 +10644,22 @@ export function DashboardApp() {
                             >
                               <Bell size={15} />
                             </button>
-                            {/* EXCLUSAO-USUARIO-1 — antes só existia em Administração → Usuários. */}
-                            {souAdmin && (
-                              <button
-                                className="icon-button danger-button"
-                                type="button"
-                                title={podeExcluirUsuario(item, usuarioReal) ? 'Excluir usuário' : 'Não é possível excluir a própria conta logada'}
-                                aria-label={`Excluir ${item.nome}`}
-                                disabled={escritaBloqueada || !podeExcluirUsuario(item, usuarioReal)}
-                                onClick={() => { setErroExclusaoUsuario(''); setUsuarioParaExcluir(item); }}
-                              >
-                                <Trash2 size={15} />
-                              </button>
-                            )}
+                            {/* EXCLUSAO-USUARIO-1/2 — admin e coordenadores (só nas equipes que administram). */}
+                            {podeVerBotaoExcluirUsuario && (() => {
+                              const bloqueio = motivoBloqueioExclusaoUsuario(item);
+                              return (
+                                <button
+                                  className="icon-button danger-button"
+                                  type="button"
+                                  title={bloqueio ?? 'Excluir usuário'}
+                                  aria-label={`Excluir ${item.nome}`}
+                                  disabled={escritaBloqueada || bloqueio !== null}
+                                  onClick={() => { setErroExclusaoUsuario(''); setUsuarioParaExcluir(item); }}
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              );
+                            })()}
                           </div>
                         </td>
                       </tr>
@@ -11596,7 +11701,8 @@ export function DashboardApp() {
       {usuarioParaExcluir && usuarioReal && (
         <ModalExcluirUsuario
           candidato={usuarioParaExcluir}
-          zeraGestores={exclusaoZeraGestores(todosUsuariosAdmin, usuarioParaExcluir.login)}
+          zeraGestores={souAdmin && exclusaoZeraGestores(todosUsuariosAdmin, usuarioParaExcluir.login)}
+          opcoesPermitidas={souAdmin ? undefined : OPCOES_EXCLUSAO_USUARIO_COORDENADOR}
           processando={processandoExclusaoUsuario}
           erro={erroExclusaoUsuario || undefined}
           onFechar={() => { setUsuarioParaExcluir(null); setErroExclusaoUsuario(''); }}
