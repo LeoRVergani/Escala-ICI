@@ -10,6 +10,7 @@ import {
   estatisticasPlantaoApp,
   formatarIntervaloPlantaoCivil,
   formatarIntervaloPlantaoRelativoAHoje,
+  tituloPeriodoPlantao,
   indiceCorPlantonista,
   intervaloPlantaoCivil,
   nomeExibicaoPlantonista,
@@ -226,7 +227,10 @@ describe('intervaloPlantaoCivil + formatadores', () => {
     );
     expect(intervalo.valido).toBe(true);
     expect(intervalo.cruzaDiaSeguinte).toBe(false);
-    expect(formatarIntervaloPlantaoCivil(intervalo)).toBe(`${intervalo.horaInicio}–${intervalo.horaFim}`);
+    // TEXTO-PERIODO-PLANTAO-1 — mesmo dia: "dia DD/MM das HH:MM às HH:MM".
+    expect(formatarIntervaloPlantaoCivil(intervalo)).toBe(
+      `dia ${intervalo.dataInicio.slice(8, 10)}/${intervalo.dataInicio.slice(5, 7)} das ${intervalo.horaInicio} às ${intervalo.horaFim}`,
+    );
   });
 
   it('plantão noturno que cruza a meia-noite civil marca cruzaDiaSeguinte e o rótulo neutro nunca diz "hoje"', () => {
@@ -237,7 +241,11 @@ describe('intervaloPlantaoCivil + formatadores', () => {
     expect(intervalo.cruzaDiaSeguinte).toBe(true);
     expect(intervalo.diasDeDiferenca).toBe(1);
     const rotulo = formatarIntervaloPlantaoCivil(intervalo);
-    expect(rotulo).toContain('termina no dia seguinte');
+    // TEXTO-PERIODO-PLANTAO-1 — formato do Controle de Plantão, com as duas datas.
+    expect(rotulo).toBe(
+      `do dia ${intervalo.dataInicio.slice(8, 10)}/${intervalo.dataInicio.slice(5, 7)} ${intervalo.horaInicio}`
+      + ` até o dia ${intervalo.dataFim.slice(8, 10)}/${intervalo.dataFim.slice(5, 7)} ${intervalo.horaFim}`,
+    );
     expect(rotulo).not.toContain('hoje');
     expect(rotulo).not.toContain('+1 dia');
   });
@@ -277,13 +285,13 @@ describe('intervaloPlantaoCivil + formatadores', () => {
   });
 
   describe('formatarIntervaloPlantaoRelativoAHoje', () => {
-    it('plantão que começa hoje e cruza a meia-noite -> "hoje -> amanhã"', () => {
+    it('TEXTO-PERIODO-PLANTAO-1 — mesmo começando hoje, usa o texto padronizado com datas (sem "hoje/amanhã")', () => {
       const intervalo = intervaloPlantaoCivil(
         { inicio: '2026-08-10T22:00:00.000Z', fim: '2026-08-11T10:00:00.000Z' },
         'America/Sao_Paulo',
       );
       expect(formatarIntervaloPlantaoRelativoAHoje(intervalo, intervalo.dataInicio)).toBe(
-        `${intervalo.horaInicio} hoje → ${intervalo.horaFim} amanhã`,
+        formatarIntervaloPlantaoCivil(intervalo),
       );
     });
 
@@ -550,5 +558,14 @@ describe('estatisticasPlantaoApp', () => {
       totalPlantoes: 0,
       finaisDeSemana: 0,
     });
+  });
+});
+
+describe('TEXTO-PERIODO-PLANTAO-1 — texto igual ao Controle de Plantão', () => {
+  it('fim de semana 24h e dia útil 19:00–07:00', () => {
+    const fimDeSemana = { horaInicio: '19:00', horaFim: '19:00', dataInicio: '2026-10-30', dataFim: '2026-10-31', diasDeDiferenca: 1, cruzaDiaSeguinte: true, valido: true };
+    const diaUtil = { horaInicio: '19:00', horaFim: '07:00', dataInicio: '2026-11-03', dataFim: '2026-11-04', diasDeDiferenca: 1, cruzaDiaSeguinte: true, valido: true };
+    expect(tituloPeriodoPlantao(fimDeSemana)).toBe('Plantão do dia 30/10 19:00 até o dia 31/10 19:00');
+    expect(tituloPeriodoPlantao(diaUtil)).toBe('Plantão do dia 03/11 19:00 até o dia 04/11 07:00');
   });
 });

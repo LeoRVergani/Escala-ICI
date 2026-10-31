@@ -210,27 +210,40 @@ export function intervaloPlantaoCivil(
   }
 }
 
-/** Forma neutra: só descreve o próprio intervalo, nunca afirma "hoje"/"amanhã" — segura em qualquer contexto (inclusive plantão futuro). */
+/** "30/10" a partir de "2026-10-30". */
+function diaMesCurto(dataIso: string): string {
+  const [, mes, dia] = dataIso.split('-');
+  return mes && dia ? `${dia}/${mes}` : dataIso;
+}
+
+/**
+ * TEXTO-PERIODO-PLANTAO-1 — mesmo formato do Controle de Plantão, para quem
+ * usa os dois sistemas ler igual: "do dia 30/10 19:00 até o dia 31/10 19:00".
+ * Sempre com as duas datas, então nunca precisa de "termina no dia seguinte"
+ * nem de "hoje/amanhã" (que mudam de sentido conforme o dia em que se lê).
+ * Plantão dentro do mesmo dia: "dia 30/10 das 08:00 às 18:00".
+ */
 export function formatarIntervaloPlantaoCivil(intervalo: IntervaloPlantaoCivil): string {
   if (!intervalo.valido) {
     return 'Horário indisponível';
   }
   if (!intervalo.cruzaDiaSeguinte) {
-    return `${intervalo.horaInicio}–${intervalo.horaFim}`;
+    return `dia ${diaMesCurto(intervalo.dataInicio)} das ${intervalo.horaInicio} às ${intervalo.horaFim}`;
   }
-  const sufixo = intervalo.diasDeDiferenca === 1 ? 'termina no dia seguinte' : `termina ${intervalo.diasDeDiferenca} dias depois`;
-  return `${intervalo.horaInicio}–${intervalo.horaFim} · ${sufixo}`;
+  return `do dia ${diaMesCurto(intervalo.dataInicio)} ${intervalo.horaInicio} até o dia ${diaMesCurto(intervalo.dataFim)} ${intervalo.horaFim}`;
 }
 
-/** Forma relativa a HOJE: só usa "hoje/amanhã" quando o plantão realmente começa hoje; senão cai na forma neutra, nunca mente sobre a data. */
-export function formatarIntervaloPlantaoRelativoAHoje(intervalo: IntervaloPlantaoCivil, dataHoje: string): string {
-  if (!intervalo.valido || intervalo.dataInicio !== dataHoje) {
-    return formatarIntervaloPlantaoCivil(intervalo);
-  }
-  if (!intervalo.cruzaDiaSeguinte) {
-    return `${intervalo.horaInicio}–${intervalo.horaFim} hoje`;
-  }
-  return `${intervalo.horaInicio} hoje → ${intervalo.horaFim} amanhã`;
+/** Título completo, como no Controle de Plantão: "Plantão do dia 30/10 19:00 até o dia 31/10 19:00". */
+export function tituloPeriodoPlantao(intervalo: IntervaloPlantaoCivil): string {
+  return intervalo.valido ? `Plantão ${formatarIntervaloPlantaoCivil(intervalo)}` : 'Horário indisponível';
+}
+
+/**
+ * Mantida por compatibilidade com as telas que já a chamam: agora usa o
+ * mesmo texto padronizado (com datas explícitas), em qualquer dia.
+ */
+export function formatarIntervaloPlantaoRelativoAHoje(intervalo: IntervaloPlantaoCivil, _dataHoje: string): string {
+  return formatarIntervaloPlantaoCivil(intervalo);
 }
 
 /** Substitui o ternário duplicado `Até {horaFim}{cruzaDiaSeguinte ? ' (amanhã)' : ''}` — mesma regra: só diz "amanhã" quando o plantão começou hoje de verdade. */
