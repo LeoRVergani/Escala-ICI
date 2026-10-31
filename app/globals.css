@@ -7464,3 +7464,6 @@ button.soc-import-review-alert-row:focus-visible { background: var(--surface-mut
 
 /* TEXTO-PERIODO-PLANTAO-1 — período do plantão no formato do Controle de Plantão. */
 .plantao-periodo-texto { color: var(--text); font-size: 13.5px; font-weight: 650; line-height: 1.4; }
+
+/* PLANTAO-ACOES-COLABORADOR — separa ações do cadastro das ações do Plantão. */
+.user-row-actions-separador { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--border); }

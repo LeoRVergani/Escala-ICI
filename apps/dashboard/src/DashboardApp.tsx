@@ -4349,7 +4349,9 @@ export function DashboardApp() {
    * coordenador exclui só colaborador/supervisor das equipes cuja Jornada
    * administra. `null` = pode excluir; texto = motivo do bloqueio (dica do botão).
    */
-  const podeVerBotaoExcluirUsuario = souAdmin || escoposOperacionais.jornadasAdministraveis.length > 0;
+  const podeVerBotaoExcluirUsuario = souAdmin
+    || escoposOperacionais.jornadasAdministraveis.length > 0
+    || escoposOperacionais.plantoesAdministraveis.length > 0;
   function motivoBloqueioExclusaoUsuario(item: Usuario): string | null {
     if (usuarioReal === null) {
       return 'Sessão não carregada.';
@@ -4363,7 +4365,11 @@ export function DashboardApp() {
     if (PERFIS_EXCLUSAO_SO_ADMIN.includes(perfilEfetivo(item))) {
       return 'Contas de gestão só podem ser excluídas pelo administrador do sistema';
     }
-    if (!escoposOperacionais.jornadasAdministraveis.some((equipe) => equipe.id === item.equipeId)) {
+    const administraEquipe = escoposOperacionais.jornadasAdministraveis.some((equipe) => equipe.id === item.equipeId)
+      // PLANTAO-ACOES-COLABORADOR — a equipe responsável por um Plantão que
+      // o usuário organiza também é "dele" (ex.: GEDSI_COSI_PLANTAO).
+      || escoposOperacionais.plantoesAdministraveis.some((grupo) => grupo.equipeResponsavelId === item.equipeId);
+    if (!administraEquipe) {
       return 'Você não administra a equipe deste usuário';
     }
     return null;
@@ -7374,8 +7380,13 @@ export function DashboardApp() {
         ...metadadosCadastro,
       };
     } else {
+      // PLANTAO-ACOES-COLABORADOR — a pessoa pode estar só em "Minha equipe"
+      // (aba 6x1 ou Plantão), fora da lista da operação selecionada no topo.
       const original = usuarios.find((item) => item.login === formularioUsuario.loginOriginal)
-        ?? todosUsuariosAdmin.find((item) => item.login === formularioUsuario.loginOriginal);
+        ?? todosUsuariosAdmin.find((item) => item.login === formularioUsuario.loginOriginal)
+        ?? membrosMinhaEquipe.find((item) => item.login === formularioUsuario.loginOriginal)
+        ?? Object.values(usuariosPorGrupoPlantao).flat().find((item) => item.login === formularioUsuario.loginOriginal)
+        ?? diretorioUsuarios?.find((item) => item.login === formularioUsuario.loginOriginal);
       if (original === undefined) {
         return;
       }
@@ -7578,6 +7589,10 @@ export function DashboardApp() {
       setUsuarios((atuais) => (atuais.some((item) => item.login === usuarioSalvo.login)
         ? atuais.map((item) => (item.login === usuarioSalvo.login ? usuarioSalvo : item))
         : [...atuais, usuarioSalvo]));
+      // PLANTAO-ACOES-COLABORADOR — mantém "Minha equipe" (6x1 e Plantão) em dia.
+      setMembrosMinhaEquipe((atuais) => atuais.map((item) => (item.login === usuarioSalvo.login ? usuarioSalvo : item)));
+      setUsuariosPorGrupoPlantao((atuais) => Object.fromEntries(Object.entries(atuais)
+        .map(([grupoId, lista]) => [grupoId, lista.map((item) => (item.login === usuarioSalvo.login ? usuarioSalvo : item))])));
       // EXCLUSAO-USUARIO-2 — a tela Usuários do admin lê a lista completa.
       if (souAdmin) {
         setTodosUsuariosAdmin((atuais) => (atuais.some((item) => item.login === usuarioSalvo.login)
@@ -7636,6 +7651,8 @@ export function DashboardApp() {
       }
       setUsuarios((atuais) => atuais.map((existente) => (existente.login === item.login ? atualizado : existente)));
       setTodosUsuariosAdmin((atuais) => atuais.map((existente) => (existente.login === item.login ? atualizado : existente)));
+      setUsuariosPorGrupoPlantao((atuais) => Object.fromEntries(Object.entries(atuais)
+        .map(([grupoId, lista]) => [grupoId, lista.map((existente) => (existente.login === item.login ? atualizado : existente))])));
     } catch (falha) {
       setMensagem(mensagemErroFirebase(falha, 'Não foi possível atualizar o status do usuário.', ambienteFirebaseAtual));
     }
@@ -8801,8 +8818,8 @@ export function DashboardApp() {
     .filter((item) => item.ativo);
   function usuarioDoParticipante(login: string): Usuario | undefined {
     return (usuariosPorGrupoPlantao[grupoAtivoMinhaEquipeId] ?? []).find((item) => item.login === login)
-      ?? diretorioUsuarios?.find((item) => item.login === login)
-      ?? usuarios.find((item) => item.login === login);
+      ?? usuarios.find((item) => item.login === login)
+      ?? diretorioUsuarios?.find((item) => item.login === login);
   }
   const chaveEquipesAvisos = equipesMinhaEquipe.map((item) => item.id).join('|');
   useEffect(() => {
@@ -11222,7 +11239,7 @@ export function DashboardApp() {
                   ) : (
                     <div className="table-scroll">
                       <table className="data-table users-table">
-                        <thead><tr><th>Pessoa</th><th>Login</th><th>Equipe</th><th>Contatos</th><th>Ações</th></tr></thead>
+                        <thead><tr><th>Pessoa</th><th>Login</th><th>Equipe</th><th>Contatos</th><th>Status</th><th>Ações</th></tr></thead>
                         <tbody>
                           {participantesMinhaEquipe
                             .map((participante) => ({ participante, pessoa: usuarioDoParticipante(participante.login) }))
@@ -11236,7 +11253,46 @@ export function DashboardApp() {
                                   <td>{nomeDaEquipe(pessoa?.equipeId)}</td>
                                   <td>{participante.contatos.length === 0 ? 'Nenhum' : `${participante.contatos.length} contato(s)`}</td>
                                   <td>
+                                    {pessoa === undefined
+                                      ? <span className="status-badge neutral">Sem cadastro</span>
+                                      : <span className={`status-badge ${pessoa.ativo ? 'success' : 'neutral'}`}>{pessoa.ativo ? 'Ativo' : 'Inativo'}</span>}
+                                  </td>
+                                  <td>
                                     <div className="user-row-actions">
+                                      {/* PLANTAO-ACOES-COLABORADOR — mesmas ações de cadastro da aba 6x1. */}
+                                      <button
+                                        className="icon-button"
+                                        type="button"
+                                        title={pessoa === undefined ? 'Cadastro não encontrado' : 'Editar cadastro'}
+                                        disabled={escritaBloqueada || pessoa === undefined}
+                                        onClick={() => pessoa && abrirEdicaoUsuario(pessoa)}
+                                      >
+                                        <Pencil size={15} />
+                                      </button>
+                                      <button
+                                        className="icon-button"
+                                        type="button"
+                                        title={pessoa?.ativo ? 'Desativar cadastro' : 'Ativar cadastro'}
+                                        disabled={escritaBloqueada || pessoa === undefined}
+                                        onClick={() => pessoa && void alternarAtivoUsuario(pessoa)}
+                                      >
+                                        <Power size={15} />
+                                      </button>
+                                      {(() => {
+                                        const bloqueio = pessoa === undefined ? 'Cadastro não encontrado' : motivoBloqueioExclusaoUsuario(pessoa);
+                                        return (
+                                          <button
+                                            className="icon-button danger-button"
+                                            type="button"
+                                            title={bloqueio ?? 'Excluir cadastro'}
+                                            disabled={escritaBloqueada || bloqueio !== null}
+                                            onClick={() => { if (pessoa) { setErroExclusaoUsuario(''); setUsuarioParaExcluir(pessoa); } }}
+                                          >
+                                            <Trash2 size={15} />
+                                          </button>
+                                        );
+                                      })()}
+                                      <span className="user-row-actions-separador" aria-hidden="true" />
                                       <button
                                         className="icon-button"
                                         type="button"
