@@ -2726,7 +2726,9 @@ describe('usuarios — escopo GESTOR_UNIDADE (criar/editar/ler dentro da própri
     });
     const db = autenticarComo(usuarios.gestorUnidade);
     await assertSucceeds(getDoc(doc(db, 'usuarios', 'colaborador.gedsi.leitura')));
-    await assertFails(getDoc(doc(db, 'usuarios', 'colaborador.outra.unidade')));
+    // FASE1-EQUIPE-SIMPLES — leitura do cadastro é diretório para quem organiza
+    // escala; o que continua restrito à unidade é a ESCRITA.
+    await assertSucceeds(getDoc(doc(db, 'usuarios', 'colaborador.outra.unidade')));
     const resultado = await assertSucceeds(getDocs(query(collection(db, 'usuarios'), where('equipeId', '==', 'EQ_GEDSI_SOC'))));
     expect(resultado.docs.map((item) => item.id)).toContain('colaborador.gedsi.leitura');
   });
@@ -2742,7 +2744,8 @@ describe('usuarios — escopo GESTOR_UNIDADE (criar/editar/ler dentro da própri
       ]);
     });
     const db = autenticarComo(usuarios.gestorUnidade);
-    await assertFails(getDoc(doc(db, 'usuarios', 'legado.sem.equipe')));
+    // FASE1-EQUIPE-SIMPLES — leitura liberada (diretório); edição continua negada.
+    await assertSucceeds(getDoc(doc(db, 'usuarios', 'legado.sem.equipe')));
     await assertFails(updateDoc(doc(db, 'usuarios', 'legado.sem.equipe'), { ativo: false }));
     const resultado = await assertSucceeds(getDocs(query(collection(db, 'usuarios'), where('equipeId', '==', 'EQ_GEDSI_SOC'))));
     expect(resultado.docs.map((item) => item.id)).toEqual(['colaborador.gedsi.legado.ok']);
@@ -5833,15 +5836,18 @@ describe('PATCH-PLANTAO-VINCULO-GESTOR-COMO-PARTICIPANTE-1 — leitura ampla de 
     expect(resultado.docs.map((documento) => documento.id)).toContain('clis');
   });
 
-  it('3. a nova branch por unidadeId nunca amplia para outra unidade — gestor do CODB não lê clis (unidade diferente) por esse caminho', async () => {
+  it('3. FASE1-EQUIPE-SIMPLES — leitura de cadastro é diretório para quem organiza escala (gestor do CODB encontra clis); colaborador comum continua sem listar outras equipes', async () => {
     const ator = autenticarComo(gestorDeOutraUnidade);
-    const resultado = await getDocs(query(
+    const resultado = await assertSucceeds(getDocs(query(
       collection(ator, 'usuarios'),
       where('unidadeId', '==', 'GEDSI_COSI'),
-    )).catch(() => null);
-    // Sem nenhum documento de GEDSI_COSI no alcance do gestor do CODB, a
-    // consulta simplesmente não retorna nada (ou falha) — nunca vaza clis.
-    expect(resultado === null || resultado.docs.length === 0).toBe(true);
+    )));
+    expect(resultado.docs.map((item) => item.id)).toContain(clis.login);
+    const colaborador = autenticarComo(usuarios.colaborador);
+    await assertFails(getDocs(query(
+      collection(colaborador, 'usuarios'),
+      where('unidadeId', '==', 'GEDSI_COSI'),
+    )));
   });
 
   it('4. admin sempre encontra clis, por qualquer um dos dois campos', async () => {
@@ -5863,13 +5869,13 @@ describe('PATCH-PLANTAO-VINCULO-GESTOR-COMO-PARTICIPANTE-1 — leitura ampla de 
     expect(porUnidade.docs.map((documento) => documento.id)).toContain('clis');
   });
 
-  it('5. documenta o limite real: list por array-contains em unidadesPermitidas/equipesPermitidas continua falhando para ator não-admin (por isso listarUsuariosElegiveisPlantao nunca usa esses campos)', async () => {
+  it('5. FASE1-EQUIPE-SIMPLES — com o diretório, list por array-contains em unidadesPermitidas/equipesPermitidas passa a funcionar para quem organiza escala', async () => {
     const ator = autenticarComo(clis);
-    await assertFails(getDocs(query(
+    await assertSucceeds(getDocs(query(
       collection(ator, 'usuarios'),
       where('unidadesPermitidas', 'array-contains', 'GEDSI_COSI'),
     )));
-    await assertFails(getDocs(query(
+    await assertSucceeds(getDocs(query(
       collection(ator, 'usuarios'),
       where('equipesPermitidas', 'array-contains', 'GEDSI_COSI_PLANTAO'),
     )));
@@ -6752,5 +6758,88 @@ describe('HOTFIX-STAGING-MATRIZ-BOOTSTRAP-1 — Elton (GESTOR_UNIDADE de GEDSI_C
       doc(db, 'turnosMes', 'GEDSI_CODB_NOC_alguem_2026-09'),
       escala('alguem', 'GEDSI_CODB_NOC', 'PUBLICADA'),
     ));
+  });
+});
+
+
+/**
+ * FASE1-EQUIPE-SIMPLES — transferência de colaborador entre equipes e aviso
+ * ao coordenador da equipe de origem.
+ */
+describe('FASE1-EQUIPE-SIMPLES — transferência e avisosGestao', () => {
+  function aviso(extra: Record<string, unknown> = {}) {
+    return {
+      tipo: 'TRANSFERENCIA_COLABORADOR',
+      equipeAvisadaId: 'EQ_CODB_NOC',
+      equipeDestinoId: 'EQ_COSI_SOC',
+      colaboradorLogin: usuarios.externo.login,
+      colaboradorNome: usuarios.externo.nome,
+      criadoPorLogin: usuarios.gestor.login,
+      criadoPorNome: usuarios.gestor.nome,
+      criadoEm: '2026-10-30T12:00:00.000Z',
+      lido: false,
+      lidoPorLogin: null,
+      lidoEm: null,
+      schemaVersion: 1,
+      ...extra,
+    };
+  }
+
+  beforeEach(async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(doc(db, 'equipes', 'EQ_COSI_SOC'), { id: 'EQ_COSI_SOC', nome: 'SOC', sigla: 'SOC', ativa: true });
+      await setDoc(doc(db, 'equipes', 'EQ_CODB_NOC'), { id: 'EQ_CODB_NOC', nome: 'NOC', sigla: 'NOC', ativa: true });
+    });
+  });
+
+  it('colaborador comum não enxerga o cadastro de outras equipes; gestor enxerga', async () => {
+    await assertFails(getDoc(doc(autenticarComo(usuarios.colaborador), 'usuarios', usuarios.externo.login)));
+    await assertSucceeds(getDoc(doc(autenticarComo(usuarios.gestor), 'usuarios', usuarios.externo.login)));
+  });
+
+  it('gestor traz colaborador de outra equipe para a própria, mudando só equipeId', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertSucceeds(updateDoc(doc(gestor, 'usuarios', usuarios.externo.login), {
+      equipeId: 'EQ_COSI_SOC',
+      atualizadoEm: '2026-10-30T12:00:00.000Z',
+    }));
+  });
+
+  it('transferência nega: outro campo junto, equipe que o gestor não administra, conta de gestão, a própria conta, colaborador comum', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(updateDoc(doc(gestor, 'usuarios', usuarios.externo.login), { equipeId: 'EQ_COSI_SOC', ativo: false }));
+    await assertFails(updateDoc(doc(gestor, 'usuarios', usuarios.externo.login), { equipeId: 'EQ_CODB_NOC_OUTRA' }));
+    await assertFails(updateDoc(doc(gestor, 'usuarios', usuarios.admin.login), { equipeId: 'EQ_COSI_SOC' }));
+    await assertFails(updateDoc(doc(gestor, 'usuarios', usuarios.gestor.login), { equipeId: 'EQ_CODB_NOC' }));
+    const colaborador = autenticarComo(usuarios.colaborador);
+    await assertFails(updateDoc(doc(colaborador, 'usuarios', usuarios.externo.login), { equipeId: 'EQ_COSI_SOC' }));
+  });
+
+  it('gestor do destino cria o aviso para a equipe de origem; não forja autor nem destino que não administra', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertSucceeds(setDoc(doc(gestor, 'avisosGestao', 'aviso-1'), aviso()));
+    await assertFails(setDoc(doc(gestor, 'avisosGestao', 'aviso-2'), aviso({ criadoPorLogin: usuarios.admin.login })));
+    await assertFails(setDoc(doc(gestor, 'avisosGestao', 'aviso-3'), aviso({ equipeDestinoId: 'EQ_CODB_NOC', equipeAvisadaId: 'EQ_COSI_SOC' })));
+    await assertFails(setDoc(doc(gestor, 'avisosGestao', 'aviso-4'), aviso({ campoExtra: true })));
+    await assertFails(setDoc(doc(autenticarComo(usuarios.colaborador), 'avisosGestao', 'aviso-5'), aviso({ criadoPorLogin: usuarios.colaborador.login })));
+  });
+
+  it('só quem administra a equipe avisada lê e marca como lido; ninguém além do admin apaga', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'avisosGestao', 'aviso-noc'), aviso());
+    });
+    const gestorSoc = autenticarComo(usuarios.gestor);
+    const admin = autenticarComo(usuarios.admin);
+    await assertFails(getDoc(doc(gestorSoc, 'avisosGestao', 'aviso-noc')));
+    await assertFails(updateDoc(doc(gestorSoc, 'avisosGestao', 'aviso-noc'), {
+      lido: true, lidoPorLogin: usuarios.gestor.login, lidoEm: '2026-10-30T13:00:00.000Z',
+    }));
+    await assertSucceeds(getDoc(doc(admin, 'avisosGestao', 'aviso-noc')));
+    await assertSucceeds(updateDoc(doc(admin, 'avisosGestao', 'aviso-noc'), {
+      lido: true, lidoPorLogin: usuarios.admin.login, lidoEm: '2026-10-30T13:00:00.000Z',
+    }));
+    await assertFails(deleteDoc(doc(gestorSoc, 'avisosGestao', 'aviso-noc')));
+    await assertSucceeds(deleteDoc(doc(admin, 'avisosGestao', 'aviso-noc')));
   });
 });

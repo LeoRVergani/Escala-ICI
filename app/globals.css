@@ -7320,3 +7320,70 @@ button.soc-import-review-alert-row:focus-visible { background: var(--surface-mut
   font-weight: 700;
   color: var(--text);
 }
+
+/* =====================================================================
+ * FASE1-EQUIPE-SIMPLES — Início (primeiros passos) e Minha equipe.
+ * ===================================================================== */
+.primeiros-passos { margin-bottom: 16px; }
+.primeiros-passos-lista { display: grid; gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
+.primeiros-passos-lista > li {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.primeiros-passos-lista > li[data-estado="atual"] {
+  border-color: var(--primary-bright);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-bright) 14%, transparent);
+}
+.primeiros-passos-lista > li[data-estado="feito"] { background: var(--surface-muted); }
+.primeiros-passos-lista > li > div { display: grid; gap: 2px; min-width: 0; }
+.primeiros-passos-lista > li strong { font-size: 14px; color: var(--text); }
+.primeiros-passos-lista > li small { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.primeiros-passos-numero {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-weight: 800;
+}
+.primeiros-passos-lista > li[data-estado="atual"] .primeiros-passos-numero { background: var(--primary); color: #fff; }
+.primeiros-passos-lista > li[data-estado="feito"] .primeiros-passos-numero { background: transparent; color: var(--success); }
+@media (max-width: 640px) {
+  .primeiros-passos-lista > li { grid-template-columns: 32px minmax(0, 1fr); }
+  .primeiros-passos-lista > li > button { grid-column: 2; justify-self: start; }
+}
+
+.minha-equipe-seletor { margin-bottom: 12px; }
+.minha-equipe-aviso { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.minha-equipe-busca { width: min(640px, calc(100vw - 32px)); }
+.minha-equipe-resultados {
+  display: grid;
+  gap: 6px;
+  max-height: 360px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.minha-equipe-resultados > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.minha-equipe-resultados > li > div { display: grid; gap: 2px; min-width: 0; }
+.minha-equipe-resultados > li small { color: var(--muted); font-size: 12px; }
+.minha-equipe-resultados > li > button { flex: 0 0 auto; }
+.aviso-gestao-item .link-button { margin-top: 4px; padding: 0; font-size: 12px; }

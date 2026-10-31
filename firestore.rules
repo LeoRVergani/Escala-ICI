@@ -823,6 +823,11 @@ service cloud.firestore {
       allow read: if autenticado()
         && (
           loginDoAuth() == login
+          // FASE1-EQUIPE-SIMPLES — quem organiza escala (admin, gestor de
+          // unidade, coordenador ou supervisor) busca pessoas em TODO o
+          // cadastro para trazê-las para a própria equipe. Só leitura;
+          // nenhuma escrita nova decorre daqui.
+          || souResponsavelOperacionalElegivel()
           || podeOperarNaEquipe(resource.data.equipeId)
           // O responsável operacional precisa enumerar os usuários do alvo
           // para montar a grade de Jornada, mesmo pertencendo a outra equipe.
@@ -930,6 +935,24 @@ service cloud.firestore {
             && request.resource.data.login == resource.data.login
             && request.resource.data.equipeId == resource.data.equipeId
             && request.resource.data.get('cadastroOperacional', null) == resource.data.get('cadastroOperacional', null)
+          )
+
+          // FASE1-EQUIPE-SIMPLES — transferência: quem administra a Jornada
+          // da equipe de DESTINO traz um colaborador de qualquer outra equipe
+          // (ou sem equipe). Só muda `equipeId` (+ atualizadoEm); nunca a
+          // própria conta, nunca contas de gestão (perfil efetivo, inclusive o
+          // deduzido pelo nível hierárquico). O coordenador antigo é avisado
+          // por um documento em `avisosGestao` gravado no mesmo lote.
+          || (
+            souResponsavelOperacionalElegivel()
+            && loginDoAuth() != login
+            && perfilDe(resource.data) in ['ANALISTA_SOC', 'ANALISTA_SUPORTE', 'LEITURA']
+            && request.resource.data.login == resource.data.login
+            && request.resource.data.get('equipeId', null) is string
+            && request.resource.data.equipeId != resource.data.get('equipeId', null)
+            && exists(/databases/$(database)/documents/equipes/$(request.resource.data.equipeId))
+            && podeAdministrarJornada(request.resource.data.equipeId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['equipeId', 'atualizadoEm'])
           )
         );
 
@@ -1716,6 +1739,36 @@ service cloud.firestore {
      * troca e a notificação são criadas no mesmo lote, e `get()`/`exists()`
      * em regras não veem escritas pendentes do mesmo lote).
      */
+    /**
+     * FASE1-EQUIPE-SIMPLES — avisos para quem administra uma equipe (hoje:
+     * "um colaborador seu foi transferido para outra equipe"). Lidos e
+     * marcados como lidos por quem administra a equipe de origem; criados
+     * só por quem administra a equipe de destino, em nome próprio.
+     */
+    match /avisosGestao/{id} {
+      allow read: if autenticado()
+        && (souAdminSistema() || podeAdministrarJornada(resource.data.equipeAvisadaId));
+      allow create: if autenticado()
+        && request.resource.data.keys().hasOnly([
+          'tipo', 'equipeAvisadaId', 'equipeDestinoId', 'colaboradorLogin', 'colaboradorNome',
+          'criadoPorLogin', 'criadoPorNome', 'criadoEm', 'lido', 'lidoPorLogin', 'lidoEm', 'schemaVersion'
+        ])
+        && request.resource.data.tipo == 'TRANSFERENCIA_COLABORADOR'
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.criadoPorLogin == loginDoAuth()
+        && request.resource.data.lido == false
+        && request.resource.data.equipeAvisadaId is string
+        && request.resource.data.equipeDestinoId is string
+        && request.resource.data.equipeAvisadaId != request.resource.data.equipeDestinoId
+        && podeAdministrarJornada(request.resource.data.equipeDestinoId);
+      allow update: if autenticado()
+        && (souAdminSistema() || podeAdministrarJornada(resource.data.equipeAvisadaId))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lido', 'lidoPorLogin', 'lidoEm'])
+        && request.resource.data.lido == true
+        && request.resource.data.lidoPorLogin == loginDoAuth();
+      allow delete: if souAdminSistema();
+    }
+
     match /notificacoesTroca/{id} {
       // Admin precisa enumerar (list/get) notificações de qualquer usuário
       // para poder excluir as vinculadas a uma conta removida — sem alargar

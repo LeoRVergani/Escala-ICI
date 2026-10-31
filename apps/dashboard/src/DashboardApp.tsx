@@ -224,6 +224,12 @@ import {
   type OpcoesExclusaoUsuario,
 } from '@/lib/firebase/adminRepository';
 import { registrarAuditoriaAdmin } from '@/lib/firebase/auditoriaRepository';
+import {
+  listarAvisosGestaoPendentes,
+  marcarAvisoGestaoComoLido,
+  trazerUsuarioParaEquipe,
+  type AvisoGestao,
+} from '@/lib/firebase/equipeRepository';
 /**
  * Só operações administrativas de `lembretesAtribuidos` — o Dashboard NUNCA
  * importa `criarLembretePessoal`/`listarLembretesPessoais`/
@@ -419,7 +425,7 @@ import type {
   Usuario,
 } from '@/lib/modelos';
 
-type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao' | 'responsaveisEscala';
+type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao' | 'responsaveisEscala' | 'equipe';
 
 /**
  * PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — telas cujo conteúdo é o
@@ -791,6 +797,10 @@ interface AlertasOperacionaisBellProps {
   aberta: boolean;
   onAlternar: () => void;
   onFocarGrade: () => void;
+  /** FASE1-EQUIPE-SIMPLES — "Fulano foi transferido para outra equipe". */
+  avisos?: AvisoGestao[];
+  nomeEquipe?: (equipeId: string) => string;
+  onMarcarAvisoLido?: (aviso: AvisoGestao) => void;
 }
 
 function AlertasOperacionaisBell({
@@ -799,7 +809,11 @@ function AlertasOperacionaisBell({
   aberta,
   onAlternar,
   onFocarGrade,
+  avisos = [],
+  nomeEquipe = (equipeId) => equipeId,
+  onMarcarAvisoLido,
 }: AlertasOperacionaisBellProps) {
+  const total = alertas.length + avisos.length;
   function nomeColaborador(usuarioUid: string, login: string): string {
     return usuarios.find((item) => item.login === usuarioUid)?.nome ?? login;
   }
@@ -807,14 +821,14 @@ function AlertasOperacionaisBell({
   return (
     <div className="notification-center">
       <button
-        className={`icon-button notification-button ${alertas.length ? 'has-unread' : ''}`}
+        className={`icon-button notification-button ${total ? 'has-unread' : ''}`}
         type="button"
         onClick={onAlternar}
-        aria-label={`${alertas.length} alerta(s) operacional(is) da escala`}
+        aria-label={`${alertas.length} alerta(s) da escala e ${avisos.length} aviso(s) da equipe`}
         aria-expanded={aberta}
       >
-        {alertas.length ? <BellRing size={19} /> : <Bell size={19} />}
-        {alertas.length > 0 && <span className="notification-badge">{Math.min(alertas.length, 9)}</span>}
+        {total ? <BellRing size={19} /> : <Bell size={19} />}
+        {total > 0 && <span className="notification-badge">{Math.min(total, 9)}</span>}
       </button>
       {aberta && (
         <section className="notification-popover alert-popover" aria-label="Alertas operacionais da escala">
@@ -828,6 +842,20 @@ function AlertasOperacionaisBell({
             )}
           </header>
           <div className="notification-list">
+            {avisos.map((aviso) => (
+              <article key={aviso.id} className="alert-item aviso-gestao-item">
+                <UserMinus size={15} className="alert-icon-aviso" />
+                <div>
+                  <strong>{aviso.colaboradorNome} foi transferido(a) para {nomeEquipe(aviso.equipeDestinoId)}</strong>
+                  <small>
+                    Saiu de {nomeEquipe(aviso.equipeAvisadaId)} · por {aviso.criadoPorNome} · {formatarDataHoraSafe(aviso.criadoEm)}
+                  </small>
+                  {onMarcarAvisoLido && (
+                    <button type="button" className="link-button" onClick={() => onMarcarAvisoLido(aviso)}>Entendi</button>
+                  )}
+                </div>
+              </article>
+            ))}
             {alertas.length === 0 ? (
               <div className="notification-empty"><ShieldCheck size={22} /><span>6x1, interjornada (11h) e descanso após folga (35h) dentro da regra.</span></div>
             ) : alertas.map((alerta, indice) => (
@@ -1000,6 +1028,20 @@ const NAVEGACAO: ItemNavegacao[] = [
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   { id: 'usuarios', rotulo: 'Usuários', icone: 'users' },
   { id: 'administracao', rotulo: 'Administração', icone: 'admin' },
+];
+
+/**
+ * FASE1-EQUIPE-SIMPLES — menu enxuto para quem organiza escala sem ser
+ * ADMIN_SISTEMA (coordenador, supervisor, gestor de unidade): só o que o
+ * dia a dia pede. A Administração completa (Matriz, árvore, simulação,
+ * limpeza) fica com o administrador; o gestor de unidade mantém a dele
+ * enquanto o cadastro de equipe não chega em "Minha equipe" (Fase 3).
+ */
+const NAVEGACAO_COORDENACAO: ItemNavegacao[] = [
+  { id: 'visao', rotulo: 'Início', icone: 'home' },
+  { id: 'equipe', rotulo: 'Minha equipe', icone: 'users' },
+  { id: 'escalas', rotulo: 'Escalas', icone: 'calendar' },
+  { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
 ];
 
 /**
@@ -3766,6 +3808,20 @@ export function DashboardApp() {
   const [processandoExclusaoUsuario, setProcessandoExclusaoUsuario] = useState(false);
   const [erroExclusaoUsuario, setErroExclusaoUsuario] = useState('');
   const [filtroEquipeTelaUsuarios, setFiltroEquipeTelaUsuarios] = useState('');
+  // --- Minha equipe (FASE1-EQUIPE-SIMPLES) ---
+  const [equipeSelecionadaMinhaEquipe, setEquipeSelecionadaMinhaEquipe] = useState('');
+  const [membrosMinhaEquipe, setMembrosMinhaEquipe] = useState<Usuario[]>([]);
+  const [carregandoMembrosMinhaEquipe, setCarregandoMembrosMinhaEquipe] = useState(false);
+  const [versaoMembrosMinhaEquipe, setVersaoMembrosMinhaEquipe] = useState(0);
+  const [buscaPessoaAberta, setBuscaPessoaAberta] = useState(false);
+  const [termoBuscaPessoa, setTermoBuscaPessoa] = useState('');
+  const [diretorioUsuarios, setDiretorioUsuarios] = useState<Usuario[] | null>(null);
+  const [erroBuscaPessoa, setErroBuscaPessoa] = useState('');
+  const [pessoaParaTrazer, setPessoaParaTrazer] = useState<Usuario | null>(null);
+  const [processandoTrazerPessoa, setProcessandoTrazerPessoa] = useState(false);
+  const [avisosGestao, setAvisosGestao] = useState<AvisoGestao[]>([]);
+  /** Cadastro de pessoa nova aberto a partir de "Minha equipe": a equipe vem fixa daqui. */
+  const [equipeCadastroForcada, setEquipeCadastroForcada] = useState<string | null>(null);
   const [equipeExportar, setEquipeExportar] = useState('');
   const [competenciaExportar, setCompetenciaExportar] = useState(competenciaOperacionalHoje);
   const [excluirEscalaPendente, setExcluirEscalaPendente] = useState(false);
@@ -3979,7 +4035,9 @@ export function DashboardApp() {
     && !souAdmin
     && !souGestorUnidade
     && participanteVinculoCadastro === null;
-  const equipeIdCadastroUsuario = usarCadastroLivreStaging
+  const equipeIdCadastroUsuario = equipeCadastroForcada !== null
+    ? equipeCadastroForcada
+    : usarCadastroLivreStaging
     ? formularioUsuario?.equipeId?.trim() ?? ''
     : linhaConciliacaoVinculoCadastro !== null
       ? (contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : usuarioEfetivo?.equipeId ?? '')
@@ -4036,7 +4094,12 @@ export function DashboardApp() {
     : usuarioReal?.equipeId ?? null;
   // Fase ESCALAS-UX-2A — 'plantoes' não é mais um id presente em NAVEGACAO
   // (ver comentário acima do array); só 'administracao' precisa de gate.
-  const navegacaoVisivel = NAVEGACAO.filter((item) => (item.id === 'administracao' ? podeAcessarAdministracao : true));
+  const navegacaoVisivel = souAdmin
+    ? NAVEGACAO
+    : [
+      ...NAVEGACAO_COORDENACAO,
+      ...(souGestorUnidade ? NAVEGACAO.filter((item) => item.id === 'administracao') : []),
+    ];
 
   // --- Derivados da tela Administração (Resumo, árvore, filtros de Usuários) ---
   const arvoreUnidadesAdmin = construirArvoreUnidades(unidadesAdmin);
@@ -6630,6 +6693,115 @@ export function DashboardApp() {
     }
   }
 
+  // --- Minha equipe (FASE1-EQUIPE-SIMPLES) ---
+
+  function nomeDaEquipe(equipeId: string | undefined): string {
+    if (!equipeId) {
+      return 'sem equipe';
+    }
+    return equipesAdmin.find((item) => item.id === equipeId)?.nome ?? equipeId;
+  }
+
+  /** O que pode ser feito com uma pessoa encontrada no cadastro, do ponto de vista da equipe ativa. */
+  function situacaoPessoaNaBusca(pessoa: Usuario): { podeTrazer: boolean; rotulo: string } {
+    if (pessoa.equipeId === equipeAtivaMinhaEquipeId) {
+      return { podeTrazer: false, rotulo: 'Já está na equipe' };
+    }
+    if (usuarioReal !== null && pessoa.login === usuarioReal.login) {
+      return { podeTrazer: false, rotulo: 'É você' };
+    }
+    if (PERFIS_EXCLUSAO_SO_ADMIN.includes(perfilEfetivo(pessoa)) || perfilEfetivo(pessoa) === 'SUPERVISOR_EQUIPE') {
+      return { podeTrazer: false, rotulo: 'Conta de gestão — fale com o administrador' };
+    }
+    return pessoa.equipeId
+      ? { podeTrazer: true, rotulo: 'Transferir para a equipe' }
+      : { podeTrazer: true, rotulo: 'Adicionar à equipe' };
+  }
+
+  function abrirBuscaPessoa() {
+    setBuscaPessoaAberta(true);
+    setTermoBuscaPessoa('');
+    setErroBuscaPessoa('');
+    if (diretorioUsuarios !== null) {
+      return;
+    }
+    const carregar = modoDemo ? Promise.resolve(usuarios) : listarTodosUsuarios();
+    void carregar
+      .then((lista) => setDiretorioUsuarios(lista))
+      .catch((falha: unknown) => setErroBuscaPessoa(mensagemErroFirebase(falha, 'Não foi possível pesquisar o cadastro.', ambienteFirebaseAtual)));
+  }
+
+  async function confirmarTrazerPessoa() {
+    const pessoa = pessoaParaTrazer;
+    if (pessoa === null || usuarioReal === null || equipeAtivaMinhaEquipeId === '') {
+      return;
+    }
+    setProcessandoTrazerPessoa(true);
+    setErroBuscaPessoa('');
+    try {
+      const resultado = modoDemo
+        ? { transferido: Boolean(pessoa.equipeId) }
+        : await trazerUsuarioParaEquipe({ usuario: pessoa, equipeDestinoId: equipeAtivaMinhaEquipeId, autor: usuarioReal });
+      const atualizado: Usuario = { ...pessoa, equipeId: equipeAtivaMinhaEquipeId, atualizadoEm: new Date().toISOString() };
+      setMembrosMinhaEquipe((atuais) => [...atuais.filter((item) => item.login !== atualizado.login), atualizado]
+        .sort((a, b) => a.nome.localeCompare(b.nome)));
+      setDiretorioUsuarios((atuais) => atuais?.map((item) => (item.login === atualizado.login ? atualizado : item)) ?? atuais);
+      setUsuarios((atuais) => (atuais.some((item) => item.login === atualizado.login)
+        ? atuais.map((item) => (item.login === atualizado.login ? atualizado : item))
+        : atuais));
+      setTodosUsuariosAdmin((atuais) => atuais.map((item) => (item.login === atualizado.login ? atualizado : item)));
+      if (!modoDemo) {
+        await registrarAuditoriaOperacional(resultado.transferido ? 'TRANSFERIR_COLABORADOR' : 'ADICIONAR_COLABORADOR_EQUIPE', equipeAtivaMinhaEquipeId, {
+          usuarioVinculadoLogin: pessoa.login,
+          origem: pessoa.equipeId ?? null,
+        });
+      }
+      setMensagem(resultado.transferido
+        ? `${pessoa.nome} foi transferido(a) de ${nomeDaEquipe(pessoa.equipeId)} para ${nomeDaEquipe(equipeAtivaMinhaEquipeId)}. A equipe antiga foi avisada.`
+        : `${pessoa.nome} foi adicionado(a) a ${nomeDaEquipe(equipeAtivaMinhaEquipeId)}.`);
+      setPessoaParaTrazer(null);
+    } catch (falha) {
+      setErroBuscaPessoa(mensagemErroFirebase(falha, 'Não foi possível trazer a pessoa para a equipe.', ambienteFirebaseAtual));
+    } finally {
+      setProcessandoTrazerPessoa(false);
+    }
+  }
+
+  /** Cadastro de pessoa nova já na equipe ativa de "Minha equipe". */
+  function abrirCadastroNaMinhaEquipe() {
+    if (equipeAtivaMinhaEquipe === null) {
+      return;
+    }
+    abrirNovoUsuario();
+    setEquipeCadastroForcada(equipeAtivaMinhaEquipe.id);
+    const campos = montarCamposAcessoUsuario(
+      { tipo: 'COLABORADOR', equipeId: equipeAtivaMinhaEquipe.id, confirmaAcessoGlobal: false },
+      { unidadeDaEquipe: (equipeId) => equipesAdmin.find((equipe) => equipe.id === equipeId)?.unidadeId },
+    );
+    setFormularioUsuario((atual) => (atual === null ? atual : {
+      ...atual,
+      equipeId: equipeAtivaMinhaEquipe.id,
+      unidadeId: equipeAtivaMinhaEquipe.unidadeId,
+      perfil: campos.perfil,
+      escopo: campos.escopo,
+      equipesPermitidas: campos.equipesPermitidas,
+      unidadesPermitidas: campos.unidadesPermitidas,
+      nivelHierarquico: campos.nivelHierarquico,
+    }));
+  }
+
+  async function marcarAvisoLido(aviso: AvisoGestao) {
+    setAvisosGestao((atuais) => atuais.filter((item) => item.id !== aviso.id));
+    if (modoDemo || usuarioReal === null) {
+      return;
+    }
+    try {
+      await marcarAvisoGestaoComoLido(aviso.id, usuarioReal.login);
+    } catch (falha) {
+      setMensagem(mensagemErroFirebase(falha, 'Não foi possível marcar o aviso como lido.', ambienteFirebaseAtual));
+    }
+  }
+
   function abrirNovoUsuario() {
     setParticipanteVinculoCadastro(null);
     setLinhaConciliacaoVinculoCadastro(null);
@@ -6749,6 +6921,11 @@ export function DashboardApp() {
   }
 
   function fecharFormularioUsuario() {
+    if (equipeCadastroForcada !== null) {
+      // Recarrega "Minha equipe" para a pessoa recém-cadastrada aparecer.
+      setVersaoMembrosMinhaEquipe((versao) => versao + 1);
+    }
+    setEquipeCadastroForcada(null);
     setFormularioUsuario(null);
     setParticipanteVinculoCadastro(null);
     setLinhaConciliacaoVinculoCadastro(null);
@@ -6958,6 +7135,7 @@ export function DashboardApp() {
       const responsavelCadastro = participanteVinculoCadastro === null
         && linhaConciliacaoVinculoCadastro === null
         && !usarCadastroLivreStaging
+        && equipeCadastroForcada === null
         ? usuarioEfetivo
         : {
           ...usuarioEfetivo,
@@ -8372,6 +8550,61 @@ export function DashboardApp() {
   }, [tela, podeAcessarAdministracao, souAdmin, modoDemo]);
 
   /**
+   * FASE1-EQUIPE-SIMPLES — equipes que o usuário organiza (Jornada) e a
+   * selecionada em "Minha equipe"; membros recarregados a cada mudança.
+   */
+  const equipesMinhaEquipe = escoposOperacionais.jornadasAdministraveis;
+  const equipeAtivaMinhaEquipe = equipesMinhaEquipe.find((item) => item.id === equipeSelecionadaMinhaEquipe)
+    ?? equipesMinhaEquipe[0]
+    ?? null;
+  const equipeAtivaMinhaEquipeId = equipeAtivaMinhaEquipe?.id ?? '';
+  const chaveEquipesAvisos = equipesMinhaEquipe.map((item) => item.id).join('|');
+  useEffect(() => {
+    if (tela !== 'equipe' || equipeAtivaMinhaEquipeId === '') {
+      return undefined;
+    }
+    let cancelado = false;
+    void Promise.resolve().then(() => {
+      if (!cancelado) setCarregandoMembrosMinhaEquipe(true);
+    });
+    const carregar = modoDemo
+      ? Promise.resolve(usuarios.filter((item) => item.equipeId === equipeAtivaMinhaEquipeId))
+      : listarUsuarios(equipeAtivaMinhaEquipeId);
+    void carregar
+      .then((lista) => {
+        if (!cancelado) setMembrosMinhaEquipe([...lista].sort((a, b) => a.nome.localeCompare(b.nome)));
+      })
+      .catch((falha: unknown) => {
+        if (!cancelado) setMensagem(mensagemErroFirebase(falha, 'Não foi possível carregar as pessoas da equipe.', ambienteFirebaseAtual));
+      })
+      .finally(() => {
+        if (!cancelado) setCarregandoMembrosMinhaEquipe(false);
+      });
+    return () => {
+      cancelado = true;
+    };
+    // `usuarios` só importa no modo demonstração; recarregar a cada mudança dele refaria a consulta real à toa.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tela, equipeAtivaMinhaEquipeId, versaoMembrosMinhaEquipe, modoDemo]);
+
+  useEffect(() => {
+    if (modoDemo || usuarioReal === null || chaveEquipesAvisos === '') {
+      return undefined;
+    }
+    let cancelado = false;
+    void listarAvisosGestaoPendentes(chaveEquipesAvisos.split('|'))
+      .then((lista) => {
+        if (!cancelado) setAvisosGestao(lista);
+      })
+      .catch(() => {
+        // Avisos são complementares: falha de leitura nunca bloqueia a tela.
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [chaveEquipesAvisos, modoDemo, usuarioReal]);
+
+  /**
    * EXCLUSAO-USUARIO-2 — na tela Usuários, o ADMIN_SISTEMA vê todos os
    * usuários (antes só os da operação selecionada no topo).
    */
@@ -9435,6 +9668,9 @@ export function DashboardApp() {
             setAlertasAbertos(false);
             setTela('grade');
           }}
+          avisos={avisosGestao}
+          nomeEquipe={nomeDaEquipe}
+          onMarcarAvisoLido={(aviso) => void marcarAvisoLido(aviso)}
         />
       )}
     >
@@ -9469,7 +9705,7 @@ export function DashboardApp() {
           <header className="page-heading overview-page-heading">
             <div>
               <p className="eyebrow">Operação integrada</p>
-              <h1>Visão geral</h1>
+              <h1>{souAdmin ? 'Visão geral' : 'Início'}</h1>
               <p className="overview-subtitle">Acompanhe as duas operações em um só lugar.</p>
             </div>
               {estadoCarregamentoOperacoes.fase === 'sucesso' && <div className="overview-header-actions">
@@ -9484,6 +9720,81 @@ export function DashboardApp() {
 
           {painelCarregamentoOperacoes()}
           {estadoCarregamentoOperacoes.fase === 'sucesso' && <>
+
+          {/*
+           * FASE1-EQUIPE-SIMPLES — primeiros passos de quem organiza escala:
+           * aparece até a equipe ter pessoas e uma escala publicada; cada
+           * passo tem um único botão que leva direto ao lugar certo.
+           */}
+          {!souAdmin && (() => {
+            const temEquipe = equipesMinhaEquipe.length > 0 || escoposOperacionais.plantoesAdministraveis.length > 0;
+            const temPessoas = colaboradoresJornadaDashboard > 0 || participantesPlantaoDashboard > 0;
+            const estados = [estadoJornadaOperacionalDashboard, ...(possuiOperacaoPlantaoDashboard ? [estadoPlantaoOperacionalDashboard] : [])];
+            const temEscala = estados.some((estado) => estado !== 'sem-escala');
+            const publicada = estados.some((estado) => estado === 'publicada' || estado === 'publicada-com-rascunho-pendente');
+            if (temEquipe && temPessoas && temEscala && publicada) {
+              return null;
+            }
+            const passos = [
+              {
+                feito: temEquipe,
+                titulo: 'Sua equipe',
+                texto: temEquipe ? `Você organiza ${equipesMinhaEquipe.map((item) => item.nome).join(', ') || 'um Plantão'}.` : 'Peça ao administrador para criar a sua equipe e colocar você como responsável.',
+                acao: null as null | { rotulo: string; executar: () => void },
+              },
+              {
+                feito: temPessoas,
+                titulo: 'Pessoas na equipe',
+                texto: 'Traga quem já está cadastrado ou cadastre pessoas novas.',
+                acao: temEquipe ? { rotulo: 'Ir para Minha equipe', executar: () => setTela('equipe') } : null,
+              },
+              {
+                feito: temEscala,
+                titulo: 'Montar a escala',
+                texto: 'Escolha 6x1 ou Plantão e preencha os dias e horários — à mão ou importando a planilha.',
+                acao: temEquipe ? { rotulo: 'Montar escala', executar: abrirNovaEscala } : null,
+              },
+              {
+                feito: publicada,
+                titulo: 'Publicar',
+                texto: 'Depois de revisar, publique para a equipe ver no aplicativo.',
+                acao: temEscala ? { rotulo: 'Ir para Escalas', executar: () => setTela('escalas') } : null,
+              },
+            ];
+            const proximo = passos.findIndex((passo) => !passo.feito);
+            return (
+              <article className="panel primeiros-passos" aria-label="Primeiros passos">
+                <div className="panel-title">
+                  <div>
+                    <p className="eyebrow">Primeiros passos</p>
+                    <h2>Deixe sua equipe pronta em 4 passos</h2>
+                  </div>
+                </div>
+                <ol className="primeiros-passos-lista">
+                  {passos.map((passo, indice) => (
+                    <li key={passo.titulo} data-estado={passo.feito ? 'feito' : indice === proximo ? 'atual' : 'pendente'}>
+                      <span className="primeiros-passos-numero" aria-hidden="true">
+                        {passo.feito ? <CheckCircle2 size={18} /> : indice + 1}
+                      </span>
+                      <div>
+                        <strong>{passo.titulo}</strong>
+                        <small>{passo.texto}</small>
+                      </div>
+                      {!passo.feito && passo.acao !== null && (
+                        <button
+                          className={indice === proximo ? 'primary-button compact-button' : 'secondary-button compact-button'}
+                          type="button"
+                          onClick={passo.acao.executar}
+                        >
+                          {passo.acao.rotulo}
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              </article>
+            );
+          })()}
 
           <div className="overview-operation-grid">
             <button
@@ -10536,6 +10847,241 @@ export function DashboardApp() {
             </div>
           </article>
           <ScheduleLegend catalogo={catalogo} />
+        </section>
+      )}
+
+      {/*
+       * FASE1-EQUIPE-SIMPLES — "Minha equipe": tudo que um coordenador
+       * precisa para ter pessoas na equipe, numa tela só e com três ações
+       * óbvias — buscar quem já existe, cadastrar pessoa nova, ver avisos.
+       */}
+      {tela === 'equipe' && (
+        <section className="minha-equipe">
+          <header className="page-heading">
+            <div>
+              <p className="eyebrow">Pessoas</p>
+              <h1>Minha equipe</h1>
+              <p>Traga quem já está cadastrado ou cadastre uma pessoa nova. Depois, monte a escala em Escalas.</p>
+            </div>
+            {equipeAtivaMinhaEquipe !== null && (
+              <div className="grade-header-actions">
+                <button className="secondary-button" type="button" disabled={escritaBloqueada} onClick={abrirBuscaPessoa}>
+                  <Search size={16} /> Buscar pessoa cadastrada
+                </button>
+                <button className="primary-button" type="button" disabled={escritaBloqueada} onClick={abrirCadastroNaMinhaEquipe}>
+                  <UserPlus size={16} /> Cadastrar pessoa nova
+                </button>
+              </div>
+            )}
+          </header>
+
+          {equipesMinhaEquipe.length === 0 ? (
+            <article className="panel organization-empty-state">
+              <Users size={28} aria-hidden="true" />
+              <h2>Você ainda não organiza nenhuma equipe</h2>
+              <p>Peça ao administrador do sistema para criar a sua equipe e colocar você como responsável.</p>
+            </article>
+          ) : (
+            <>
+              {equipesMinhaEquipe.length > 1 && (
+                <div className="segmented-control minha-equipe-seletor" aria-label="Equipe">
+                  {equipesMinhaEquipe.map((equipe) => (
+                    <button
+                      key={equipe.id}
+                      type="button"
+                      className={equipe.id === equipeAtivaMinhaEquipeId ? 'active' : ''}
+                      aria-pressed={equipe.id === equipeAtivaMinhaEquipeId}
+                      onClick={() => setEquipeSelecionadaMinhaEquipe(equipe.id)}
+                    >
+                      {equipe.nome}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {avisosGestao.filter((aviso) => aviso.equipeAvisadaId === equipeAtivaMinhaEquipeId).map((aviso) => (
+                <div key={aviso.id} className="alert warning minha-equipe-aviso" role="status">
+                  <span>
+                    <strong>{aviso.colaboradorNome}</strong> foi transferido(a) para {nomeDaEquipe(aviso.equipeDestinoId)} por {aviso.criadoPorNome}.
+                  </span>
+                  <button className="secondary-button compact-button" type="button" onClick={() => void marcarAvisoLido(aviso)}>Entendi</button>
+                </div>
+              ))}
+
+              <article className="panel grid-panel">
+                <div className="toolbar">
+                  <strong>{equipeAtivaMinhaEquipe?.nome}</strong>
+                  <span><Users size={16} /> {membrosMinhaEquipe.length} pessoa{membrosMinhaEquipe.length === 1 ? '' : 's'}</span>
+                </div>
+                {carregandoMembrosMinhaEquipe ? (
+                  <p className="empty-inline" role="status"><LoaderCircle className="spin" size={14} /> Carregando…</p>
+                ) : membrosMinhaEquipe.length === 0 ? (
+                  <div className="organization-empty-state">
+                    <h2>Ninguém na equipe ainda</h2>
+                    <p>Use &ldquo;Buscar pessoa cadastrada&rdquo; ou &ldquo;Cadastrar pessoa nova&rdquo; acima.</p>
+                  </div>
+                ) : (
+                  <div className="table-scroll">
+                    <table className="data-table users-table">
+                      <thead><tr><th>Pessoa</th><th>Login</th><th>Turno</th><th>Status</th><th>Ações</th></tr></thead>
+                      <tbody>
+                        {membrosMinhaEquipe.map((item) => {
+                          const bloqueioExclusao = motivoBloqueioExclusaoUsuario(item);
+                          return (
+                            <tr key={item.login}>
+                              <td><strong>{item.nome}</strong><small>{item.email}</small></td>
+                              <td><code className="login-code">{item.login}</code></td>
+                              <td>{catalogo[item.turnoPadrao]?.descricao ?? (item.turnoPadrao || '—')}</td>
+                              <td><span className={`status-badge ${item.ativo ? 'success' : 'neutral'}`}>{item.ativo ? 'Ativo' : 'Inativo'}</span></td>
+                              <td>
+                                <div className="user-row-actions">
+                                  <button className="icon-button" type="button" title="Editar" disabled={escritaBloqueada} onClick={() => abrirEdicaoUsuario(item)}>
+                                    <Pencil size={15} />
+                                  </button>
+                                  <button
+                                    className="icon-button"
+                                    type="button"
+                                    title={item.ativo ? 'Desativar' : 'Ativar'}
+                                    disabled={escritaBloqueada}
+                                    onClick={() => {
+                                      void alternarAtivoUsuario(item);
+                                      setMembrosMinhaEquipe((atuais) => atuais.map((membro) => (
+                                        membro.login === item.login ? { ...membro, ativo: !membro.ativo } : membro
+                                      )));
+                                    }}
+                                  >
+                                    <Power size={15} />
+                                  </button>
+                                  <button
+                                    className="icon-button danger-button"
+                                    type="button"
+                                    title={bloqueioExclusao ?? 'Excluir'}
+                                    disabled={escritaBloqueada || bloqueioExclusao !== null}
+                                    onClick={() => { setErroExclusaoUsuario(''); setUsuarioParaExcluir(item); }}
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </article>
+            </>
+          )}
+
+          {buscaPessoaAberta && (
+            <div className="modal-backdrop" role="presentation" onMouseDown={() => setBuscaPessoaAberta(false)}>
+              <section
+                className="edit-modal minha-equipe-busca"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="busca-pessoa-title"
+                onMouseDown={(evento) => evento.stopPropagation()}
+              >
+                <div className="panel-title">
+                  <div>
+                    <h2 id="busca-pessoa-title">Buscar pessoa cadastrada</h2>
+                    <p>Para {equipeAtivaMinhaEquipe?.nome}. Quem estiver em outra equipe é transferido, e a equipe antiga é avisada.</p>
+                  </div>
+                  <button className="icon-button" type="button" onClick={() => setBuscaPessoaAberta(false)} aria-label="Fechar"><X size={18} /></button>
+                </div>
+                <label>
+                  <span>Nome, login ou e-mail</span>
+                  <input
+                    value={termoBuscaPessoa}
+                    onChange={(evento) => setTermoBuscaPessoa(evento.target.value)}
+                    placeholder="Ex.: Marina, marina.azevedo"
+                    autoComplete="off"
+                    autoFocus
+                  />
+                </label>
+                {erroBuscaPessoa && <div className="alert error" role="alert">{erroBuscaPessoa}</div>}
+                {diretorioUsuarios === null && !erroBuscaPessoa && (
+                  <p className="empty-inline" role="status"><LoaderCircle className="spin" size={14} /> Carregando o cadastro…</p>
+                )}
+                {diretorioUsuarios !== null && termoBuscaPessoa.trim().length >= 2 && (() => {
+                  const encontrados = diretorioUsuarios
+                    .filter((item) => usuarioCorrespondeBuscaTextual(item, termoBuscaPessoa))
+                    .sort((a, b) => a.nome.localeCompare(b.nome))
+                    .slice(0, 12);
+                  return encontrados.length === 0 ? (
+                    <p className="empty-inline">Ninguém encontrado. Use &ldquo;Cadastrar pessoa nova&rdquo;.</p>
+                  ) : (
+                    <ul className="minha-equipe-resultados">
+                      {encontrados.map((pessoa) => {
+                        const situacao = situacaoPessoaNaBusca(pessoa);
+                        return (
+                          <li key={pessoa.login}>
+                            <div>
+                              <strong>{pessoa.nome}</strong>
+                              <small><code>{pessoa.login}</code> · {nomeDaEquipe(pessoa.equipeId)}{pessoa.ativo ? '' : ' · inativo'}</small>
+                            </div>
+                            <button
+                              className={situacao.podeTrazer ? 'primary-button compact-button' : 'secondary-button compact-button'}
+                              type="button"
+                              disabled={!situacao.podeTrazer}
+                              onClick={() => setPessoaParaTrazer(pessoa)}
+                            >
+                              {situacao.rotulo}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  );
+                })()}
+                <div className="rollback-actions">
+                  <button className="secondary-button" type="button" onClick={() => setBuscaPessoaAberta(false)}>Fechar</button>
+                  <button className="secondary-button" type="button" onClick={() => { setBuscaPessoaAberta(false); abrirCadastroNaMinhaEquipe(); }}>
+                    <UserPlus size={15} /> Cadastrar pessoa nova
+                  </button>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {pessoaParaTrazer && (
+            <div className="modal-backdrop" role="presentation" onMouseDown={() => setPessoaParaTrazer(null)}>
+              <section
+                className="edit-modal rollback-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="trazer-pessoa-title"
+                onMouseDown={(evento) => evento.stopPropagation()}
+              >
+                <div className="panel-title">
+                  <div>
+                    <h2 id="trazer-pessoa-title">
+                      {pessoaParaTrazer.equipeId ? `Transferir ${pessoaParaTrazer.nome}?` : `Adicionar ${pessoaParaTrazer.nome}?`}
+                    </h2>
+                  </div>
+                  <button className="icon-button" type="button" onClick={() => setPessoaParaTrazer(null)} aria-label="Fechar"><X size={18} /></button>
+                </div>
+                {pessoaParaTrazer.equipeId ? (
+                  <p>
+                    {pessoaParaTrazer.nome} sai de <strong>{nomeDaEquipe(pessoaParaTrazer.equipeId)}</strong> e passa
+                    para <strong>{equipeAtivaMinhaEquipe?.nome}</strong>. Quem organiza {nomeDaEquipe(pessoaParaTrazer.equipeId)} recebe
+                    um aviso. As escalas já publicadas da equipe antiga não mudam.
+                  </p>
+                ) : (
+                  <p>{pessoaParaTrazer.nome} passa a fazer parte de <strong>{equipeAtivaMinhaEquipe?.nome}</strong>.</p>
+                )}
+                {erroBuscaPessoa && <div className="alert error" role="alert">{erroBuscaPessoa}</div>}
+                <div className="rollback-actions">
+                  <button className="secondary-button" type="button" onClick={() => setPessoaParaTrazer(null)}>Cancelar</button>
+                  <button className="primary-button" type="button" disabled={processandoTrazerPessoa} onClick={() => void confirmarTrazerPessoa()}>
+                    {processandoTrazerPessoa ? <LoaderCircle className="spin" size={16} /> : <UserPlus size={16} />}
+                    {pessoaParaTrazer.equipeId ? 'Transferir' : 'Adicionar'}
+                  </button>
+                </div>
+              </section>
+            </div>
+          )}
         </section>
       )}
 
@@ -12147,7 +12693,7 @@ export function DashboardApp() {
                   onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, cargo: evento.target.value })}
                 />
               </label>
-              {usarCadastroLivreStaging ? (
+              {usarCadastroLivreStaging && equipeCadastroForcada === null ? (
                 <>
                   <label>
                     Unidade
