@@ -10,6 +10,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  setDoc,
   onSnapshot,
   query,
   runTransaction,
@@ -32,6 +33,7 @@ import {
   type StatusTroca,
   type TipoNotificacaoTroca,
 } from '../trocasEscala';
+import { aplicarTrocaDeFolga, validarTrocaDeFolga } from '../trocaFolga';
 import { gerarUuid } from '../uuid';
 import { removerUndefined } from './sanitizar';
 import { exigirEscritaAdministrativaHabilitada, exigirFirebase } from './shared';
@@ -365,6 +367,114 @@ export async function criarSolicitacaoTroca(entrada: EntradaCriarSolicitacaoTroc
   return trocaId;
 }
 
+export interface EntradaCriarTrocaDeFolga {
+  equipeId: string;
+  competencia: string;
+  /** Dia de folga (DF/DU) que vira trabalho. */
+  dataFolga: string;
+  /** Dia de trabalho que vira folga. */
+  dataTrabalho: string;
+  solicitante: Pick<Usuario, 'login' | 'nome' | 'ativo'>;
+  mensagem: string;
+  catalogo: Record<string, TipoTurno>;
+  /** YYYY-MM-DD de hoje no fuso da equipe. */
+  hoje: string;
+}
+
+/**
+ * TROCA-FOLGA-1 — o colaborador troca uma folga DF/DU por um dia de trabalho
+ * da própria escala. Sem colega: a solicitação já nasce PENDENTE_GESTOR e
+ * aparece direto para o coordenador. Revalida aqui (não só no App) que a
+ * pessoa continua apta: nenhum alerta novo de 6x1 / 11h / 35h.
+ */
+export async function criarSolicitacaoTrocaDeFolga(entrada: EntradaCriarTrocaDeFolga): Promise<string> {
+  const { db } = exigirFirebase();
+  const { equipeId, competencia, dataFolga, dataTrabalho, solicitante, mensagem, catalogo, hoje } = entrada;
+  if (!solicitante.ativo) {
+    throw new Error('Seu cadastro está inativo.');
+  }
+  const docId = idDocumento(equipeId, solicitante.login, competencia);
+  const snapshot = await getDoc(doc(db, 'turnosMes', docId));
+  if (!snapshot.exists()) {
+    throw new Error('Escala publicada não encontrada.');
+  }
+  const documento = snapshot.data() as TurnosMes;
+  const { erros } = validarTrocaDeFolga({ documento, dataFolga, dataTrabalho, catalogo, hoje });
+  if (erros.length > 0) {
+    throw new Error(erros.join(' '));
+  }
+
+  const existentes = await getDocs(query(
+    collection(db, 'trocasEscala'),
+    where('equipeId', '==', equipeId),
+    where('competencia', '==', competencia),
+    where('solicitanteLogin', '==', solicitante.login),
+  ));
+  const duplicada = existentes.docs.some((documentoTroca) => {
+    const dados = documentoTroca.data() as SolicitacaoTrocaReal;
+    const diasDaTroca = [dados.data, dados.dataTroca].filter(Boolean);
+    return STATUS_TROCA_ATIVOS.includes(dados.status)
+      && (diasDaTroca.includes(dataFolga) || diasDaTroca.includes(dataTrabalho));
+  });
+  if (duplicada) {
+    throw new Error('Você já tem uma solicitação em andamento envolvendo um desses dias.');
+  }
+
+  const folga = horarioDoDia(documento, catalogo, dataFolga);
+  const trabalho = horarioDoDia(documento, catalogo, dataTrabalho);
+  const trocaId = gerarUuid();
+  const agora = new Date().toISOString();
+  const troca: SolicitacaoTrocaReal = {
+    trocaId,
+    equipeId,
+    competencia,
+    tipo: 'FOLGA',
+    solicitanteLogin: solicitante.login,
+    solicitanteNome: solicitante.nome,
+    destinatarioLogin: solicitante.login,
+    destinatarioNome: solicitante.nome,
+    data: dataFolga,
+    dataTroca: dataTrabalho,
+    turnoSolicitanteAntes: folga.codigo,
+    horarioSolicitanteAntes: folga.horario,
+    turnoDestinatarioAntes: trabalho.codigo,
+    horarioDestinatarioAntes: trabalho.horario,
+    status: 'PENDENTE_GESTOR',
+    mensagemSolicitante: mensagem.trim() || null,
+    motivoRecusa: null,
+    criadoEm: agora,
+    atualizadoEm: agora,
+    respondidoEm: null,
+    aprovadoEm: null,
+    publicadoEm: null,
+    gestorLogin: null,
+    gestorNome: null,
+    historico: [
+      criarEventoHistorico({
+        tipo: 'SOLICITACAO_CRIADA',
+        porLogin: solicitante.login,
+        porNome: solicitante.nome,
+        porPerfil: 'SOLICITANTE',
+        em: agora,
+        descricao: 'Pedido de troca de folga enviado ao coordenador',
+      }),
+    ],
+    snapshotValidacao: {
+      solicitanteDocId: docId,
+      destinatarioDocId: docId,
+      turnoSolicitanteOriginal: folga.codigo,
+      turnoDestinatarioOriginal: trabalho.codigo,
+    },
+  };
+  try {
+    await setDoc(doc(db, 'trocasEscala', trocaId), removerUndefined(troca));
+  } catch (falha) {
+    logOperacaoTroca('criarSolicitacaoTrocaDeFolga', falha, { trocaId, equipeId, competencia, solicitanteLogin: solicitante.login });
+    throw falha;
+  }
+  return trocaId;
+}
+
 export async function cancelarSolicitacaoTroca(
   trocaId: string,
   solicitante: Pick<Usuario, 'login' | 'nome'>,
@@ -378,7 +488,11 @@ export async function cancelarSolicitacaoTroca(
   if (troca.solicitanteLogin !== solicitante.login) {
     throw new Error('Só quem solicitou a troca pode cancelá-la.');
   }
-  garantirTransicao(troca.status, 'CANCELADA_SOLICITANTE');
+  // TROCA-FOLGA-1 — troca de folga não passa por colega: pode ser cancelada
+  // enquanto aguarda o coordenador.
+  if (!(troca.tipo === 'FOLGA' && troca.status === 'PENDENTE_GESTOR')) {
+    garantirTransicao(troca.status, 'CANCELADA_SOLICITANTE');
+  }
 
   const agora = new Date().toISOString();
   const notificacao = criarNotificacaoTroca({
@@ -527,7 +641,7 @@ export async function gestorRecusarTroca(
       }),
     ],
   }));
-  for (const destinatarioLogin of [troca.solicitanteLogin, troca.destinatarioLogin]) {
+  for (const destinatarioLogin of new Set([troca.solicitanteLogin, troca.destinatarioLogin])) {
     const notificacao = criarNotificacaoTroca({
       destinatarioLogin,
       equipeId: troca.equipeId,
@@ -614,6 +728,53 @@ export async function gestorAprovarEPublicarTroca(
       if (usuarioSolicitanteSnapshot.data()?.ativo === false || usuarioDestinatarioSnapshot.data()?.ativo === false) {
         throw new Error('Um dos colaboradores está inativo — a troca não pode ser aplicada.');
       }
+      // TROCA-FOLGA-1 — troca dentro da própria escala: um documento só,
+      // dois dias trocados (uma única gravação, nunca duas no mesmo doc).
+      if (troca.tipo === 'FOLGA' && troca.dataTroca) {
+        if (trocaDesatualizada(troca, docSolicitante.dias[troca.data], docSolicitante.dias[troca.dataTroca])) {
+          throw new Error('A escala mudou desde que a troca foi solicitada. Peça para recriar a solicitação.');
+        }
+        const dias = aplicarTrocaDeFolga(docSolicitante.dias, troca.data, troca.dataTroca);
+        tx.update(solicitanteRef, removerUndefined({
+          dias,
+          totais: calcularTotais(dias, catalogo),
+          atualizadoEm: agora,
+        }));
+        tx.update(trocaRef, removerUndefined({
+          status: 'APROVADA_PUBLICADA' as StatusTroca,
+          atualizadoEm: agora,
+          aprovadoEm: agora,
+          publicadoEm: agora,
+          gestorLogin: gestor.login,
+          gestorNome: gestor.nome,
+          historico: [
+            ...troca.historico,
+            criarEventoHistorico({
+              tipo: 'APROVADA_PUBLICADA',
+              porLogin: gestor.login,
+              porNome: gestor.nome,
+              porPerfil: 'GESTOR',
+              em: agora,
+              descricao: 'Troca de folga aprovada e publicada pelo coordenador',
+            }),
+          ],
+        }));
+        const notificacao = criarNotificacaoTroca({
+          destinatarioLogin: troca.solicitanteLogin,
+          equipeId: troca.equipeId,
+          tipo: 'TROCA_APROVADA_PUBLICADA',
+          titulo: 'Troca de folga aprovada',
+          mensagem: `Sua folga passou de ${troca.data} para ${troca.dataTroca}. Já está na escala publicada.`,
+          trocaId,
+          criadoPorLogin: gestor.login,
+          em: agora,
+        });
+        if (notificacao) {
+          tx.set(doc(db, 'notificacoesTroca', notificacao.id), removerUndefined(notificacao));
+        }
+        return;
+      }
+
       if (trocaDesatualizada(troca, docSolicitante.dias[troca.data], docDestinatario.dias[troca.data])) {
         throw new Error('A escala mudou desde que a troca foi solicitada. Peça para recriar a solicitação.');
       }

@@ -7683,3 +7683,43 @@ a.plantao-contato-linha:focus-visible { background: var(--surface-muted); }
   font-size: 11.5px;
   font-weight: 750;
 }
+
+/* TROCA-FOLGA-1 — escolha do dia na troca de folga (App). */
+.troca-folga-modal { width: min(560px, calc(100vw - 16px)); }
+.troca-folga-lista { display: grid; gap: 6px; max-height: 300px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.troca-folga-lista button {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.troca-folga-lista button > span:nth-child(2) { display: grid; gap: 1px; min-width: 0; }
+.troca-folga-lista button strong { font-size: 13.5px; }
+.troca-folga-lista button small { color: var(--muted); font-size: 11.5px; line-height: 1.35; }
+.troca-folga-lista button > svg { color: var(--success); }
+.troca-folga-lista button:disabled { cursor: not-allowed; opacity: 0.6; background: var(--surface-muted); }
+.troca-folga-lista button:disabled > svg { color: var(--danger); }
+.troca-folga-lista button.active {
+  border-color: var(--primary-bright);
+  background: color-mix(in srgb, var(--primary-bright) 9%, var(--surface));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-bright) 16%, transparent);
+}
+.troca-folga-resumo {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--success) 35%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--success) 8%, var(--surface));
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}

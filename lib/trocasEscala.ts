@@ -82,6 +82,20 @@ export interface SolicitacaoTrocaReal {
   historico: EventoHistoricoTroca[];
 
   snapshotValidacao: SnapshotValidacaoTroca;
+
+  /**
+   * TROCA-FOLGA-1 — `'FOLGA'`: a pessoa troca dois dias da PRÓPRIA escala
+   * (uma folga DF/DU por um dia de trabalho), sem colega. Nesse caso
+   * `destinatarioLogin === solicitanteLogin`, `data` é o dia de folga que
+   * vira trabalho e `dataTroca` é o dia de trabalho que vira folga; a troca
+   * já nasce `PENDENTE_GESTOR`. Ausente = troca com colega (legado).
+   */
+  tipo?: 'COLEGA' | 'FOLGA';
+  dataTroca?: string;
+}
+
+export function ehTrocaDeFolga(troca: Pick<SolicitacaoTrocaReal, 'tipo'>): boolean {
+  return troca.tipo === 'FOLGA';
 }
 
 export type TipoNotificacaoTroca =

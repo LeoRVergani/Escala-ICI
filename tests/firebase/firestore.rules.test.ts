@@ -6905,3 +6905,68 @@ describe('NOME-PLANTONISTA-1 — nomeExibicao no participante de Plantão', () =
     ));
   });
 });
+
+/**
+ * TROCA-FOLGA-1 — troca de folga na própria escala: nasce PENDENTE_GESTOR,
+ * sem colega; o próprio solicitante cancela enquanto aguarda; só quem
+ * administra a Jornada aprova.
+ */
+describe('TROCA-FOLGA-1 — troca de folga sem colega', () => {
+  function trocaFolga(ajustes: Record<string, unknown> = {}) {
+    return troca({
+      trocaId: 'folga-1',
+      tipo: 'FOLGA',
+      destinatarioLogin: usuarios.colaborador.login,
+      destinatarioNome: usuarios.colaborador.nome,
+      data: '2026-08-15',
+      dataTroca: '2026-08-12',
+      turnoSolicitanteAntes: 'DF',
+      turnoDestinatarioAntes: 'M',
+      status: 'PENDENTE_GESTOR',
+      ...ajustes,
+    });
+  }
+
+  it('colaborador cria a própria troca de folga já aguardando o coordenador', async () => {
+    const colaborador = autenticarComo(usuarios.colaborador);
+    await assertSucceeds(setDoc(doc(colaborador, 'trocasEscala', 'folga-1'), trocaFolga()));
+  });
+
+  it('nega troca de folga com outra pessoa, status de colega, sem segundo dia ou dias iguais', async () => {
+    const colaborador = autenticarComo(usuarios.colaborador);
+    await assertFails(setDoc(doc(colaborador, 'trocasEscala', 'folga-2'), trocaFolga({ trocaId: 'folga-2', destinatarioLogin: usuarios.colega.login })));
+    await assertFails(setDoc(doc(colaborador, 'trocasEscala', 'folga-3'), trocaFolga({ trocaId: 'folga-3', status: 'PENDENTE_USUARIO' })));
+    await assertFails(setDoc(doc(colaborador, 'trocasEscala', 'folga-4'), trocaFolga({ trocaId: 'folga-4', dataTroca: null })));
+    await assertFails(setDoc(doc(colaborador, 'trocasEscala', 'folga-5'), trocaFolga({ trocaId: 'folga-5', dataTroca: '2026-08-15' })));
+    await assertFails(setDoc(doc(colaborador, 'trocasEscala', 'folga-6'), trocaFolga({ trocaId: 'folga-6', status: 'APROVADA_PUBLICADA' })));
+  });
+
+  it('solicitante cancela a troca de folga pendente; não aprova a própria', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'trocasEscala', 'folga-1'), trocaFolga());
+    });
+    const colaborador = autenticarComo(usuarios.colaborador);
+    const ref = doc(colaborador, 'trocasEscala', 'folga-1');
+    const historico = [...trocaFolga().historico as unknown[], { tipo: 'X', porLogin: usuarios.colaborador.login, porNome: null, porPerfil: 'SOLICITANTE', em: '2026-08-01T00:00:00.000Z', descricao: 'x' }];
+    await assertFails(updateDoc(ref, { status: 'APROVADA_PUBLICADA', historico }));
+    await assertSucceeds(updateDoc(ref, { status: 'CANCELADA_SOLICITANTE', historico }));
+  });
+
+  it('troca com colega continua sem poder ser cancelada depois de ir ao gestor', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'trocasEscala', 'colega-1'), troca({ trocaId: 'colega-1', status: 'PENDENTE_GESTOR' }));
+    });
+    const colaborador = autenticarComo(usuarios.colaborador);
+    const historico = [...troca().historico as unknown[], { tipo: 'X', porLogin: usuarios.colaborador.login, porNome: null, porPerfil: 'SOLICITANTE', em: '2026-08-01T00:00:00.000Z', descricao: 'x' }];
+    await assertFails(updateDoc(doc(colaborador, 'trocasEscala', 'colega-1'), { status: 'CANCELADA_SOLICITANTE', historico }));
+  });
+
+  it('gestor da equipe aprova a troca de folga', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'trocasEscala', 'folga-1'), trocaFolga());
+    });
+    const gestor = autenticarComo(usuarios.gestor);
+    const historico = [...trocaFolga().historico as unknown[], { tipo: 'APROVADA_PUBLICADA', porLogin: usuarios.gestor.login, porNome: null, porPerfil: 'GESTOR', em: '2026-08-01T00:00:00.000Z', descricao: 'x' }];
+    await assertSucceeds(updateDoc(doc(gestor, 'trocasEscala', 'folga-1'), { status: 'APROVADA_PUBLICADA', historico }));
+  });
+});

@@ -335,6 +335,7 @@ import {
   SEVERIDADE_STATUS_TROCA,
   type SolicitacaoTrocaReal,
 } from '@/lib/trocasEscala';
+import { aplicarTrocaDeFolga } from '@/lib/trocaFolga';
 import {
   adicionarMembroGrade,
   criarGradeInicialEquipe,
@@ -2385,13 +2386,33 @@ function ModalDetalheTrocaGestor({
         <div className="panel-title">
           <div>
             <p className="eyebrow">{ROTULO_STATUS_TROCA[troca.status]}</p>
-            <h2 id="troca-gestor-title">{troca.solicitanteNome} ⇄ {troca.destinatarioNome}</h2>
+            <h2 id="troca-gestor-title">
+              {troca.tipo === 'FOLGA' ? `Troca de folga · ${troca.solicitanteNome}` : `${troca.solicitanteNome} ⇄ ${troca.destinatarioNome}`}
+            </h2>
           </div>
           <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
             <X size={18} />
           </button>
         </div>
 
+        {troca.tipo === 'FOLGA' && troca.dataTroca ? (
+          /* TROCA-FOLGA-1 — dois dias da mesma pessoa: um vira trabalho, o outro folga. */
+          <div className="troca-comparacao">
+            <div>
+              <small>Passa a trabalhar</small>
+              <strong>{formatarDataCurta(troca.data)}</strong>
+              <span className="shift-chip" data-code={troca.turnoDestinatarioAntes || ''}>{troca.turnoDestinatarioAntes || '—'}</span>
+              <small>{troca.horarioDestinatarioAntes || 'Sem horário'} · hoje é {troca.turnoSolicitanteAntes}</small>
+            </div>
+            <ArrowLeftRight size={18} />
+            <div>
+              <small>Passa a folgar</small>
+              <strong>{formatarDataCurta(troca.dataTroca)}</strong>
+              <span className="shift-chip" data-code={troca.turnoSolicitanteAntes || ''}>{troca.turnoSolicitanteAntes || '—'}</span>
+              <small>hoje é {troca.turnoDestinatarioAntes}</small>
+            </div>
+          </div>
+        ) : (
         <div className="troca-comparacao">
           <div>
             <small>{troca.solicitanteNome}</small>
@@ -2411,6 +2432,7 @@ function ModalDetalheTrocaGestor({
             <small>{troca.horarioDestinatarioAntes || 'Sem horário'}</small>
           </div>
         </div>
+        )}
 
         {troca.mensagemSolicitante && <p className="troca-mensagem">“{troca.mensagemSolicitante}”</p>}
 
@@ -6741,6 +6763,15 @@ export function DashboardApp() {
     if (!docSolicitante || !docDestinatario) {
       return [];
     }
+    // TROCA-FOLGA-1 — troca de folga mexe só na escala da própria pessoa.
+    if (troca.tipo === 'FOLGA' && troca.dataTroca) {
+      try {
+        const hipotetico: TurnosMes = { ...docSolicitante, dias: aplicarTrocaDeFolga(docSolicitante.dias, troca.data, troca.dataTroca) };
+        return [...detectarSequencias6x1(hipotetico, catalogo), ...detectarDescansoInsuficiente(hipotetico, catalogo)];
+      } catch {
+        return [];
+      }
+    }
     try {
       const { diasSolicitante, diasDestinatario } = aplicarTrocaNosDias(
         docSolicitante.dias,
@@ -10201,7 +10232,7 @@ export function DashboardApp() {
               {trocasPendentesGestor.length > 0 && (
               <div className="overview-swap-preview">
                 {trocasPendentesGestor.slice(0, 2).map((troca) => (
-                  <button key={troca.trocaId} type="button" onClick={() => { setTela('trocas'); setTrocaSelecionadaId(troca.trocaId); }}><ArrowLeftRight size={15} /><span><strong>{troca.solicitanteNome} ⇄ {troca.destinatarioNome}</strong><small>{formatarDataCurta(troca.data)} · {troca.turnoSolicitanteAntes} ⇄ {troca.turnoDestinatarioAntes}</small></span><ChevronRight size={14} /></button>
+                  <button key={troca.trocaId} type="button" onClick={() => { setTela('trocas'); setTrocaSelecionadaId(troca.trocaId); }}><ArrowLeftRight size={15} /><span><strong>{troca.tipo === 'FOLGA' ? `${troca.solicitanteNome} · troca de folga` : `${troca.solicitanteNome} ⇄ ${troca.destinatarioNome}`}</strong><small>{formatarDataCurta(troca.data)}{troca.tipo === 'FOLGA' && troca.dataTroca ? ` ⇄ ${formatarDataCurta(troca.dataTroca)}` : ''} · {troca.turnoSolicitanteAntes} ⇄ {troca.turnoDestinatarioAntes}</small></span><ChevronRight size={14} /></button>
                 ))}
               </div>
               )}
@@ -11123,8 +11154,12 @@ export function DashboardApp() {
                   ) : trocasListaFiltrada.map((troca) => (
                     <tr key={troca.trocaId}>
                       <td><strong>{troca.solicitanteNome}</strong><small>{troca.solicitanteLogin}</small></td>
-                      <td><strong>{troca.destinatarioNome}</strong><small>{troca.destinatarioLogin}</small></td>
-                      <td>{formatarDataCurta(troca.data)}</td>
+                      <td>
+                        {troca.tipo === 'FOLGA'
+                          ? <><strong>Troca de folga</strong><small>sem colega</small></>
+                          : <><strong>{troca.destinatarioNome}</strong><small>{troca.destinatarioLogin}</small></>}
+                      </td>
+                      <td>{formatarDataCurta(troca.data)}{troca.tipo === 'FOLGA' && troca.dataTroca ? ` ⇄ ${formatarDataCurta(troca.dataTroca)}` : ''}</td>
                       <td>
                         <span className="shift-chip" data-code={troca.turnoSolicitanteAntes || ''}>{troca.turnoSolicitanteAntes || '—'}</span>
                         {' ⇄ '}

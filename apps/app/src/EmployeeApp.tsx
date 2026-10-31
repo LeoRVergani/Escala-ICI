@@ -39,6 +39,7 @@ import {
   Check,
   CheckCircle2,
   ChevronLeft,
+  XCircle,
   ChevronRight,
   Clock3,
   Coffee,
@@ -149,6 +150,7 @@ import {
 import {
   cancelarSolicitacaoTroca as cancelarSolicitacaoTrocaFirebase,
   criarSolicitacaoTroca,
+  criarSolicitacaoTrocaDeFolga,
   marcarNotificacaoTrocaComoLida,
   observarNotificacoesTroca,
   observarTrocasDoUsuario,
@@ -186,10 +188,12 @@ import { LembretesView } from './lembretes/LembretesView';
 import {
   ROTULO_STATUS_TROCA,
   SEVERIDADE_STATUS_TROCA,
+  ehTrocaDeFolga,
   statusEhAtivo,
   type NotificacaoTroca,
   type SolicitacaoTrocaReal,
 } from '@/lib/trocasEscala';
+import { diaEhFolgaTrocavel, diaEhTrabalhoTrocavel, validarTrocaDeFolga } from '@/lib/trocaFolga';
 import {
   AVISO_APROVACAO_NAO_PUBLICA,
   destinatariosNotificacaoGestorPlantao,
@@ -1080,14 +1084,20 @@ function DetalheDia({
   escala,
   catalogo,
   onSolicitarTroca,
+  onTrocarFolga,
 }: {
   data: string;
   dataHoje: string;
   escala: TurnosMes | null;
   catalogo: typeof CATALOGO_SOC;
   onSolicitarTroca?: (data: string) => void;
+  /** TROCA-FOLGA-1 — troca de folga na própria escala (vai direto ao coordenador). */
+  onTrocarFolga?: (data: string) => void;
 }) {
   const jornada = resolverJornadaDia(escala, catalogo, data);
+  const diaFuturo = data > dataHoje && escala?.status === 'PUBLICADA';
+  const ehFolgaTrocavel = diaEhFolgaTrocavel(escala?.dias[data]);
+  const ehTrabalhoTrocavel = diaEhTrabalhoTrocavel(escala?.dias[data], catalogo);
   return (
     <aside className="panel selected-day-card" aria-live="polite">
       <div className="selected-day-date">
@@ -1146,6 +1156,15 @@ function DetalheDia({
           onClick={() => onSolicitarTroca(data)}
         >
           <ArrowLeftRight size={15} /> Solicitar troca deste dia
+        </button>
+      )}
+      {onTrocarFolga && diaFuturo && (ehFolgaTrocavel || ehTrabalhoTrocavel) && (
+        <button
+          className="secondary-button selected-day-troca-button"
+          type="button"
+          onClick={() => onTrocarFolga(data)}
+        >
+          <CalendarDays size={15} /> {ehFolgaTrocavel ? 'Trocar esta folga por outro dia' : 'Folgar neste dia (trocar por uma folga)'}
         </button>
       )}
       <p className="selected-day-note">
@@ -1645,15 +1664,25 @@ function TrocaItemButton({
 }) {
   const souSolicitante = troca.solicitanteLogin === usuario.login;
   const outroNome = souSolicitante ? troca.destinatarioNome : troca.solicitanteNome;
+  const diaCurto = (dataIso: string) => formatarDiaTrocaSafe(dataIso, { day: '2-digit', month: 'short' }).replace('.', '');
   return (
     <button type="button" className="troca-item-button" onClick={onAbrir}>
       <ArrowLeftRight size={16} />
       <div>
-        <strong>{souSolicitante ? `Você e ${outroNome}` : `${outroNome} e você`}</strong>
-        <small>
-          {formatarDiaTrocaSafe(troca.data, { day: '2-digit', month: 'short' }).replace('.', '')}
-          {' · '}{troca.turnoSolicitanteAntes || '—'} ⇄ {troca.turnoDestinatarioAntes || '—'}
-        </small>
+        {ehTrocaDeFolga(troca) && troca.dataTroca ? (
+          <>
+            <strong>Troca de folga</strong>
+            <small>Folga de {diaCurto(troca.data)} → {diaCurto(troca.dataTroca)}</small>
+          </>
+        ) : (
+          <>
+            <strong>{souSolicitante ? `Você e ${outroNome}` : `${outroNome} e você`}</strong>
+            <small>
+              {diaCurto(troca.data)}
+              {' · '}{troca.turnoSolicitanteAntes || '—'} ⇄ {troca.turnoDestinatarioAntes || '—'}
+            </small>
+          </>
+        )}
       </div>
       <span className={`status-badge ${SEVERIDADE_STATUS_TROCA[troca.status]}`}>
         {ROTULO_STATUS_TROCA[troca.status]}
@@ -1663,7 +1692,151 @@ function TrocaItemButton({
   );
 }
 
+/**
+ * TROCA-FOLGA-1 — o colaborador troca uma folga DF/DU por um dia de
+ * trabalho da própria escala. Cada dia candidato já mostra se a pessoa
+ * continua apta (6x1, 11h, 35h); dias que quebram regra ficam bloqueados
+ * com o motivo. O pedido vai direto para o coordenador aprovar.
+ */
+function ModalTrocaFolga({
+  escala,
+  dataInicial,
+  dataHoje,
+  catalogo,
+  processando,
+  erro,
+  onFechar,
+  onEnviar,
+}: {
+  escala: TurnosMes;
+  dataInicial: string;
+  dataHoje: string;
+  catalogo: typeof CATALOGO_SOC;
+  processando: boolean;
+  erro: string;
+  onFechar: () => void;
+  onEnviar: (dataFolga: string, dataTrabalho: string, mensagem: string) => void;
+}) {
+  const inicialEhFolga = diaEhFolgaTrocavel(escala.dias[dataInicial]);
+  const [escolhida, setEscolhida] = useState<string | null>(null);
+  const [mensagem, setMensagem] = useState('');
+  const dia = (dataIso: string) => capitalizar(formatarData(dataIso, { weekday: 'short', day: '2-digit', month: '2-digit' })).replace('.', '');
+  const candidatos = Object.keys(escala.dias).sort()
+    .filter((data) => data > dataHoje && data !== dataInicial)
+    .filter((data) => (inicialEhFolga ? diaEhTrabalhoTrocavel(escala.dias[data], catalogo) : diaEhFolgaTrocavel(escala.dias[data])))
+    .map((data) => {
+      const dataFolga = inicialEhFolga ? dataInicial : data;
+      const dataTrabalho = inicialEhFolga ? data : dataInicial;
+      return { data, dataFolga, dataTrabalho, validacao: validarTrocaDeFolga({ documento: escala, dataFolga, dataTrabalho, catalogo, hoje: dataHoje }) };
+    });
+  const selecionado = candidatos.find((item) => item.data === escolhida) ?? null;
+  const turnoTrabalho = selecionado ? escala.dias[selecionado.dataTrabalho] : undefined;
+
+  return (
+    <div className="modal-backdrop modal-backdrop-sheet" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal troca-modal troca-folga-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="troca-folga-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Troca de folga</p>
+            <h2 id="troca-folga-title">
+              {inicialEhFolga ? `Trocar a folga de ${dia(dataInicial)}` : `Folgar em ${dia(dataInicial)}`}
+            </h2>
+            <p>
+              {inicialEhFolga
+                ? 'Escolha o dia de trabalho que vira folga. Você passa a trabalhar no dia da folga, no mesmo turno.'
+                : 'Escolha qual folga você troca por este dia. Você trabalha na folga escolhida, no mesmo turno deste dia.'}
+            </p>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar"><X size={18} /></button>
+        </div>
+
+        {candidatos.length === 0 ? (
+          <p className="empty-inline">Não há dias disponíveis para essa troca neste mês.</p>
+        ) : (
+          <ul className="troca-folga-lista" role="radiogroup" aria-label="Dias disponíveis">
+            {candidatos.map((item) => {
+              const apto = item.validacao.erros.length === 0;
+              const codigo = escala.dias[item.data]?.c ?? '';
+              return (
+                <li key={item.data}>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={escolhida === item.data}
+                    className={escolhida === item.data ? 'active' : ''}
+                    disabled={!apto}
+                    onClick={() => setEscolhida(item.data)}
+                  >
+                    <span className="shift-chip" data-code={codigo}>{codigo}</span>
+                    <span>
+                      <strong>{dia(item.data)}</strong>
+                      <small>{apto ? (catalogo[codigo]?.descricao ?? codigo) : item.validacao.erros[0]}</small>
+                    </span>
+                    {apto ? <CheckCircle2 size={16} aria-hidden="true" /> : <XCircle size={16} aria-hidden="true" />}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {selecionado !== null && (
+          <div className="troca-folga-resumo" role="status">
+            <span>Você vai <strong>trabalhar</strong> em {dia(selecionado.dataFolga)} ({catalogo[turnoTrabalho?.c ?? '']?.descricao ?? turnoTrabalho?.c}
+              {turnoTrabalho?.i && turnoTrabalho?.f ? ` ${turnoTrabalho.i}–${turnoTrabalho.f}` : ''})</span>
+            <span>e <strong>folgar</strong> em {dia(selecionado.dataTrabalho)}. As horas do mês continuam as mesmas.</span>
+          </div>
+        )}
+
+        <label>
+          <span>Mensagem para o coordenador (opcional)</span>
+          <textarea value={mensagem} maxLength={280} onChange={(evento) => setMensagem(evento.target.value)} placeholder="Ex.: consulta médica na sexta" />
+        </label>
+        {erro && <div className="alert error" role="alert">{erro}</div>}
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" onClick={onFechar}>Cancelar</button>
+          <button
+            className="primary-button"
+            type="button"
+            disabled={selecionado === null || processando}
+            onClick={() => selecionado && onEnviar(selecionado.dataFolga, selecionado.dataTrabalho, mensagem)}
+          >
+            {processando ? 'Enviando…' : 'Enviar ao coordenador'}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function TrocaComparacao({ troca }: { troca: SolicitacaoTrocaReal }) {
+  // TROCA-FOLGA-1 — na troca de folga os dois lados são dias da mesma pessoa.
+  if (ehTrocaDeFolga(troca) && troca.dataTroca) {
+    const dia = (dataIso: string) => `${capitalizar(formatarDiaTrocaSafe(dataIso, { weekday: 'short' })).replace('.', '')} ${formatarDiaTrocaSafe(dataIso, { day: '2-digit', month: 'short' }).replace('.', '')}`;
+    return (
+      <div className="troca-comparacao">
+        <div>
+          <small>Passa a trabalhar</small>
+          <strong>{dia(troca.data)}</strong>
+          <span className="shift-chip" data-code={troca.turnoDestinatarioAntes || ''}>{troca.turnoDestinatarioAntes || '—'}</span>
+          <small>{troca.horarioDestinatarioAntes || 'Sem horário'}</small>
+        </div>
+        <ArrowLeftRight size={18} />
+        <div>
+          <small>Passa a folgar</small>
+          <strong>{dia(troca.dataTroca)}</strong>
+          <span className="shift-chip" data-code={troca.turnoSolicitanteAntes || ''}>{troca.turnoSolicitanteAntes || '—'}</span>
+          <small>Folga</small>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="troca-comparacao">
       <div>
@@ -1761,7 +1934,8 @@ function ModalDetalheTroca({
   onFechar: () => void;
   onCancelar: () => void;
 }) {
-  const podeCancelar = troca.solicitanteLogin === usuario.login && troca.status === 'PENDENTE_USUARIO';
+  const podeCancelar = troca.solicitanteLogin === usuario.login
+    && (troca.status === 'PENDENTE_USUARIO' || (ehTrocaDeFolga(troca) && troca.status === 'PENDENTE_GESTOR'));
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
       <section
@@ -1775,7 +1949,7 @@ function ModalDetalheTroca({
           <div>
             <p className="eyebrow">{ROTULO_STATUS_TROCA[troca.status]}</p>
             <h2 id="troca-detalhe-title">
-              {troca.solicitanteNome} ⇄ {troca.destinatarioNome}
+              {ehTrocaDeFolga(troca) ? `Troca de folga · ${troca.solicitanteNome}` : `${troca.solicitanteNome} ⇄ ${troca.destinatarioNome}`}
             </h2>
           </div>
           <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
@@ -2617,6 +2791,8 @@ export function EmployeeApp() {
   const [operacaoEquipeApp, setOperacaoEquipeApp] = useState<'JORNADA' | 'PLANTAO'>('JORNADA');
   const [trocaAbertaId, setTrocaAbertaId] = useState<string | null>(null);
   const [assistenteTroca, setAssistenteTroca] = useState<EstadoAssistenteTroca | null>(null);
+  /** TROCA-FOLGA-1 — troca de folga aberta a partir do detalhe de um dia. */
+  const [trocaFolgaAberta, setTrocaFolgaAberta] = useState<{ data: string; escala: TurnosMes } | null>(null);
   const [processandoTroca, setProcessandoTroca] = useState(false);
   const [erroTroca, setErroTroca] = useState('');
   const [estadoNotificacoesPush, setEstadoNotificacoesPush] = useState<EstadoNotificacoesPush>('NAO_CONFIGURADO');
@@ -3866,6 +4042,35 @@ export function EmployeeApp() {
     });
   }
 
+  async function enviarTrocaDeFolga(dataFolga: string, dataTrabalho: string, mensagem: string) {
+    const escala = trocaFolgaAberta?.escala;
+    if (usuario === null || escala === undefined) {
+      return;
+    }
+    setProcessandoTroca(true);
+    setErroTroca('');
+    try {
+      await criarSolicitacaoTrocaDeFolga({
+        equipeId: usuario.equipeId,
+        competencia: escala.competencia,
+        dataFolga,
+        dataTrabalho,
+        solicitante: { login: usuario.login, nome: usuario.nome, ativo: usuario.ativo },
+        mensagem,
+        catalogo,
+        hoje: dataHoje,
+      });
+      setTrocaFolgaAberta(null);
+      // Troca de folga já nasce aguardando o coordenador: mostra a aba "Gestor".
+      setAbaTrocas('gestor');
+      setTela('trocas');
+    } catch (falha) {
+      setErroTroca(mensagemErroFirebase(falha, 'Não foi possível enviar o pedido de troca de folga.', ambienteFirebaseAtual, 'autoatendimento'));
+    } finally {
+      setProcessandoTroca(false);
+    }
+  }
+
   async function enviarSolicitacaoTroca() {
     if (usuario === null || assistenteTroca?.data == null || assistenteTroca.destinatarioLogin == null) {
       return;
@@ -4682,6 +4887,13 @@ export function EmployeeApp() {
                         escala={escalaDaCompetenciaAtual ?? escalaVisivelApp}
                         catalogo={catalogo}
                         onSolicitarTroca={(diaEscolhido) => abrirNovaSolicitacaoTroca(diaEscolhido)}
+                        onTrocarFolga={(diaEscolhido) => {
+                          const escala = escalaDaCompetenciaAtual ?? minhaEscala;
+                          if (escala !== null && escala !== undefined) {
+                            setErroTroca('');
+                            setTrocaFolgaAberta({ data: diaEscolhido, escala });
+                          }
+                        }}
                       />
                     </>
                   )}
@@ -5361,6 +5573,18 @@ export function EmployeeApp() {
         </section>
       )}
 
+      {trocaFolgaAberta && (
+        <ModalTrocaFolga
+          escala={trocaFolgaAberta.escala}
+          dataInicial={trocaFolgaAberta.data}
+          dataHoje={dataHoje}
+          catalogo={catalogo}
+          processando={processandoTroca}
+          erro={erroTroca}
+          onFechar={() => setTrocaFolgaAberta(null)}
+          onEnviar={(dataFolga, dataTrabalho, mensagem) => void enviarTrocaDeFolga(dataFolga, dataTrabalho, mensagem)}
+        />
+      )}
       {assistenteTroca && usuario && (
         <AssistenteNovaTroca
           estado={assistenteTroca}
