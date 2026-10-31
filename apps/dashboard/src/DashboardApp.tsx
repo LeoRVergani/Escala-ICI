@@ -13078,14 +13078,24 @@ export function DashboardApp() {
             aria-labelledby="user-form-title"
             onMouseDown={(evento) => evento.stopPropagation()}
           >
-            <div className="panel-title">
+            <div className="panel-title user-form-cabecalho">
+              {/* MODAL-COLABORADOR-SIMPLES — quem é, de cara: iniciais, nome e login. */}
+              <span className="user-form-avatar" aria-hidden="true">
+                {(formularioUsuario.nome.trim() || '?').split(/\s+/u).filter(Boolean).slice(0, 2).map((parte) => parte[0]?.toUpperCase()).join('')}
+              </span>
               <div>
-                <p className="eyebrow">{participanteVinculoCadastro !== null || linhaConciliacaoVinculoCadastro !== null ? 'Vínculo da planilha' : formularioUsuario.loginOriginal === null ? 'Novo colaborador' : 'Editar colaborador'}</p>
+                <p className="eyebrow">{participanteVinculoCadastro !== null || linhaConciliacaoVinculoCadastro !== null ? 'Vínculo da planilha' : formularioUsuario.loginOriginal === null ? 'Nova pessoa' : 'Editar pessoa'}</p>
                 <h2 id="user-form-title">
                   {participanteVinculoCadastro !== null || linhaConciliacaoVinculoCadastro !== null
                     ? 'Criar e vincular colaborador'
-                    : formularioUsuario.loginOriginal === null ? 'Cadastrar usuário' : formularioUsuario.nome || 'Editar usuário'}
+                    : formularioUsuario.loginOriginal === null ? (formularioUsuario.nome.trim() || 'Cadastrar pessoa') : formularioUsuario.nome || 'Editar pessoa'}
                 </h2>
+                {formularioUsuario.loginOriginal !== null && (
+                  <p className="user-form-subtitulo">
+                    <code>{formularioUsuario.loginOriginal}</code> · {nomeDaEquipe(formularioUsuario.equipeId)}
+                    <span className={`status-badge ${formularioUsuario.ativo ? 'success' : 'neutral'}`}>{formularioUsuario.ativo ? 'Ativo' : 'Inativo'}</span>
+                  </p>
+                )}
                 {participanteVinculoCadastro !== null && (
                   <p>Cadastre <strong>{participanteVinculoCadastro}</strong>. Ao salvar, o vínculo desta importação será confirmado automaticamente.</p>
                 )}
@@ -13096,6 +13106,7 @@ export function DashboardApp() {
               <button className="icon-button" type="button" onClick={fecharFormularioUsuario} aria-label="Fechar"><X size={18} /></button>
             </div>
             <div className="user-form-grid">
+              <p className="user-form-secao user-form-full">Dados da pessoa</p>
               <label>
                 Nome
                 <input
@@ -13107,28 +13118,34 @@ export function DashboardApp() {
                 E-mail
                 <input
                   type="email"
+                  placeholder="nome@empresa.com.br"
                   value={formularioUsuario.email}
                   onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, email: evento.target.value })}
                 />
               </label>
+              {formularioUsuario.loginOriginal === null && (
               <label>
-                Login (planilha)
+                Login
                 <input
                   value={formularioUsuario.login}
                   disabled={formularioUsuario.loginOriginal !== null}
                   onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, login: evento.target.value })}
+                  placeholder="Igual ao da planilha. Ex.: joao.silva"
                 />
                 {formularioUsuario.loginOriginal !== null && (
                   <small>O login não pode ser alterado depois do cadastro.</small>
                 )}
               </label>
+              )}
               <label>
                 Cargo
                 <input
                   value={formularioUsuario.cargo}
                   onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, cargo: evento.target.value })}
+                  placeholder="Opcional. Ex.: Analista de SOC"
                 />
               </label>
+              <p className="user-form-secao user-form-full">Equipe e turno</p>
               {usarCadastroLivreStaging && equipeCadastroForcada === null ? (
                 <>
                   <label>
@@ -13185,20 +13202,69 @@ export function DashboardApp() {
                   </label>
                 </>
               ) : (
-                <label>
-                  Equipe
-                  <input value={rotuloEquipeCadastroUsuario} disabled />
-                  {!souAdmin && !PERMITIR_AMPLO_STAGING && participanteVinculoCadastro === null && linhaConciliacaoVinculoCadastro === null && (
+                <div className="user-form-campo-fixo">
+                  <span>Equipe</span>
+                  <strong>
+                    {formularioUsuario.loginOriginal !== null
+                      ? nomeDaEquipe(formularioUsuario.equipeId)
+                      : nomeDaEquipe(equipeIdCadastroUsuario)}
+                    {/* Código técnico junto: nomes curtos como "SOC" podem se repetir em unidades diferentes. */}
+                    <code>
+                      {formularioUsuario.loginOriginal !== null
+                        ? (() => {
+                          const equipe = equipesAdmin.find((item) => item.id === formularioUsuario.equipeId);
+                          return equipe ? rotuloTecnicoEquipe(equipe) : formularioUsuario.equipeId ?? '';
+                        })()
+                        : rotuloEquipeCadastroUsuario}
+                    </code>
+                  </strong>
+                  {linhaConciliacaoVinculoCadastro !== null && (
+                    <small>Equipe da escala que está sendo importada.</small>
+                  )}
+                  {formularioUsuario.loginOriginal === null && !souAdmin && !PERMITIR_AMPLO_STAGING && participanteVinculoCadastro === null && linhaConciliacaoVinculoCadastro === null && (
                     <small className="empty-inline">Permissão ampla de staging não está ativa; cadastro restrito à equipe atual.</small>
                   )}
-                  {linhaConciliacaoVinculoCadastro !== null && (
-                    <small>Equipe herdada da escala de Jornada em importação.</small>
-                  )}
-                </label>
+                </div>
+              )}
+              {/* MODAL-COLABORADOR-SIMPLES — turno em botões, com a cor de cada período. */}
+              <div className="user-form-full user-form-turnos" role="radiogroup" aria-label="Turno padrão">
+                <span className="user-form-rotulo">Turno padrão</span>
+                <div>
+                  {Object.values(catalogo).filter((tipo) => tipo.categoria === 'TRABALHO').map((tipo) => (
+                    <button
+                      key={tipo.codigo}
+                      type="button"
+                      role="radio"
+                      aria-checked={formularioUsuario.turnoPadrao === tipo.codigo}
+                      className={formularioUsuario.turnoPadrao === tipo.codigo ? 'active' : ''}
+                      onClick={() => setFormularioUsuario({ ...formularioUsuario, turnoPadrao: tipo.codigo })}
+                    >
+                      <span className="shift-chip" data-code={tipo.codigo}>{tipo.codigo}</span>
+                      <span>{tipo.descricao}</span>
+                      {tipo.horaInicio && tipo.horaFim && <small>{tipo.horaInicio}–{tipo.horaFim}</small>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="user-form-full user-form-switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={formularioUsuario.ativo}
+                  onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, ativo: evento.target.checked })}
+                />
+                <span className="user-form-switch-trilho" aria-hidden="true" />
+                <span>
+                  <strong>{formularioUsuario.ativo ? 'Cadastro ativo' : 'Cadastro inativo'}</strong>
+                  <small>Desative em vez de excluir quando a pessoa se afastar por um tempo.</small>
+                </span>
+              </label>
+              {((!souAdmin && formularioUsuario.loginOriginal === null) || ((souAdmin || souGestorUnidade) && participanteVinculoCadastro === null && linhaConciliacaoVinculoCadastro === null)) && (
+                <p className="user-form-secao user-form-full">Acesso no sistema</p>
               )}
               {!souAdmin && formularioUsuario.loginOriginal === null && (
                 <label>
-                  Acesso no sistema
+                  Tipo de acesso
                   <select
                     value={formularioUsuario.perfil ?? ''}
                     onChange={(evento) => {
@@ -13223,75 +13289,6 @@ export function DashboardApp() {
                     : 'Você pode cadastrar colaboradores, coordenadores e supervisores somente nesta equipe.'}</small>
                 </label>
               )}
-              <label>
-                Nível hierárquico
-                <input
-                  type="number"
-                  min={!souAdmin
-                    && formularioUsuario.loginOriginal === null
-                    && !perfilDelegavelPorResponsavelOperacional(formularioUsuario.perfil, usarCadastroLivreStaging) ? 6 : 1}
-                  value={formularioUsuario.nivelHierarquico}
-                  onChange={(evento) => setFormularioUsuario({
-                    ...formularioUsuario,
-                    nivelHierarquico: Number(evento.target.value),
-                  })}
-                />
-                <small>{descreverNivelHierarquico(formularioUsuario.nivelHierarquico)}</small>
-              </label>
-              <label>
-                Turno padrão
-                <select
-                  value={formularioUsuario.turnoPadrao}
-                  onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, turnoPadrao: evento.target.value })}
-                >
-                  <option value="">Selecione o período padrão</option>
-                  {Object.values(catalogo).map((tipo) => (
-                    <option key={tipo.codigo} value={tipo.codigo}>{tipo.descricao}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="user-form-active">
-                <input
-                  type="checkbox"
-                  checked={formularioUsuario.ativo}
-                  onChange={(evento) => setFormularioUsuario({ ...formularioUsuario, ativo: evento.target.checked })}
-                />
-                <span>Ativo</span>
-              </label>
-              <label className="user-form-full">
-                Aliases da planilha
-                <div className="alias-editor">
-                  <div className="alias-editor-list">
-                    {formularioUsuario.aliasesPlanilha.length === 0 && (
-                      <small className="empty-inline">Nenhum alias cadastrado.</small>
-                    )}
-                    {formularioUsuario.aliasesPlanilha.map((alias) => (
-                      <span className="alias-chip" key={alias}>
-                        {alias}
-                        <button type="button" onClick={() => removerAliasDraft(alias)} aria-label={`Remover alias ${alias}`}>
-                          <X size={12} />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="alias-editor-add">
-                    <input
-                      value={novoAliasDraft}
-                      onChange={(evento) => setNovoAliasDraft(evento.target.value)}
-                      onKeyDown={(evento) => {
-                        if (evento.key === 'Enter') {
-                          evento.preventDefault();
-                          adicionarAliasDraft();
-                        }
-                      }}
-                      placeholder="Nome como aparece na planilha"
-                    />
-                    <button className="secondary-button compact-button" type="button" onClick={adicionarAliasDraft}>
-                      Adicionar
-                    </button>
-                  </div>
-                </div>
-              </label>
               {(souAdmin || souGestorUnidade) && participanteVinculoCadastro === null && linhaConciliacaoVinculoCadastro === null && (() => {
                 // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE
                 // usa o mesmo formulário simplificado que ADMIN_SISTEMA, restrito a
@@ -13314,11 +13311,8 @@ export function DashboardApp() {
                 );
                 return (
                   <fieldset className="user-form-full admin-only-fields">
-                    <legend>Permissões</legend>
-                    <p className="hint-text">
-                      Na maioria dos casos, escolha apenas o tipo de acesso e a equipe ou unidade. Os
-                      campos técnicos são preenchidos automaticamente.
-                    </p>
+                    <legend className="sr-only">Permissões</legend>
+                    <p className="hint-text">Escolha o tipo de acesso e a equipe. Os campos técnicos são preenchidos automaticamente.</p>
                     <label>
                       Tipo de acesso
                       <select
@@ -13505,6 +13499,60 @@ export function DashboardApp() {
                   </fieldset>
                 );
               })()}
+              <details className="user-form-full user-form-mais">
+                <summary>Mais opções</summary>
+                <div className="user-form-grid">
+              <label>
+                Nível hierárquico
+                <input
+                  type="number"
+                  min={!souAdmin
+                    && formularioUsuario.loginOriginal === null
+                    && !perfilDelegavelPorResponsavelOperacional(formularioUsuario.perfil, usarCadastroLivreStaging) ? 6 : 1}
+                  value={formularioUsuario.nivelHierarquico}
+                  onChange={(evento) => setFormularioUsuario({
+                    ...formularioUsuario,
+                    nivelHierarquico: Number(evento.target.value),
+                  })}
+                />
+                <small>{descreverNivelHierarquico(formularioUsuario.nivelHierarquico)}</small>
+              </label>
+              <label className="user-form-full">
+                Nomes na planilha
+                <div className="alias-editor">
+                  <div className="alias-editor-list">
+                    {formularioUsuario.aliasesPlanilha.length === 0 && (
+                      <small className="empty-inline">Nenhum. Use quando o nome na planilha for diferente do cadastro.</small>
+                    )}
+                    {formularioUsuario.aliasesPlanilha.map((alias) => (
+                      <span className="alias-chip" key={alias}>
+                        {alias}
+                        <button type="button" onClick={() => removerAliasDraft(alias)} aria-label={`Remover alias ${alias}`}>
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="alias-editor-add">
+                    <input
+                      value={novoAliasDraft}
+                      onChange={(evento) => setNovoAliasDraft(evento.target.value)}
+                      onKeyDown={(evento) => {
+                        if (evento.key === 'Enter') {
+                          evento.preventDefault();
+                          adicionarAliasDraft();
+                        }
+                      }}
+                      placeholder="Nome como aparece na planilha"
+                    />
+                    <button className="secondary-button compact-button" type="button" onClick={adicionarAliasDraft}>
+                      Adicionar
+                    </button>
+                  </div>
+                </div>
+              </label>
+                </div>
+              </details>
             </div>
             {errosFormularioUsuario.length > 0 && (
               <div className="alert error">
