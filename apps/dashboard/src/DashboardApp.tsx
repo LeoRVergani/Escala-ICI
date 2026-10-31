@@ -3822,6 +3822,9 @@ export function DashboardApp() {
   const [avisosGestao, setAvisosGestao] = useState<AvisoGestao[]>([]);
   /** Cadastro de pessoa nova aberto a partir de "Minha equipe": a equipe vem fixa daqui. */
   const [equipeCadastroForcada, setEquipeCadastroForcada] = useState<string | null>(null);
+  /** MINHA-EQUIPE-PLANTAO — pessoa nova cadastrada pela aba de um Plantão entra como participante dele. */
+  const [grupoParticipanteNovoCadastro, setGrupoParticipanteNovoCadastro] = useState<string | null>(null);
+  const [carregandoParticipantesMinhaEquipe, setCarregandoParticipantesMinhaEquipe] = useState(false);
   const [equipeExportar, setEquipeExportar] = useState('');
   const [competenciaExportar, setCompetenciaExportar] = useState(competenciaOperacionalHoje);
   const [excluirEscalaPendente, setExcluirEscalaPendente] = useState(false);
@@ -6704,6 +6707,14 @@ export function DashboardApp() {
 
   /** O que pode ser feito com uma pessoa encontrada no cadastro, do ponto de vista da equipe ativa. */
   function situacaoPessoaNaBusca(pessoa: Usuario): { podeTrazer: boolean; rotulo: string } {
+    if (grupoAtivoMinhaEquipe !== null) {
+      if (participantesMinhaEquipe.some((item) => item.login === pessoa.login)) {
+        return { podeTrazer: false, rotulo: 'Já participa do Plantão' };
+      }
+      return pessoa.ativo
+        ? { podeTrazer: true, rotulo: 'Adicionar ao Plantão' }
+        : { podeTrazer: false, rotulo: 'Cadastro inativo' };
+    }
     if (pessoa.equipeId === equipeAtivaMinhaEquipeId) {
       return { podeTrazer: false, rotulo: 'Já está na equipe' };
     }
@@ -6729,6 +6740,28 @@ export function DashboardApp() {
     void carregar
       .then((lista) => setDiretorioUsuarios(lista))
       .catch((falha: unknown) => setErroBuscaPessoa(mensagemErroFirebase(falha, 'Não foi possível pesquisar o cadastro.', ambienteFirebaseAtual)));
+  }
+
+  /** MINHA-EQUIPE-PLANTAO — no Plantão a pessoa vira participante e continua na equipe dela. */
+  async function adicionarPessoaAoPlantaoDaMinhaEquipe(pessoa: Usuario) {
+    if (grupoAtivoMinhaEquipe === null) {
+      return;
+    }
+    const grupoId = grupoAtivoMinhaEquipe.grupoId;
+    await adicionarParticipantePlantao(grupoId, pessoa);
+    setUsuariosPorGrupoPlantao((atuais) => ({
+      ...atuais,
+      [grupoId]: (atuais[grupoId] ?? []).some((item) => item.login === pessoa.login)
+        ? atuais[grupoId] ?? []
+        : [...(atuais[grupoId] ?? []), pessoa],
+    }));
+    if (!modoDemo) {
+      await registrarAuditoriaOperacional('ADICIONAR_PARTICIPANTE_PLANTAO', grupoAtivoMinhaEquipe.equipeResponsavelId, {
+        usuarioVinculadoLogin: pessoa.login,
+        origem: grupoId,
+      });
+    }
+    setMensagem(`${pessoa.nome} agora participa de ${grupoAtivoMinhaEquipe.nome}.`);
   }
 
   async function confirmarTrazerPessoa() {
@@ -6769,19 +6802,27 @@ export function DashboardApp() {
 
   /** Cadastro de pessoa nova já na equipe ativa de "Minha equipe". */
   function abrirCadastroNaMinhaEquipe() {
-    if (equipeAtivaMinhaEquipe === null) {
+    // MINHA-EQUIPE-PLANTAO — no Plantão a pessoa nova é cadastrada na equipe
+    // responsável pelo grupo e, ao salvar, já entra como participante.
+    const equipeDoCadastro = equipeAtivaMinhaEquipe
+      ?? (grupoAtivoMinhaEquipe !== null
+        ? equipesAdmin.find((equipe) => equipe.id === grupoAtivoMinhaEquipe.equipeResponsavelId) ?? null
+        : null);
+    if (equipeDoCadastro === null) {
+      setMensagem('Não foi possível identificar a equipe deste cadastro. Recarregue a página e tente de novo.');
       return;
     }
     abrirNovoUsuario();
-    setEquipeCadastroForcada(equipeAtivaMinhaEquipe.id);
+    setEquipeCadastroForcada(equipeDoCadastro.id);
+    setGrupoParticipanteNovoCadastro(grupoAtivoMinhaEquipe?.grupoId ?? null);
     const campos = montarCamposAcessoUsuario(
-      { tipo: 'COLABORADOR', equipeId: equipeAtivaMinhaEquipe.id, confirmaAcessoGlobal: false },
+      { tipo: 'COLABORADOR', equipeId: equipeDoCadastro.id, confirmaAcessoGlobal: false },
       { unidadeDaEquipe: (equipeId) => equipesAdmin.find((equipe) => equipe.id === equipeId)?.unidadeId },
     );
     setFormularioUsuario((atual) => (atual === null ? atual : {
       ...atual,
-      equipeId: equipeAtivaMinhaEquipe.id,
-      unidadeId: equipeAtivaMinhaEquipe.unidadeId,
+      equipeId: equipeDoCadastro.id,
+      unidadeId: equipeDoCadastro.unidadeId,
       perfil: campos.perfil,
       escopo: campos.escopo,
       equipesPermitidas: campos.equipesPermitidas,
@@ -6926,6 +6967,7 @@ export function DashboardApp() {
       setVersaoMembrosMinhaEquipe((versao) => versao + 1);
     }
     setEquipeCadastroForcada(null);
+    setGrupoParticipanteNovoCadastro(null);
     setFormularioUsuario(null);
     setParticipanteVinculoCadastro(null);
     setLinhaConciliacaoVinculoCadastro(null);
@@ -7355,6 +7397,10 @@ export function DashboardApp() {
             }
             : undefined);
         }
+      }
+      // MINHA-EQUIPE-PLANTAO — cadastro aberto pela aba de um Plantão: já vira participante.
+      if (grupoParticipanteNovoCadastro !== null && formularioUsuario.loginOriginal === null) {
+        await adicionarParticipantePlantao(grupoParticipanteNovoCadastro, usuarioSalvo);
       }
       setUsuarios((atuais) => (atuais.some((item) => item.login === usuarioSalvo.login)
         ? atuais.map((item) => (item.login === usuarioSalvo.login ? usuarioSalvo : item))
@@ -8554,10 +8600,35 @@ export function DashboardApp() {
    * selecionada em "Minha equipe"; membros recarregados a cada mudança.
    */
   const equipesMinhaEquipe = escoposOperacionais.jornadasAdministraveis;
-  const equipeAtivaMinhaEquipe = equipesMinhaEquipe.find((item) => item.id === equipeSelecionadaMinhaEquipe)
-    ?? equipesMinhaEquipe[0]
+  /**
+   * MINHA-EQUIPE-PLANTAO — uma aba por equipe de 6x1 E uma por Grupo de
+   * Plantão que o usuário organiza. No Plantão os membros são os
+   * participantes do grupo (não o `equipeId` do cadastro): adicionar alguém
+   * ao Plantão nunca o tira da equipe dele.
+   */
+  const gruposMinhaEquipe = escoposOperacionais.plantoesAdministraveis;
+  const abasMinhaEquipe: Array<{ chave: string; tipo: 'JORNADA' | 'PLANTAO'; id: string; nome: string }> = [
+    ...equipesMinhaEquipe.map((equipe) => ({ chave: `JORNADA:${equipe.id}`, tipo: 'JORNADA' as const, id: equipe.id, nome: equipe.nome })),
+    ...gruposMinhaEquipe.map((grupo) => ({ chave: `PLANTAO:${grupo.grupoId}`, tipo: 'PLANTAO' as const, id: grupo.grupoId, nome: grupo.nome })),
+  ];
+  const abaAtivaMinhaEquipe = abasMinhaEquipe.find((aba) => aba.chave === equipeSelecionadaMinhaEquipe)
+    ?? abasMinhaEquipe[0]
     ?? null;
+  const equipeAtivaMinhaEquipe = abaAtivaMinhaEquipe?.tipo === 'JORNADA'
+    ? equipesMinhaEquipe.find((item) => item.id === abaAtivaMinhaEquipe.id) ?? null
+    : null;
+  const grupoAtivoMinhaEquipe = abaAtivaMinhaEquipe?.tipo === 'PLANTAO'
+    ? gruposMinhaEquipe.find((item) => item.grupoId === abaAtivaMinhaEquipe.id) ?? null
+    : null;
   const equipeAtivaMinhaEquipeId = equipeAtivaMinhaEquipe?.id ?? '';
+  const grupoAtivoMinhaEquipeId = grupoAtivoMinhaEquipe?.grupoId ?? '';
+  const participantesMinhaEquipe = (participantesPorGrupoPlantao[grupoAtivoMinhaEquipeId] ?? [])
+    .filter((item) => item.ativo);
+  function usuarioDoParticipante(login: string): Usuario | undefined {
+    return (usuariosPorGrupoPlantao[grupoAtivoMinhaEquipeId] ?? []).find((item) => item.login === login)
+      ?? diretorioUsuarios?.find((item) => item.login === login)
+      ?? usuarios.find((item) => item.login === login);
+  }
   const chaveEquipesAvisos = equipesMinhaEquipe.map((item) => item.id).join('|');
   useEffect(() => {
     if (tela !== 'equipe' || equipeAtivaMinhaEquipeId === '') {
@@ -8586,6 +8657,37 @@ export function DashboardApp() {
     // `usuarios` só importa no modo demonstração; recarregar a cada mudança dele refaria a consulta real à toa.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tela, equipeAtivaMinhaEquipeId, versaoMembrosMinhaEquipe, modoDemo]);
+
+  useEffect(() => {
+    if (tela !== 'equipe' || grupoAtivoMinhaEquipe === null || modoDemo) {
+      return undefined;
+    }
+    const grupo = grupoAtivoMinhaEquipe;
+    let cancelado = false;
+    void Promise.resolve().then(() => {
+      if (!cancelado) setCarregandoParticipantesMinhaEquipe(true);
+    });
+    void Promise.all([
+      listarParticipantesPlantao(grupo.grupoId),
+      listarUsuariosElegiveisPlantao(grupo.equipeResponsavelId, grupo.grupoId, grupo.unidadeResponsavelId, grupo.equipesConsulta),
+    ])
+      .then(([participantes, candidatos]) => {
+        if (cancelado) return;
+        setParticipantesPorGrupoPlantao((atuais) => ({ ...atuais, [grupo.grupoId]: participantes }));
+        setUsuariosPorGrupoPlantao((atuais) => ({ ...atuais, [grupo.grupoId]: candidatos }));
+      })
+      .catch((falha: unknown) => {
+        if (!cancelado) setMensagem(mensagemErroFirebase(falha, 'Não foi possível carregar os participantes do Plantão.', ambienteFirebaseAtual));
+      })
+      .finally(() => {
+        if (!cancelado) setCarregandoParticipantesMinhaEquipe(false);
+      });
+    return () => {
+      cancelado = true;
+    };
+    // O objeto do grupo muda de referência a cada carga da Matriz; o id basta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tela, grupoAtivoMinhaEquipeId, versaoMembrosMinhaEquipe, modoDemo]);
 
   useEffect(() => {
     if (modoDemo || usuarioReal === null || chaveEquipesAvisos === '') {
@@ -10861,9 +10963,9 @@ export function DashboardApp() {
             <div>
               <p className="eyebrow">Pessoas</p>
               <h1>Minha equipe</h1>
-              <p>Traga quem já está cadastrado ou cadastre uma pessoa nova. Depois, monte a escala em Escalas.</p>
+              <p>Cada equipe de 6x1 e cada Plantão que você organiza tem a sua aba. Traga quem já está cadastrado ou cadastre uma pessoa nova.</p>
             </div>
-            {equipeAtivaMinhaEquipe !== null && (
+            {abaAtivaMinhaEquipe !== null && (
               <div className="grade-header-actions">
                 <button className="secondary-button" type="button" disabled={escritaBloqueada} onClick={abrirBuscaPessoa}>
                   <Search size={16} /> Buscar pessoa cadastrada
@@ -10875,27 +10977,33 @@ export function DashboardApp() {
             )}
           </header>
 
-          {equipesMinhaEquipe.length === 0 ? (
+          {abasMinhaEquipe.length === 0 ? (
             <article className="panel organization-empty-state">
               <Users size={28} aria-hidden="true" />
-              <h2>Você ainda não organiza nenhuma equipe</h2>
+              <h2>Você ainda não organiza nenhuma equipe nem Plantão</h2>
               <p>Peça ao administrador do sistema para criar a sua equipe e colocar você como responsável.</p>
             </article>
           ) : (
             <>
-              {equipesMinhaEquipe.length > 1 && (
-                <div className="segmented-control minha-equipe-seletor" aria-label="Equipe">
-                  {equipesMinhaEquipe.map((equipe) => (
-                    <button
-                      key={equipe.id}
-                      type="button"
-                      className={equipe.id === equipeAtivaMinhaEquipeId ? 'active' : ''}
-                      aria-pressed={equipe.id === equipeAtivaMinhaEquipeId}
-                      onClick={() => setEquipeSelecionadaMinhaEquipe(equipe.id)}
-                    >
-                      {equipe.nome}
-                    </button>
-                  ))}
+              {abasMinhaEquipe.length > 1 && (
+                <div className="minha-equipe-abas" role="tablist" aria-label="Equipes e Plantões">
+                  {abasMinhaEquipe.map((aba) => {
+                    const ativa = aba.chave === abaAtivaMinhaEquipe?.chave;
+                    return (
+                      <button
+                        key={aba.chave}
+                        type="button"
+                        role="tab"
+                        aria-selected={ativa}
+                        className={ativa ? 'active' : ''}
+                        onClick={() => setEquipeSelecionadaMinhaEquipe(aba.chave)}
+                      >
+                        {aba.tipo === 'PLANTAO' ? <Radio size={15} aria-hidden="true" /> : <CalendarDays size={15} aria-hidden="true" />}
+                        <span>{aba.nome}</span>
+                        <small>{aba.tipo === 'PLANTAO' ? 'Plantão' : '6x1'}</small>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
@@ -10908,9 +11016,72 @@ export function DashboardApp() {
                 </div>
               ))}
 
+              {grupoAtivoMinhaEquipe !== null ? (
+                <article className="panel grid-panel">
+                  <div className="toolbar">
+                    <strong><Radio size={16} aria-hidden="true" /> {grupoAtivoMinhaEquipe.nome}</strong>
+                    <span><Users size={16} /> {participantesMinhaEquipe.length} participante{participantesMinhaEquipe.length === 1 ? '' : 's'}</span>
+                  </div>
+                  <p className="empty-inline minha-equipe-explicacao">
+                    Participantes do Plantão continuam na equipe deles — entrar no Plantão não tira ninguém da escala 6x1.
+                  </p>
+                  {carregandoParticipantesMinhaEquipe && participantesMinhaEquipe.length === 0 ? (
+                    <p className="empty-inline" role="status"><LoaderCircle className="spin" size={14} /> Carregando…</p>
+                  ) : participantesMinhaEquipe.length === 0 ? (
+                    <div className="organization-empty-state">
+                      <h2>Ninguém no Plantão ainda</h2>
+                      <p>Use &ldquo;Buscar pessoa cadastrada&rdquo; ou &ldquo;Cadastrar pessoa nova&rdquo; acima.</p>
+                    </div>
+                  ) : (
+                    <div className="table-scroll">
+                      <table className="data-table users-table">
+                        <thead><tr><th>Pessoa</th><th>Login</th><th>Equipe</th><th>Contatos</th><th>Ações</th></tr></thead>
+                        <tbody>
+                          {participantesMinhaEquipe
+                            .map((participante) => ({ participante, pessoa: usuarioDoParticipante(participante.login) }))
+                            .sort((a, b) => (a.pessoa?.nome ?? a.participante.login).localeCompare(b.pessoa?.nome ?? b.participante.login))
+                            .map(({ participante, pessoa }) => {
+                              const nomeExibicao = pessoa?.nome ?? participante.login;
+                              return (
+                                <tr key={participante.login}>
+                                  <td><strong>{nomeExibicao}</strong>{pessoa?.email && <small>{pessoa.email}</small>}</td>
+                                  <td><code className="login-code">{participante.login}</code></td>
+                                  <td>{nomeDaEquipe(pessoa?.equipeId)}</td>
+                                  <td>{participante.contatos.length === 0 ? 'Nenhum' : `${participante.contatos.length} contato(s)`}</td>
+                                  <td>
+                                    <div className="user-row-actions">
+                                      <button
+                                        className="icon-button"
+                                        type="button"
+                                        title="Contatos do plantonista"
+                                        disabled={escritaBloqueada}
+                                        onClick={() => setModalContatosParticipante({ grupoId: grupoAtivoMinhaEquipe.grupoId, nomeExibicao, participante })}
+                                      >
+                                        <Phone size={15} />
+                                      </button>
+                                      <button
+                                        className="icon-button danger-button"
+                                        type="button"
+                                        title="Tirar do Plantão (a pessoa continua cadastrada e na equipe dela)"
+                                        disabled={escritaBloqueada}
+                                        onClick={() => setParticipanteParaDesativar({ grupoId: grupoAtivoMinhaEquipe.grupoId, login: participante.login, nomeExibicao })}
+                                      >
+                                        <UserMinus size={15} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </article>
+              ) : (
               <article className="panel grid-panel">
                 <div className="toolbar">
-                  <strong>{equipeAtivaMinhaEquipe?.nome}</strong>
+                  <strong><CalendarDays size={16} aria-hidden="true" /> {equipeAtivaMinhaEquipe?.nome}</strong>
                   <span><Users size={16} /> {membrosMinhaEquipe.length} pessoa{membrosMinhaEquipe.length === 1 ? '' : 's'}</span>
                 </div>
                 {carregandoMembrosMinhaEquipe ? (
@@ -10971,6 +11142,7 @@ export function DashboardApp() {
                   </div>
                 )}
               </article>
+              )}
             </>
           )}
 
@@ -10986,7 +11158,11 @@ export function DashboardApp() {
                 <div className="panel-title">
                   <div>
                     <h2 id="busca-pessoa-title">Buscar pessoa cadastrada</h2>
-                    <p>Para {equipeAtivaMinhaEquipe?.nome}. Quem estiver em outra equipe é transferido, e a equipe antiga é avisada.</p>
+                    <p>
+                      {grupoAtivoMinhaEquipe !== null
+                        ? `Para o Plantão ${grupoAtivoMinhaEquipe.nome}. A pessoa vira participante e continua na equipe dela.`
+                        : `Para ${equipeAtivaMinhaEquipe?.nome}. Quem estiver em outra equipe é transferido, e a equipe antiga é avisada.`}
+                    </p>
                   </div>
                   <button className="icon-button" type="button" onClick={() => setBuscaPessoaAberta(false)} aria-label="Fechar"><X size={18} /></button>
                 </div>
@@ -11025,7 +11201,9 @@ export function DashboardApp() {
                               className={situacao.podeTrazer ? 'primary-button compact-button' : 'secondary-button compact-button'}
                               type="button"
                               disabled={!situacao.podeTrazer}
-                              onClick={() => setPessoaParaTrazer(pessoa)}
+                              onClick={() => (grupoAtivoMinhaEquipe !== null
+                                ? void adicionarPessoaAoPlantaoDaMinhaEquipe(pessoa)
+                                : setPessoaParaTrazer(pessoa))}
                             >
                               {situacao.rotulo}
                             </button>

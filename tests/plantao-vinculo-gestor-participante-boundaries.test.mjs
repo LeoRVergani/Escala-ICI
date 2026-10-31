@@ -43,7 +43,9 @@ test('2. os 5 pontos de importação/abertura/troca de contexto de Plantão usam
   // o pool amplo, mesmo sem rascunho aberto — antes a tela Usuários ficava
   // com o pool de uma troca de equipe anterior (ex.: busca por "jean" vazia
   // com Plantão COSI Publicado e sem rascunho).
-  assert.equal(ocorrencias.length, 5, 'criar plantão vazio, usar período anterior, importar XLS, abrir rascunho existente e trocar de contexto (aplicarTrocaContexto) devem usar o pool amplo');
+  // MINHA-EQUIPE-PLANTAO acrescentou o 6º ponto: a aba de um Plantão em
+  // "Minha equipe" carrega os nomes dos participantes pelo mesmo pool amplo.
+  assert.equal(ocorrencias.length, 6, 'criar plantão vazio, usar período anterior, importar XLS, abrir rascunho existente, trocar de contexto (aplicarTrocaContexto) e a aba de Plantão de Minha equipe devem usar o pool amplo');
   // O caminho estreito de checagem de duplicidade em "criar e vincular"
   // (dentro de salvarFormularioUsuario) continua existindo — não é o
   // mesmo problema, e trocá-lo mudaria o comportamento de deduplicação de
