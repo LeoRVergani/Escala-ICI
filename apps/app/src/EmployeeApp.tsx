@@ -127,6 +127,7 @@ import {
   estatisticasPlantaoApp,
   formatarIntervaloPlantaoCivil,
   formatarIntervaloPlantaoRelativoAHoje,
+  tituloPeriodoPlantao,
   indiceCorPlantonista,
   intervaloPlantaoCivil,
   nomeExibicaoPlantonista,
@@ -965,7 +966,7 @@ function DetalheDiaPlantao({
                       <small>{atribuicao.plantonistaLogin}</small>
                     </div>
                   </div>
-                  <span>{formatarIntervaloPlantaoCivil(intervalo)}</span>
+                  <span className="plantao-periodo-texto">{tituloPeriodoPlantao(intervalo)}</span>
                   {contatosAtivos.length > 0 && <ContatosPlantaoLista contatos={contatosAtivos} />}
                   {souEu && futuro && onSolicitarTroca && (
                     <button
@@ -4955,7 +4956,7 @@ export function EmployeeApp() {
                         <span className="next-shift-icon">{obterIniciaisParticipantePlantao(nomeProximo ?? undefined, resumo.proximo.plantonistaLogin)}</span>
                         <div>
                           <strong>{nomeProximo}</strong>
-                          <span>{capitalizar(formatarData(intervaloProximo.dataInicio, { weekday: 'short', day: '2-digit', month: '2-digit' }))} · {formatarIntervaloPlantaoCivil(intervaloProximo)}</span>
+                          <span>{tituloPeriodoPlantao(intervaloProximo)}</span>
                           <small>Troca de plantonista</small>
                         </div>
                       </div>
