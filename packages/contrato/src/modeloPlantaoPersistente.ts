@@ -245,6 +245,13 @@ export interface ParticipantePlantao {
    * (`atualizarCorPlantonista()`, Rules em `firestore.rules`).
    */
   corPreferida?: number | null;
+  /**
+   * NOME-PLANTONISTA-1 — nome do plantonista copiado do cadastro por quem
+   * administra o Grupo. Quem só CONSULTA o Plantão (ex.: analista de outra
+   * equipe no App) não pode ler `usuarios/{login}` de outras equipes, então
+   * o App usaria só o login ("brubueno"); este campo dá o nome certo.
+   */
+  nomeExibicao?: string;
   schemaVersion: number;
   criadoPorLogin: string;
   criadoEm: string;

@@ -130,6 +130,7 @@ import {
   indiceCorPlantonista,
   intervaloPlantaoCivil,
   nomeExibicaoPlantonista,
+  registrarNomesPlantonistas,
   obterIniciaisParticipantePlantao,
   plataformaContatoPlantao,
   podeAcompanharTrocasPlantaoDoGrupo,
@@ -3229,6 +3230,7 @@ export function EmployeeApp() {
     setGrupoPlantaoSelecionadoId(grupo.grupoId);
     setGrupoPlantaoApp(grupo);
     setEscopoOperacionalPlantaoApp(detalhe.escopoOperacional);
+    registrarNomesPlantonistas(detalhe.participantes);
     setParticipantesPlantaoApp(detalhe.participantes);
     setContatosEdicaoApp(detalhe.contatos);
     setCompetenciaPlantaoApp(detalhe.competencia);

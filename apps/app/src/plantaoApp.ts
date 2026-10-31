@@ -69,8 +69,26 @@ export function resolverDestaquePlantaoHoje(
   };
 }
 
+/**
+ * NOME-PLANTONISTA-1 — nomes gravados nos participantes do Plantão
+ * (`nomeExibicao`). Quem só consulta o Plantão não lê o cadastro de outras
+ * equipes; sem isto o App mostraria o login ("brubueno") no lugar do nome.
+ * Atualizado sempre que os participantes do Grupo são carregados.
+ */
+const nomesPlantonistasRegistrados = new Map<string, string>();
+
+export function registrarNomesPlantonistas(participantes: ReadonlyArray<{ login: string; nomeExibicao?: string }>): void {
+  for (const participante of participantes) {
+    if (participante.nomeExibicao) {
+      nomesPlantonistasRegistrados.set(participante.login, participante.nomeExibicao);
+    }
+  }
+}
+
 export function nomeExibicaoPlantonista(login: string, usuarios: readonly Usuario[]): string {
-  return usuarios.find((usuario) => usuario.login === login)?.nome ?? login;
+  return usuarios.find((usuario) => usuario.login === login)?.nome
+    ?? nomesPlantonistasRegistrados.get(login)
+    ?? login;
 }
 
 const CONECTIVOS_NOME_PLANTAO = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
