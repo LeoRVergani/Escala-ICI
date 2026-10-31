@@ -28,6 +28,7 @@ import {
 } from '@escala-ici/contrato';
 import {
   ArrowLeftRight,
+  ArrowRight,
   BellOff,
   BriefcaseBusiness,
   Bell,
@@ -128,6 +129,9 @@ import {
   formatarIntervaloPlantaoCivil,
   formatarIntervaloPlantaoRelativoAHoje,
   tituloPeriodoPlantao,
+  rotuloGrupoPlantao,
+  diaCurtoComSemana,
+  linkContatoPlantao,
   indiceCorPlantonista,
   intervaloPlantaoCivil,
   nomeExibicaoPlantonista,
@@ -632,7 +636,7 @@ function PlantaoResumoCompacto({ grupo, atribuicoes, usuarios, agoraIso, onAbrir
       <button type="button" className="today-secondary-row" onClick={onAbrir}>
         <span className="today-secondary-row-icon"><Radio size={18} /></span>
         <span className="today-secondary-row-text">
-          <small>Plantão {grupo.nome} agora</small>
+          <small>{rotuloGrupoPlantao(grupo.nome)} · agora</small>
           <strong>{primeiroNome(resumo.atual.plantonistaLogin)}</strong>
           <span>{intervalo.valido ? rotuloFimPlantao(intervalo, dataHojeGrupo) : 'Horário indisponível'}</span>
         </span>
@@ -647,7 +651,7 @@ function PlantaoResumoCompacto({ grupo, atribuicoes, usuarios, agoraIso, onAbrir
       <button type="button" className="today-secondary-row" onClick={onAbrir}>
         <span className="today-secondary-row-icon"><Radio size={18} /></span>
         <span className="today-secondary-row-text">
-          <small>Plantão {grupo.nome}</small>
+          <small>{rotuloGrupoPlantao(grupo.nome)}</small>
           <strong>Ninguém de plantão agora</strong>
         </span>
         <ChevronRight size={18} />
@@ -785,14 +789,35 @@ function ContatosPlantaoLista({ contatos }: { contatos: ContatoPlantonista[] }) 
       {contatos.map((contato) => {
         const plataforma = plataformaContatoPlantao(contato.rotulo);
         const Icone = plataforma === 'email' ? Mail : plataforma === 'chat' ? MessageCircle : Phone;
-        return (
-          <div className={`plantao-contato-linha plantao-contato-linha-${plataforma}`} key={`${contato.rotulo}-${contato.numero}`}>
+        // CARD-PLANTAO-AGORA-1 — tocar no contato já liga / abre o WhatsApp / o e-mail.
+        const link = linkContatoPlantao(contato.numero, plataforma);
+        const conteudo = (
+          <>
             <span className="plantao-contato-linha-icone"><Icone size={15} /></span>
             <span className="plantao-contato-linha-info">
               <small>{contato.rotulo}</small>
               <strong>{contato.numero}</strong>
             </span>
-            <span className="plantao-contato-linha-plataforma" aria-hidden="true"><Icone size={15} /></span>
+            {link !== null && (
+              <span className="plantao-contato-linha-acao">
+                {plataforma === 'whatsapp' ? 'Abrir' : plataforma === 'email' ? 'Escrever' : 'Ligar'}
+              </span>
+            )}
+          </>
+        );
+        return link !== null ? (
+          <a
+            className={`plantao-contato-linha plantao-contato-linha-${plataforma}`}
+            key={`${contato.rotulo}-${contato.numero}`}
+            href={link}
+            target={plataforma === 'whatsapp' ? '_blank' : undefined}
+            rel={plataforma === 'whatsapp' ? 'noopener noreferrer' : undefined}
+          >
+            {conteudo}
+          </a>
+        ) : (
+          <div className={`plantao-contato-linha plantao-contato-linha-${plataforma}`} key={`${contato.rotulo}-${contato.numero}`}>
+            {conteudo}
           </div>
         );
       })}
@@ -4919,28 +4944,48 @@ export function EmployeeApp() {
             return (
               <>
                 <div className="today-summary-grid today-dashboard-grid plantao-screen-grid">
-                  <article className="today-hero" data-state={resumo.atual !== null ? 'PLANTAO' : 'DESCANSO'}>
+                  {/*
+                   * CARD-PLANTAO-AGORA-1 — quem está de plantão, com início e fim
+                   * lado a lado (dia da semana, data e hora) e os contatos
+                   * prontos para tocar e ligar. Sem texto gigante em uma linha só.
+                   */}
+                  <article className="today-hero plantao-agora" data-state={resumo.atual !== null ? 'PLANTAO' : 'DESCANSO'}>
                     <header className="today-card-heading">
                       <span>De plantão agora</span>
+                      {resumo.atual !== null && intervaloAtual !== null && (
+                        <span className="live-badge"><i /> {rotuloFimPlantao(intervaloAtual, dataHojeGrupo)}</span>
+                      )}
                     </header>
                     {resumo.atual === null || intervaloAtual === null ? (
                       <p className="today-rest-copy">Ninguém está de plantão neste momento.</p>
                     ) : (
-                      <>
-                        <div className="today-hero-heading">
-                          <span className="today-hero-icon">{obterIniciaisParticipantePlantao(nomeAtual ?? undefined, resumo.atual.plantonistaLogin)}</span>
+                      <div className="plantao-agora-corpo">
+                        <div className="plantao-agora-pessoa">
+                          <span className="plantao-agora-avatar" aria-hidden="true">
+                            {obterIniciaisParticipantePlantao(nomeAtual ?? undefined, resumo.atual.plantonistaLogin)}
+                          </span>
                           <div>
-                            <strong className="today-shift-name">{nomeAtual}</strong>
-                            <div className="today-hours"><strong>{formatarIntervaloPlantaoRelativoAHoje(intervaloAtual, dataHojeGrupo)}</strong></div>
+                            <strong>{nomeAtual}</strong>
+                            <small>{rotuloGrupoPlantao(grupo.nome)}</small>
                           </div>
                         </div>
-                        <div className="today-meta">
-                          <span className="live-badge">
-                            <i /> {rotuloFimPlantao(intervaloAtual, dataHojeGrupo)}
-                          </span>
-                        </div>
+                        {intervaloAtual.valido && (
+                          <div className="plantao-agora-periodo" aria-label={tituloPeriodoPlantao(intervaloAtual)}>
+                            <div>
+                              <small>Início</small>
+                              <strong>{diaCurtoComSemana(intervaloAtual.dataInicio)}</strong>
+                              <span>{intervaloAtual.horaInicio}</span>
+                            </div>
+                            <ArrowRight size={18} aria-hidden="true" />
+                            <div>
+                              <small>Fim</small>
+                              <strong>{diaCurtoComSemana(intervaloAtual.dataFim)}</strong>
+                              <span>{intervaloAtual.horaFim}</span>
+                            </div>
+                          </div>
+                        )}
                         {contatosAtual.length > 0 && <ContatosPlantaoLista contatos={contatosAtual} />}
-                      </>
+                      </div>
                     )}
                   </article>
 

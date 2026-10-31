@@ -478,3 +478,39 @@ export function estatisticasPlantaoApp(
     finaisDeSemana,
   };
 }
+
+/**
+ * CARD-PLANTAO-AGORA-1 — "Plantão COSI" em vez de "Plantão Plantão COSI":
+ * o nome do Grupo muitas vezes já começa com "Plantão".
+ */
+export function rotuloGrupoPlantao(nomeGrupo: string): string {
+  const nome = nomeGrupo.trim();
+  return /^plant[aã]o\b/iu.test(nome) ? nome : `Plantão ${nome}`;
+}
+
+/** CARD-PLANTAO-AGORA-1 — "Sex, 30/10" a partir de "2026-10-30". */
+export function diaCurtoComSemana(dataIso: string): string {
+  const [ano, mes, dia] = dataIso.split('-').map(Number);
+  if (!ano || !mes || !dia) {
+    return dataIso;
+  }
+  const semana = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][new Date(Date.UTC(ano, mes - 1, dia)).getUTCDay()];
+  return `${semana}, ${String(dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}`;
+}
+
+/** CARD-PLANTAO-AGORA-1 — link de ação do contato: telefone liga, WhatsApp abre a conversa, e-mail abre o e-mail. */
+export function linkContatoPlantao(valorContato: string, plataforma: PlataformaContatoPlantao): string | null {
+  const valor = valorContato.trim();
+  if (plataforma === 'email') {
+    return valor.includes('@') ? `mailto:${valor}` : null;
+  }
+  const digitos = valor.replace(/\D/gu, '');
+  if (plataforma === 'whatsapp') {
+    if (digitos.length < 10) return null;
+    return `https://wa.me/${digitos.length <= 11 ? `55${digitos}` : digitos}`;
+  }
+  if (plataforma === 'telefone') {
+    return digitos.length >= 8 ? `tel:${valor.trim().startsWith('+') ? '+' : ''}${digitos}` : null;
+  }
+  return null;
+}

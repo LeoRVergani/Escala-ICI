@@ -11,6 +11,9 @@ import {
   formatarIntervaloPlantaoCivil,
   formatarIntervaloPlantaoRelativoAHoje,
   tituloPeriodoPlantao,
+  rotuloGrupoPlantao,
+  diaCurtoComSemana,
+  linkContatoPlantao,
   indiceCorPlantonista,
   intervaloPlantaoCivil,
   nomeExibicaoPlantonista,
@@ -567,5 +570,26 @@ describe('TEXTO-PERIODO-PLANTAO-1 — texto igual ao Controle de Plantão', () =
     const diaUtil = { horaInicio: '19:00', horaFim: '07:00', dataInicio: '2026-11-03', dataFim: '2026-11-04', diasDeDiferenca: 1, cruzaDiaSeguinte: true, valido: true };
     expect(tituloPeriodoPlantao(fimDeSemana)).toBe('Plantão do dia 30/10 19:00 até o dia 31/10 19:00');
     expect(tituloPeriodoPlantao(diaUtil)).toBe('Plantão do dia 03/11 19:00 até o dia 04/11 07:00');
+  });
+});
+
+describe('CARD-PLANTAO-AGORA-1', () => {
+  it('não repete "Plantão" quando o nome do grupo já começa com ele', () => {
+    expect(rotuloGrupoPlantao('Plantão COSI')).toBe('Plantão COSI');
+    expect(rotuloGrupoPlantao('plantao noc')).toBe('plantao noc');
+    expect(rotuloGrupoPlantao('COSI')).toBe('Plantão COSI');
+  });
+
+  it('dia da semana curto com data', () => {
+    expect(diaCurtoComSemana('2026-10-30')).toBe('Sex, 30/10');
+    expect(diaCurtoComSemana('2026-11-01')).toBe('Dom, 01/11');
+  });
+
+  it('contato vira link para ligar, abrir WhatsApp ou escrever e-mail', () => {
+    expect(linkContatoPlantao('(41) 99147-5626', 'telefone')).toBe('tel:41991475626');
+    expect(linkContatoPlantao('(41) 99147-5626', 'whatsapp')).toBe('https://wa.me/5541991475626');
+    expect(linkContatoPlantao('fulano@ici.tec.br', 'email')).toBe('mailto:fulano@ici.tec.br');
+    expect(linkContatoPlantao('ramal 12', 'telefone')).toBeNull();
+    expect(linkContatoPlantao('@fulano', 'chat')).toBeNull();
   });
 });
