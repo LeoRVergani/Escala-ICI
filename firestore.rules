@@ -2542,10 +2542,10 @@ service cloud.firestore {
      *   mais um `get()`/expressão à regra; desativar um Grupo já devia vir
      *   acompanhado de desativar seus participantes.
      */
-    // STAGING-TEMP-OPEN-AUTH-20260923
-    // Permite leitura e escrita a qualquer usuário autenticado.
-    match /{document=**} {
-      allow read, write: if request.auth != null;
-    }
+    // SEGURANCA-REGRA-ABERTA-1 — removido o bloco temporário
+    // STAGING-TEMP-OPEN-AUTH-20260923 (`match /{document=**}` com
+    // `allow read, write: if request.auth != null`). Como as Rules somam
+    // permissões, ele liberava leitura, escrita e exclusão de TODO o banco a
+    // qualquer usuário logado e anulava todas as regras acima.
   }
 }
