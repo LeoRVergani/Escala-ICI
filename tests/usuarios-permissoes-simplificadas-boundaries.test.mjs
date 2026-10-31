@@ -26,7 +26,8 @@ test('2. abrirEdicaoUsuario carrega equipeId real do usuário editado (nunca her
 
 test('3. o bloco "Permissões" oferece o seletor "Tipo de acesso" com as 5 opções simples', async () => {
   const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
-  assert.match(dashboard, /<legend>Permissões<\/legend>/u);
+  // MODAL-COLABORADOR-SIMPLES — a legenda continua (para leitores de tela), só escondida visualmente.
+  assert.match(dashboard, /<legend(?: className="sr-only")?>Permissões<\/legend>/u);
   assert.match(dashboard, /Tipo de acesso/u);
   for (const opcao of ['COLABORADOR', 'SUPERVISOR_EQUIPE', 'GESTOR_EQUIPE', 'GESTOR_UNIDADE', 'ADMIN_SISTEMA']) {
     assert.match(dashboard, new RegExp(`<option value="${opcao}">`, 'u'), `opção ${opcao} precisa existir no seletor`);
