@@ -6843,3 +6843,65 @@ describe('FASE1-EQUIPE-SIMPLES — transferência e avisosGestao', () => {
     await assertSucceeds(deleteDoc(doc(admin, 'avisosGestao', 'aviso-noc')));
   });
 });
+
+/**
+ * NOME-PLANTONISTA-1 — o participante guarda o nome de exibição para quem só
+ * consulta o Plantão (e não lê o cadastro de outras equipes) ver o nome.
+ */
+describe('NOME-PLANTONISTA-1 — nomeExibicao no participante de Plantão', () => {
+  function participante(login: string, extra: Record<string, unknown> = {}) {
+    return {
+      grupoId: 'PLANTAO_NOME',
+      login,
+      ativo: true,
+      ordem: 0,
+      contatos: [],
+      schemaVersion: 1,
+      criadoPorLogin: usuarios.admin.login,
+      criadoEm: '2026-10-31T00:00:00.000Z',
+      atualizadoEm: '2026-10-31T00:00:00.000Z',
+      ...extra,
+    };
+  }
+
+  beforeEach(async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_NOME'), {
+        grupoId: 'PLANTAO_NOME',
+        nome: 'Plantão Nome',
+        equipeResponsavelId: 'EQ_COSI_SOC',
+        equipesConsulta: ['EQ_COSI_SOC'],
+        timezone: 'America/Sao_Paulo',
+        ativo: true,
+        schemaVersion: 1,
+        criadoPorLogin: usuarios.admin.login,
+        criadoEm: '2026-10-31T00:00:00.000Z',
+        atualizadoEm: '2026-10-31T00:00:00.000Z',
+      });
+    });
+  });
+
+  it('aceita nome curto na criação e na atualização; recusa vazio, longo demais ou não-texto', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    const caminho = (login: string) => doc(admin, 'gruposPlantao', 'PLANTAO_NOME', 'participantes', login);
+    await assertSucceeds(setDoc(caminho(usuarios.colaborador.login), participante(usuarios.colaborador.login, { nomeExibicao: 'Caio Monteiro' })));
+    await assertSucceeds(setDoc(caminho(usuarios.colaborador.login), participante(usuarios.colaborador.login, { nomeExibicao: 'Caio M.' })));
+    await assertFails(setDoc(caminho(usuarios.colega.login), participante(usuarios.colega.login, { nomeExibicao: '' })));
+    await assertFails(setDoc(caminho(usuarios.colega.login), participante(usuarios.colega.login, { nomeExibicao: 'x'.repeat(121) })));
+    await assertFails(setDoc(caminho(usuarios.colega.login), participante(usuarios.colega.login, { nomeExibicao: 42 })));
+  });
+
+  it('o próprio plantonista continua sem poder alterar o nome (só contatos e cor)', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(
+        doc(contexto.firestore(), 'gruposPlantao', 'PLANTAO_NOME', 'participantes', usuarios.colaborador.login),
+        participante(usuarios.colaborador.login, { nomeExibicao: 'Caio Monteiro' }),
+      );
+    });
+    const proprio = autenticarComo(usuarios.colaborador);
+    await assertFails(updateDoc(
+      doc(proprio, 'gruposPlantao', 'PLANTAO_NOME', 'participantes', usuarios.colaborador.login),
+      { nomeExibicao: 'Outro Nome' },
+    ));
+  });
+});

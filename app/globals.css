@@ -7427,3 +7427,37 @@ button.soc-import-review-alert-row:focus-visible { background: var(--surface-mut
 .minha-equipe-abas > button.active small { background: var(--primary); color: #fff; }
 .minha-equipe .toolbar strong { display: inline-flex; align-items: center; gap: 6px; }
 .minha-equipe-explicacao { margin: 0 0 8px; }
+
+/* ESCALA-INDIVIDUAL-1 — escala do mês de uma pessoa (Minha equipe). */
+.escala-pessoa-modal { width: min(860px, calc(100vw - 24px)); }
+.escala-pessoa-mes { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.escala-pessoa-mes strong { min-width: 170px; text-align: center; font-size: 15px; text-transform: capitalize; }
+.escala-pessoa-grade { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.escala-pessoa-cabecalho { padding: 4px 0; color: var(--muted); font-size: 11px; font-weight: 800; text-align: center; text-transform: uppercase; }
+.escala-pessoa-dia {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  min-height: 74px;
+  padding: 6px 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.escala-pessoa-dia > small { color: var(--muted); font-size: 10.5px; font-weight: 700; }
+.escala-pessoa-dia > .shift-chip { position: relative; min-width: 30px; }
+.escala-pessoa-dia > em { color: var(--muted); font-size: 10px; font-style: normal; }
+.escala-pessoa-sem { color: var(--muted); }
+.escala-pessoa-resumo {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.escala-pessoa-resumo > div { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
+.escala-pessoa-resumo dt { color: var(--muted); font-size: 11.5px; font-weight: 650; }
+.escala-pessoa-resumo dd { margin: 2px 0 0; color: var(--text); font-size: 20px; font-weight: 800; }
+@media (max-width: 560px) {
+  .escala-pessoa-dia { min-height: 60px; }
+  .escala-pessoa-dia > em { display: none; }
+}

@@ -3,6 +3,7 @@
 import {
   CATALOGO_SOC,
   calcularTotais,
+  codigoPeriodoDia,
   conferirContabilidadePlantao,
   criarDiaHoraExtra,
   dataIsoLocal,
@@ -32,6 +33,7 @@ import {
   type ResultadoParse,
   type ResultadoParsePlantao,
   temErroBloqueante,
+  type TipoTurno,
   type TurnosMes,
 } from '@escala-ici/contrato';
 import {
@@ -2171,6 +2173,175 @@ function ModalExcluirUsuario({
   );
 }
 
+/**
+ * ESCALA-INDIVIDUAL-1 — escala de UMA pessoa no mês, no formato que os
+ * coordenadores já usam no Controle de Plantão: calendário + resumo (dias
+ * trabalhados e folgas por tipo de dia) + legenda. Só leitura.
+ */
+function deslocarCompetencia(competencia: string, meses: number): string {
+  const [ano, mes] = competencia.split('-').map(Number);
+  if (!ano || !mes) {
+    return competencia;
+  }
+  const base = new Date(Date.UTC(ano, mes - 1 + meses, 1));
+  return `${base.getUTCFullYear()}-${String(base.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+const DIAS_SEMANA_CURTOS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+function ModalEscalaPessoa({
+  pessoa,
+  equipeId,
+  competenciaInicial,
+  catalogo,
+  modoDemo,
+  documentosDemo,
+  onFechar,
+}: {
+  pessoa: Usuario;
+  equipeId: string;
+  competenciaInicial: string;
+  catalogo: Record<string, TipoTurno>;
+  modoDemo: boolean;
+  documentosDemo: readonly TurnosMes[];
+  onFechar: () => void;
+}) {
+  const [competencia, setCompetencia] = useState(competenciaInicial);
+  const [estado, setEstado] = useState<{ carregando: boolean; documento: TurnosMes | null; erro: string }>(
+    { carregando: true, documento: null, erro: '' },
+  );
+  useTeclaEsc(onFechar);
+
+  useEffect(() => {
+    let cancelado = false;
+    void Promise.resolve().then(() => {
+      if (!cancelado) setEstado({ carregando: true, documento: null, erro: '' });
+    });
+    const carregar = modoDemo
+      ? Promise.resolve(documentosDemo.find((item) => item.login === pessoa.login && item.competencia === competencia) ?? null)
+      : Promise.all([
+        carregarEscalasEquipe(equipeId, competencia, true),
+        carregarRascunhosEquipe(equipeId, competencia),
+      ]).then(([publicadas, rascunhos]) => publicadas.find((item) => item.login === pessoa.login)
+        ?? rascunhos.find((item) => item.login === pessoa.login)
+        ?? null);
+    void carregar
+      .then((documento) => {
+        if (!cancelado) setEstado({ carregando: false, documento, erro: '' });
+      })
+      .catch((falha: unknown) => {
+        if (!cancelado) {
+          setEstado({ carregando: false, documento: null, erro: mensagemErroFirebase(falha, 'Não foi possível carregar a escala.', ambienteFirebaseAtual) });
+        }
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [competencia, equipeId, pessoa.login, modoDemo, documentosDemo]);
+
+  const documento = estado.documento;
+  const datas = documento === null ? [] : Object.keys(documento.dias).sort();
+  const deslocamentoInicial = datas.length === 0 ? 0 : new Date(`${datas[0]}T12:00:00Z`).getUTCDay();
+  const totais = documento === null ? null : calcularTotais(documento.dias, catalogo);
+  // Folgas de DSR (DF/DU) separadas por tipo de dia — mesmo critério do Controle de Plantão.
+  const folgas = { sabado: 0, semana: 0, domingo: 0 };
+  for (const data of datas) {
+    const codigo = documento?.dias[data]?.c ?? '';
+    if (codigo !== 'DF' && codigo !== 'DU') {
+      continue;
+    }
+    const diaSemana = new Date(`${data}T12:00:00Z`).getUTCDay();
+    if (diaSemana === 6) folgas.sabado += 1;
+    else if (diaSemana === 0) folgas.domingo += 1;
+    else folgas.semana += 1;
+  }
+  const extras = totais === null ? [] : [
+    { rotulo: 'Folga feriado', valor: totais.folga },
+    { rotulo: 'Hora extra', valor: totais.he },
+    { rotulo: 'Férias', valor: totais.x },
+    { rotulo: 'Banco de horas', valor: totais.bh },
+    { rotulo: 'Aniversário', valor: totais.an },
+    { rotulo: 'Atestado/afastamento', valor: totais.afa },
+  ].filter((item) => item.valor > 0);
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal escala-pessoa-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="escala-pessoa-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Escala individual</p>
+            <h2 id="escala-pessoa-title">{pessoa.nome}</h2>
+            <p>
+              {pessoa.login}
+              {documento !== null && ` · ${documento.status === 'PUBLICADA' ? 'Publicada' : 'Rascunho'}`}
+            </p>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar"><X size={18} /></button>
+        </div>
+
+        <div className="escala-pessoa-mes">
+          <button className="icon-button" type="button" onClick={() => setCompetencia((atual) => deslocarCompetencia(atual, -1))} aria-label="Mês anterior">
+            <ArrowLeft size={16} />
+          </button>
+          <strong>{formatarCompetencia(competencia)}</strong>
+          <button className="icon-button" type="button" onClick={() => setCompetencia((atual) => deslocarCompetencia(atual, 1))} aria-label="Próximo mês">
+            <ChevronRight size={16} />
+          </button>
+        </div>
+
+        {estado.carregando ? (
+          <p className="empty-inline" role="status"><LoaderCircle className="spin" size={14} /> Carregando…</p>
+        ) : estado.erro ? (
+          <div className="alert error" role="alert">{estado.erro}</div>
+        ) : documento === null ? (
+          <p className="empty-inline">Sem escala para {formatarCompetencia(competencia)}.</p>
+        ) : (
+          <>
+            <div className="escala-pessoa-grade" role="grid" aria-label={`Escala de ${pessoa.nome}`}>
+              {DIAS_SEMANA_CURTOS.map((dia) => <span key={dia} className="escala-pessoa-cabecalho">{dia}</span>)}
+              {Array.from({ length: deslocamentoInicial }, (_, indice) => <span key={`vazio-${indice}`} aria-hidden="true" />)}
+              {datas.map((data) => {
+                const dia = documento.dias[data];
+                const periodo = codigoPeriodoDia(dia);
+                const horaExtra = dia?.t !== undefined;
+                return (
+                  <div key={data} className="escala-pessoa-dia" title={catalogo[dia?.c ?? '']?.descricao ?? ''}>
+                    <small>{data.slice(8, 10)}/{data.slice(5, 7)}</small>
+                    {periodo ? (
+                      <span className="shift-chip" data-code={periodo} data-hora-extra={horaExtra ? '' : undefined}>
+                        {periodo}
+                        {horaExtra && <span className="shift-chip-he" aria-hidden="true">{dia?.c}</span>}
+                      </span>
+                    ) : <span className="escala-pessoa-sem">—</span>}
+                    {dia?.i && dia?.f && <em>{dia.i}–{dia.f}</em>}
+                  </div>
+                );
+              })}
+            </div>
+
+            <dl className="escala-pessoa-resumo">
+              <div><dt>Dias trabalhados</dt><dd>{totais?.diasTrabalhados ?? 0}</dd></div>
+              <div><dt>Horas de jornada</dt><dd>{formatarMinutos(totais?.min ?? 0)}</dd></div>
+              <div><dt>Folgas sábado</dt><dd>{folgas.sabado}</dd></div>
+              <div><dt>Folgas dia de semana</dt><dd>{folgas.semana}</dd></div>
+              <div><dt>Folgas domingo</dt><dd>{folgas.domingo}</dd></div>
+              {extras.map((item) => <div key={item.rotulo}><dt>{item.rotulo}</dt><dd>{item.valor}</dd></div>)}
+            </dl>
+
+            <ScheduleLegend catalogo={catalogo} />
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function ModalDetalheTrocaGestor({
   troca,
   alertasHipoteticos,
@@ -3822,6 +3993,8 @@ export function DashboardApp() {
   const [avisosGestao, setAvisosGestao] = useState<AvisoGestao[]>([]);
   /** Cadastro de pessoa nova aberto a partir de "Minha equipe": a equipe vem fixa daqui. */
   const [equipeCadastroForcada, setEquipeCadastroForcada] = useState<string | null>(null);
+  /** ESCALA-INDIVIDUAL-1 — pessoa cuja escala do mês está aberta em Minha equipe. */
+  const [pessoaEscalaAberta, setPessoaEscalaAberta] = useState<Usuario | null>(null);
   /** MINHA-EQUIPE-PLANTAO — pessoa nova cadastrada pela aba de um Plantão entra como participante dele. */
   const [grupoParticipanteNovoCadastro, setGrupoParticipanteNovoCadastro] = useState<string | null>(null);
   const [carregandoParticipantesMinhaEquipe, setCarregandoParticipantesMinhaEquipe] = useState(false);
@@ -8044,13 +8217,14 @@ export function DashboardApp() {
     const agora = new Date().toISOString();
     const existente = (participantesPorGrupoPlantao[grupoId] ?? []).find((item) => item.login === usuario.login);
     const participante: ParticipantePlantao = existente !== undefined
-      ? { ...existente, ativo: true, atualizadoEm: agora }
+      ? { ...existente, ativo: true, nomeExibicao: usuario.nome.slice(0, 120), atualizadoEm: agora }
       : {
         grupoId,
         login: usuario.login,
         ativo: true,
         ordem: (participantesPorGrupoPlantao[grupoId] ?? []).length,
         contatos: [],
+        nomeExibicao: usuario.nome.slice(0, 120),
         schemaVersion: 1,
         criadoPorLogin: usuarioReal.login,
         criadoEm: agora,
@@ -8164,6 +8338,7 @@ export function DashboardApp() {
         participantesExistentes,
         loginAtual: usuarioReal.login,
         agoraIso: agora,
+        nomesPorLogin: Object.fromEntries(usuarios.map((item) => [item.login, item.nome])),
       });
 
       const competenciaId = idCompetenciaPlantao(grupo.grupoId, competencia);
@@ -8675,6 +8850,18 @@ export function DashboardApp() {
         if (cancelado) return;
         setParticipantesPorGrupoPlantao((atuais) => ({ ...atuais, [grupo.grupoId]: participantes }));
         setUsuariosPorGrupoPlantao((atuais) => ({ ...atuais, [grupo.grupoId]: candidatos }));
+        // NOME-PLANTONISTA-1 — completa o nome de quem ainda não tem, para o
+        // App de quem só consulta o Plantão mostrar "Bruno Bueno", não "brubueno".
+        if (!escritaBloqueada && podeGerenciarEsteGrupoPlantao(grupo)) {
+          const agora = new Date().toISOString();
+          for (const participante of participantes) {
+            const nome = candidatos.find((item) => item.login === participante.login)?.nome?.trim();
+            if (nome && participante.nomeExibicao !== nome) {
+              void salvarParticipantePlantao({ ...participante, nomeExibicao: nome.slice(0, 120), atualizadoEm: agora })
+                .catch(() => { /* complementar: nunca bloqueia a tela */ });
+            }
+          }
+        }
       })
       .catch((falha: unknown) => {
         if (!cancelado) setMensagem(mensagemErroFirebase(falha, 'Não foi possível carregar os participantes do Plantão.', ambienteFirebaseAtual));
@@ -11106,6 +11293,9 @@ export function DashboardApp() {
                               <td><span className={`status-badge ${item.ativo ? 'success' : 'neutral'}`}>{item.ativo ? 'Ativo' : 'Inativo'}</span></td>
                               <td>
                                 <div className="user-row-actions">
+                                  <button className="icon-button" type="button" title="Ver escala do mês" onClick={() => setPessoaEscalaAberta(item)}>
+                                    <CalendarDays size={15} />
+                                  </button>
                                   <button className="icon-button" type="button" title="Editar" disabled={escritaBloqueada} onClick={() => abrirEdicaoUsuario(item)}>
                                     <Pencil size={15} />
                                   </button>
@@ -11144,6 +11334,18 @@ export function DashboardApp() {
               </article>
               )}
             </>
+          )}
+
+          {pessoaEscalaAberta && equipeAtivaMinhaEquipe !== null && (
+            <ModalEscalaPessoa
+              pessoa={pessoaEscalaAberta}
+              equipeId={equipeAtivaMinhaEquipe.id}
+              competenciaInicial={contextoEscalaAtivo?.competencia ?? competenciaOperacionalHoje}
+              catalogo={catalogo}
+              modoDemo={modoDemo}
+              documentosDemo={documentos}
+              onFechar={() => setPessoaEscalaAberta(null)}
+            />
           )}
 
           {buscaPessoaAberta && (

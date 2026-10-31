@@ -284,8 +284,14 @@ export function montarParticipantesPlantaoParaSalvar(opcoes: {
   participantesExistentes: readonly ParticipantePlantao[];
   loginAtual: string;
   agoraIso: string;
+  /** NOME-PLANTONISTA-1 — nome do cadastro por login, gravado como `nomeExibicao`. */
+  nomesPorLogin?: Readonly<Record<string, string>>;
 }): ParticipantePlantao[] {
   const { grupoId, vinculos, participantesExistentes, loginAtual, agoraIso } = opcoes;
+  const nomeDe = (login: string): { nomeExibicao?: string } => {
+    const nome = opcoes.nomesPorLogin?.[login]?.trim();
+    return nome ? { nomeExibicao: nome.slice(0, 120) } : {};
+  };
   const existentesPorLogin = new Map(participantesExistentes.map((item) => [item.login, item]));
   const logins = [...new Set(
     vinculos.map((vinculo) => vinculo.login).filter((login): login is string => login !== null),
@@ -294,7 +300,7 @@ export function montarParticipantesPlantaoParaSalvar(opcoes: {
   return logins.map((login, indice) => {
     const existente = existentesPorLogin.get(login);
     if (existente !== undefined) {
-      return { ...existente, ativo: true, atualizadoEm: agoraIso };
+      return { ...existente, ...nomeDe(login), ativo: true, atualizadoEm: agoraIso };
     }
     const novo: ParticipantePlantao = {
       grupoId,
@@ -302,6 +308,7 @@ export function montarParticipantesPlantaoParaSalvar(opcoes: {
       ativo: true,
       ordem: indice,
       contatos: [],
+      ...nomeDe(login),
       schemaVersion: 1,
       criadoPorLogin: loginAtual,
       criadoEm: agoraIso,

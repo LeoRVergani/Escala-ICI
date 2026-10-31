@@ -338,6 +338,11 @@ service cloud.firestore {
      * Nunca uma cor livre/hex: restringir a um índice fixo garante que todo
      * valor gravado corresponde a uma cor com contraste já validado.
      */
+    // NOME-PLANTONISTA-1 — nome de exibição opcional no participante (texto curto).
+    function nomeExibicaoPlantonistaValido(nome) {
+      return nome == null || (nome is string && nome.size() > 0 && nome.size() <= 120);
+    }
+
     function corPlantonistaPreferidaValida(cor) {
       return cor == null || (cor is int && cor >= 0 && cor <= 7);
     }
@@ -2069,8 +2074,9 @@ service cloud.firestore {
         && contatosPlantonistaValidos(request.resource.data.contatos)
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.criadoPorLogin == loginDoAuth()
+        && nomeExibicaoPlantonistaValido(request.resource.data.get('nomeExibicao', null))
         && request.resource.data.keys().hasOnly([
-          'grupoId', 'login', 'ativo', 'ordem', 'contatos',
+          'grupoId', 'login', 'ativo', 'ordem', 'contatos', 'nomeExibicao',
           'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
         ]);
 
@@ -2086,8 +2092,9 @@ service cloud.firestore {
             && contatosPlantonistaValidos(request.resource.data.contatos)
             && corPlantonistaPreferidaValida(request.resource.data.get('corPreferida', null))
             && request.resource.data.schemaVersion in [1]
+            && nomeExibicaoPlantonistaValido(request.resource.data.get('nomeExibicao', null))
             && request.resource.data.keys().hasOnly([
-              'grupoId', 'login', 'ativo', 'ordem', 'contatos', 'corPreferida',
+              'grupoId', 'login', 'ativo', 'ordem', 'contatos', 'corPreferida', 'nomeExibicao',
               'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoEm',
             ])
           )
