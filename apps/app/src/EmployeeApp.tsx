@@ -208,6 +208,7 @@ import { perfilEfetivo } from '@/lib/sessao';
 import { resolverEscoposOperacionais } from '@/lib/escoposOperacionais';
 import { listarEquipesLeitura, listarUnidadesLeitura } from '@/lib/firebase/estruturaLeitura';
 import { listarEscoposOperacionais } from '@/lib/firebase/escoposOperacionaisRepository';
+import { PainelHojeEquipes, VisaoEquipesCoordenador, type EquipeJornadaVisao, type PlantaoVisao } from './VisaoCoordenador';
 import {
   AVISO_APROVACAO_NAO_PUBLICA,
   destinatariosNotificacaoGestorPlantao,
@@ -2927,6 +2928,14 @@ export function EmployeeApp() {
   const [ultimaDecisaoTroca, setUltimaDecisaoTroca] = useState<{ texto: string; aprovada: boolean } | null>(null);
   /** APROVAR-TROCA-APP-2 — escalas 6x1 que a pessoa administra (mesma regra do Dashboard). */
   const [jornadasAdministradasApp, setJornadasAdministradasApp] = useState<string[]>([]);
+  /** VISAO-COORDENADOR-APP-1 — equipes 6x1 e Plantões administrados, com a escala do mês. */
+  const [estruturaCoordenacaoApp, setEstruturaCoordenacaoApp] = useState<{
+    equipes: Array<{ id: string; nome: string }>;
+    grupos: GrupoPlantao[];
+  }>({ equipes: [], grupos: [] });
+  const [visaoCoordenacaoApp, setVisaoCoordenacaoApp] = useState<{ equipes: EquipeJornadaVisao[]; plantoes: PlantaoVisao[] }>(
+    { equipes: [], plantoes: [] },
+  );
   const [processandoTroca, setProcessandoTroca] = useState(false);
   const [erroTroca, setErroTroca] = useState('');
   const [estadoNotificacoesPush, setEstadoNotificacoesPush] = useState<EstadoNotificacoesPush>('NAO_CONFIGURADO');
@@ -3006,10 +3015,26 @@ export function EmployeeApp() {
     }
     let cancelado = false;
     void Promise.all([listarUnidadesLeitura(), listarEquipesLeitura(), listarEscoposOperacionais()])
-      .then(([unidades, equipes, escopos]) => {
+      .then(async ([unidades, equipes, escopos]) => {
+        const semGrupos = resolverEscoposOperacionais(usuario, unidades, equipes, [], escopos, { permitirFallbackLegado: true });
+        // VISAO-COORDENADOR-APP-1 — Grupos de Plantão pela mesma consulta que o
+        // App já usa (grupos visíveis a uma equipe), para cada equipe que a
+        // pessoa organiza; depois o resolvedor filtra só os ADMINISTRADOS.
+        const equipesBusca = [...new Set([
+          usuario.equipeId,
+          ...(usuario.equipesPermitidas ?? []),
+          ...semGrupos.jornadasAdministraveis.map((equipe) => equipe.id),
+        ].filter((item): item is string => Boolean(item)))].slice(0, 12);
+        const listas = await Promise.all(equipesBusca.map((equipeId) => listarGruposPlantaoPermitidos(equipeId).catch(() => [] as GrupoPlantao[])));
+        const grupos = [...new Map(listas.flat().map((grupo) => [grupo.grupoId, grupo])).values()];
         if (cancelado) return;
-        const escoposResolvidos = resolverEscoposOperacionais(usuario, unidades, equipes, [], escopos, { permitirFallbackLegado: true });
+        const escoposResolvidos = resolverEscoposOperacionais(usuario, unidades, equipes, grupos, escopos, { permitirFallbackLegado: true });
         setJornadasAdministradasApp(escoposResolvidos.jornadasAdministraveis.map((equipe) => equipe.id));
+        // VISAO-COORDENADOR-APP-1 — só os Plantões que a pessoa ADMINISTRA (não os que só consulta).
+        setEstruturaCoordenacaoApp({
+          equipes: escoposResolvidos.jornadasAdministraveis.map((equipe) => ({ id: equipe.id, nome: equipe.nome })),
+          grupos: escoposResolvidos.plantoesAdministraveis.filter((grupo) => grupo.ativo !== false),
+        });
       })
       .catch(() => {
         // Sem a estrutura, fica só a base (equipe própria + permitidas).
@@ -3020,6 +3045,54 @@ export function EmployeeApp() {
     // `usuario` muda de referência a cada leitura do cadastro; login e perfil bastam.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listenersLiberados, loginUsuario, souCoordenacaoApp]);
+  const chaveEstruturaCoordenacao = `${estruturaCoordenacaoApp.equipes.map((item) => item.id).join('|')}#${estruturaCoordenacaoApp.grupos.map((item) => item.grupoId).join('|')}`;
+  const telaUsaVisaoCoordenacao = tela === 'hoje' || tela === 'equipe';
+  useEffect(() => {
+    if (!listenersLiberados || !souCoordenacaoApp || !telaUsaVisaoCoordenacao || chaveEstruturaCoordenacao === '#') {
+      return undefined;
+    }
+    let cancelado = false;
+    const { equipes, grupos } = estruturaCoordenacaoApp;
+    void Promise.all([
+      Promise.all(equipes.map(async (equipe): Promise<EquipeJornadaVisao> => {
+        try {
+          const [documentos, pessoas] = await Promise.all([
+            carregarEscalasEquipe(equipe.id, competenciaAtiva, true),
+            listarUsuarios(equipe.id).catch(() => [] as Usuario[]),
+          ]);
+          return { id: equipe.id, nome: equipe.nome, documentos, nomes: new Map(pessoas.map((pessoa) => [pessoa.login, pessoa.nome])) };
+        } catch {
+          return { id: equipe.id, nome: equipe.nome, documentos: [], nomes: new Map() };
+        }
+      })),
+      Promise.all(grupos.map(async (grupo): Promise<PlantaoVisao> => {
+        try {
+          const [competencia, participantes] = await Promise.all([
+            obterCompetenciaPlantaoPublicadaNaData(grupo.grupoId, dataHoje),
+            listarParticipantesPlantao(grupo.grupoId).catch(() => []),
+          ]);
+          registrarNomesPlantonistas(participantes);
+          const atribuicoes = competencia === null ? [] : await listarAtribuicoesPlantaoPublicada(grupo.grupoId, competencia.competencia);
+          return { grupo, atribuicoes };
+        } catch {
+          return { grupo, atribuicoes: [] };
+        }
+      })),
+    ]).then(([equipesCarregadas, plantoesCarregados]) => {
+      if (!cancelado) {
+        setVisaoCoordenacaoApp({
+          equipes: equipesCarregadas.filter((item) => item.documentos.length > 0 || equipes.length <= 3),
+          plantoes: plantoesCarregados,
+        });
+      }
+    });
+    return () => {
+      cancelado = true;
+    };
+    // A estrutura entra pela chave; recarrega ao trocar de mês ou de tela.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listenersLiberados, souCoordenacaoApp, telaUsaVisaoCoordenacao, chaveEstruturaCoordenacao, competenciaAtiva, dataHoje]);
+
   const equipesQueCoordenoApp = usuario !== null && souCoordenacaoApp
     ? [...new Set([
       usuario.equipeId,
@@ -4715,6 +4788,16 @@ export function EmployeeApp() {
               <ChevronRight size={18} aria-hidden="true" />
             </button>
           )}
+          {souCoordenacaoApp && (
+            <PainelHojeEquipes
+              equipes={visaoCoordenacaoApp.equipes}
+              plantoes={visaoCoordenacaoApp.plantoes}
+              dataHoje={dataHoje}
+              agoraIso={agora.toISOString()}
+              catalogo={catalogo}
+              onAbrir={() => setTela('equipe')}
+            />
+          )}
 
           {/*
             FASE-APP-OPERACOES-UNIVERSAIS-1 — regra 4: Jornada e Plantão
@@ -5582,6 +5665,14 @@ export function EmployeeApp() {
 
       {tela === 'equipe' && (
         <section className="employee-screen employee-team-screen">
+          {souCoordenacaoApp && (visaoCoordenacaoApp.equipes.length > 0 || visaoCoordenacaoApp.plantoes.length > 0) && (
+            <VisaoEquipesCoordenador
+              equipes={visaoCoordenacaoApp.equipes}
+              plantoes={visaoCoordenacaoApp.plantoes}
+              dataHoje={dataHoje}
+              catalogo={catalogo}
+            />
+          )}
           <header className="page-heading">
             <div>
               <p className="eyebrow">COSI &gt; SOC</p>
