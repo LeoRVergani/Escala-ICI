@@ -2936,6 +2936,15 @@ export function EmployeeApp() {
   const [visaoCoordenacaoApp, setVisaoCoordenacaoApp] = useState<{ equipes: EquipeJornadaVisao[]; plantoes: PlantaoVisao[] }>(
     { equipes: [], plantoes: [] },
   );
+  /**
+   * VISAO-COORDENADOR-APP-2 — estado visível da carga: o painel nunca some
+   * em silêncio para quem coordena (antes, sem dados ele simplesmente não
+   * aparecia e não havia como saber o motivo).
+   */
+  const [diagnosticoVisaoCoordenacao, setDiagnosticoVisaoCoordenacao] = useState<{
+    estado: 'carregando' | 'pronto';
+    falhas: string[];
+  }>({ estado: 'carregando', falhas: [] });
   const [processandoTroca, setProcessandoTroca] = useState(false);
   const [erroTroca, setErroTroca] = useState('');
   const [estadoNotificacoesPush, setEstadoNotificacoesPush] = useState<EstadoNotificacoesPush>('NAO_CONFIGURADO');
@@ -3025,7 +3034,10 @@ export function EmployeeApp() {
           ...(usuario.equipesPermitidas ?? []),
           ...semGrupos.jornadasAdministraveis.map((equipe) => equipe.id),
         ].filter((item): item is string => Boolean(item)))].slice(0, 12);
-        const listas = await Promise.all(equipesBusca.map((equipeId) => listarGruposPlantaoPermitidos(equipeId).catch(() => [] as GrupoPlantao[])));
+        const listas = await Promise.all(equipesBusca.map((equipeId) => listarGruposPlantaoPermitidos(equipeId).catch((falha: unknown) => {
+          console.warn('[visao-coordenacao] grupos de plantão visíveis a', equipeId, falha);
+          return [] as GrupoPlantao[];
+        })));
         const grupos = [...new Map(listas.flat().map((grupo) => [grupo.grupoId, grupo])).values()];
         if (cancelado) return;
         const escoposResolvidos = resolverEscoposOperacionais(usuario, unidades, equipes, grupos, escopos, { permitirFallbackLegado: true });
@@ -3035,9 +3047,16 @@ export function EmployeeApp() {
           equipes: escoposResolvidos.jornadasAdministraveis.map((equipe) => ({ id: equipe.id, nome: equipe.nome })),
           grupos: escoposResolvidos.plantoesAdministraveis.filter((grupo) => grupo.ativo !== false),
         });
+        if (escoposResolvidos.jornadasAdministraveis.length === 0 && escoposResolvidos.plantoesAdministraveis.length === 0) {
+          setDiagnosticoVisaoCoordenacao({ estado: 'pronto', falhas: [] });
+        }
       })
-      .catch(() => {
+      .catch((falha: unknown) => {
         // Sem a estrutura, fica só a base (equipe própria + permitidas).
+        console.warn('[visao-coordenacao] estrutura organizacional', falha);
+        if (!cancelado) {
+          setDiagnosticoVisaoCoordenacao({ estado: 'pronto', falhas: [`Estrutura da organização: ${(falha instanceof Error ? falha.message : String(falha))}`] });
+        }
       });
     return () => {
       cancelado = true;
@@ -3053,6 +3072,11 @@ export function EmployeeApp() {
     }
     let cancelado = false;
     const { equipes, grupos } = estruturaCoordenacaoApp;
+    const falhas: string[] = [];
+    const descrever = (falha: unknown) => {
+      const codigo = typeof falha === 'object' && falha !== null && 'code' in falha ? String((falha as { code: unknown }).code) : '';
+      return codigo.includes('permission-denied') ? 'sem permissão de leitura' : (falha instanceof Error ? falha.message : String(falha));
+    };
     void Promise.all([
       Promise.all(equipes.map(async (equipe): Promise<EquipeJornadaVisao> => {
         try {
@@ -3061,7 +3085,9 @@ export function EmployeeApp() {
             listarUsuarios(equipe.id).catch(() => [] as Usuario[]),
           ]);
           return { id: equipe.id, nome: equipe.nome, documentos, nomes: new Map(pessoas.map((pessoa) => [pessoa.login, pessoa.nome])) };
-        } catch {
+        } catch (falha) {
+          console.warn('[visao-coordenacao] escala da equipe', equipe.id, falha);
+          falhas.push(`${equipe.nome}: ${descrever(falha)}`);
           return { id: equipe.id, nome: equipe.nome, documentos: [], nomes: new Map() };
         }
       })),
@@ -3074,16 +3100,19 @@ export function EmployeeApp() {
           registrarNomesPlantonistas(participantes);
           const atribuicoes = competencia === null ? [] : await listarAtribuicoesPlantaoPublicada(grupo.grupoId, competencia.competencia);
           return { grupo, atribuicoes };
-        } catch {
+        } catch (falha) {
+          console.warn('[visao-coordenacao] plantão', grupo.grupoId, falha);
+          falhas.push(`${rotuloGrupoPlantao(grupo.nome)}: ${descrever(falha)}`);
           return { grupo, atribuicoes: [] };
         }
       })),
     ]).then(([equipesCarregadas, plantoesCarregados]) => {
       if (!cancelado) {
-        setVisaoCoordenacaoApp({
-          equipes: equipesCarregadas.filter((item) => item.documentos.length > 0 || equipes.length <= 3),
-          plantoes: plantoesCarregados,
-        });
+        // VISAO-COORDENADOR-APP-2 — nenhuma equipe é descartada: sem escala ela
+        // aparece com "Sem escala publicada" (antes, com mais de 3 equipes, as
+        // que falhavam sumiam e o painel inteiro podia ficar vazio).
+        setVisaoCoordenacaoApp({ equipes: equipesCarregadas, plantoes: plantoesCarregados });
+        setDiagnosticoVisaoCoordenacao({ estado: 'pronto', falhas });
       }
     });
     return () => {
@@ -4796,6 +4825,7 @@ export function EmployeeApp() {
               agoraIso={agora.toISOString()}
               catalogo={catalogo}
               onAbrir={() => setTela('equipe')}
+              diagnostico={diagnosticoVisaoCoordenacao}
             />
           )}
 
@@ -5665,12 +5695,13 @@ export function EmployeeApp() {
 
       {tela === 'equipe' && (
         <section className="employee-screen employee-team-screen">
-          {souCoordenacaoApp && (visaoCoordenacaoApp.equipes.length > 0 || visaoCoordenacaoApp.plantoes.length > 0) && (
+          {souCoordenacaoApp && (
             <VisaoEquipesCoordenador
               equipes={visaoCoordenacaoApp.equipes}
               plantoes={visaoCoordenacaoApp.plantoes}
               dataHoje={dataHoje}
               catalogo={catalogo}
+              diagnostico={diagnosticoVisaoCoordenacao}
             />
           )}
           <header className="page-heading">
