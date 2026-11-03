@@ -7764,3 +7764,90 @@ a.plantao-contato-linha:focus-visible { background: var(--surface-muted); }
 /* DECISAO-TROCA-APP-UX */
 .troca-motivo-dica { color: var(--muted); font-size: 11.5px; font-weight: 500; }
 .troca-decisao-confirmacao { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+
+/* =====================================================================
+ * VISAO-COORDENADOR-APP-1 — equipes do coordenador no App (consulta).
+ * ===================================================================== */
+.visao-coord-hoje { margin-bottom: 16px; }
+.visao-coord-hoje .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.visao-coord-hoje-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; padding: 4px 18px 18px; }
+.visao-coord-cartao { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.visao-coord-cartao > header { display: flex; align-items: center; gap: 8px; color: var(--text); }
+.visao-coord-cartao > header strong { flex: 1 1 auto; font-size: 14px; }
+.visao-coord-cartao > header small {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.visao-coord-turnos { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.visao-coord-turnos > li { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 10px; }
+.visao-coord-turnos > li > span:last-child { display: grid; gap: 1px; min-width: 0; }
+.visao-coord-turnos strong { color: var(--text); font-size: 13px; }
+.visao-coord-turnos small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.visao-coord-turnos > li[data-descoberto] small { color: var(--danger); font-weight: 700; }
+.visao-coord-turnos .shift-chip { min-width: 30px; }
+.visao-coord-selo {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.visao-coord-selo[data-tipo="agora"] { background: color-mix(in srgb, var(--success) 14%, var(--surface)); color: var(--success); }
+.visao-coord-folgas { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.visao-coord-folgas strong { color: var(--text); }
+
+.visao-coord-equipes { margin-bottom: 16px; }
+.visao-coord-equipes > *:not(.panel-title) { margin-left: 18px; margin-right: 18px; }
+.visao-coord-equipes > *:last-child { margin-bottom: 18px; }
+.visao-coord-abas { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 2px; }
+.visao-coord-abas > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 650;
+  cursor: pointer;
+}
+.visao-coord-abas > button small { color: var(--muted); font-size: 10.5px; }
+.visao-coord-abas > button.active {
+  border-color: var(--primary-bright);
+  background: color-mix(in srgb, var(--primary-bright) 10%, var(--surface));
+}
+.visao-coord-semana-nav { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 10px; }
+.visao-coord-semana-nav strong { font-size: 13.5px; }
+.visao-coord-tabela-rolagem { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+.visao-coord-tabela { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 12.5px; }
+.visao-coord-tabela th,
+.visao-coord-tabela td { padding: 8px 6px; border-bottom: 1px solid var(--border); text-align: center; }
+.visao-coord-tabela thead th { color: var(--muted); font-size: 11px; font-weight: 800; }
+.visao-coord-tabela tbody th { position: sticky; left: 0; z-index: 1; background: var(--surface); text-align: left; white-space: nowrap; }
+.visao-coord-tabela [data-hoje] { background: color-mix(in srgb, var(--primary-bright) 8%, var(--surface)); }
+.visao-coord-tabela .shift-chip { position: relative; min-width: 28px; }
+.visao-coord-tabela tbody tr:last-child > * { border-bottom: 0; }
+.visao-coord-vazio { color: var(--muted); }
+.visao-coord-plantoes { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.visao-coord-plantoes > li { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.visao-coord-plantoes strong { font-size: 13.5px; color: var(--text); }
+.visao-coord-plantoes small { color: var(--muted); font-size: 12px; }
+
+.visao-coord-mes { width: min(620px, calc(100vw - 16px)); }
+.visao-coord-mes-grade { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+.visao-coord-mes-cabecalho { color: var(--muted); font-size: 10.5px; font-weight: 800; text-align: center; text-transform: uppercase; }
+.visao-coord-mes-dia { display: grid; justify-items: center; gap: 3px; padding: 6px 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.visao-coord-mes-dia small { color: var(--muted); font-size: 10.5px; font-weight: 700; }
+.visao-coord-mes-dia .shift-chip { position: relative; min-width: 28px; }
+.visao-coord-mes-resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin: 0; }
+.visao-coord-mes-resumo > div { padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
+.visao-coord-mes-resumo dt { color: var(--muted); font-size: 11px; font-weight: 650; }
+.visao-coord-mes-resumo dd { margin: 2px 0 0; color: var(--text); font-size: 18px; font-weight: 800; }
