@@ -606,12 +606,25 @@ export async function responderSolicitacaoTroca(
   }
 }
 
+/**
+ * APROVAR-TROCA-APP-1 — o App (autoatendimento) não tem a "escrita
+ * administrativa" do Dashboard; quem aprova pelo App passa
+ * `{ origemApp: true }`. A autorização real continua nas Rules
+ * (`podeAdministrarJornada`), como já é na aprovação de Plantão pelo App.
+ */
+export interface OpcoesDecisaoTroca {
+  origemApp?: boolean;
+}
+
 export async function gestorRecusarTroca(
   trocaId: string,
   gestor: Pick<Usuario, 'login' | 'nome'>,
   motivo: string,
+  opcoes: OpcoesDecisaoTroca = {},
 ): Promise<void> {
-  exigirEscritaAdministrativaHabilitada();
+  if (!opcoes.origemApp) {
+    exigirEscritaAdministrativaHabilitada();
+  }
   const { db } = exigirFirebase();
   const snapshot = await getDoc(doc(db, 'trocasEscala', trocaId));
   if (!snapshot.exists()) {
@@ -684,8 +697,11 @@ export async function gestorAprovarEPublicarTroca(
   trocaId: string,
   gestor: Pick<Usuario, 'login' | 'nome'>,
   catalogo: Record<string, TipoTurno>,
+  opcoes: OpcoesDecisaoTroca = {},
 ): Promise<void> {
-  exigirEscritaAdministrativaHabilitada();
+  if (!opcoes.origemApp) {
+    exigirEscritaAdministrativaHabilitada();
+  }
   const { db } = exigirFirebase();
   const agora = new Date().toISOString();
   let statusAtualParaLog: string | undefined;
@@ -842,4 +858,41 @@ export async function gestorAprovarEPublicarTroca(
     });
     throw falha;
   }
+}
+
+/** APROVAR-TROCA-APP-1 — as escalas envolvidas na troca, para o coordenador ver os alertas antes de decidir. */
+export async function carregarEscalasDaTroca(
+  troca: Pick<SolicitacaoTrocaReal, 'snapshotValidacao'>,
+): Promise<{ solicitante: TurnosMes | null; destinatario: TurnosMes | null }> {
+  const { db } = exigirFirebase();
+  const [solicitante, destinatario] = await Promise.all([
+    getDoc(doc(db, 'turnosMes', troca.snapshotValidacao.solicitanteDocId)),
+    getDoc(doc(db, 'turnosMes', troca.snapshotValidacao.destinatarioDocId)),
+  ]);
+  return {
+    solicitante: solicitante.exists() ? solicitante.data() as TurnosMes : null,
+    destinatario: destinatario.exists() ? destinatario.data() as TurnosMes : null,
+  };
+}
+
+/**
+ * APROVAR-TROCA-APP-1 — pontos de entrada do App para o coordenador decidir
+ * uma troca de 6x1. O App de autoatendimento não importa as funções
+ * administrativas do Dashboard; as Rules (`podeAdministrarJornada`) decidem
+ * quem pode, exatamente como na aprovação de Plantão pelo App.
+ */
+export async function aprovarTrocaPeloApp(
+  trocaId: string,
+  coordenador: Pick<Usuario, 'login' | 'nome'>,
+  catalogo: Record<string, TipoTurno>,
+): Promise<void> {
+  await gestorAprovarEPublicarTroca(trocaId, coordenador, catalogo, { origemApp: true });
+}
+
+export async function recusarTrocaPeloApp(
+  trocaId: string,
+  coordenador: Pick<Usuario, 'login' | 'nome'>,
+  motivo: string,
+): Promise<void> {
+  await gestorRecusarTroca(trocaId, coordenador, motivo, { origemApp: true });
 }

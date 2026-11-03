@@ -150,8 +150,12 @@ import {
 import {
   cancelarSolicitacaoTroca as cancelarSolicitacaoTrocaFirebase,
   criarSolicitacaoTroca,
+  carregarEscalasDaTroca,
   criarSolicitacaoTrocaDeFolga,
+  aprovarTrocaPeloApp,
+  recusarTrocaPeloApp,
   marcarNotificacaoTrocaComoLida,
+  observarTrocasDoGestor,
   observarNotificacoesTroca,
   observarTrocasDoUsuario,
   responderSolicitacaoTroca as responderSolicitacaoTrocaFirebase,
@@ -193,7 +197,14 @@ import {
   type NotificacaoTroca,
   type SolicitacaoTrocaReal,
 } from '@/lib/trocasEscala';
-import { diaEhFolgaTrocavel, diaEhTrabalhoTrocavel, validarTrocaDeFolga } from '@/lib/trocaFolga';
+import {
+  alertasHipoteticosDaTroca,
+  descreverAlertaTroca,
+  diaEhFolgaTrocavel,
+  diaEhTrabalhoTrocavel,
+  validarTrocaDeFolga,
+} from '@/lib/trocaFolga';
+import { perfilEfetivo } from '@/lib/sessao';
 import {
   AVISO_APROVACAO_NAO_PUBLICA,
   destinatariosNotificacaoGestorPlantao,
@@ -1815,6 +1826,92 @@ function ModalTrocaFolga({
   );
 }
 
+/**
+ * APROVAR-TROCA-APP-1 — o coordenador decide a troca de 6x1 pelo App, com
+ * a mesma informação do Dashboard: os dois lados, a mensagem e os alertas
+ * que a troca deixaria (6x1 / 11h / 35h). As Rules confirmam quem pode.
+ */
+function ModalDecisaoTrocaApp({
+  troca,
+  catalogo,
+  processando,
+  erro,
+  onFechar,
+  onAprovar,
+  onRecusar,
+}: {
+  troca: SolicitacaoTrocaReal;
+  catalogo: typeof CATALOGO_SOC;
+  processando: boolean;
+  erro: string;
+  onFechar: () => void;
+  onAprovar: () => void;
+  onRecusar: (motivo: string) => void;
+}) {
+  const [motivo, setMotivo] = useState('');
+  const [alertas, setAlertas] = useState<string[] | null>(null);
+  useEffect(() => {
+    let cancelado = false;
+    void carregarEscalasDaTroca(troca)
+      .then(({ solicitante, destinatario }) => {
+        if (!cancelado) {
+          setAlertas(alertasHipoteticosDaTroca(troca, solicitante, destinatario, catalogo).map(descreverAlertaTroca));
+        }
+      })
+      .catch(() => {
+        if (!cancelado) setAlertas([]);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [troca, catalogo]);
+
+  return (
+    <div className="modal-backdrop modal-backdrop-sheet" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal troca-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="decisao-troca-title"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">Aguardando sua aprovação</p>
+            <h2 id="decisao-troca-title">
+              {ehTrocaDeFolga(troca) ? `Troca de folga · ${troca.solicitanteNome}` : `${troca.solicitanteNome} ⇄ ${troca.destinatarioNome}`}
+            </h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar"><X size={18} /></button>
+        </div>
+        <TrocaComparacao troca={troca} />
+        {troca.mensagemSolicitante && <p className="troca-mensagem">“{troca.mensagemSolicitante}”</p>}
+        {alertas === null ? (
+          <p className="empty-inline" role="status">Conferindo as regras da escala…</p>
+        ) : alertas.length > 0 ? (
+          <div className="alert warning" role="status">
+            <strong>Essa troca deixaria {alertas.length === 1 ? '1 alerta' : `${alertas.length} alertas`}:</strong>
+            <ul>{alertas.map((texto) => <li key={texto}>{texto}</li>)}</ul>
+          </div>
+        ) : (
+          <p className="troca-sem-alertas"><CheckCircle2 size={15} aria-hidden="true" /> Sem alertas de 6x1, 11h ou 35h.</p>
+        )}
+        <label>
+          <span>Motivo, se for recusar</span>
+          <textarea value={motivo} maxLength={280} onChange={(evento) => setMotivo(evento.target.value)} placeholder="Ex.: equipe já desfalcada nesse dia" />
+        </label>
+        {erro && <div className="alert error" role="alert">{erro}</div>}
+        <div className="rollback-actions">
+          <button className="secondary-button" type="button" disabled={processando} onClick={() => onRecusar(motivo)}>Recusar</button>
+          <button className="primary-button" type="button" disabled={processando} onClick={onAprovar}>
+            {processando ? 'Salvando…' : 'Aprovar troca'}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function TrocaComparacao({ troca }: { troca: SolicitacaoTrocaReal }) {
   // TROCA-FOLGA-1 — na troca de folga os dois lados são dias da mesma pessoa.
   if (ehTrocaDeFolga(troca) && troca.dataTroca) {
@@ -2793,6 +2890,9 @@ export function EmployeeApp() {
   const [assistenteTroca, setAssistenteTroca] = useState<EstadoAssistenteTroca | null>(null);
   /** TROCA-FOLGA-1 — troca de folga aberta a partir do detalhe de um dia. */
   const [trocaFolgaAberta, setTrocaFolgaAberta] = useState<{ data: string; escala: TurnosMes } | null>(null);
+  /** APROVAR-TROCA-APP-1 — trocas de 6x1 das equipes que a pessoa coordena, por equipe+competência. */
+  const [trocasParaAprovarPorChave, setTrocasParaAprovarPorChave] = useState<Record<string, SolicitacaoTrocaReal[]>>({});
+  const [trocaDecisaoAbertaId, setTrocaDecisaoAbertaId] = useState<string | null>(null);
   const [processandoTroca, setProcessandoTroca] = useState(false);
   const [erroTroca, setErroTroca] = useState('');
   const [estadoNotificacoesPush, setEstadoNotificacoesPush] = useState<EstadoNotificacoesPush>('NAO_CONFIGURADO');
@@ -2851,6 +2951,56 @@ export function EmployeeApp() {
     dadosIniciaisCarregados: dadosCarregados,
     modoDemonstracao,
   });
+
+  /**
+   * APROVAR-TROCA-APP-1 — quem coordena (coordenador, supervisor, gestor de
+   * unidade, administrador) acompanha as trocas de 6x1 das próprias equipes
+   * no mês atual e no próximo. As Rules continuam decidindo a aprovação.
+   */
+  const perfilUsuarioApp = usuario !== null ? perfilEfetivo(usuario) : null;
+  const equipesQueCoordenoApp = usuario !== null
+    && perfilUsuarioApp !== null
+    && ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE', 'GESTOR_UNIDADE', 'ADMIN_SISTEMA'].includes(perfilUsuarioApp)
+    ? [...new Set([usuario.equipeId, ...(usuario.equipesPermitidas ?? [])].filter((item): item is string => Boolean(item)))]
+    : [];
+  const chaveEquipesQueCoordenoApp = equipesQueCoordenoApp.join('|');
+  const competenciaSeguinteApp = (() => {
+    const [ano, mes] = competenciaAtiva.split('-').map(Number);
+    if (!ano || !mes) return competenciaAtiva;
+    const base = new Date(Date.UTC(ano, mes, 1));
+    return `${base.getUTCFullYear()}-${String(base.getUTCMonth() + 1).padStart(2, '0')}`;
+  })();
+  useEffect(() => {
+    if (!listenersLiberados || chaveEquipesQueCoordenoApp === '') {
+      return undefined;
+    }
+    const cancelar: Array<() => void> = [];
+    for (const equipeId of chaveEquipesQueCoordenoApp.split('|')) {
+      for (const competencia of [competenciaAtiva, competenciaSeguinteApp]) {
+        const chave = `${equipeId}:${competencia}`;
+        try {
+          cancelar.push(observarTrocasDoGestor(
+            equipeId,
+            competencia,
+            (lista) => setTrocasParaAprovarPorChave((atuais) => ({ ...atuais, [chave]: lista })),
+            () => setTrocasParaAprovarPorChave((atuais) => ({ ...atuais, [chave]: [] })),
+          ));
+        } catch {
+          // Sem permissão para acompanhar essa equipe: simplesmente não lista.
+        }
+      }
+    }
+    return () => {
+      cancelar.forEach((parar) => parar());
+    };
+  }, [chaveEquipesQueCoordenoApp, competenciaAtiva, competenciaSeguinteApp, listenersLiberados]);
+  // A própria troca nunca aparece para a pessoa decidir como coordenadora (as Rules também negam).
+  const trocasParaAprovarApp = Object.values(trocasParaAprovarPorChave).flat()
+    .filter((item, indice, lista) => lista.findIndex((outra) => outra.trocaId === item.trocaId) === indice)
+    .filter((item) => item.status === 'PENDENTE_GESTOR'
+      && item.solicitanteLogin !== loginUsuario && item.destinatarioLogin !== loginUsuario)
+    .sort((a, b) => a.data.localeCompare(b.data));
+  const trocaDecisaoAberta = trocasParaAprovarApp.find((item) => item.trocaId === trocaDecisaoAbertaId) ?? null;
 
   /**
    * FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — janela de competências que a
@@ -4042,6 +4192,31 @@ export function EmployeeApp() {
     });
   }
 
+  async function decidirTrocaComoCoordenador(troca: SolicitacaoTrocaReal, aprovar: boolean, motivo = '') {
+    if (usuario === null) {
+      return;
+    }
+    if (!aprovar && motivo.trim() === '') {
+      setErroTroca('Escreva o motivo para recusar.');
+      return;
+    }
+    setProcessandoTroca(true);
+    setErroTroca('');
+    try {
+      const gestor = { login: usuario.login, nome: usuario.nome };
+      if (aprovar) {
+        await aprovarTrocaPeloApp(troca.trocaId, gestor, catalogo);
+      } else {
+        await recusarTrocaPeloApp(troca.trocaId, gestor, motivo.trim());
+      }
+      setTrocaDecisaoAbertaId(null);
+    } catch (falha) {
+      setErroTroca(mensagemErroFirebase(falha, aprovar ? 'Não foi possível aprovar a troca.' : 'Não foi possível recusar a troca.', ambienteFirebaseAtual, 'autoatendimento'));
+    } finally {
+      setProcessandoTroca(false);
+    }
+  }
+
   async function enviarTrocaDeFolga(dataFolga: string, dataTrabalho: string, mensagem: string) {
     const escala = trocaFolgaAberta?.escala;
     if (usuario === null || escala === undefined) {
@@ -4458,6 +4633,17 @@ export function EmployeeApp() {
               </span>
             </div>
           </header>
+          {/* APROVAR-TROCA-APP-1 — coordenador vê na hora que há troca esperando por ele. */}
+          {trocasParaAprovarApp.length > 0 && (
+            <button type="button" className="aviso-aprovar-trocas" onClick={() => setTela('trocas')}>
+              <ArrowLeftRight size={18} aria-hidden="true" />
+              <span>
+                <strong>{trocasParaAprovarApp.length === 1 ? '1 troca aguardando sua aprovação' : `${trocasParaAprovarApp.length} trocas aguardando sua aprovação`}</strong>
+                <small>Toque para revisar e decidir.</small>
+              </span>
+              <ChevronRight size={18} aria-hidden="true" />
+            </button>
+          )}
 
           {/*
             FASE-APP-OPERACOES-UNIVERSAIS-1 — regra 4: Jornada e Plantão
@@ -4922,6 +5108,38 @@ export function EmployeeApp() {
                 </button>
               )}
             </header>
+
+            {equipesQueCoordenoApp.length > 0 && (
+              <article className="panel troca-bloco-aprovar">
+                <div className="panel-title">
+                  <div>
+                    <h2>Para aprovar {trocasParaAprovarApp.length > 0 && <span className="notification-badge-inline">{trocasParaAprovarApp.length}</span>}</h2>
+                    <p>Trocas de 6x1 da sua equipe aguardando a sua decisão.</p>
+                  </div>
+                </div>
+                {trocasParaAprovarApp.length === 0 ? (
+                  <p className="empty-inline">Nenhuma troca aguardando aprovação.</p>
+                ) : (
+                  <div className="troca-lista">
+                    {trocasParaAprovarApp.map((troca) => (
+                      <button key={troca.trocaId} type="button" className="troca-item-button" onClick={() => { setErroTroca(''); setTrocaDecisaoAbertaId(troca.trocaId); }}>
+                        <ArrowLeftRight size={16} />
+                        <div>
+                          <strong>{ehTrocaDeFolga(troca) ? `${troca.solicitanteNome} · troca de folga` : `${troca.solicitanteNome} ⇄ ${troca.destinatarioNome}`}</strong>
+                          <small>
+                            {formatarDiaTrocaSafe(troca.data, { day: '2-digit', month: 'short' }).replace('.', '')}
+                            {ehTrocaDeFolga(troca) && troca.dataTroca ? ` ⇄ ${formatarDiaTrocaSafe(troca.dataTroca, { day: '2-digit', month: 'short' }).replace('.', '')}` : ''}
+                            {' · '}{troca.turnoSolicitanteAntes || '—'} ⇄ {troca.turnoDestinatarioAntes || '—'}
+                          </small>
+                        </div>
+                        <span className="status-badge warning">Decidir</span>
+                        <ChevronRight size={16} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </article>
+            )}
 
             <article className="panel troca-bloco-jornada">
               <div className="panel-title">
@@ -5573,6 +5791,17 @@ export function EmployeeApp() {
         </section>
       )}
 
+      {trocaDecisaoAberta && (
+        <ModalDecisaoTrocaApp
+          troca={trocaDecisaoAberta}
+          catalogo={catalogo}
+          processando={processandoTroca}
+          erro={erroTroca}
+          onFechar={() => setTrocaDecisaoAbertaId(null)}
+          onAprovar={() => void decidirTrocaComoCoordenador(trocaDecisaoAberta, true)}
+          onRecusar={(motivo) => void decidirTrocaComoCoordenador(trocaDecisaoAberta, false, motivo)}
+        />
+      )}
       {trocaFolgaAberta && (
         <ModalTrocaFolga
           escala={trocaFolgaAberta.escala}

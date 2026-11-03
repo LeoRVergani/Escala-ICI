@@ -1,6 +1,7 @@
 import type { Dia, TipoTurno, TurnosMes } from '@escala-ici/contrato';
 
 import { gerarAlertasEscala, type AlertaEscala } from './alertasEscala';
+import { aplicarTrocaNosDias, type SolicitacaoTrocaReal } from './trocasEscala';
 
 /**
  * TROCA-FOLGA-1 — troca de folga pelo próprio colaborador, sem colega:
@@ -101,4 +102,45 @@ export function validarTrocaDeFolga(entrada: {
       : `Ficaria só ${Math.round(alerta.descansoHoras)}h de descanso entre ${diaMes(alerta.dataAnterior)} e ${diaMes(alerta.dataAtual)} (mínimo ${alerta.minimoHoras}h).`);
   }
   return { erros, alertasNovos };
+}
+
+/**
+ * APROVAR-TROCA-APP-1 — alertas que a troca deixaria nas escalas (o mesmo
+ * cálculo do Dashboard), para quem aprova pelo App decidir com a mesma
+ * informação. Serve para troca com colega e para troca de folga.
+ */
+export function alertasHipoteticosDaTroca(
+  troca: Pick<SolicitacaoTrocaReal, 'tipo' | 'data' | 'dataTroca'>,
+  docSolicitante: TurnosMes | null,
+  docDestinatario: TurnosMes | null,
+  catalogo: Record<string, TipoTurno>,
+): AlertaEscala[] {
+  if (docSolicitante === null) {
+    return [];
+  }
+  try {
+    if (troca.tipo === 'FOLGA' && troca.dataTroca) {
+      return gerarAlertasEscala(
+        [{ ...docSolicitante, dias: aplicarTrocaDeFolga(docSolicitante.dias, troca.data, troca.dataTroca) }],
+        catalogo,
+      );
+    }
+    if (docDestinatario === null) {
+      return [];
+    }
+    const { diasSolicitante, diasDestinatario } = aplicarTrocaNosDias(docSolicitante.dias, docDestinatario.dias, troca.data);
+    return gerarAlertasEscala(
+      [{ ...docSolicitante, dias: diasSolicitante }, { ...docDestinatario, dias: diasDestinatario }],
+      catalogo,
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Texto curto de um alerta, para listas no App. */
+export function descreverAlertaTroca(alerta: AlertaEscala): string {
+  return alerta.tipo === 'SEQUENCIA_6X1'
+    ? `${alerta.login}: ${alerta.diasConsecutivos} dias seguidos trabalhando, até ${diaMes(alerta.diaCritico)}`
+    : `${alerta.login}: ${Math.round(alerta.descansoHoras)}h de descanso entre ${diaMes(alerta.dataAnterior)} e ${diaMes(alerta.dataAtual)} (mínimo ${alerta.minimoHoras}h)`;
 }
