@@ -1,7 +1,7 @@
 import { CATALOGO_SOC, type Dia, type TurnosMes } from '@escala-ici/contrato';
 import { describe, expect, it } from 'vitest';
 
-import { aplicarTrocaDeFolga, validarTrocaDeFolga } from './trocaFolga';
+import { alertasHipoteticosDaTroca, aplicarTrocaDeFolga, descreverAlertaTroca, validarTrocaDeFolga } from './trocaFolga';
 
 const MANHA: Dia = { c: 'M', i: '07:00', f: '13:00', m: 360 };
 const DF: Dia = { c: 'DF' };
@@ -56,5 +56,19 @@ describe('TROCA-FOLGA-1 — troca de folga pelo próprio colaborador', () => {
     const antes = Object.values(escala().dias).reduce((soma, dia) => soma + (dia.m ?? 0), 0);
     const depois = Object.values(aplicarTrocaDeFolga(escala().dias, '2026-11-07', '2026-11-06')).reduce((soma, dia) => soma + (dia.m ?? 0), 0);
     expect(depois).toBe(antes);
+  });
+});
+
+describe('APROVAR-TROCA-APP-1 — alertas que a troca deixaria (mesmo cálculo do Dashboard)', () => {
+  it('troca de folga apta não deixa alerta; a que estica a sequência deixa', () => {
+    const doc = escala();
+    expect(alertasHipoteticosDaTroca({ tipo: 'FOLGA', data: '2026-11-07', dataTroca: '2026-11-06' }, doc, doc, CATALOGO_SOC)).toEqual([]);
+    const alertas = alertasHipoteticosDaTroca({ tipo: 'FOLGA', data: '2026-11-07', dataTroca: '2026-11-12' }, doc, doc, CATALOGO_SOC);
+    expect(alertas.length).toBeGreaterThan(0);
+    expect(descreverAlertaTroca(alertas[0]!)).toContain('dias seguidos');
+  });
+
+  it('sem a escala do solicitante não inventa alerta', () => {
+    expect(alertasHipoteticosDaTroca({ tipo: 'FOLGA', data: '2026-11-07', dataTroca: '2026-11-06' }, null, null, CATALOGO_SOC)).toEqual([]);
   });
 });
