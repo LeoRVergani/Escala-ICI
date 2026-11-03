@@ -205,6 +205,9 @@ import {
   validarTrocaDeFolga,
 } from '@/lib/trocaFolga';
 import { perfilEfetivo } from '@/lib/sessao';
+import { resolverEscoposOperacionais } from '@/lib/escoposOperacionais';
+import { listarEquipesLeitura, listarUnidadesLeitura } from '@/lib/firebase/estruturaLeitura';
+import { listarEscoposOperacionais } from '@/lib/firebase/escoposOperacionaisRepository';
 import {
   AVISO_APROVACAO_NAO_PUBLICA,
   destinatariosNotificacaoGestorPlantao,
@@ -2893,6 +2896,8 @@ export function EmployeeApp() {
   /** APROVAR-TROCA-APP-1 — trocas de 6x1 das equipes que a pessoa coordena, por equipe+competência. */
   const [trocasParaAprovarPorChave, setTrocasParaAprovarPorChave] = useState<Record<string, SolicitacaoTrocaReal[]>>({});
   const [trocaDecisaoAbertaId, setTrocaDecisaoAbertaId] = useState<string | null>(null);
+  /** APROVAR-TROCA-APP-2 — escalas 6x1 que a pessoa administra (mesma regra do Dashboard). */
+  const [jornadasAdministradasApp, setJornadasAdministradasApp] = useState<string[]>([]);
   const [processandoTroca, setProcessandoTroca] = useState(false);
   const [erroTroca, setErroTroca] = useState('');
   const [estadoNotificacoesPush, setEstadoNotificacoesPush] = useState<EstadoNotificacoesPush>('NAO_CONFIGURADO');
@@ -2958,10 +2963,40 @@ export function EmployeeApp() {
    * no mês atual e no próximo. As Rules continuam decidindo a aprovação.
    */
   const perfilUsuarioApp = usuario !== null ? perfilEfetivo(usuario) : null;
-  const equipesQueCoordenoApp = usuario !== null
-    && perfilUsuarioApp !== null
-    && ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE', 'GESTOR_UNIDADE', 'ADMIN_SISTEMA'].includes(perfilUsuarioApp)
-    ? [...new Set([usuario.equipeId, ...(usuario.equipesPermitidas ?? [])].filter((item): item is string => Boolean(item)))]
+  const souCoordenacaoApp = perfilUsuarioApp !== null
+    && ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE', 'GESTOR_UNIDADE', 'ADMIN_SISTEMA'].includes(perfilUsuarioApp);
+  /*
+   * APROVAR-TROCA-APP-2 — antes só olhava `equipeId` + `equipesPermitidas`,
+   * e o gestor de unidade (alcance = unidade inteira) e o responsável pela
+   * Matriz ficavam sem ver nada. Agora usa o mesmo resolvedor do Dashboard
+   * (Matriz, unidade, admin, coordenador de equipe), somado à base antiga.
+   */
+  useEffect(() => {
+    if (!listenersLiberados || usuario === null || !souCoordenacaoApp) {
+      return undefined;
+    }
+    let cancelado = false;
+    void Promise.all([listarUnidadesLeitura(), listarEquipesLeitura(), listarEscoposOperacionais()])
+      .then(([unidades, equipes, escopos]) => {
+        if (cancelado) return;
+        const escoposResolvidos = resolverEscoposOperacionais(usuario, unidades, equipes, [], escopos, { permitirFallbackLegado: true });
+        setJornadasAdministradasApp(escoposResolvidos.jornadasAdministraveis.map((equipe) => equipe.id));
+      })
+      .catch(() => {
+        // Sem a estrutura, fica só a base (equipe própria + permitidas).
+      });
+    return () => {
+      cancelado = true;
+    };
+    // `usuario` muda de referência a cada leitura do cadastro; login e perfil bastam.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listenersLiberados, loginUsuario, souCoordenacaoApp]);
+  const equipesQueCoordenoApp = usuario !== null && souCoordenacaoApp
+    ? [...new Set([
+      usuario.equipeId,
+      ...(usuario.equipesPermitidas ?? []),
+      ...jornadasAdministradasApp,
+    ].filter((item): item is string => Boolean(item)))].sort()
     : [];
   const chaveEquipesQueCoordenoApp = equipesQueCoordenoApp.join('|');
   const competenciaSeguinteApp = (() => {
@@ -2983,7 +3018,10 @@ export function EmployeeApp() {
             equipeId,
             competencia,
             (lista) => setTrocasParaAprovarPorChave((atuais) => ({ ...atuais, [chave]: lista })),
-            () => setTrocasParaAprovarPorChave((atuais) => ({ ...atuais, [chave]: [] })),
+            (falha) => {
+              console.warn('[trocas-para-aprovar] sem acesso às trocas de', chave, falha.message);
+              setTrocasParaAprovarPorChave((atuais) => ({ ...atuais, [chave]: [] }));
+            },
           ));
         } catch {
           // Sem permissão para acompanhar essa equipe: simplesmente não lista.
