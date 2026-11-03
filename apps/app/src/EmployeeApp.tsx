@@ -1852,6 +1852,7 @@ function ModalDecisaoTrocaApp({
   onRecusar: (motivo: string) => void;
 }) {
   const [motivo, setMotivo] = useState('');
+  const [recusando, setRecusando] = useState(false);
   const [alertas, setAlertas] = useState<string[] | null>(null);
   useEffect(() => {
     let cancelado = false;
@@ -1899,16 +1900,42 @@ function ModalDecisaoTrocaApp({
         ) : (
           <p className="troca-sem-alertas"><CheckCircle2 size={15} aria-hidden="true" /> Sem alertas de 6x1, 11h ou 35h.</p>
         )}
-        <label>
-          <span>Motivo, se for recusar</span>
-          <textarea value={motivo} maxLength={280} onChange={(evento) => setMotivo(evento.target.value)} placeholder="Ex.: equipe já desfalcada nesse dia" />
-        </label>
+        {/* DECISAO-TROCA-APP-UX — o motivo só aparece quando a pessoa escolhe recusar. */}
+        {recusando && (
+          <label>
+            <span>Motivo da recusa</span>
+            <textarea
+              value={motivo}
+              maxLength={280}
+              autoFocus
+              onChange={(evento) => setMotivo(evento.target.value)}
+              placeholder="Ex.: equipe já desfalcada nesse dia"
+            />
+            <small className="troca-motivo-dica">A pessoa vê esse motivo no App.</small>
+          </label>
+        )}
         {erro && <div className="alert error" role="alert">{erro}</div>}
         <div className="rollback-actions">
-          <button className="secondary-button" type="button" disabled={processando} onClick={() => onRecusar(motivo)}>Recusar</button>
-          <button className="primary-button" type="button" disabled={processando} onClick={onAprovar}>
-            {processando ? 'Salvando…' : 'Aprovar troca'}
-          </button>
+          {recusando ? (
+            <>
+              <button className="secondary-button" type="button" disabled={processando} onClick={() => { setRecusando(false); setMotivo(''); }}>Voltar</button>
+              <button
+                className="primary-button danger-button"
+                type="button"
+                disabled={processando || motivo.trim() === ''}
+                onClick={() => onRecusar(motivo)}
+              >
+                {processando ? 'Salvando…' : 'Confirmar recusa'}
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="secondary-button" type="button" disabled={processando} onClick={() => setRecusando(true)}>Recusar</button>
+              <button className="primary-button" type="button" disabled={processando} onClick={onAprovar}>
+                {processando ? 'Salvando…' : 'Aprovar troca'}
+              </button>
+            </>
+          )}
         </div>
       </section>
     </div>
@@ -2896,6 +2923,8 @@ export function EmployeeApp() {
   /** APROVAR-TROCA-APP-1 — trocas de 6x1 das equipes que a pessoa coordena, por equipe+competência. */
   const [trocasParaAprovarPorChave, setTrocasParaAprovarPorChave] = useState<Record<string, SolicitacaoTrocaReal[]>>({});
   const [trocaDecisaoAbertaId, setTrocaDecisaoAbertaId] = useState<string | null>(null);
+  /** DECISAO-TROCA-APP-UX — confirmação do que acabou de ser decidido. */
+  const [ultimaDecisaoTroca, setUltimaDecisaoTroca] = useState<{ texto: string; aprovada: boolean } | null>(null);
   /** APROVAR-TROCA-APP-2 — escalas 6x1 que a pessoa administra (mesma regra do Dashboard). */
   const [jornadasAdministradasApp, setJornadasAdministradasApp] = useState<string[]>([]);
   const [processandoTroca, setProcessandoTroca] = useState(false);
@@ -4247,6 +4276,10 @@ export function EmployeeApp() {
       } else {
         await recusarTrocaPeloApp(troca.trocaId, gestor, motivo.trim());
       }
+      const quem = ehTrocaDeFolga(troca) ? `de folga de ${troca.solicitanteNome}` : `de ${troca.solicitanteNome} e ${troca.destinatarioNome}`;
+      setUltimaDecisaoTroca(aprovar
+        ? { aprovada: true, texto: `Troca ${quem} aprovada e aplicada na escala. A pessoa já foi avisada.` }
+        : { aprovada: false, texto: `Troca ${quem} recusada. A pessoa foi avisada com o motivo.` });
       setTrocaDecisaoAbertaId(null);
     } catch (falha) {
       setErroTroca(mensagemErroFirebase(falha, aprovar ? 'Não foi possível aprovar a troca.' : 'Não foi possível recusar a troca.', ambienteFirebaseAtual, 'autoatendimento'));
@@ -5155,6 +5188,12 @@ export function EmployeeApp() {
                     <p>Trocas de 6x1 da sua equipe aguardando a sua decisão.</p>
                   </div>
                 </div>
+                {ultimaDecisaoTroca && (
+                  <div className={`alert ${ultimaDecisaoTroca.aprovada ? 'success' : 'info'} troca-decisao-confirmacao`} role="status">
+                    <span>{ultimaDecisaoTroca.texto}</span>
+                    <button className="icon-button" type="button" onClick={() => setUltimaDecisaoTroca(null)} aria-label="Fechar aviso"><X size={15} /></button>
+                  </div>
+                )}
                 {trocasParaAprovarApp.length === 0 ? (
                   <p className="empty-inline">Nenhuma troca aguardando aprovação.</p>
                 ) : (
@@ -5835,7 +5874,7 @@ export function EmployeeApp() {
           catalogo={catalogo}
           processando={processandoTroca}
           erro={erroTroca}
-          onFechar={() => setTrocaDecisaoAbertaId(null)}
+          onFechar={() => { setTrocaDecisaoAbertaId(null); setErroTroca(''); }}
           onAprovar={() => void decidirTrocaComoCoordenador(trocaDecisaoAberta, true)}
           onRecusar={(motivo) => void decidirTrocaComoCoordenador(trocaDecisaoAberta, false, motivo)}
         />
