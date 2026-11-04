@@ -7851,3 +7851,19 @@ a.plantao-contato-linha:focus-visible { background: var(--surface-muted); }
 .visao-coord-mes-resumo > div { padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
 .visao-coord-mes-resumo dt { color: var(--muted); font-size: 11px; font-weight: 650; }
 .visao-coord-mes-resumo dd { margin: 2px 0 0; color: var(--text); font-size: 18px; font-weight: 800; }
+
+/* VISAO-COORDENADOR-APP-2 — estado da carga da visão do coordenador. */
+.visao-coord-diagnostico {
+  display: grid;
+  gap: 4px;
+  margin: 0 18px 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface));
+  color: var(--text);
+  font-size: 13px;
+}
+.visao-coord-diagnostico small { color: var(--muted); font-size: 12px; }
+.visao-coord-diagnostico ul { margin: 4px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+.visao-coord-hoje-grade > .visao-coord-diagnostico { margin: 0; }

@@ -35,6 +35,37 @@ export interface PlantaoVisao {
   atribuicoes: AtribuicaoPlantaoPersistida[];
 }
 
+export interface DiagnosticoVisao {
+  estado: 'carregando' | 'pronto';
+  falhas: string[];
+}
+
+/** VISAO-COORDENADOR-APP-2 — o que mostrar quando ainda não há equipe para exibir. */
+function EstadoVazioCoordenacao({ diagnostico }: { diagnostico?: DiagnosticoVisao }) {
+  if (diagnostico?.estado === 'carregando') {
+    return <p className="empty-inline" role="status">Carregando suas equipes…</p>;
+  }
+  return (
+    <div className="visao-coord-diagnostico" role="status">
+      <strong>Não encontramos equipes que você administra.</strong>
+      <small>Confira no Dashboard, em Administração → Responsáveis por escala, se você está como responsável.</small>
+      {diagnostico && diagnostico.falhas.length > 0 && (
+        <ul>{diagnostico.falhas.map((falha) => <li key={falha}>{falha}</li>)}</ul>
+      )}
+    </div>
+  );
+}
+
+function AvisoFalhas({ diagnostico }: { diagnostico?: DiagnosticoVisao }) {
+  if (!diagnostico || diagnostico.falhas.length === 0) return null;
+  return (
+    <div className="visao-coord-diagnostico" role="status">
+      <strong>Parte das informações não carregou:</strong>
+      <ul>{diagnostico.falhas.map((falha) => <li key={falha}>{falha}</li>)}</ul>
+    </div>
+  );
+}
+
 const NOMES_PERIODO: Record<string, string> = { MD: 'Madrugada', M: 'Manhã', T: 'Tarde', N: 'Noite' };
 
 function primeiroNome(nome: string): string {
@@ -54,6 +85,7 @@ export function PainelHojeEquipes({
   agoraIso,
   catalogo,
   onAbrir,
+  diagnostico,
 }: {
   equipes: readonly EquipeJornadaVisao[];
   plantoes: readonly PlantaoVisao[];
@@ -61,9 +93,15 @@ export function PainelHojeEquipes({
   agoraIso: string;
   catalogo: Record<string, TipoTurno>;
   onAbrir: () => void;
+  diagnostico?: DiagnosticoVisao;
 }) {
   if (equipes.length === 0 && plantoes.length === 0) {
-    return null;
+    return (
+      <article className="panel visao-coord-hoje">
+        <div className="panel-title"><div><p className="eyebrow">Coordenação</p><h2>Hoje nas suas equipes</h2></div></div>
+        <div className="visao-coord-hoje-grade"><EstadoVazioCoordenacao diagnostico={diagnostico} /></div>
+      </article>
+    );
   }
   return (
     <article className="panel visao-coord-hoje">
@@ -76,6 +114,7 @@ export function PainelHojeEquipes({
           Ver equipes <ChevronRight size={15} />
         </button>
       </div>
+      <AvisoFalhas diagnostico={diagnostico} />
       <div className="visao-coord-hoje-grade">
         {equipes.map((equipe) => {
           const resumo = resumirEquipeNoDia(equipe.documentos, dataHoje, catalogo, equipe.nomes);
@@ -162,11 +201,13 @@ export function VisaoEquipesCoordenador({
   plantoes,
   dataHoje,
   catalogo,
+  diagnostico,
 }: {
   equipes: readonly EquipeJornadaVisao[];
   plantoes: readonly PlantaoVisao[];
   dataHoje: string;
   catalogo: Record<string, TipoTurno>;
+  diagnostico?: DiagnosticoVisao;
 }) {
   const abas = [
     ...equipes.map((equipe) => ({ chave: `J:${equipe.id}`, nome: equipe.nome, tipo: '6x1' as const })),
@@ -177,7 +218,12 @@ export function VisaoEquipesCoordenador({
   const [pessoaAberta, setPessoaAberta] = useState<{ documento: TurnosMes; nome: string } | null>(null);
   const aba = abas.find((item) => item.chave === abaSelecionada) ?? abas[0];
   if (aba === undefined) {
-    return null;
+    return (
+      <article className="panel visao-coord-equipes">
+        <div className="panel-title"><div><p className="eyebrow">Coordenação</p><h2>Suas equipes</h2></div></div>
+        <EstadoVazioCoordenacao diagnostico={diagnostico} />
+      </article>
+    );
   }
   const equipe = aba.chave.startsWith('J:') ? equipes.find((item) => `J:${item.id}` === aba.chave) : undefined;
   const plantao = aba.chave.startsWith('P:') ? plantoes.find((item) => `P:${item.grupo.grupoId}` === aba.chave) : undefined;
@@ -193,6 +239,7 @@ export function VisaoEquipesCoordenador({
         </div>
       </div>
 
+      <AvisoFalhas diagnostico={diagnostico} />
       {abas.length > 1 && (
         <div className="visao-coord-abas" role="tablist" aria-label="Equipes e Plantões">
           {abas.map((item) => (
