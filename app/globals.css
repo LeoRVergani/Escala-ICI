@@ -7873,3 +7873,69 @@ a.plantao-contato-linha:focus-visible { background: var(--surface-muted); }
 .visao-coord-resumo h3 { margin: 6px 0 0; color: var(--text); font-size: 14px; font-weight: 800; }
 .visao-coord-tabela-resumo { min-width: 560px; }
 .visao-coord-tabela-resumo td strong { font-size: 14px; }
+
+/* =====================================================================
+ * VISAO-COORDENADOR-APP-4 — visual da visão do coordenador e do Perfil.
+ * ===================================================================== */
+/* Perfil: os dois cards no mesmo topo e com a mesma altura. */
+.app-shell.product-app .employee-profile-screen .profile-layout { align-items: stretch; }
+.app-shell.product-app .employee-profile-screen .profile-layout > .panel { margin-top: 0; margin-bottom: 0; }
+.app-shell.product-app .employee-profile-screen .profile-card { height: 100%; }
+
+.visao-coord-equipes { padding-bottom: 6px; overflow: hidden; }
+.visao-coord-cabecalho { padding: 20px 22px 6px; }
+.visao-coord-cabecalho h2 { margin: 2px 0 4px; font-size: 22px; font-weight: 750; color: var(--text); }
+.visao-coord-cabecalho p:not(.eyebrow) { margin: 0; color: var(--muted); font-size: 13px; }
+.visao-coord-equipes > .visao-coord-abas { margin: 12px 22px 0; padding: 4px; gap: 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-muted); width: fit-content; max-width: calc(100% - 44px); }
+.visao-coord-equipes > .visao-coord-abas > button { border-color: transparent; background: transparent; padding: 8px 14px; }
+.visao-coord-equipes > .visao-coord-abas > button.active { background: var(--surface); border-color: var(--border); box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08); }
+.visao-coord-equipes > .visao-coord-abas > button small { padding: 1px 7px; border-radius: 999px; background: var(--surface-muted); }
+.visao-coord-equipes > .visao-coord-abas > button.active small { background: var(--primary); color: #fff; }
+.visao-coord-conteudo { display: grid; gap: 14px; margin: 16px 22px 18px !important; }
+.visao-coord-numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.visao-coord-numeros > div {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-muted) 100%);
+}
+.visao-coord-numeros small { color: var(--muted); font-size: 11.5px; font-weight: 650; }
+.visao-coord-numeros strong { color: var(--text); font-size: 22px; font-weight: 800; line-height: 1.2; }
+.visao-coord-numeros > div[data-alerta] { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); background: color-mix(in srgb, var(--danger) 7%, var(--surface)); }
+.visao-coord-numeros > div[data-alerta] strong { color: var(--danger); }
+.visao-coord-seletor { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); width: fit-content; }
+.visao-coord-seletor > button {
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.visao-coord-seletor > button.active { background: var(--surface); color: var(--primary-bright); box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1); }
+.visao-coord-mes-equipe { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+.visao-coord-mes-equipe > * { margin: 0; }
+.visao-coord-plantoes > li { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; }
+.visao-coord-plantoes > li > span:last-child { display: grid; gap: 2px; }
+.visao-coord-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary), var(--primary-bright));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+.visao-coord-hoje .visao-coord-cartao { background: linear-gradient(180deg, var(--surface) 0%, color-mix(in srgb, var(--surface-muted) 60%, var(--surface)) 100%); }
+@media (max-width: 640px) {
+  .visao-coord-cabecalho { padding: 16px 16px 4px; }
+  .visao-coord-equipes > .visao-coord-abas { margin: 10px 16px 0; max-width: calc(100% - 32px); overflow-x: auto; }
+  .visao-coord-conteudo { margin: 14px 16px 16px !important; }
+  .visao-coord-numeros { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

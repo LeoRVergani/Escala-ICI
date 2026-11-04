@@ -3129,11 +3129,16 @@ export function EmployeeApp() {
           ]);
           registrarNomesPlantonistas(participantes);
           const atribuicoes = competencia === null ? [] : await listarAtribuicoesPlantaoPublicada(grupo.grupoId, competencia.competencia);
-          return { grupo, atribuicoes };
+          return {
+            grupo,
+            atribuicoes,
+            participantes,
+            periodo: competencia === null ? null : { inicio: competencia.periodoInicio, fim: competencia.periodoFim },
+          };
         } catch (falha) {
           console.warn('[visao-coordenacao] plantão', grupo.grupoId, falha);
           falhas.push(`${rotuloGrupoPlantao(grupo.nome)}: ${descrever(falha)}`);
-          return { grupo, atribuicoes: [] };
+          return { grupo, atribuicoes: [], participantes: [], periodo: null };
         }
       })),
     ]).then(([equipesCarregadas, plantoesCarregados]) => {
@@ -4871,7 +4876,8 @@ export function EmployeeApp() {
               Nenhuma jornada 6x1 publicada para este período.
             </div>
           )}
-          {statusPlantaoConhecido && estadoGlobalApp === 'sem-operacoes' ? (
+          {/* VISAO-COORDENADOR-APP-4 — quem coordena e não tem escala própria vê o painel das equipes, não um aviso vazio. */}
+          {statusPlantaoConhecido && estadoGlobalApp === 'sem-operacoes' && souCoordenacaoApp && !usuario.equipeId ? null : statusPlantaoConhecido && estadoGlobalApp === 'sem-operacoes' ? (
             <article className="panel organization-empty-state">
               <CalendarDays size={28} aria-hidden="true" />
               <h2>Nenhuma escala publicada para este período</h2>
@@ -5732,8 +5738,46 @@ export function EmployeeApp() {
               dataHoje={dataHoje}
               catalogo={catalogo}
               diagnostico={diagnosticoVisaoCoordenacao}
+              // VISAO-COORDENADOR-APP-4 — o mesmo calendário que o colaborador usa.
+              renderizarMes6x1={(equipe) => (
+                <ScheduleGrid
+                  documentos={equipe.documentos}
+                  usuarios={equipe.documentos.map((documento) => ({
+                    ...(usuarios.find((item) => item.login === documento.login) ?? {
+                      login: documento.login,
+                      uid: documento.usuarioUid,
+                      email: '',
+                      equipeId: documento.equipeId,
+                      cargo: '',
+                      nivelHierarquico: 6,
+                      turnoPadrao: documento.turnoPadrao,
+                      aliasesPlanilha: [],
+                      ativo: true,
+                    }),
+                    nome: equipe.nomes.get(documento.login) ?? documento.login,
+                  } as Usuario))}
+                  catalogo={catalogo}
+                  agruparPorPeriodo
+                  avisoDivergencia={false}
+                />
+              )}
+              renderizarCalendarioPlantao={(plantao) => (plantao.periodo === null ? null : (
+                <CalendarioPlantaoApp
+                  periodoInicio={plantao.periodo.inicio}
+                  periodoFim={plantao.periodo.fim}
+                  dataHoje={dataHoje}
+                  atribuicoes={plantao.atribuicoes}
+                  participantes={plantao.participantes}
+                  usuarios={[]}
+                  timezone={plantao.grupo.timezone}
+                  loginUsuarioAtual={usuario.login}
+                />
+              ))}
             />
           )}
+          {/* VISAO-COORDENADOR-APP-4 — coordenador sem equipe fixa não vê a "Escala da equipe" pessoal (sempre vazia para ele). */}
+          {!(souCoordenacaoApp && !usuario.equipeId) && (
+          <>
           <header className="page-heading">
             <div>
               <p className="eyebrow">COSI &gt; SOC</p>
@@ -5842,6 +5886,8 @@ export function EmployeeApp() {
               <ScheduleLegend catalogo={catalogo} titulo="Legenda" />
             </>
           )}
+          </>
+          )}
         </section>
       )}
 
@@ -5871,7 +5917,7 @@ export function EmployeeApp() {
             <article className="panel profile-details">
               <div><Mail /><span>E-mail</span><strong>{usuario.email}</strong></div>
               <div><BriefcaseBusiness /><span>Cargo</span><strong>{usuario.cargo}</strong></div>
-              <div><Building2 /><span>Equipe</span><strong>{equipeUsuarioApp?.nome ?? usuario.equipeId}</strong></div>
+              <div><Building2 /><span>Equipe</span><strong>{equipeUsuarioApp?.nome ?? (usuario.equipeId || (souCoordenacaoApp ? 'Coordenação — sem equipe fixa' : '—'))}</strong></div>
               <div><UserRound /><span>Nível</span><strong>{descreverNivelHierarquico(usuario.nivelHierarquico)}</strong></div>
             </article>
             {grupoPlantaoApp != null
