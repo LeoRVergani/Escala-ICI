@@ -1192,6 +1192,40 @@ function DetalheDia({
   );
 }
 
+/**
+ * NOMES-BOTOES-1 — o mês de um colaborador no modal da coordenação, com o
+ * MESMO calendário da Agenda (mesmo tamanho, chips e seleção de dia).
+ */
+function CalendarioPessoaCoordenador({
+  documento,
+  dataHoje,
+  catalogo,
+}: {
+  documento: TurnosMes;
+  dataHoje: string;
+  catalogo: typeof CATALOGO_SOC;
+}) {
+  const datas = Object.keys(documento.dias).sort();
+  const [dataSelecionada, setDataSelecionada] = useState(() => (datas.includes(dataHoje) ? dataHoje : datas[0] ?? dataHoje));
+  const jornada = resolverJornadaDia(documento, catalogo, dataSelecionada);
+  return (
+    <>
+      <CalendarioEscala
+        datas={datas}
+        dataHoje={dataHoje}
+        dataSelecionada={dataSelecionada}
+        escala={documento}
+        catalogo={catalogo}
+        onSelecionar={setDataSelecionada}
+      />
+      <p className="visao-coord-dia-escolhido">
+        <strong>{capitalizar(formatarData(dataSelecionada, { weekday: 'long', day: '2-digit', month: '2-digit' }))}</strong>
+        {' · '}{jornada.descricao}{jornada.inicio && jornada.fim ? ` · ${jornada.inicio}–${jornada.fim}` : ''}
+      </p>
+    </>
+  );
+}
+
 function CalendarioEscala({
   datas,
   dataHoje,
@@ -5788,6 +5822,9 @@ export function EmployeeApp() {
                   agruparPorPeriodo
                   avisoDivergencia={false}
                 />
+              )}
+              renderizarMesPessoa={(documento) => (
+                <CalendarioPessoaCoordenador documento={documento} dataHoje={dataHoje} catalogo={catalogo} />
               )}
               renderizarCalendarioPlantao={(plantao) => (plantao.periodo === null ? null : (
                 <CalendarioPlantaoApp

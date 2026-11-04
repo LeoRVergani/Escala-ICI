@@ -73,6 +73,24 @@ function AvisoFalhas({ diagnostico }: { diagnostico?: DiagnosticoVisao }) {
 
 const NOMES_PERIODO: Record<string, string> = { MD: 'Madrugada', M: 'Manhã', T: 'Tarde', N: 'Noite' };
 
+function iniciais(nome: string): string {
+  return nome.trim().split(/\s+/u).filter(Boolean).slice(0, 2).map((parte) => parte[0]?.toUpperCase() ?? '').join('');
+}
+
+/**
+ * NOMES-BOTOES-1 — o nome do colaborador é um botão de verdade (iniciais,
+ * nome e seta), e não um link azul sublinhado: fica claro que abre o mês.
+ */
+function BotaoPessoa({ nome, onAbrir }: { nome: string; onAbrir: () => void }) {
+  return (
+    <button type="button" className="visao-coord-pessoa" onClick={onAbrir} title={`Ver a escala do mês de ${nome}`}>
+      <span className="visao-coord-pessoa-avatar" aria-hidden="true">{iniciais(nome)}</span>
+      <span className="visao-coord-pessoa-nome">{nome}</span>
+      <ChevronRight size={14} aria-hidden="true" />
+    </button>
+  );
+}
+
 function primeiroNome(nome: string): string {
   return nome.trim().split(/\s+/u)[0] ?? nome;
 }
@@ -212,6 +230,7 @@ export function VisaoEquipesCoordenador({
   diagnostico,
   renderizarMes6x1,
   renderizarCalendarioPlantao,
+  renderizarMesPessoa,
 }: {
   equipes: readonly EquipeJornadaVisao[];
   plantoes: readonly PlantaoVisao[];
@@ -221,6 +240,8 @@ export function VisaoEquipesCoordenador({
   /** VISAO-COORDENADOR-APP-4 — o mesmo calendário completo que o colaborador vê. */
   renderizarMes6x1?: (equipe: EquipeJornadaVisao) => ReactNode;
   renderizarCalendarioPlantao?: (plantao: PlantaoVisao) => ReactNode;
+  /** NOMES-BOTOES-1 — o mesmo calendário da Agenda do colaborador, no modal do mês. */
+  renderizarMesPessoa?: (documento: TurnosMes) => ReactNode;
 }) {
   const abas = [
     ...equipes.map((equipe) => ({ chave: `J:${equipe.id}`, nome: equipe.nome, tipo: '6x1' as const })),
@@ -322,7 +343,7 @@ export function VisaoEquipesCoordenador({
                     .map(({ documento, nome, resumo }) => (
                       <tr key={documento.login}>
                         <th scope="row">
-                          <button type="button" className="link-button" onClick={() => setPessoaAberta({ documento, nome })}>{nome}</button>
+                          <BotaoPessoa nome={nome} onAbrir={() => setPessoaAberta({ documento, nome })} />
                         </th>
                         <td><strong>{resumo.diasTrabalhados}</strong></td>
                         <td>{formatarHorasMinutos(resumo.minutos)}</td>
@@ -364,7 +385,7 @@ export function VisaoEquipesCoordenador({
                         return (
                           <tr key={documento.login}>
                             <th scope="row">
-                              <button type="button" className="link-button" onClick={() => setPessoaAberta({ documento, nome })}>{nome}</button>
+                              <BotaoPessoa nome={nome} onAbrir={() => setPessoaAberta({ documento, nome })} />
                             </th>
                             {semana.map((data) => {
                               const dia = documento.dias[data];
@@ -467,6 +488,7 @@ export function VisaoEquipesCoordenador({
           nome={pessoaAberta.nome}
           catalogo={catalogo}
           onFechar={() => setPessoaAberta(null)}
+          renderizarCalendario={renderizarMesPessoa}
         />
       )}
     </article>
@@ -478,11 +500,13 @@ function ModalMesDaPessoa({
   nome,
   catalogo,
   onFechar,
+  renderizarCalendario,
 }: {
   documento: TurnosMes;
   nome: string;
   catalogo: Record<string, TipoTurno>;
   onFechar: () => void;
+  renderizarCalendario?: (documento: TurnosMes) => ReactNode;
 }) {
   const datas = Object.keys(documento.dias).sort();
   const deslocamento = datas.length === 0 ? 0 : new Date(`${datas[0]}T12:00:00Z`).getUTCDay();
@@ -498,6 +522,9 @@ function ModalMesDaPessoa({
   if (typeof document === 'undefined') {
     return null;
   }
+  // Raiz do app: fora dos cards (sem herdar margens), mas dentro do escopo
+  // `.app-shell.product-app` que estiliza os calendários e as folhas.
+  const destino = document.querySelector('.app-shell') ?? document.body;
   return createPortal(
     <div className="modal-backdrop modal-backdrop-sheet" role="presentation" onMouseDown={onFechar}>
       <section
@@ -515,6 +542,9 @@ function ModalMesDaPessoa({
           </div>
           <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar"><X size={18} /></button>
         </div>
+        {renderizarCalendario ? (
+          <div className="visao-coord-mes-calendario">{renderizarCalendario(documento)}</div>
+        ) : (
         <div className="visao-coord-mes-grade">
           {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((dia) => <span key={dia} className="visao-coord-mes-cabecalho">{dia}</span>)}
           {Array.from({ length: deslocamento }, (_, indice) => <span key={`vazio-${indice}`} aria-hidden="true" />)}
@@ -533,6 +563,7 @@ function ModalMesDaPessoa({
             );
           })}
         </div>
+        )}
         <dl className="visao-coord-mes-resumo">
           <div><dt>Dias trabalhados</dt><dd>{resumo.diasTrabalhados}</dd></div>
           <div><dt>Horas</dt><dd>{horas}</dd></div>
@@ -544,6 +575,6 @@ function ModalMesDaPessoa({
         </dl>
       </section>
     </div>,
-    document.body,
+    destino,
   );
 }
