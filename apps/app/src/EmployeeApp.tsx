@@ -5040,7 +5040,20 @@ export function EmployeeApp() {
         </section>
       )}
 
-      {tela === 'minha' && (
+      {/* VISAO-COORDENADOR-MOBILE-3 — coordenador sem equipe fixa não tem agenda própria. */}
+      {tela === 'minha' && souCoordenacaoApp && !usuario.equipeId && (
+        <section className="employee-screen employee-agenda-screen">
+          <article className="panel organization-empty-state coordenacao-sem-escala">
+              <Users size={28} aria-hidden="true" />
+              <h2>Você não tem escala própria</h2>
+              <p>Como coordenador sem equipe fixa, sua Agenda fica vazia. As escalas das equipes que você administra — 6x1 e Plantão — estão em Equipe.</p>
+              <button className="primary-button" type="button" onClick={() => setTela('equipe')}>
+                Ver suas equipes <ChevronRight size={16} aria-hidden="true" />
+              </button>
+            </article>
+        </section>
+      )}
+      {tela === 'minha' && !(souCoordenacaoApp && !usuario.equipeId) && (
         <section className="employee-screen employee-agenda-screen">
           <div className="agenda-mobile-intro">
             <span className="avatar">
@@ -5367,6 +5380,9 @@ export function EmployeeApp() {
               </article>
             )}
 
+            {/* VISAO-COORDENADOR-MOBILE-3 — sem equipe fixa, o coordenador só decide trocas ("Para aprovar"). */}
+            {!(souCoordenacaoApp && !usuario.equipeId) && (
+            <>
             <article className="panel troca-bloco-jornada">
               <div className="panel-title">
                 <div>
@@ -5497,6 +5513,8 @@ export function EmployeeApp() {
                 </>
               )}
             </article>
+            </>
+            )}
 
             {podeAprovarTrocaPlantaoApp && (
               <article className="panel troca-bloco-aprovacoes">
@@ -5567,7 +5585,17 @@ export function EmployeeApp() {
             <div className="alert error" role="alert">{erroPlantaoApp}</div>
           )}
 
-          {!carregandoPlantaoApp && erroPlantaoApp === '' && grupoPlantaoApp === null && (
+          {!carregandoPlantaoApp && erroPlantaoApp === '' && grupoPlantaoApp === null && souCoordenacaoApp && !usuario.equipeId && (
+            <article className="panel organization-empty-state coordenacao-sem-escala">
+              <Users size={28} aria-hidden="true" />
+              <h2>Os Plantões que você administra estão em Equipe</h2>
+              <p>Lá você vê o calendário do mês, quem está de plantão agora, os próximos e o total de cada plantonista.</p>
+              <button className="primary-button" type="button" onClick={() => setTela('equipe')}>
+                Ver suas equipes <ChevronRight size={16} aria-hidden="true" />
+              </button>
+            </article>
+          )}
+          {!carregandoPlantaoApp && erroPlantaoApp === '' && grupoPlantaoApp === null && !(souCoordenacaoApp && !usuario.equipeId) && (
             <article className="panel organization-empty-state">
               <Radio size={28} aria-hidden="true" />
               <h2>Nenhum Plantão configurado para sua equipe</h2>

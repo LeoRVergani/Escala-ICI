@@ -8003,3 +8003,14 @@ a.plantao-contato-linha:focus-visible { background: var(--surface-muted); }
 .visao-coord-mes > * { margin: 0; }
 .visao-coord-mes > .visao-coord-mes-resumo { padding-top: 14px; border-top: 1px solid var(--border); }
 .visao-coord-mes-grade { row-gap: 6px; }
+
+/* VISAO-COORDENADOR-MOBILE-3 — nenhum modal herda as margens dos filhos dos
+ * cards da visão do coordenador (trava extra, além do portal). */
+.visao-coord-equipes > .modal-backdrop,
+.visao-coord-hoje > .modal-backdrop { margin: 0 !important; }
+
+/* VISAO-COORDENADOR-MOBILE-3 — aviso para o coordenador sem escala própria. */
+.coordenacao-sem-escala { display: grid; justify-items: center; gap: 10px; text-align: center; }
+.coordenacao-sem-escala > svg { color: var(--primary-bright); }
+.coordenacao-sem-escala > p { max-width: 460px; margin: 0; color: var(--muted); line-height: 1.5; }
+.coordenacao-sem-escala > .primary-button { display: inline-flex; align-items: center; gap: 6px; }
