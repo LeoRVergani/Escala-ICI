@@ -122,3 +122,38 @@ export function resumirMesDaPessoa(documento: TurnosMes, catalogo: Record<string
   }
   return resumo;
 }
+
+export interface ResumoPlantonista {
+  login: string;
+  plantoes: number;
+  /** Plantões de 24h (fim de semana/feriado). */
+  plantoes24h: number;
+  /** Plantões mais curtos (dia útil, ex.: 19:00–07:00). */
+  plantoesCurtos: number;
+  minutos: number;
+}
+
+/**
+ * VISAO-COORDENADOR-APP-3 — total do mês por plantonista: quantos plantões,
+ * quantos de 24h (fim de semana/feriado) e quantos curtos (dia útil), horas.
+ */
+export function resumirPlantonistas(
+  atribuicoes: ReadonlyArray<{ plantonistaLogin: string; inicio: string; fim: string }>,
+): ResumoPlantonista[] {
+  const porLogin = new Map<string, ResumoPlantonista>();
+  for (const atribuicao of atribuicoes) {
+    const minutos = Math.max(0, Math.round((Date.parse(atribuicao.fim) - Date.parse(atribuicao.inicio)) / 60_000));
+    const atual = porLogin.get(atribuicao.plantonistaLogin)
+      ?? { login: atribuicao.plantonistaLogin, plantoes: 0, plantoes24h: 0, plantoesCurtos: 0, minutos: 0 };
+    atual.plantoes += 1;
+    atual.minutos += minutos;
+    if (minutos >= 23 * 60) atual.plantoes24h += 1;
+    else atual.plantoesCurtos += 1;
+    porLogin.set(atribuicao.plantonistaLogin, atual);
+  }
+  return [...porLogin.values()].sort((a, b) => b.plantoes - a.plantoes || a.login.localeCompare(b.login));
+}
+
+export function formatarHorasMinutos(minutos: number): string {
+  return `${Math.floor(minutos / 60)}:${String(minutos % 60).padStart(2, '0')}`;
+}

@@ -12,9 +12,11 @@ import {
 } from './plantaoApp';
 import {
   deslocarDias,
+  formatarHorasMinutos,
   PERIODOS_JORNADA,
   resumirEquipeNoDia,
   resumirMesDaPessoa,
+  resumirPlantonistas,
   semanaDaData,
 } from './visaoCoordenador';
 
@@ -316,7 +318,78 @@ export function VisaoEquipesCoordenador({
               </table>
             </div>
           )}
+          {equipe.documentos.length > 0 && (
+            /* VISAO-COORDENADOR-APP-3 — total do mês de cada colaborador. */
+            <section className="visao-coord-resumo">
+              <h3>Resumo do mês</h3>
+              <div className="visao-coord-tabela-rolagem">
+                <table className="visao-coord-tabela visao-coord-tabela-resumo">
+                  <thead>
+                    <tr>
+                      <th>Pessoa</th>
+                      <th>Dias trabalhados</th>
+                      <th>Horas</th>
+                      <th>Folgas sáb.</th>
+                      <th>Folgas dia de semana</th>
+                      <th>Folgas dom.</th>
+                      <th>Hora extra</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...equipe.documentos]
+                      .map((documento) => ({ documento, nome: equipe.nomes.get(documento.login) ?? documento.login, resumo: resumirMesDaPessoa(documento, catalogo) }))
+                      .sort((a, b) => a.nome.localeCompare(b.nome))
+                      .map(({ documento, nome, resumo }) => (
+                        <tr key={documento.login}>
+                          <th scope="row">
+                            <button type="button" className="link-button" onClick={() => setPessoaAberta({ documento, nome })}>{nome}</button>
+                          </th>
+                          <td><strong>{resumo.diasTrabalhados}</strong></td>
+                          <td>{formatarHorasMinutos(resumo.minutos)}</td>
+                          <td>{resumo.folgasSabado}</td>
+                          <td>{resumo.folgasSemana}</td>
+                          <td>{resumo.folgasDomingo}</td>
+                          <td>{resumo.horasExtras || '—'}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
         </>
+      )}
+
+      {plantao !== undefined && plantao.atribuicoes.length > 0 && (
+        /* VISAO-COORDENADOR-APP-3 — total do mês de cada plantonista. */
+        <section className="visao-coord-resumo">
+          <h3>Resumo do mês</h3>
+          <div className="visao-coord-tabela-rolagem">
+            <table className="visao-coord-tabela visao-coord-tabela-resumo">
+              <thead>
+                <tr>
+                  <th>Plantonista</th>
+                  <th>Plantões</th>
+                  <th>Fim de semana / feriado (24h)</th>
+                  <th>Dia útil</th>
+                  <th>Horas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resumirPlantonistas(plantao.atribuicoes).map((item) => (
+                  <tr key={item.login}>
+                    <th scope="row">{nomeExibicaoPlantonista(item.login, [])}</th>
+                    <td><strong>{item.plantoes}</strong></td>
+                    <td>{item.plantoes24h}</td>
+                    <td>{item.plantoesCurtos}</td>
+                    <td>{formatarHorasMinutos(item.minutos)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <h3>Próximos plantões</h3>
+        </section>
       )}
 
       {plantao !== undefined && (

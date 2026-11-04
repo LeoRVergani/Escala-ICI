@@ -135,7 +135,9 @@ test('7. apps/app (colaborador) continua sem qualquer símbolo ADMINISTRATIVO de
    * (`atualizarCorPlantonista`), mesmo padrão de escopo (só o próprio
    * documento, nunca administração).
    */
-  assert.match(app, /import \{\s*listarAtribuicoesPlantaoPublicada,\s*listarGruposPlantaoPermitidos,\s*listarParticipantesPlantao,\s*obterCompetenciaPlantaoPublicadaNaData,\s*observarPublicacoesPlantao,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
+  // VISAO-COORDENADOR-APP-3 — + obterGrupoPlantao e listarGruposPlantaoPorUnidadeResponsavel
+  // (só leitura) para o coordenador achar os Plantões que administra; a lista continua fechada.
+  assert.match(app, /import \{\s*listarAtribuicoesPlantaoPublicada,\s*listarGruposPlantaoPermitidos,\s*listarGruposPlantaoPorUnidadeResponsavel,\s*listarParticipantesPlantao,\s*obterCompetenciaPlantaoPublicadaNaData,\s*obterGrupoPlantao,\s*observarPublicacoesPlantao,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
   assert.match(app, /import \{ atualizarContatosPlantonista, atualizarCorPlantonista \} from '@\/lib\/firebase\/plantaoWriteRepository';/u);
 });
 
