@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { CalendarDays, ChevronLeft, ChevronRight, Radio, Users, X } from 'lucide-react';
 import { codigoPeriodoDia, formatarData, type TipoTurno, type TurnosMes } from '@escala-ici/contrato';
 
@@ -487,7 +488,17 @@ function ModalMesDaPessoa({
   const deslocamento = datas.length === 0 ? 0 : new Date(`${datas[0]}T12:00:00Z`).getUTCDay();
   const resumo = resumirMesDaPessoa(documento, catalogo);
   const horas = `${Math.floor(resumo.minutos / 60)}:${String(resumo.minutos % 60).padStart(2, '0')}`;
-  return (
+  /*
+   * VISAO-COORDENADOR-MOBILE-3 — o modal é desenhado direto no <body>
+   * (portal). Antes ele era filho do card "Suas equipes" e herdava as
+   * margens dos filhos do card: o escurecido ficava recuado e, no celular,
+   * a folha não ocupava a largura nem encostava embaixo. As cores do tema
+   * ficam em :root, então continuam valendo fora da árvore do app.
+   */
+  if (typeof document === 'undefined') {
+    return null;
+  }
+  return createPortal(
     <div className="modal-backdrop modal-backdrop-sheet" role="presentation" onMouseDown={onFechar}>
       <section
         className="edit-modal visao-coord-mes"
@@ -532,6 +543,7 @@ function ModalMesDaPessoa({
           {resumo.horasExtras > 0 && <div><dt>Hora extra</dt><dd>{resumo.horasExtras}</dd></div>}
         </dl>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
