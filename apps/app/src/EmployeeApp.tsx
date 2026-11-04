@@ -116,8 +116,10 @@ import { descreverNivelHierarquico } from '@/lib/organizacao';
 import {
   listarAtribuicoesPlantaoPublicada,
   listarGruposPlantaoPermitidos,
+  listarGruposPlantaoPorUnidadeResponsavel,
   listarParticipantesPlantao,
   obterCompetenciaPlantaoPublicadaNaData,
+  obterGrupoPlantao,
   observarPublicacoesPlantao,
 } from '@/lib/firebase/plantaoReadRepository';
 import { atualizarContatosPlantonista, atualizarCorPlantonista } from '@/lib/firebase/plantaoWriteRepository';
@@ -3034,20 +3036,48 @@ export function EmployeeApp() {
           ...(usuario.equipesPermitidas ?? []),
           ...semGrupos.jornadasAdministraveis.map((equipe) => equipe.id),
         ].filter((item): item is string => Boolean(item)))].slice(0, 12);
-        const listas = await Promise.all(equipesBusca.map((equipeId) => listarGruposPlantaoPermitidos(equipeId).catch((falha: unknown) => {
-          console.warn('[visao-coordenacao] grupos de plantão visíveis a', equipeId, falha);
+        /*
+         * VISAO-COORDENADOR-APP-3 — grupos de Plantão por três caminhos
+         * independentes (cada um tolera falha sozinho): Matriz (lidos um a
+         * um), unidade responsável e equipes que a pessoa organiza. Antes só
+         * havia o terceiro, que falhava inteiro para quem não tem equipe no
+         * cadastro ou quando um grupo antigo (sem unidade) entrava no resultado.
+         */
+        const avisar = (onde: string) => (falha: unknown) => {
+          console.warn('[visao-coordenacao] grupos de plantão —', onde, falha);
           return [] as GrupoPlantao[];
-        })));
-        const grupos = [...new Map(listas.flat().map((grupo) => [grupo.grupoId, grupo])).values()];
+        };
+        const alvosMatriz = escopos
+          .filter((escopo) => escopo.tipo === 'PLANTAO' && escopo.ativo && escopo.responsaveisLogin.includes(usuario.login))
+          .map((escopo) => escopo.alvoId);
+        const [porMatriz, porUnidade, porEquipe] = await Promise.all([
+          Promise.all(alvosMatriz.map((grupoId) => obterGrupoPlantao(grupoId).catch(() => null))),
+          Promise.all((usuario.unidadesPermitidas ?? []).map((unidadeId) => listarGruposPlantaoPorUnidadeResponsavel(unidadeId).catch(avisar(`unidade ${unidadeId}`)))),
+          Promise.all(equipesBusca.map((equipeId) => listarGruposPlantaoPermitidos(equipeId).catch(avisar(`equipe ${equipeId}`)))),
+        ]);
+        const grupos = [...new Map([
+          ...porMatriz.filter((grupo): grupo is GrupoPlantao => grupo !== null),
+          ...porUnidade.flat(),
+          ...porEquipe.flat(),
+        ].filter((grupo) => grupo.ativo !== false).map((grupo) => [grupo.grupoId, grupo])).values()];
         if (cancelado) return;
         const escoposResolvidos = resolverEscoposOperacionais(usuario, unidades, equipes, grupos, escopos, { permitirFallbackLegado: true });
-        setJornadasAdministradasApp(escoposResolvidos.jornadasAdministraveis.map((equipe) => equipe.id));
-        // VISAO-COORDENADOR-APP-1 — só os Plantões que a pessoa ADMINISTRA (não os que só consulta).
+        // Plantão "administrado" para a consulta: o resolvedor, a Matriz ou a
+        // equipe responsável estar entre as que a pessoa organiza.
+        const equipesQueOrganizo = new Set(semGrupos.jornadasAdministraveis.map((equipe) => equipe.id));
+        const idsAdministrados = new Set(escoposResolvidos.plantoesAdministraveis.map((grupo) => grupo.grupoId));
+        const gruposAdministrados = grupos.filter((grupo) => idsAdministrados.has(grupo.grupoId)
+          || alvosMatriz.includes(grupo.grupoId)
+          || equipesQueOrganizo.has(grupo.equipeResponsavelId));
+        // A equipe responsável por um Plantão não é uma equipe de 6x1.
+        const equipesDePlantao = new Set(grupos.map((grupo) => grupo.equipeResponsavelId));
+        const jornadas = escoposResolvidos.jornadasAdministraveis.filter((equipe) => !equipesDePlantao.has(equipe.id));
+        setJornadasAdministradasApp(jornadas.map((equipe) => equipe.id));
         setEstruturaCoordenacaoApp({
-          equipes: escoposResolvidos.jornadasAdministraveis.map((equipe) => ({ id: equipe.id, nome: equipe.nome })),
-          grupos: escoposResolvidos.plantoesAdministraveis.filter((grupo) => grupo.ativo !== false),
+          equipes: jornadas.map((equipe) => ({ id: equipe.id, nome: equipe.nome })),
+          grupos: gruposAdministrados,
         });
-        if (escoposResolvidos.jornadasAdministraveis.length === 0 && escoposResolvidos.plantoesAdministraveis.length === 0) {
+        if (jornadas.length === 0 && gruposAdministrados.length === 0) {
           setDiagnosticoVisaoCoordenacao({ estado: 'pronto', falhas: [] });
         }
       })

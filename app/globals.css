@@ -7867,3 +7867,9 @@ a.plantao-contato-linha:focus-visible { background: var(--surface-muted); }
 .visao-coord-diagnostico small { color: var(--muted); font-size: 12px; }
 .visao-coord-diagnostico ul { margin: 4px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
 .visao-coord-hoje-grade > .visao-coord-diagnostico { margin: 0; }
+
+/* VISAO-COORDENADOR-APP-3 — resumo do mês por colaborador/plantonista. */
+.visao-coord-resumo { display: grid; gap: 8px; margin-top: 16px; }
+.visao-coord-resumo h3 { margin: 6px 0 0; color: var(--text); font-size: 14px; font-weight: 800; }
+.visao-coord-tabela-resumo { min-width: 560px; }
+.visao-coord-tabela-resumo td strong { font-size: 14px; }

@@ -728,7 +728,9 @@ test('o cabeçalho do AppFrame mostra o cargo real (rotuloCargoExibicao), nunca 
 test('o App não trata mais ausência de Jornada 6x1 como erro global — operacoesApp.ts decide por operação', async () => {
   const app = await ler('apps/app/src/EmployeeApp.tsx');
 
-  assert.match(app, /import \{\s*listarAtribuicoesPlantaoPublicada,\s*listarGruposPlantaoPermitidos,\s*listarParticipantesPlantao,\s*obterCompetenciaPlantaoPublicadaNaData,\s*observarPublicacoesPlantao,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
+  // VISAO-COORDENADOR-APP-3 — + obterGrupoPlantao e listarGruposPlantaoPorUnidadeResponsavel
+  // (só leitura) para o coordenador achar os Plantões que administra; a lista continua fechada.
+  assert.match(app, /import \{\s*listarAtribuicoesPlantaoPublicada,\s*listarGruposPlantaoPermitidos,\s*listarGruposPlantaoPorUnidadeResponsavel,\s*listarParticipantesPlantao,\s*obterCompetenciaPlantaoPublicadaNaData,\s*obterGrupoPlantao,\s*observarPublicacoesPlantao,\s*\} from '@\/lib\/firebase\/plantaoReadRepository';/u);
   assert.doesNotMatch(app, /async function mensagemAusenciaEscalaAcao/u, 'a função antiga (que jogava a ausência de Jornada no alerta global) precisa ter sido removida');
   assert.doesNotMatch(app, /setErro\(await mensagemAusenciaEscalaAcao/u);
   assert.doesNotMatch(app, /'Nenhuma escala publicada foi encontrada para o seu login neste período\.'/u, 'a mensagem genérica antiga não pode mais aparecer sozinha para este caso');

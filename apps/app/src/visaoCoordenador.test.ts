@@ -1,7 +1,7 @@
 import { CATALOGO_SOC, type Dia, type TurnosMes } from '@escala-ici/contrato';
 import { describe, expect, it } from 'vitest';
 
-import { resumirEquipeNoDia, resumirMesDaPessoa, semanaDaData } from './visaoCoordenador';
+import { formatarHorasMinutos, resumirEquipeNoDia, resumirMesDaPessoa, resumirPlantonistas, semanaDaData } from './visaoCoordenador';
 
 function documento(login: string, dias: Record<string, Dia>): TurnosMes {
   return {
@@ -43,5 +43,18 @@ describe('VISAO-COORDENADOR-APP-1', () => {
   it('resumo do mês: folgas de DSR por tipo de dia', () => {
     const doc = documento('ana', { '2026-11-01': DF, '2026-11-02': M, '2026-11-07': DF, '2026-11-11': { c: 'DU' } });
     expect(resumirMesDaPessoa(doc, CATALOGO_SOC)).toMatchObject({ folgasDomingo: 1, folgasSabado: 1, folgasSemana: 1, diasTrabalhados: 1 });
+  });
+});
+
+describe('VISAO-COORDENADOR-APP-3 — total do mês por plantonista', () => {
+  it('separa plantões de 24h e de dia útil e soma as horas', () => {
+    const resumo = resumirPlantonistas([
+      { plantonistaLogin: 'bruno', inicio: '2026-10-30T22:00:00.000Z', fim: '2026-10-31T22:00:00.000Z' },
+      { plantonistaLogin: 'bruno', inicio: '2026-11-02T22:00:00.000Z', fim: '2026-11-03T10:00:00.000Z' },
+      { plantonistaLogin: 'jean', inicio: '2026-10-31T22:00:00.000Z', fim: '2026-11-01T22:00:00.000Z' },
+    ]);
+    expect(resumo[0]).toEqual({ login: 'bruno', plantoes: 2, plantoes24h: 1, plantoesCurtos: 1, minutos: 36 * 60 });
+    expect(resumo[1]).toMatchObject({ login: 'jean', plantoes: 1, plantoes24h: 1 });
+    expect(formatarHorasMinutos(36 * 60)).toBe('36:00');
   });
 });
