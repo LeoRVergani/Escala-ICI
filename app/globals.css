@@ -7996,3 +7996,10 @@ a.plantao-contato-linha:focus-visible { background: var(--surface-muted); }
   box-shadow: 1px 0 0 var(--border), 8px 0 10px -8px rgba(15, 23, 42, 0.18);
 }
 .visao-coord-tabela thead th:first-child { z-index: 4; }
+
+/* VISAO-COORDENADOR-MOBILE-2 — modal do mês do colaborador: blocos com
+ * respiro entre si (o resumo ficava colado na última semana do calendário). */
+.visao-coord-mes { display: grid; gap: 16px; }
+.visao-coord-mes > * { margin: 0; }
+.visao-coord-mes > .visao-coord-mes-resumo { padding-top: 14px; border-top: 1px solid var(--border); }
+.visao-coord-mes-grade { row-gap: 6px; }
