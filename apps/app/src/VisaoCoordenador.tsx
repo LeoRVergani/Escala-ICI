@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Radio, Users, X } from 'lucide-react';
 import { codigoPeriodoDia, formatarData, type TipoTurno, type TurnosMes } from '@escala-ici/contrato';
 
-import type { AtribuicaoPlantaoPersistida, GrupoPlantao } from '@escala-ici/contrato';
+import type { AtribuicaoPlantaoPersistida, GrupoPlantao, ParticipantePlantao } from '@escala-ici/contrato';
 import {
   intervaloPlantaoCivil,
   nomeExibicaoPlantonista,
@@ -35,6 +35,8 @@ export interface EquipeJornadaVisao {
 export interface PlantaoVisao {
   grupo: GrupoPlantao;
   atribuicoes: AtribuicaoPlantaoPersistida[];
+  participantes: ParticipantePlantao[];
+  periodo: { inicio: string; fim: string } | null;
 }
 
 export interface DiagnosticoVisao {
@@ -198,24 +200,34 @@ export function PainelHojeEquipes({
 }
 
 /** Aba Equipe: uma aba por equipe 6x1 e por Plantão administrado. */
+type Visualizacao6x1 = 'mes' | 'semana' | 'totais';
+type VisualizacaoPlantao = 'calendario' | 'lista' | 'totais';
+
 export function VisaoEquipesCoordenador({
   equipes,
   plantoes,
   dataHoje,
   catalogo,
   diagnostico,
+  renderizarMes6x1,
+  renderizarCalendarioPlantao,
 }: {
   equipes: readonly EquipeJornadaVisao[];
   plantoes: readonly PlantaoVisao[];
   dataHoje: string;
   catalogo: Record<string, TipoTurno>;
   diagnostico?: DiagnosticoVisao;
+  /** VISAO-COORDENADOR-APP-4 — o mesmo calendário completo que o colaborador vê. */
+  renderizarMes6x1?: (equipe: EquipeJornadaVisao) => ReactNode;
+  renderizarCalendarioPlantao?: (plantao: PlantaoVisao) => ReactNode;
 }) {
   const abas = [
     ...equipes.map((equipe) => ({ chave: `J:${equipe.id}`, nome: equipe.nome, tipo: '6x1' as const })),
     ...plantoes.map((item) => ({ chave: `P:${item.grupo.grupoId}`, nome: rotuloGrupoPlantao(item.grupo.nome), tipo: 'Plantão' as const })),
   ];
   const [abaSelecionada, setAbaSelecionada] = useState<string>('');
+  const [visao6x1, setVisao6x1] = useState<Visualizacao6x1>('mes');
+  const [visaoPlantao, setVisaoPlantao] = useState<VisualizacaoPlantao>('calendario');
   const [inicioSemana, setInicioSemana] = useState(() => semanaDaData(dataHoje)[0] ?? dataHoje);
   const [pessoaAberta, setPessoaAberta] = useState<{ documento: TurnosMes; nome: string } | null>(null);
   const aba = abas.find((item) => item.chave === abaSelecionada) ?? abas[0];
@@ -230,18 +242,21 @@ export function VisaoEquipesCoordenador({
   const equipe = aba.chave.startsWith('J:') ? equipes.find((item) => `J:${item.id}` === aba.chave) : undefined;
   const plantao = aba.chave.startsWith('P:') ? plantoes.find((item) => `P:${item.grupo.grupoId}` === aba.chave) : undefined;
   const semana = semanaDaData(inicioSemana);
+  const resumoHoje = equipe ? resumirEquipeNoDia(equipe.documentos, dataHoje, catalogo, equipe.nomes) : null;
+  const plantonistas = plantao ? resumirPlantonistas(plantao.atribuicoes) : [];
 
   return (
     <article className="panel visao-coord-equipes">
-      <div className="panel-title">
+      <header className="visao-coord-cabecalho">
         <div>
           <p className="eyebrow">Coordenação</p>
           <h2>Suas equipes</h2>
           <p>Consulta das escalas que você administra. Para alterar, use o Dashboard.</p>
         </div>
-      </div>
+      </header>
 
       <AvisoFalhas diagnostico={diagnostico} />
+
       {abas.length > 1 && (
         <div className="visao-coord-abas" role="tablist" aria-label="Equipes e Plantões">
           {abas.map((item) => (
@@ -253,7 +268,7 @@ export function VisaoEquipesCoordenador({
               className={item.chave === aba.chave ? 'active' : ''}
               onClick={() => setAbaSelecionada(item.chave)}
             >
-              {item.tipo === 'Plantão' ? <Radio size={14} aria-hidden="true" /> : <Users size={14} aria-hidden="true" />}
+              {item.tipo === 'Plantão' ? <Radio size={15} aria-hidden="true" /> : <Users size={15} aria-hidden="true" />}
               <span>{item.nome}</span>
               <small>{item.tipo}</small>
             </button>
@@ -262,153 +277,187 @@ export function VisaoEquipesCoordenador({
       )}
 
       {equipe !== undefined && (
-        <>
-          <div className="visao-coord-semana-nav">
-            <button className="icon-button" type="button" onClick={() => setInicioSemana(deslocarDias(inicioSemana, -7))} aria-label="Semana anterior">
-              <ChevronLeft size={16} />
-            </button>
-            <strong>{diaCurto(semana[0] ?? inicioSemana)} a {diaCurto(semana[6] ?? inicioSemana)}</strong>
-            <button className="icon-button" type="button" onClick={() => setInicioSemana(deslocarDias(inicioSemana, 7))} aria-label="Próxima semana">
-              <ChevronRight size={16} />
-            </button>
+        <section className="visao-coord-conteudo">
+          <div className="visao-coord-numeros">
+            <div><small>Pessoas</small><strong>{equipe.documentos.length}</strong></div>
+            <div><small>Trabalhando hoje</small><strong>{resumoHoje ? PERIODOS_JORNADA.reduce((soma, periodo) => soma + resumoHoje.porPeriodo[periodo].length, 0) : 0}</strong></div>
+            <div><small>De folga hoje</small><strong>{resumoHoje?.folga.length ?? 0}</strong></div>
+            <div data-alerta={resumoHoje && resumoHoje.descobertos.length > 0 ? '' : undefined}>
+              <small>Turnos descobertos</small>
+              <strong>{resumoHoje?.descobertos.length ? resumoHoje.descobertos.join(', ') : 'Nenhum'}</strong>
+            </div>
           </div>
+
+          <div className="visao-coord-seletor" role="tablist" aria-label="Visualização">
+            {([['mes', 'Mês'], ['semana', 'Semana'], ['totais', 'Totais']] as const).map(([valor, rotulo]) => (
+              <button key={valor} type="button" role="tab" aria-selected={visao6x1 === valor} className={visao6x1 === valor ? 'active' : ''} onClick={() => setVisao6x1(valor)}>
+                {rotulo}
+              </button>
+            ))}
+          </div>
+
           {equipe.documentos.length === 0 ? (
             <p className="empty-inline">Sem escala publicada para {equipe.nome} neste mês.</p>
-          ) : (
+          ) : visao6x1 === 'mes' && renderizarMes6x1 ? (
+            <div className="visao-coord-mes-equipe">{renderizarMes6x1(equipe)}</div>
+          ) : visao6x1 === 'totais' ? (
             <div className="visao-coord-tabela-rolagem">
-              <table className="visao-coord-tabela">
+              <table className="visao-coord-tabela visao-coord-tabela-resumo">
                 <thead>
                   <tr>
                     <th>Pessoa</th>
-                    {semana.map((data) => (
-                      <th key={data} data-hoje={data === dataHoje ? '' : undefined}>{diaCurto(data)}</th>
-                    ))}
+                    <th>Dias trabalhados</th>
+                    <th>Horas</th>
+                    <th>Folgas sáb.</th>
+                    <th>Folgas dia de semana</th>
+                    <th>Folgas dom.</th>
+                    <th>Hora extra</th>
                   </tr>
                 </thead>
                 <tbody>
                   {[...equipe.documentos]
-                    .sort((a, b) => (equipe.nomes.get(a.login) ?? a.login).localeCompare(equipe.nomes.get(b.login) ?? b.login))
-                    .map((documento) => {
-                      const nome = equipe.nomes.get(documento.login) ?? documento.login;
-                      return (
-                        <tr key={documento.login}>
-                          <th scope="row">
-                            <button type="button" className="link-button" onClick={() => setPessoaAberta({ documento, nome })}>
-                              {nome}
-                            </button>
-                          </th>
-                          {semana.map((data) => {
-                            const dia = documento.dias[data];
-                            const periodo = codigoPeriodoDia(dia);
-                            return (
-                              <td key={data} data-hoje={data === dataHoje ? '' : undefined}>
-                                {periodo ? (
-                                  <span className="shift-chip" data-code={periodo} data-hora-extra={dia?.t !== undefined ? '' : undefined} title={catalogo[dia?.c ?? '']?.descricao}>
-                                    {periodo}
-                                    {dia?.t !== undefined && <span className="shift-chip-he" aria-hidden="true">HE</span>}
-                                  </span>
-                                ) : <span className="visao-coord-vazio">·</span>}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    })}
+                    .map((documento) => ({ documento, nome: equipe.nomes.get(documento.login) ?? documento.login, resumo: resumirMesDaPessoa(documento, catalogo) }))
+                    .sort((a, b) => a.nome.localeCompare(b.nome))
+                    .map(({ documento, nome, resumo }) => (
+                      <tr key={documento.login}>
+                        <th scope="row">
+                          <button type="button" className="link-button" onClick={() => setPessoaAberta({ documento, nome })}>{nome}</button>
+                        </th>
+                        <td><strong>{resumo.diasTrabalhados}</strong></td>
+                        <td>{formatarHorasMinutos(resumo.minutos)}</td>
+                        <td>{resumo.folgasSabado}</td>
+                        <td>{resumo.folgasSemana}</td>
+                        <td>{resumo.folgasDomingo}</td>
+                        <td>{resumo.horasExtras || '—'}</td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
-          )}
-          {equipe.documentos.length > 0 && (
-            /* VISAO-COORDENADOR-APP-3 — total do mês de cada colaborador. */
-            <section className="visao-coord-resumo">
-              <h3>Resumo do mês</h3>
+          ) : (
+            <>
+              <div className="visao-coord-semana-nav">
+                <button className="icon-button" type="button" onClick={() => setInicioSemana(deslocarDias(inicioSemana, -7))} aria-label="Semana anterior">
+                  <ChevronLeft size={16} />
+                </button>
+                <strong>{diaCurto(semana[0] ?? inicioSemana)} a {diaCurto(semana[6] ?? inicioSemana)}</strong>
+                <button className="icon-button" type="button" onClick={() => setInicioSemana(deslocarDias(inicioSemana, 7))} aria-label="Próxima semana">
+                  <ChevronRight size={16} />
+                </button>
+              </div>
               <div className="visao-coord-tabela-rolagem">
-                <table className="visao-coord-tabela visao-coord-tabela-resumo">
+                <table className="visao-coord-tabela">
                   <thead>
                     <tr>
                       <th>Pessoa</th>
-                      <th>Dias trabalhados</th>
-                      <th>Horas</th>
-                      <th>Folgas sáb.</th>
-                      <th>Folgas dia de semana</th>
-                      <th>Folgas dom.</th>
-                      <th>Hora extra</th>
+                      {semana.map((data) => (
+                        <th key={data} data-hoje={data === dataHoje ? '' : undefined}>{diaCurto(data)}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
                     {[...equipe.documentos]
-                      .map((documento) => ({ documento, nome: equipe.nomes.get(documento.login) ?? documento.login, resumo: resumirMesDaPessoa(documento, catalogo) }))
-                      .sort((a, b) => a.nome.localeCompare(b.nome))
-                      .map(({ documento, nome, resumo }) => (
-                        <tr key={documento.login}>
-                          <th scope="row">
-                            <button type="button" className="link-button" onClick={() => setPessoaAberta({ documento, nome })}>{nome}</button>
-                          </th>
-                          <td><strong>{resumo.diasTrabalhados}</strong></td>
-                          <td>{formatarHorasMinutos(resumo.minutos)}</td>
-                          <td>{resumo.folgasSabado}</td>
-                          <td>{resumo.folgasSemana}</td>
-                          <td>{resumo.folgasDomingo}</td>
-                          <td>{resumo.horasExtras || '—'}</td>
-                        </tr>
-                      ))}
+                      .sort((a, b) => (equipe.nomes.get(a.login) ?? a.login).localeCompare(equipe.nomes.get(b.login) ?? b.login))
+                      .map((documento) => {
+                        const nome = equipe.nomes.get(documento.login) ?? documento.login;
+                        return (
+                          <tr key={documento.login}>
+                            <th scope="row">
+                              <button type="button" className="link-button" onClick={() => setPessoaAberta({ documento, nome })}>{nome}</button>
+                            </th>
+                            {semana.map((data) => {
+                              const dia = documento.dias[data];
+                              const periodo = codigoPeriodoDia(dia);
+                              return (
+                                <td key={data} data-hoje={data === dataHoje ? '' : undefined}>
+                                  {periodo ? (
+                                    <span className="shift-chip" data-code={periodo} data-hora-extra={dia?.t !== undefined ? '' : undefined} title={catalogo[dia?.c ?? '']?.descricao}>
+                                      {periodo}
+                                      {dia?.t !== undefined && <span className="shift-chip-he" aria-hidden="true">HE</span>}
+                                    </span>
+                                  ) : <span className="visao-coord-vazio">·</span>}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
-            </section>
+            </>
           )}
-        </>
-      )}
-
-      {plantao !== undefined && plantao.atribuicoes.length > 0 && (
-        /* VISAO-COORDENADOR-APP-3 — total do mês de cada plantonista. */
-        <section className="visao-coord-resumo">
-          <h3>Resumo do mês</h3>
-          <div className="visao-coord-tabela-rolagem">
-            <table className="visao-coord-tabela visao-coord-tabela-resumo">
-              <thead>
-                <tr>
-                  <th>Plantonista</th>
-                  <th>Plantões</th>
-                  <th>Fim de semana / feriado (24h)</th>
-                  <th>Dia útil</th>
-                  <th>Horas</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resumirPlantonistas(plantao.atribuicoes).map((item) => (
-                  <tr key={item.login}>
-                    <th scope="row">{nomeExibicaoPlantonista(item.login, [])}</th>
-                    <td><strong>{item.plantoes}</strong></td>
-                    <td>{item.plantoes24h}</td>
-                    <td>{item.plantoesCurtos}</td>
-                    <td>{formatarHorasMinutos(item.minutos)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <h3>Próximos plantões</h3>
         </section>
       )}
 
       {plantao !== undefined && (
-        <ul className="visao-coord-plantoes">
-          {[...plantao.atribuicoes]
-            .filter((atribuicao) => atribuicao.fim.slice(0, 10) >= dataHoje)
-            .sort((a, b) => a.inicio.localeCompare(b.inicio))
-            .slice(0, 21)
-            .map((atribuicao) => {
-              const intervalo = intervaloPlantaoCivil(atribuicao, plantao.grupo.timezone);
-              return (
-                <li key={`${atribuicao.plantonistaLogin}-${atribuicao.inicio}`}>
-                  <strong>{nomeExibicaoPlantonista(atribuicao.plantonistaLogin, [])}</strong>
-                  <small>{tituloPeriodoPlantao(intervalo)}</small>
-                </li>
-              );
-            })}
-          {plantao.atribuicoes.length === 0 && <li className="empty-inline">Sem plantão publicado neste período.</li>}
-        </ul>
+        <section className="visao-coord-conteudo">
+          <div className="visao-coord-numeros">
+            <div><small>Plantonistas</small><strong>{plantonistas.length}</strong></div>
+            <div><small>Plantões no mês</small><strong>{plantao.atribuicoes.length}</strong></div>
+            <div><small>Fim de semana / feriado</small><strong>{plantonistas.reduce((soma, item) => soma + item.plantoes24h, 0)}</strong></div>
+            <div><small>Dia útil</small><strong>{plantonistas.reduce((soma, item) => soma + item.plantoesCurtos, 0)}</strong></div>
+          </div>
+
+          <div className="visao-coord-seletor" role="tablist" aria-label="Visualização">
+            {([['calendario', 'Calendário'], ['lista', 'Próximos'], ['totais', 'Totais']] as const).map(([valor, rotulo]) => (
+              <button key={valor} type="button" role="tab" aria-selected={visaoPlantao === valor} className={visaoPlantao === valor ? 'active' : ''} onClick={() => setVisaoPlantao(valor)}>
+                {rotulo}
+              </button>
+            ))}
+          </div>
+
+          {plantao.atribuicoes.length === 0 ? (
+            <p className="empty-inline">Sem plantão publicado neste período.</p>
+          ) : visaoPlantao === 'calendario' && renderizarCalendarioPlantao ? (
+            <div className="visao-coord-mes-equipe">{renderizarCalendarioPlantao(plantao)}</div>
+          ) : visaoPlantao === 'totais' ? (
+            <div className="visao-coord-tabela-rolagem">
+              <table className="visao-coord-tabela visao-coord-tabela-resumo">
+                <thead>
+                  <tr>
+                    <th>Plantonista</th>
+                    <th>Plantões</th>
+                    <th>Fim de semana / feriado (24h)</th>
+                    <th>Dia útil</th>
+                    <th>Horas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {plantonistas.map((item) => (
+                    <tr key={item.login}>
+                      <th scope="row">{nomeExibicaoPlantonista(item.login, [])}</th>
+                      <td><strong>{item.plantoes}</strong></td>
+                      <td>{item.plantoes24h}</td>
+                      <td>{item.plantoesCurtos}</td>
+                      <td>{formatarHorasMinutos(item.minutos)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <ul className="visao-coord-plantoes">
+              {[...plantao.atribuicoes]
+                .filter((atribuicao) => atribuicao.fim.slice(0, 10) >= dataHoje)
+                .sort((a, b) => a.inicio.localeCompare(b.inicio))
+                .slice(0, 21)
+                .map((atribuicao) => {
+                  const intervalo = intervaloPlantaoCivil(atribuicao, plantao.grupo.timezone);
+                  const nome = nomeExibicaoPlantonista(atribuicao.plantonistaLogin, []);
+                  return (
+                    <li key={`${atribuicao.plantonistaLogin}-${atribuicao.inicio}`}>
+                      <span className="visao-coord-avatar" aria-hidden="true">{nome.split(/\s+/u).slice(0, 2).map((parte) => parte[0]?.toUpperCase()).join('')}</span>
+                      <span>
+                        <strong>{nome}</strong>
+                        <small>{tituloPeriodoPlantao(intervalo)}</small>
+                      </span>
+                    </li>
+                  );
+                })}
+            </ul>
+          )}
+        </section>
       )}
 
       {pessoaAberta && (
