@@ -8251,3 +8251,72 @@ a.plantao-contato-linha:focus-visible { background: var(--surface-muted); }
 .grupo-plantao-rodape { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .grupo-plantao-rodape .compact-button { display: inline-flex; align-items: center; gap: 6px; }
 .grupo-plantao-id { color: var(--muted); font-size: 11.5px; }
+
+/* =====================================================================
+ * IMPORTAR-PLANTAO-APP-1 — importação rápida de Plantão no App.
+ * ===================================================================== */
+.importar-plantao-app { display: grid; gap: 14px; width: min(560px, calc(100vw - 32px)); }
+.importar-plantao-passos { display: flex; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.importar-plantao-passos > li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.importar-plantao-passos > li > span {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface-muted);
+  font-size: 11px;
+}
+.importar-plantao-passos > li[data-estado="atual"] { border-color: var(--primary-bright); color: var(--primary-bright); }
+.importar-plantao-passos > li[data-estado="atual"] > span { background: var(--primary-bright); color: #fff; }
+.importar-plantao-passos > li[data-estado="feito"] { color: var(--success); }
+.importar-plantao-arquivo {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 28px 18px;
+  border: 2px dashed color-mix(in srgb, var(--primary-bright) 45%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--primary-bright) 5%, var(--surface));
+  color: var(--text);
+  text-align: center;
+  cursor: pointer;
+}
+.importar-plantao-arquivo > svg { color: var(--primary-bright); }
+.importar-plantao-arquivo strong { font-size: 16px; }
+.importar-plantao-arquivo small { color: var(--muted); font-size: 12.5px; max-width: 340px; }
+.importar-plantao-resumo { display: grid; gap: 12px; }
+.importar-plantao-arquivo-nome { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--muted); font-size: 12.5px; }
+.importar-plantao-mes { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.importar-plantao-mes strong { font-size: 20px; font-weight: 800; color: var(--text); }
+.importar-plantao-mes span { color: var(--muted); font-size: 13px; font-weight: 650; }
+.importar-plantao-numeros { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.importar-plantao-numeros > div { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
+.importar-plantao-numeros small { color: var(--muted); font-size: 11px; font-weight: 700; }
+.importar-plantao-numeros strong { font-size: 20px; font-weight: 800; color: var(--text); }
+.importar-plantao-postos { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.importar-plantao-postos > li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--text); }
+.importar-plantao-atipicas { font-size: 12.5px; color: var(--muted); }
+.importar-plantao-atipicas summary { cursor: pointer; }
+.importar-plantao-atipicas ul { margin: 6px 0 0; padding-left: 18px; }
+.importar-plantao-ok { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--success); font-weight: 700; font-size: 13.5px; }
+.importar-plantao-pronto { display: grid; justify-items: center; gap: 6px; padding: 18px 8px; text-align: center; }
+.importar-plantao-pronto > svg { color: var(--success); }
+.importar-plantao-pronto strong { font-size: 18px; color: var(--text); }
+.importar-plantao-pronto span { color: var(--muted); font-size: 13px; }
+.visao-coord-acoes { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.visao-coord-importar { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 720px) {
+  .importar-plantao-passos > li { padding: 5px 6px; font-size: 11px; }
+}
