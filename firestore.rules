@@ -792,13 +792,31 @@ service cloud.firestore {
         );
     }
 
+    /**
+     * CONSULTA-PLANTAO-UNIFICADA-1 — quem pode LER a escala de um Plantão
+     * (competências, atribuições, participantes):
+     *   - quem administra; ou
+     *   - equipe na lista de consulta da Matriz (como antes); ou
+     *   - equipe na lista de consulta do GRUPO ("equipes que consultam",
+     *     a lista que o Dashboard mostra e edita); ou
+     *   - o próprio plantonista (participante ATIVO do grupo) — sempre vê a
+     *     própria escala, sem depender de lista nenhuma.
+     * Antes, com Matriz existente, SÓ a lista da Matriz valia: um Plantão
+     * com Matriz e lista de consulta vazia (ex.: CODB) não era lido por
+     * ninguém — nem pelos próprios plantonistas. Matriz INATIVA continua
+     * bloqueando tudo (Plantão desligado).
+     */
+    function matrizPlantaoNaoBloqueia(grupoId) {
+      return !existeMatrizOperacional('PLANTAO', grupoId)
+        || matrizOperacional('PLANTAO', grupoId).ativo == true;
+    }
+
     function podeLerEscalaPlantao(grupoId) {
       return podeAdministrarEscalaPlantao(grupoId)
         || matrizConcedeConsultaPlantao(grupoId)
-        // A ACL histórica só é fallback enquanto o alvo não foi migrado.
-        // Uma matriz existente, mesmo inativa, é a fonte de verdade e não
-        // pode ser contornada por `gruposPlantao.equipesConsulta`.
-        || (!existeMatrizOperacional('PLANTAO', grupoId) && podeConsultarGrupoPlantao(grupoPlantaoPorId(grupoId)));
+        || (matrizPlantaoNaoBloqueia(grupoId)
+          && (podeConsultarGrupoPlantao(grupoPlantaoPorId(grupoId))
+            || souParticipanteAtivoDoGrupoPlantao(grupoId)));
     }
 
     /**
