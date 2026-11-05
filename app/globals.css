@@ -8173,3 +8173,29 @@ a.plantao-contato-linha:focus-visible { background: var(--surface-muted); }
 .plantao-dia-item-header { display: flex; align-items: center; gap: 10px; }
 .plantao-dia-item-header > div { flex: 1 1 auto; min-width: 0; }
 .visao-coord-plantoes .plantao-posto-selo { margin-left: 6px; vertical-align: middle; }
+
+/* =====================================================================
+ * PLANTAO-TELA-SIMPLES-1 — tela de Plantão do Dashboard mais simples.
+ * ===================================================================== */
+.plantao-passo-numero {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  font-size: 10.5px;
+  font-weight: 800;
+}
+.plantao-aba-posto-contagem {
+  display: block;
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+.segmented-control button.active .plantao-aba-posto-contagem { color: var(--primary-bright); }
+.plantao-atipicas-lista { display: grid; gap: 3px; margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--text); }
+.plantao-atipicas-lista small { color: var(--muted); }
+.plantao-revisao-motivo { margin: 0; color: var(--warning); }

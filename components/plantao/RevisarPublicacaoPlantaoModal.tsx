@@ -21,6 +21,14 @@ export interface RevisarPublicacaoPlantaoModalProps {
   onFechar: () => void;
   /** Clique numa linha de posto problemática — decide navegar para Calendário (posto faltando/conflito) ou Vínculos (pendência). */
   onNavegarParaFuncao: (funcao: FuncaoPlantao, destino: 'calendario' | 'vinculos') => void;
+  /**
+   * PLANTAO-TELA-SIMPLES-1 — publicar daqui mesmo, depois de revisar (antes a
+   * janela só tinha "Fechar"). Sem `onPublicar`, o botão não aparece.
+   */
+  onPublicar?: () => void;
+  /** `null` = pode publicar; texto = o que falta (mostrado ao lado do botão). */
+  motivoBloqueioPublicacao?: string | null;
+  publicando?: boolean;
 }
 
 function IconeStatus({ status }: { status: SaudeFuncaoPlantao['status'] }) {
@@ -55,6 +63,9 @@ export function RevisarPublicacaoPlantaoModal({
   funcoesEsperadas,
   onFechar,
   onNavegarParaFuncao,
+  onPublicar,
+  motivoBloqueioPublicacao = null,
+  publicando = false,
 }: RevisarPublicacaoPlantaoModalProps) {
   useTeclaEsc(onFechar);
   const problemasGerais = descreverProblemas(saude.todos);
@@ -127,8 +138,21 @@ export function RevisarPublicacaoPlantaoModal({
           })}
         </ul>
 
+        {onPublicar && motivoBloqueioPublicacao && (
+          <p className="hint-text plantao-revisao-motivo">{motivoBloqueioPublicacao}</p>
+        )}
         <div className="rollback-actions plantao-d-modal-actions">
           <button className="secondary-button" type="button" onClick={onFechar}>Fechar</button>
+          {onPublicar && (
+            <button
+              className="primary-button"
+              type="button"
+              disabled={publicando || motivoBloqueioPublicacao !== null}
+              onClick={onPublicar}
+            >
+              {publicando ? 'Publicando…' : 'Publicar agora'}
+            </button>
+          )}
         </div>
       </section>
     </div>
