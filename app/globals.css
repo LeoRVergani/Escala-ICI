@@ -8199,3 +8199,55 @@ a.plantao-contato-linha:focus-visible { background: var(--surface-muted); }
 .plantao-atipicas-lista { display: grid; gap: 3px; margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--text); }
 .plantao-atipicas-lista small { color: var(--muted); }
 .plantao-revisao-motivo { margin: 0; color: var(--warning); }
+
+/* =====================================================================
+ * GRUPOS-PLANTAO-VISUAL-1 — Administração › Grupos de Plantão.
+ * ===================================================================== */
+.grupo-plantao-card { display: grid; gap: 16px; padding: 20px 22px; }
+.grupo-plantao-cabecalho { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.grupo-plantao-icone {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-bright));
+  color: #fff;
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--primary-bright) 30%, transparent);
+}
+.grupo-plantao-titulo { flex: 1 1 220px; min-width: 0; }
+.grupo-plantao-titulo h2 { margin: 0; color: var(--text); font-size: 19px; font-weight: 750; }
+.grupo-plantao-titulo p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.grupo-plantao-fatos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+.grupo-plantao-fatos > div {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+.grupo-plantao-fatos dt { color: var(--muted); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.grupo-plantao-fatos dd { margin: 0; color: var(--text); font-size: 14px; }
+.grupo-plantao-fatos dd strong { font-size: 15px; font-weight: 750; }
+.grupo-plantao-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.grupo-plantao-chips small { color: var(--muted); font-size: 11.5px; }
+.grupo-plantao-chip {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.grupo-plantao-rodape { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.grupo-plantao-rodape .compact-button { display: inline-flex; align-items: center; gap: 6px; }
+.grupo-plantao-id { color: var(--muted); font-size: 11.5px; }

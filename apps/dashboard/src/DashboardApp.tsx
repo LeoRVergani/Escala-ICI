@@ -8131,6 +8131,30 @@ export function DashboardApp() {
     }
   }
 
+  /**
+   * GRUPOS-PLANTAO-VISUAL-1 — a contagem de plantonistas aparece em todos os
+   * cards logo ao abrir a tela (antes só depois de "Ver participantes", e
+   * até lá o card mostrava um "0" enganoso).
+   */
+  useEffect(() => {
+    if (tela !== 'plantoes') return undefined;
+    const faltando = gruposPlantaoAdmin.filter((grupo) => participantesPorGrupoPlantao[grupo.grupoId] === undefined);
+    if (faltando.length === 0) return undefined;
+    let cancelado = false;
+    void Promise.all(faltando.map(async (grupo) => [
+      grupo.grupoId,
+      modoDemo ? [] : await listarParticipantesPlantao(grupo.grupoId).catch(() => [] as ParticipantePlantao[]),
+    ] as const)).then((pares) => {
+      if (!cancelado) {
+        setParticipantesPorGrupoPlantao((atuais) => ({ ...Object.fromEntries(pares), ...atuais }));
+      }
+    });
+    return () => {
+      cancelado = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tela, modoDemo, gruposPlantaoAdmin]);
+
   async function abrirParticipantesDoGrupo(grupoId: string) {
     setGrupoPlantaoExpandido((atual) => (atual === grupoId ? null : grupoId));
     // Fase ESCALAS-UX-1B.1 — carrega os rascunhos do grupo junto (cache
@@ -11737,7 +11761,7 @@ export function DashboardApp() {
                */}
               <p className="eyebrow">Administração</p>
               <h1><Radio size={20} /> Grupos de Plantão</h1>
-              <p>Configuração de Grupo, participantes, contatos e ACL — não é a escala mensal de Plantão.</p>
+              <p>Cada Plantão: quem administra, quem vê no App e quem são os plantonistas. A escala do mês fica em Escalas.</p>
             </div>
             <button className="primary-button" type="button" onClick={abrirNovoGrupoPlantao}>
               <Plus size={16} /> Novo grupo
@@ -11783,14 +11807,14 @@ export function DashboardApp() {
                 .filter((candidato) => !participantesDoGrupo.some((item) => item.login === candidato.login && item.ativo))
                 .slice(0, 6);
             return (
-              <article className="panel grid-panel" key={grupo.grupoId}>
-                <div className="panel-title">
-                  <div>
-                    <h2>{grupo.nome}</h2>
-                    {/* EXCLUSAO-GRUPO-ADMIN-1 — o ID diferencia grupos com o mesmo nome. */}
-                    <p>{grupo.descricao || 'Sem descrição.'} · ID <code className="login-code">{grupo.grupoId}</code></p>
-                  </div>
-                  <div className="import-actions">
+              <article className="panel grupo-plantao-card" key={grupo.grupoId}>
+              <div className="grupo-plantao-cabecalho">
+              <span className="grupo-plantao-icone" aria-hidden="true"><Radio size={20} /></span>
+              <div className="grupo-plantao-titulo">
+              <h2>{grupo.nome}</h2>
+              {grupo.descricao && <p>{grupo.descricao}</p>}
+              </div>
+              <div className="import-actions">
                     <span className={`status-badge ${grupo.ativo ? 'success' : 'neutral'}`}>
                       {grupo.ativo ? 'Ativo' : 'Inativo'}
                     </span>
@@ -11819,21 +11843,55 @@ export function DashboardApp() {
                     )}
                   </div>
                 </div>
-                <div className="import-summary plantao-resumo-grid">
-                  <div><span>Equipe responsável</span><strong>{equipeResponsavel?.nome ?? grupo.equipeResponsavelId}</strong></div>
-                  <div title={grupo.equipesConsulta.map((equipeId) => equipesAdmin.find((item) => item.id === equipeId)?.nome ?? equipeId).join(', ')}>
-                    <span>Equipes que consultam</span><strong>{grupo.equipesConsulta.length}</strong>
-                  </div>
-                  <div><span>Timezone</span><strong>{grupo.timezone}</strong></div>
-                  <div><span>Participantes ativos</span><strong>{participantesDoGrupo.filter((item) => item.ativo).length}</strong></div>
+                {/* GRUPOS-PLANTAO-VISUAL-1 — as três perguntas que importam, em linguagem simples. */}
+                <dl className="grupo-plantao-fatos">
+                <div>
+                <dt>Quem administra</dt>
+                <dd><strong>{equipeResponsavel?.nome ?? grupo.equipeResponsavelId}</strong></dd>
                 </div>
+                <div>
+                <dt>Quem vê no App</dt>
+                <dd className="grupo-plantao-chips">
+                {grupo.equipesConsulta.map((equipeId) => (
+                <span key={equipeId} className="grupo-plantao-chip">{equipesAdmin.find((item) => item.id === equipeId)?.nome ?? equipeId}</span>
+                ))}
+                <small>+ os próprios plantonistas</small>
+                </dd>
+                </div>
+                <div>
+                <dt>Plantonistas</dt>
+                <dd>
+                {participantesPorGrupoPlantao[grupo.grupoId] === undefined
+                ? <span className="hint-text">carregando…</span>
+                : participantesDoGrupo.filter((item) => item.ativo).length === 0
+                ? <span className="status-badge warning">Nenhum cadastrado</span>
+                : <strong>{participantesDoGrupo.filter((item) => item.ativo).length} ativos</strong>}
+                </dd>
+                </div>
+                {(grupo.funcoesEsperadas ?? []).length > 0 && (
+                <div>
+                <dt>Postos</dt>
+                <dd className="grupo-plantao-chips">
+                {(grupo.funcoesEsperadas ?? []).map((funcao) => (
+                <span key={funcao} className="plantao-posto-selo" data-funcao={funcao}>{ROTULO_FUNCAO_PLANTAO[funcao]}</span>
+                ))}
+                </dd>
+                </div>
+                )}
+                </dl>
+                <div className="grupo-plantao-rodape">
                 <button
-                  className="secondary-button compact-button"
-                  type="button"
-                  onClick={() => void abrirParticipantesDoGrupo(grupo.grupoId)}
+                className="secondary-button compact-button"
+                type="button"
+                onClick={() => void abrirParticipantesDoGrupo(grupo.grupoId)}
                 >
-                  {expandido ? 'Ocultar participantes' : 'Ver participantes'}
+                <Users size={15} /> {expandido ? 'Ocultar plantonistas' : 'Ver plantonistas e contatos'}
                 </button>
+                {/* EXCLUSAO-GRUPO-ADMIN-1 — o ID diferencia grupos com o mesmo nome. */}
+                <small className="grupo-plantao-id">
+                {grupo.timezone !== 'America/Sao_Paulo' && <>{grupo.timezone} · </>}ID <code className="login-code">{grupo.grupoId}</code>
+                </small>
+                </div>
                 {expandido && (
                   <div className="table-scroll">
                     <table className="data-table">
