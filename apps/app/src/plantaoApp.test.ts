@@ -11,6 +11,10 @@ import {
   formatarIntervaloPlantaoCivil,
   formatarIntervaloPlantaoRelativoAHoje,
   tituloPeriodoPlantao,
+  ehPlantaoMultiposto,
+  funcaoPrincipalDoPlantonista,
+  ordenarPorPosto,
+  resolverPlantaoAgoraPorPosto,
   rotuloGrupoPlantao,
   diaCurtoComSemana,
   linkContatoPlantao,
@@ -591,5 +595,34 @@ describe('CARD-PLANTAO-AGORA-1', () => {
     expect(linkContatoPlantao('fulano@ici.tec.br', 'email')).toBe('mailto:fulano@ici.tec.br');
     expect(linkContatoPlantao('ramal 12', 'telefone')).toBeNull();
     expect(linkContatoPlantao('@fulano', 'chat')).toBeNull();
+  });
+});
+
+describe('PLANTAO-MULTIPOSTO-APP-1 — vários postos ao mesmo tempo', () => {
+  const base = { grupoId: 'G', competencia: '2026-11', origem: 'IMPORTADA' } as const;
+  const atribuicao = (login: string, funcao: 'DBA' | 'LINUX' | 'TELECOM' | 'WINDOWS' | undefined, inicio: string, fim: string) => ({
+    ...base, atribuicaoId: `${login}-${inicio}`, plantonistaLogin: login, funcao, inicio, fim,
+  }) as unknown as Parameters<typeof resolverPlantaoAgoraPorPosto>[0][number];
+
+  it('um item por posto, na ordem DBA, Linux, Telecom, Windows', () => {
+    const lista = [
+      atribuicao('w1', 'WINDOWS', '2026-11-03T22:00:00.000Z', '2026-11-04T10:00:00.000Z'),
+      atribuicao('d1', 'DBA', '2026-11-03T22:00:00.000Z', '2026-11-04T10:00:00.000Z'),
+      atribuicao('l1', 'LINUX', '2026-11-03T22:00:00.000Z', '2026-11-04T10:00:00.000Z'),
+      atribuicao('d2', 'DBA', '2026-11-04T22:00:00.000Z', '2026-11-05T10:00:00.000Z'),
+    ];
+    const postos = resolverPlantaoAgoraPorPosto(lista, '2026-11-04T01:00:00.000Z');
+    expect(postos.map((posto) => posto.funcao)).toEqual(['DBA', 'LINUX', 'WINDOWS']);
+    expect(postos[0]?.atual?.plantonistaLogin).toBe('d1');
+    expect(postos[0]?.proximo?.plantonistaLogin).toBe('d2');
+    expect(ehPlantaoMultiposto(lista)).toBe(true);
+    expect(funcaoPrincipalDoPlantonista(lista, 'd1')).toBe('DBA');
+  });
+
+  it('Plantão de posto único continua com um item só e sem função', () => {
+    const lista = [atribuicao('jean', undefined, '2026-11-03T22:00:00.000Z', '2026-11-04T10:00:00.000Z')];
+    expect(ehPlantaoMultiposto(lista)).toBe(false);
+    expect(resolverPlantaoAgoraPorPosto(lista, '2026-11-04T01:00:00.000Z')).toHaveLength(1);
+    expect(ordenarPorPosto(lista)).toHaveLength(1);
   });
 });

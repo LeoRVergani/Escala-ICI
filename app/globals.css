@@ -8082,3 +8082,94 @@ a.plantao-contato-linha:focus-visible { background: var(--surface-muted); }
   .visao-coord-tabela tbody th { min-width: 150px; max-width: 170px; }
   .visao-coord-pessoa { font-size: 12px; }
 }
+
+/* =====================================================================
+ * PLANTAO-MULTIPOSTO-APP-1 — Plantão com vários postos (DBA/Linux/Telecom/Windows).
+ * Cor do PESSOA = paleta de identidade existente; cor do POSTO = tom fixo
+ * por função (sempre a mesma, para o olho achar "o DBA" rápido).
+ * ===================================================================== */
+[data-funcao="DBA"]     { --posto-cor: #7c3aed; }
+[data-funcao="LINUX"]   { --posto-cor: #d97706; }
+[data-funcao="TELECOM"] { --posto-cor: #0891b2; }
+[data-funcao="WINDOWS"] { --posto-cor: #2563eb; }
+:root[data-theme="dark"] [data-funcao="DBA"]     { --posto-cor: #a78bfa; }
+:root[data-theme="dark"] [data-funcao="LINUX"]   { --posto-cor: #fbbf24; }
+:root[data-theme="dark"] [data-funcao="TELECOM"] { --posto-cor: #22d3ee; }
+:root[data-theme="dark"] [data-funcao="WINDOWS"] { --posto-cor: #60a5fa; }
+
+.plantao-posto-selo {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--posto-cor, var(--primary)) 35%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--posto-cor, var(--primary)) 12%, var(--surface));
+  color: var(--posto-cor, var(--primary));
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Calendário: uma linha por posto em cada dia. */
+.plantao-postos-dia { display: grid; gap: 2px; width: 100%; padding: 0 3px; }
+.plantao-posto-linha {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-height: 16px;
+  padding: 1px 5px;
+  border: 1px solid var(--plantao-id-border, var(--border));
+  border-radius: 6px;
+  background: var(--plantao-id-bg, var(--surface-muted));
+  color: var(--plantao-id-text, var(--text));
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.plantao-posto-linha > b { color: var(--muted); font-size: 8.5px; font-weight: 800; letter-spacing: 0.03em; }
+.plantao-posto-linha[data-meu] { box-shadow: 0 0 0 2px var(--primary-bright); }
+@media (max-width: 720px) {
+  .plantao-postos-dia { padding: 0 1px; gap: 1px; }
+  .plantao-posto-linha { justify-content: center; padding: 0 2px; font-size: 8.5px; min-height: 13px; }
+  .plantao-posto-linha > b { display: none; }
+}
+
+/* Tela Plantão / Hoje: um card por posto. */
+.plantao-postos { padding: 0; overflow: hidden; }
+.plantao-postos-contagem { color: var(--muted); font-size: 12px; font-weight: 700; }
+.plantao-postos-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; padding: 14px 16px 16px; }
+.plantao-posto-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--posto-cor, var(--primary));
+  border-radius: 12px;
+  background: var(--surface);
+}
+.plantao-posto-card > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.plantao-posto-card .plantao-agora-pessoa strong { font-size: 16px; }
+.plantao-posto-card .plantao-agora-periodo span { font-size: 18px; }
+.plantao-posto-vazio { margin: 0; color: var(--muted); font-size: 13px; }
+.plantao-posto-proximo {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1px 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.plantao-posto-proximo small { grid-row: span 2; align-self: center; color: var(--muted); font-size: 10.5px; font-weight: 800; text-transform: uppercase; }
+.plantao-posto-proximo strong { color: var(--text); font-size: 13px; }
+.plantao-posto-proximo span { color: var(--muted); font-size: 12px; }
+
+/* Resumo de uma linha da tela Hoje. */
+.plantao-postos-resumo { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--text); font-size: 13px; font-weight: 700; }
+.plantao-postos-resumo b { color: var(--muted); font-size: 10.5px; }
+
+/* Janela do dia: selo do posto à direita do nome. */
+.plantao-dia-item-header { display: flex; align-items: center; gap: 10px; }
+.plantao-dia-item-header > div { flex: 1 1 auto; min-width: 0; }
+.visao-coord-plantoes .plantao-posto-selo { margin-left: 6px; vertical-align: middle; }

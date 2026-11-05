@@ -3,6 +3,7 @@ import {
   converterInstanteUtcParaMomento,
   TAMANHO_PALETA_IDENTIDADE_PLANTAO,
   type AtribuicaoPlantaoPersistida,
+  type FuncaoPlantao,
   type ContatoPlantonista,
   type GrupoPlantao,
   type ParticipantePlantao,
@@ -513,4 +514,67 @@ export function linkContatoPlantao(valorContato: string, plataforma: PlataformaC
     return digitos.length >= 8 ? `tel:${valor.trim().startsWith('+') ? '+' : ''}${digitos}` : null;
   }
   return null;
+}
+
+/* =====================================================================
+ * PLANTAO-MULTIPOSTO-APP-1 — Plantão com vários postos ao mesmo tempo
+ * (ex.: CODB: DBA, Linux, Telecom, Windows). Cada atribuição publicada
+ * carrega `funcao`; Plantão de posto único (COSI) não tem `funcao` e segue
+ * exatamente como antes.
+ * ===================================================================== */
+export const ORDEM_FUNCOES_PLANTAO: readonly FuncaoPlantao[] = ['DBA', 'LINUX', 'TELECOM', 'WINDOWS'];
+
+/** Sigla curta para caber no calendário (3 letras). */
+export const SIGLA_FUNCAO_PLANTAO: Readonly<Record<FuncaoPlantao, string>> = {
+  DBA: 'DBA',
+  LINUX: 'LNX',
+  TELECOM: 'TEL',
+  WINDOWS: 'WIN',
+};
+
+export function ehPlantaoMultiposto(atribuicoes: ReadonlyArray<{ funcao?: FuncaoPlantao }>): boolean {
+  return atribuicoes.some((atribuicao) => atribuicao.funcao !== undefined);
+}
+
+function ordemFuncao(funcao: FuncaoPlantao | undefined): number {
+  const indice = funcao === undefined ? -1 : ORDEM_FUNCOES_PLANTAO.indexOf(funcao);
+  return indice === -1 ? ORDEM_FUNCOES_PLANTAO.length : indice;
+}
+
+/** Ordena por posto (DBA, Linux, Telecom, Windows) e, dentro do posto, por início. */
+export function ordenarPorPosto<T extends { funcao?: FuncaoPlantao; inicio: string }>(lista: readonly T[]): T[] {
+  return [...lista].sort((a, b) => ordemFuncao(a.funcao) - ordemFuncao(b.funcao) || a.inicio.localeCompare(b.inicio));
+}
+
+export interface PlantaoAgoraPorPosto {
+  funcao: FuncaoPlantao | null;
+  atual: AtribuicaoPlantaoPersistida | null;
+  proximo: AtribuicaoPlantaoPersistida | null;
+}
+
+/** Quem está agora e quem vem depois, EM CADA POSTO (um item por função). */
+export function resolverPlantaoAgoraPorPosto(
+  atribuicoes: readonly AtribuicaoPlantaoPersistida[],
+  agoraIso: string,
+): PlantaoAgoraPorPosto[] {
+  const funcoes = [...new Set(atribuicoes.map((atribuicao) => atribuicao.funcao ?? null))]
+    .sort((a, b) => ordemFuncao(a ?? undefined) - ordemFuncao(b ?? undefined));
+  return funcoes.map((funcao) => {
+    const doPosto = atribuicoes.filter((atribuicao) => (atribuicao.funcao ?? null) === funcao);
+    return { funcao, ...resolverPlantaoAgora(doPosto, agoraIso) };
+  });
+}
+
+/** Função mais frequente de um plantonista no mês (para a coluna "Posto" dos totais). */
+export function funcaoPrincipalDoPlantonista(
+  atribuicoes: ReadonlyArray<{ plantonistaLogin: string; funcao?: FuncaoPlantao }>,
+  login: string,
+): FuncaoPlantao | null {
+  const contagem = new Map<FuncaoPlantao, number>();
+  for (const atribuicao of atribuicoes) {
+    if (atribuicao.plantonistaLogin === login && atribuicao.funcao) {
+      contagem.set(atribuicao.funcao, (contagem.get(atribuicao.funcao) ?? 0) + 1);
+    }
+  }
+  return [...contagem.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 }
