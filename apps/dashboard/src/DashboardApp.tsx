@@ -198,7 +198,6 @@ import {
 import {
   avaliarSaudePlantao,
   filtrarAtribuicoesPlantaoPorFuncao,
-  postoComPendencia,
   ROTULO_FUNCAO_PLANTAO,
   validarFuncoesContraGrupo,
   validarEstruturaArquivoContraGrupo,
@@ -3231,7 +3230,7 @@ function PreviewPlantao({
           <div className="panel-title">
             <div>
               <p className="eyebrow">Postos deste Plantão</p>
-              <h2>Escolha um posto para filtrar o calendário e os vínculos</h2>
+              <h2>Todos os postos, ou um de cada vez</h2>
             </div>
           </div>
           <div className="segmented-control" aria-label="Filtro por posto do Plantão">
@@ -3252,17 +3251,17 @@ function PreviewPlantao({
                 onClick={() => onMudarFuncaoSelecionada(funcao)}
               >
                 {ROTULO_FUNCAO_PLANTAO[funcao]}
-                {saudeMultiposto?.porFuncao[funcao] && (
-                  <small className="plantao-aba-posto-contagem">
-                    {saudeMultiposto.porFuncao[funcao]!.atribuicoes} plantões · {saudeMultiposto.porFuncao[funcao]!.pessoasUnicas} pessoas
-                  </small>
-                )}
               </button>
             ))}
           </div>
-          {/* PLANTAO-TELA-SIMPLES-1 — os números de cada posto agora ficam nas abas; os cards grandes por
-              posto só aparecem quando algum posto tem pendência a resolver. */}
-          {saudeMultiposto !== null && funcoesEsperadas.some((funcao) => postoComPendencia(saudeMultiposto.porFuncao[funcao])) && (
+          {funcaoSelecionada === 'TODOS' && saudeMultiposto !== null && (
+            <div className="import-summary plantao-resumo-grid">
+              <div><span>Pessoas únicas</span><strong>{saudeMultiposto.todos.pessoasUnicas}</strong></div>
+              <div><span>Atribuições</span><strong>{saudeMultiposto.todos.atribuicoes}</strong></div>
+              <div><span>Conflitos</span><strong>{saudeMultiposto.todos.conflitos}</strong></div>
+            </div>
+          )}
+          {saudeMultiposto !== null && (
             <div className="plantao-cards-funcao">
               {funcoesEsperadas.map((funcao) => {
                 const saudeFuncao = saudeMultiposto.porFuncao[funcao];
