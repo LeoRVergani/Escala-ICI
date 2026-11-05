@@ -20,6 +20,7 @@ import {
   rotuloHorarioCartaoPlantao,
   validarAtribuicaoEditavel,
   type AtribuicaoPlantaoEditavel,
+  resumirDuracoesAtipicas,
 } from './editorPlantao';
 
 const ATRIBUICOES_ORIGINAIS: AtribuicaoPlantaoBruta[] = [
@@ -604,5 +605,19 @@ describe('construirAtribuicaoDoPadraoHorario', () => {
     expect(atribuicao43h?.duracaoMinutos).toBe(43 * 60);
     expect(atribuicao5h?.duracaoMinutos).toBe(5 * 60);
     expect(resultado).toHaveLength(3);
+  });
+});
+
+describe('PLANTAO-TELA-SIMPLES-1 — durações atípicas agrupadas e explicadas', () => {
+  it('agrupa os 4 postos cortados no mesmo horário e explica o corte do relatório', () => {
+    const corteFim = { inicio: { data: '2026-11-25', hora: '19:00' }, fim: { data: '2026-11-26', hora: '00:00' }, duracaoMinutos: 300 };
+    const corteInicio = { inicio: { data: '2026-10-25', hora: '00:00' }, fim: { data: '2026-10-26', hora: '07:00' }, duracaoMinutos: 31 * 60 };
+    const normal = { inicio: { data: '2026-11-03', hora: '19:00' }, fim: { data: '2026-11-04', hora: '07:00' }, duracaoMinutos: 720 };
+    const grupos = resumirDuracoesAtipicas([corteFim, corteFim, corteFim, corteFim, corteInicio, corteInicio, normal]);
+    expect(grupos).toHaveLength(2);
+    expect(grupos[0]).toMatchObject({ quando: '25/10 00:00 → 26/10 07:00', duracao: '31h', quantidade: 2 });
+    expect(grupos[0]?.explicacao).toContain('início do relatório');
+    expect(grupos[1]).toMatchObject({ quando: '25/11 19:00 → 26/11 00:00', duracao: '5h', quantidade: 4 });
+    expect(grupos[1]?.explicacao).toContain('fim do relatório');
   });
 });

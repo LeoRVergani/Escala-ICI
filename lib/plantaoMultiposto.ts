@@ -404,3 +404,9 @@ export { ROTULO_FUNCAO_PLANTAO } from '@escala-ici/contrato';
 
 /** Ordem canônica só para o caso de `funcoesEsperadas` vir ausente em algum ponto legado — o Grupo real sempre manda quando presente (§45 da fase: nunca ordenar alfabeticamente por conta própria). */
 export const ORDEM_PADRAO_FUNCOES_PLANTAO: readonly FuncaoPlantao[] = FUNCOES_PLANTAO_VALIDAS;
+
+/** PLANTAO-TELA-SIMPLES-1 — o posto precisa de atenção (falta posto, vínculo, conflito ou erro de origem). */
+export function postoComPendencia(saude: SaudeFuncaoPlantao | undefined): boolean {
+  return saude !== undefined
+    && (saude.postosFaltando + saude.vinculosPendentes + saude.conflitos + saude.errosOrigem) > 0;
+}

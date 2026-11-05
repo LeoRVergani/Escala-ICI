@@ -189,6 +189,7 @@ import {
   construirAtribuicaoDoPadraoHorario,
   criarAtribuicoesEditaveis,
   duracaoPlantaoAtipica,
+  resumirDuracoesAtipicas,
   editarAtribuicaoEditavel,
   excluirAtribuicaoEditavel,
   resumirPorPessoa,
@@ -197,6 +198,7 @@ import {
 import {
   avaliarSaudePlantao,
   filtrarAtribuicoesPlantaoPorFuncao,
+  postoComPendencia,
   ROTULO_FUNCAO_PLANTAO,
   validarFuncoesContraGrupo,
   validarEstruturaArquivoContraGrupo,
@@ -3171,7 +3173,8 @@ function PreviewPlantao({
             </span>
           )}
         </div>
-        {resultado !== null && conferencia !== null ? (
+        {/* PLANTAO-TELA-SIMPLES-1 — sem contabilidade/total na fonte, a grade só repetia o resumo de baixo. */}
+        {resultado !== null && conferencia !== null && !(resultado.contabilidadeInformada.length > 0 || conferencia.declarado) ? null : resultado !== null && conferencia !== null ? (
           <div className="import-summary plantao-resumo-grid">
             <div><span>Intervalos encontrados</span><strong>{conferencia.bruto.quantidade}</strong></div>
             <div><span>Duração literal dos intervalos</span><strong>{formatarMinutos(conferencia.bruto.minutos)}</strong></div>
@@ -3228,7 +3231,7 @@ function PreviewPlantao({
           <div className="panel-title">
             <div>
               <p className="eyebrow">Postos deste Plantão</p>
-              <h2>Todos os postos, ou um de cada vez</h2>
+              <h2>Escolha um posto para filtrar o calendário e os vínculos</h2>
             </div>
           </div>
           <div className="segmented-control" aria-label="Filtro por posto do Plantão">
@@ -3249,17 +3252,17 @@ function PreviewPlantao({
                 onClick={() => onMudarFuncaoSelecionada(funcao)}
               >
                 {ROTULO_FUNCAO_PLANTAO[funcao]}
+                {saudeMultiposto?.porFuncao[funcao] && (
+                  <small className="plantao-aba-posto-contagem">
+                    {saudeMultiposto.porFuncao[funcao]!.atribuicoes} plantões · {saudeMultiposto.porFuncao[funcao]!.pessoasUnicas} pessoas
+                  </small>
+                )}
               </button>
             ))}
           </div>
-          {funcaoSelecionada === 'TODOS' && saudeMultiposto !== null && (
-            <div className="import-summary plantao-resumo-grid">
-              <div><span>Pessoas únicas</span><strong>{saudeMultiposto.todos.pessoasUnicas}</strong></div>
-              <div><span>Atribuições</span><strong>{saudeMultiposto.todos.atribuicoes}</strong></div>
-              <div><span>Conflitos</span><strong>{saudeMultiposto.todos.conflitos}</strong></div>
-            </div>
-          )}
-          {saudeMultiposto !== null && (
+          {/* PLANTAO-TELA-SIMPLES-1 — os números de cada posto agora ficam nas abas; os cards grandes por
+              posto só aparecem quando algum posto tem pendência a resolver. */}
+          {saudeMultiposto !== null && funcoesEsperadas.some((funcao) => postoComPendencia(saudeMultiposto.porFuncao[funcao])) && (
             <div className="plantao-cards-funcao">
               {funcoesEsperadas.map((funcao) => {
                 const saudeFuncao = saudeMultiposto.porFuncao[funcao];
@@ -3341,6 +3344,15 @@ function PreviewPlantao({
                     >
                       ⚠ {conferenciaEscalaAtual.quantidadeDuracoesAtipicas} duração(ões) atípica(s)
                     </button>
+                    {/* PLANTAO-TELA-SIMPLES-1 — quais são e por quê (antes só o número). */}
+                    <ul className="plantao-atipicas-lista">
+                      {resumirDuracoesAtipicas(atribuicoesFiltradas).map((grupo) => (
+                        <li key={grupo.chave}>
+                          <strong>{grupo.quando}</strong> · {grupo.duracao} · {grupo.quantidade} plantão(ões)
+                          {grupo.explicacao && <small> — {grupo.explicacao}</small>}
+                        </li>
+                      ))}
+                    </ul>
                   </li>
                 )}
                 {conflitosEfetivos > 0 && (
@@ -3444,7 +3456,8 @@ function PreviewPlantao({
                 <div><span>Durações atípicas</span><strong>{conferenciaEscalaAtual.quantidadeDuracoesAtipicas}</strong></div>
               </div>
             </div>
-            {resultado !== null && conferencia !== null ? (
+            {/* PLANTAO-TELA-SIMPLES-1 — a seção da fonte só aparece quando a planilha traz contabilidade. */}
+            {resultado !== null && conferencia !== null && (resultado.contabilidadeInformada.length > 0 || conferencia.declarado) ? (
               <>
                 <h3>Fonte original (contabilidade declarada na planilha)</h3>
                 <p>Estes valores representam o arquivo importado original.</p>
@@ -3481,7 +3494,7 @@ function PreviewPlantao({
                 </div>
               </>
             ) : (
-              <p>Não há contabilidade de planilha para conferir nesta escala.</p>
+              <p className="hint-text">A planilha não traz contabilidade própria — os totais acima são calculados a partir do calendário.</p>
             )}
           </>
         )}
@@ -10259,7 +10272,9 @@ export function DashboardApp() {
               <p className="eyebrow">Gestão de escalas</p>
               <h1>{tipoArquivoDetectado === 'PLANTAO' && origemPlantaoAtual !== null ? 'Editar escala de Plantão' : 'Importar escala'}</h1>
               <p>{tipoArquivoDetectado === 'PLANTAO' && origemPlantaoAtual !== null
-                ? 'Escolha uma pessoa, preencha os plantões e salve. Publique para disponibilizar à equipe.'
+                ? (origemPlantaoAtual === 'IMPORTADO'
+                  ? 'Confira a planilha importada e siga os passos: validar, salvar e publicar para a equipe.'
+                  : 'Escolha uma pessoa, preencha os plantões e salve. Publique para disponibilizar à equipe.')
                 : 'O arquivo é processado somente na memória deste navegador.'}</p>
             </div>
           </header>
@@ -10296,11 +10311,16 @@ export function DashboardApp() {
                     {origemPlantaoAtual === 'IMPORTADO' ? 'Importar outra planilha' : 'Importar planilha'}
                   </button>
                   <span className={`status-badge ${previaPlantaoValidada ? 'success' : pendenciasVinculoPlantao > 0 ? 'warning' : 'neutral'}`}>
-                    {previaPlantaoValidada
-                      ? 'Prévia validada'
-                      : pendenciasVinculoPlantao > 0
-                        ? `${pendenciasVinculoPlantao} vínculo(s) pendente(s)`
-                        : 'Pronta para validar'}
+                    {/* PLANTAO-TELA-SIMPLES-1 — o selo diz o PRÓXIMO passo, não só o estado. */}
+                    {pendenciasVinculoPlantao > 0
+                      ? `${pendenciasVinculoPlantao} vínculo(s) pendente(s)`
+                      : !previaPlantaoValidada
+                        ? 'Próximo: 1. Validar prévia'
+                        : !rascunhoPlantaoProntoParaPublicar
+                          ? 'Próximo: 2. Salvar rascunho'
+                          : !podePublicarPlantaoPelaSaude
+                            ? 'Corrija os pontos em "Revisar publicação"'
+                            : 'Pronto: 3. Publicar'}
                   </span>
                   {!contextoPlantaoSomenteConsulta && podeAcessarPlantoes && (
                     <>
@@ -10310,6 +10330,7 @@ export function DashboardApp() {
                         disabled={!previaPlantaoPodeValidar || previaPlantaoValidada}
                         onClick={validarPreviaPlantao}
                       >
+                        <span className="plantao-passo-numero" aria-hidden="true">1</span>
                         <CheckCircle2 size={15} /> {previaPlantaoValidada ? 'Validada' : 'Validar prévia'}
                       </button>
                       <button
@@ -10318,9 +10339,10 @@ export function DashboardApp() {
                         title={!previaPlantaoValidada ? 'Valide a prévia antes de salvar.' : undefined}
                         disabled={!previaPlantaoValidada || salvandoRascunhoPlantao || grupoRascunhoEscolhido === ''}
                         onClick={() => void salvarRascunhoPlantaoAcao()}
-                      >
-                        {salvandoRascunhoPlantao ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}
-                        Salvar rascunho
+                        >
+                          <span className="plantao-passo-numero" aria-hidden="true">2</span>
+                          {salvandoRascunhoPlantao ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}
+                          Salvar rascunho
                       </button>
                       {saudePlantaoRascunho !== null && (
                         <button
@@ -10344,6 +10366,7 @@ export function DashboardApp() {
                         disabled={publicandoPlantao || salvandoRascunhoPlantao || !rascunhoPlantaoProntoParaPublicar || !podePublicarPlantaoPelaSaude}
                         onClick={() => void publicarPlantaoAcao()}
                       >
+                        <span className="plantao-passo-numero" aria-hidden="true">3</span>
                         {publicandoPlantao ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}
                         Publicar Plantão
                       </button>
@@ -10591,6 +10614,18 @@ export function DashboardApp() {
               saude={saudePlantaoRascunho}
               funcoesEsperadas={funcoesEsperadasRascunhoPlantao}
               onFechar={() => setRevisarPublicacaoPlantaoAberta(false)}
+              publicando={publicandoPlantao}
+              motivoBloqueioPublicacao={
+                !rascunhoPlantaoProntoParaPublicar
+                  ? 'Antes de publicar, salve o rascunho (passo 2).'
+                  : !podePublicarPlantaoPelaSaude
+                    ? 'Corrija os postos marcados acima antes de publicar.'
+                    : salvandoRascunhoPlantao ? 'Aguarde o rascunho terminar de salvar.' : null
+              }
+              onPublicar={() => {
+                setRevisarPublicacaoPlantaoAberta(false);
+                void publicarPlantaoAcao();
+              }}
               onNavegarParaFuncao={(funcao, destino) => {
                 setFuncaoSelecionadaPlantao(funcao);
                 setAbaPreviaPlantao(destino);

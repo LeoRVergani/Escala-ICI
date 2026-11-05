@@ -449,3 +449,50 @@ export function conferirEscalaAtualPlantao(
     quantidadeDuracoesAtipicas: atribuicoes.filter((atribuicao) => ehDuracaoAtipica(atribuicao.duracaoMinutos)).length,
   };
 }
+
+/**
+ * PLANTAO-TELA-SIMPLES-1 — durações atípicas agrupadas (mesmo início, fim e
+ * duração = um grupo, ex.: os 4 postos cortados no mesmo horário) com a causa
+ * provável. Relatórios do Controle de Plantão cortam o primeiro e o último
+ * plantão na meia-noite da janela exportada.
+ */
+export interface GrupoDuracaoAtipica {
+  chave: string;
+  quando: string;
+  duracao: string;
+  quantidade: number;
+  explicacao: string | null;
+}
+
+function diaMesHora(momento: { data: string; hora: string }): string {
+  return `${momento.data.slice(8, 10)}/${momento.data.slice(5, 7)} ${momento.hora}`;
+}
+
+export function resumirDuracoesAtipicas(
+  atribuicoes: ReadonlyArray<Pick<AtribuicaoPlantaoEditavel, 'inicio' | 'fim' | 'duracaoMinutos'>>,
+): GrupoDuracaoAtipica[] {
+  const grupos = new Map<string, GrupoDuracaoAtipica>();
+  for (const atribuicao of atribuicoes) {
+    if (!duracaoPlantaoAtipica(atribuicao.duracaoMinutos)) continue;
+    const chave = `${atribuicao.inicio.data}T${atribuicao.inicio.hora}|${atribuicao.fim.data}T${atribuicao.fim.hora}|${atribuicao.duracaoMinutos}`;
+    const existente = grupos.get(chave);
+    if (existente) {
+      existente.quantidade += 1;
+      continue;
+    }
+    const horas = atribuicao.duracaoMinutos / 60;
+    const explicacao = atribuicao.duracaoMinutos < 12 * 60 && atribuicao.fim.hora === '00:00'
+      ? 'termina à meia-noite: provável corte no fim do relatório; o restante vem no próximo período'
+      : atribuicao.duracaoMinutos > 24 * 60 && atribuicao.inicio.hora === '00:00'
+        ? 'começa à meia-noite: provável corte no início do relatório, juntando o plantão anterior'
+        : null;
+    grupos.set(chave, {
+      chave,
+      quando: `${diaMesHora(atribuicao.inicio)} → ${diaMesHora(atribuicao.fim)}`,
+      duracao: Number.isInteger(horas) ? `${horas}h` : `${Math.floor(horas)}h${String(atribuicao.duracaoMinutos % 60).padStart(2, '0')}`,
+      quantidade: 1,
+      explicacao,
+    });
+  }
+  return [...grupos.values()].sort((a, b) => a.chave.localeCompare(b.chave));
+}
