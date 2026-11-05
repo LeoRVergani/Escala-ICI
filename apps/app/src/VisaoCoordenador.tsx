@@ -1,13 +1,17 @@
 import { useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarDays, ChevronLeft, ChevronRight, Radio, Users, X } from 'lucide-react';
-import { codigoPeriodoDia, formatarData, type TipoTurno, type TurnosMes } from '@escala-ici/contrato';
+import { codigoPeriodoDia, formatarData, ROTULO_FUNCAO_PLANTAO, type FuncaoPlantao, type TipoTurno, type TurnosMes } from '@escala-ici/contrato';
 
 import type { AtribuicaoPlantaoPersistida, GrupoPlantao, ParticipantePlantao } from '@escala-ici/contrato';
 import {
+  ehPlantaoMultiposto,
+  funcaoPrincipalDoPlantonista,
   intervaloPlantaoCivil,
   nomeExibicaoPlantonista,
+  ordenarPorPosto,
   resolverPlantaoAgora,
+  resolverPlantaoAgoraPorPosto,
   rotuloGrupoPlantao,
   tituloPeriodoPlantao,
 } from './plantaoApp';
@@ -72,6 +76,12 @@ function AvisoFalhas({ diagnostico }: { diagnostico?: DiagnosticoVisao }) {
 }
 
 const NOMES_PERIODO: Record<string, string> = { MD: 'Madrugada', M: 'Manhã', T: 'Tarde', N: 'Noite' };
+
+/** PLANTAO-MULTIPOSTO-APP-1 — selo do posto (DBA, Linux, Telecom, Windows). */
+function SeloPosto({ funcao }: { funcao?: FuncaoPlantao | null }) {
+  if (!funcao) return null;
+  return <span className="plantao-posto-selo" data-funcao={funcao}>{ROTULO_FUNCAO_PLANTAO[funcao]}</span>;
+}
 
 function iniciais(nome: string): string {
   return nome.trim().split(/\s+/u).filter(Boolean).slice(0, 2).map((parte) => parte[0]?.toUpperCase() ?? '').join('');
@@ -181,6 +191,33 @@ export function PainelHojeEquipes({
         })}
         {plantoes.map(({ grupo, atribuicoes }) => {
           const { atual, proximo } = resolverPlantaoAgora(atribuicoes, agoraIso);
+          if (ehPlantaoMultiposto(atribuicoes)) {
+            const postos = resolverPlantaoAgoraPorPosto(atribuicoes, agoraIso);
+            return (
+              <section key={grupo.grupoId} className="visao-coord-cartao">
+                <header>
+                  <Radio size={16} aria-hidden="true" />
+                  <strong>{rotuloGrupoPlantao(grupo.nome)}</strong>
+                  <small>{postos.length} postos</small>
+                </header>
+                <ul className="visao-coord-turnos">
+                  {postos.map((posto) => (
+                    <li key={posto.funcao ?? 'unico'}>
+                      <SeloPosto funcao={posto.funcao} />
+                      <span>
+                        <strong>{posto.atual ? nomeExibicaoPlantonista(posto.atual.plantonistaLogin, []) : 'Ninguém agora'}</strong>
+                        <small>
+                          {posto.atual
+                            ? tituloPeriodoPlantao(intervaloPlantaoCivil(posto.atual, grupo.timezone))
+                            : posto.proximo ? `Depois: ${nomeExibicaoPlantonista(posto.proximo.plantonistaLogin, [])}` : 'Sem plantão publicado'}
+                        </small>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          }
           return (
             <section key={grupo.grupoId} className="visao-coord-cartao">
               <header>
@@ -439,6 +476,7 @@ export function VisaoEquipesCoordenador({
                 <thead>
                   <tr>
                     <th>Plantonista</th>
+                    {ehPlantaoMultiposto(plantao.atribuicoes) && <th>Posto</th>}
                     <th>Plantões</th>
                     <th>Fim de semana / feriado (24h)</th>
                     <th>Dia útil</th>
@@ -449,6 +487,9 @@ export function VisaoEquipesCoordenador({
                   {plantonistas.map((item) => (
                     <tr key={item.login}>
                       <th scope="row">{nomeExibicaoPlantonista(item.login, [])}</th>
+                      {ehPlantaoMultiposto(plantao.atribuicoes) && (
+                        <td><SeloPosto funcao={funcaoPrincipalDoPlantonista(plantao.atribuicoes, item.login)} /></td>
+                      )}
                       <td><strong>{item.plantoes}</strong></td>
                       <td>{item.plantoes24h}</td>
                       <td>{item.plantoesCurtos}</td>
@@ -460,10 +501,10 @@ export function VisaoEquipesCoordenador({
             </div>
           ) : (
             <ul className="visao-coord-plantoes">
-              {[...plantao.atribuicoes]
+              {ordenarPorPosto(plantao.atribuicoes)
                 .filter((atribuicao) => atribuicao.fim.slice(0, 10) >= dataHoje)
                 .sort((a, b) => a.inicio.localeCompare(b.inicio))
-                .slice(0, 21)
+                .slice(0, ehPlantaoMultiposto(plantao.atribuicoes) ? 40 : 21)
                 .map((atribuicao) => {
                   const intervalo = intervaloPlantaoCivil(atribuicao, plantao.grupo.timezone);
                   const nome = nomeExibicaoPlantonista(atribuicao.plantonistaLogin, []);
@@ -471,7 +512,7 @@ export function VisaoEquipesCoordenador({
                     <li key={`${atribuicao.plantonistaLogin}-${atribuicao.inicio}`}>
                       <span className="visao-coord-avatar" aria-hidden="true">{nome.split(/\s+/u).slice(0, 2).map((parte) => parte[0]?.toUpperCase()).join('')}</span>
                       <span>
-                        <strong>{nome}</strong>
+                        <strong>{nome} <SeloPosto funcao={atribuicao.funcao} /></strong>
                         <small>{tituloPeriodoPlantao(intervalo)}</small>
                       </span>
                     </li>

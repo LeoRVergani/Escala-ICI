@@ -25,6 +25,7 @@ import {
   type JornadaDia,
   type ParticipantePlantao,
   type TurnosMes,
+  ROTULO_FUNCAO_PLANTAO,
 } from '@escala-ici/contrato';
 import {
   ArrowLeftRight,
@@ -135,6 +136,10 @@ import {
   rotuloGrupoPlantao,
   diaCurtoComSemana,
   linkContatoPlantao,
+  ehPlantaoMultiposto,
+  ordenarPorPosto,
+  resolverPlantaoAgoraPorPosto,
+  SIGLA_FUNCAO_PLANTAO,
   indiceCorPlantonista,
   intervaloPlantaoCivil,
   nomeExibicaoPlantonista,
@@ -539,6 +544,20 @@ interface PlantaoHojeCardProps {
  * "Você" quando o próximo plantão é do próprio usuário logado.
  */
 function PlantaoHojeCard({ grupo, atribuicoes, participantes, usuarios, agoraIso, loginUsuarioAtual }: PlantaoHojeCardProps) {
+  // PLANTAO-MULTIPOSTO-APP-1 — vários postos: um card por posto.
+  if (ehPlantaoMultiposto(atribuicoes)) {
+    return (
+      <PlantaoAgoraPorPostoCard
+        atribuicoes={atribuicoes}
+        agoraIso={agoraIso}
+        usuarios={usuarios}
+        participantes={participantes}
+        timezone={grupo.timezone}
+        dataHoje={converterInstanteUtcParaMomento(agoraIso, grupo.timezone).data}
+        loginUsuarioAtual={loginUsuarioAtual}
+      />
+    );
+  }
   const resumo = resolverPlantaoAgora(atribuicoes, agoraIso);
   const dataHoje = converterInstanteUtcParaMomento(agoraIso, grupo.timezone).data;
 
@@ -650,6 +669,29 @@ function PlantaoResumoCompacto({ grupo, atribuicoes, usuarios, agoraIso, onAbrir
   const resumo = resolverPlantaoAgora(atribuicoes, agoraIso);
   const dataHojeGrupo = converterInstanteUtcParaMomento(agoraIso, grupo.timezone).data;
   const primeiroNome = (login: string) => nomeExibicaoPlantonista(login, usuarios).split(' ')[0];
+
+  // PLANTAO-MULTIPOSTO-APP-1 — vários postos: "DBA Bruno · LNX Alex · …".
+  if (ehPlantaoMultiposto(atribuicoes)) {
+    const postosAgora = resolverPlantaoAgoraPorPosto(atribuicoes, agoraIso).filter((posto) => posto.atual !== null);
+    if (postosAgora.length > 0) {
+      return (
+        <button type="button" className="today-secondary-row" onClick={onAbrir}>
+          <span className="today-secondary-row-icon"><Radio size={18} /></span>
+          <span className="today-secondary-row-text">
+            <small>{rotuloGrupoPlantao(grupo.nome)} · agora · {postosAgora.length} {postosAgora.length === 1 ? 'posto' : 'postos'}</small>
+            <span className="plantao-postos-resumo">
+              {postosAgora.map((posto) => (
+                <span key={posto.funcao ?? 'unico'}>
+                  <b>{posto.funcao ? SIGLA_FUNCAO_PLANTAO[posto.funcao] : '·'}</b> {posto.atual ? primeiroNome(posto.atual.plantonistaLogin) : ''}
+                </span>
+              ))}
+            </span>
+          </span>
+          <ChevronRight size={18} />
+        </button>
+      );
+    }
+  }
 
   if (resumo.atual !== null) {
     const intervalo = intervaloPlantaoCivil(resumo.atual, grupo.timezone);
@@ -869,6 +911,88 @@ interface CalendarioPlantaoAppProps {
  * (`meu-plantao`) e o rótulo "Você" — atende ao pedido de "ver os dias que
  * está de plantão" sem precisar caçar o próprio nome entre vários.
  */
+/**
+ * PLANTAO-MULTIPOSTO-APP-1 — "De plantão agora" com um card por posto
+ * (DBA, Linux, Telecom, Windows): quem está agora, até quando, os contatos
+ * prontos para tocar e quem assume depois. Mesmo visual do card de posto único.
+ */
+function PlantaoAgoraPorPostoCard({
+  atribuicoes,
+  agoraIso,
+  usuarios,
+  participantes,
+  timezone,
+  dataHoje,
+  loginUsuarioAtual,
+}: {
+  atribuicoes: readonly AtribuicaoPlantaoPersistida[];
+  agoraIso: string;
+  usuarios: readonly Usuario[];
+  participantes: readonly ParticipantePlantao[];
+  timezone: string;
+  dataHoje: string;
+  loginUsuarioAtual: string;
+}) {
+  const postos = resolverPlantaoAgoraPorPosto(atribuicoes, agoraIso);
+  const ativos = postos.filter((posto) => posto.atual !== null).length;
+  return (
+    <article className="panel plantao-postos">
+      <header className="today-card-heading">
+        <span>De plantão agora</span>
+        <span className="plantao-postos-contagem">{ativos} de {postos.length} postos</span>
+      </header>
+      <div className="plantao-postos-grade">
+        {postos.map((posto) => {
+          const atual = posto.atual;
+          const nome = atual ? nomeExibicaoPlantonista(atual.plantonistaLogin, usuarios) : null;
+          const intervalo = atual ? intervaloPlantaoCivil(atual, timezone) : null;
+          const contatos = atual ? contatosAtivosDoPlantonista(atual.plantonistaLogin, participantes) : [];
+          const proximo = posto.proximo;
+          const intervaloProximo = proximo ? intervaloPlantaoCivil(proximo, timezone) : null;
+          return (
+            <section key={posto.funcao ?? 'unico'} className="plantao-posto-card" data-funcao={posto.funcao ?? undefined}>
+              <header>
+                <span className="plantao-posto-selo" data-funcao={posto.funcao ?? undefined}>
+                  {posto.funcao ? ROTULO_FUNCAO_PLANTAO[posto.funcao] : 'Plantão'}
+                </span>
+                {intervalo !== null && <span className="live-badge"><i /> {rotuloFimPlantao(intervalo, dataHoje)}</span>}
+              </header>
+              {atual && nome && intervalo ? (
+                <>
+                  <div className="plantao-agora-pessoa">
+                    <span className="plantao-agora-avatar" aria-hidden="true">{obterIniciaisParticipantePlantao(nome, atual.plantonistaLogin)}</span>
+                    <div>
+                      <strong>{nome}</strong>
+                      <small>{atual.plantonistaLogin === loginUsuarioAtual ? 'Você' : atual.plantonistaLogin}</small>
+                    </div>
+                  </div>
+                  {intervalo.valido && (
+                    <div className="plantao-agora-periodo" aria-label={tituloPeriodoPlantao(intervalo)}>
+                      <div><small>Início</small><strong>{diaCurtoComSemana(intervalo.dataInicio)}</strong><span>{intervalo.horaInicio}</span></div>
+                      <ArrowRight size={16} aria-hidden="true" />
+                      <div><small>Fim</small><strong>{diaCurtoComSemana(intervalo.dataFim)}</strong><span>{intervalo.horaFim}</span></div>
+                    </div>
+                  )}
+                  {contatos.length > 0 && <ContatosPlantaoLista contatos={contatos} />}
+                </>
+              ) : (
+                <p className="plantao-posto-vazio">Ninguém de plantão neste posto agora.</p>
+              )}
+              {proximo && intervaloProximo && (
+                <footer className="plantao-posto-proximo">
+                  <small>Depois</small>
+                  <strong>{nomeExibicaoPlantonista(proximo.plantonistaLogin, usuarios)}</strong>
+                  <span>{diaCurtoComSemana(intervaloProximo.dataInicio)} · {intervaloProximo.horaInicio}</span>
+                </footer>
+              )}
+            </section>
+          );
+        })}
+      </div>
+    </article>
+  );
+}
+
 function CalendarioPlantaoApp({
   periodoInicio,
   periodoFim,
@@ -882,6 +1006,8 @@ function CalendarioPlantaoApp({
 }: CalendarioPlantaoAppProps) {
   const dias = diasCivisNoPeriodo(periodoInicio, periodoFim);
   const porDia = atribuicoesPorDiaCivil(atribuicoes, timezone);
+  // PLANTAO-MULTIPOSTO-APP-1 — vários postos: uma linha por posto em cada dia.
+  const multiposto = ehPlantaoMultiposto(atribuicoes);
   const espacosIniciais = dias[0] ? diaSemanaEscalaCivil(dias[0]) : 0;
 
   return (
@@ -917,7 +1043,25 @@ function CalendarioPlantaoApp({
                 {formatarData(data, { day: 'numeric' })}
                 <small>{formatarData(data, { month: 'short' }).replace('.', '')}</small>
               </span>
-              {principal ? (
+              {multiposto && atribuicoesDoDia.length > 0 ? (
+                <span className="plantao-postos-dia">
+                  {ordenarPorPosto(atribuicoesDoDia).map((item) => {
+                    const nome = nomeExibicaoPlantonista(item.plantonistaLogin, usuarios);
+                    return (
+                      <span
+                        key={`${item.plantonistaLogin}-${item.inicio}-${item.funcao ?? ''}`}
+                        className="plantao-posto-linha"
+                        data-identidade={indiceCorPlantonista(item.plantonistaLogin, participantes)}
+                        data-meu={item.plantonistaLogin === loginUsuarioAtual ? '' : undefined}
+                        title={`${item.funcao ? ROTULO_FUNCAO_PLANTAO[item.funcao] : 'Plantão'}: ${nome}`}
+                      >
+                        <b>{item.funcao ? SIGLA_FUNCAO_PLANTAO[item.funcao] : '·'}</b>
+                        {obterIniciaisParticipantePlantao(nome, item.plantonistaLogin)}
+                      </span>
+                    );
+                  })}
+                </span>
+              ) : principal ? (
                 <strong
                   className="shift-chip"
                   data-identidade={indiceCorPlantonista(principal.plantonistaLogin, participantes)}
@@ -928,7 +1072,9 @@ function CalendarioPlantaoApp({
               ) : (
                 <strong className="shift-chip shift-chip-vazio">—</strong>
               )}
-              <small>{meuDia ? 'Você' : (nomePrincipal ?? 'Sem plantão')}</small>
+              {!(multiposto && atribuicoesDoDia.length > 0) && (
+                <small>{meuDia ? 'Você' : (nomePrincipal ?? 'Sem plantão')}</small>
+              )}
             </button>
           );
         })}
@@ -991,7 +1137,8 @@ function DetalheDiaPlantao({
           <p className="empty-inline">Nenhum plantão neste dia.</p>
         ) : (
           <div className="plantao-dia-lista">
-            {atribuicoesDoDia.map((atribuicao) => {
+            {/* PLANTAO-MULTIPOSTO-APP-1 — ordenado por posto, com o selo do posto. */}
+            {ordenarPorPosto(atribuicoesDoDia).map((atribuicao) => {
               const nome = nomeExibicaoPlantonista(atribuicao.plantonistaLogin, usuarios);
               const souEu = atribuicao.plantonistaLogin === loginUsuarioAtual;
               const intervalo = intervaloPlantaoCivil(atribuicao, timezone);
@@ -1011,6 +1158,9 @@ function DetalheDiaPlantao({
                       {souEu && <span className="app-participant-badge">Você</span>}
                       <small>{atribuicao.plantonistaLogin}</small>
                     </div>
+                    {atribuicao.funcao && (
+                      <span className="plantao-posto-selo" data-funcao={atribuicao.funcao}>{ROTULO_FUNCAO_PLANTAO[atribuicao.funcao]}</span>
+                    )}
                   </div>
                   <span className="plantao-periodo-texto">{tituloPeriodoPlantao(intervalo)}</span>
                   {contatosAtivos.length > 0 && <ContatosPlantaoLista contatos={contatosAtivos} />}
@@ -5659,8 +5809,21 @@ export function EmployeeApp() {
             const meusPlantoes = souPlantonista ? proximosPlantoesDoUsuario(usuario.login, atribuicoesPlantaoApp, agoraIso, 6) : [];
             const estatisticas = souPlantonista ? estatisticasPlantaoApp(usuario.login, atribuicoesPlantaoApp, grupo.timezone) : null;
 
+            const multipostoTela = ehPlantaoMultiposto(atribuicoesPlantaoApp);
             return (
               <>
+                {multipostoTela && (
+                  <PlantaoAgoraPorPostoCard
+                    atribuicoes={atribuicoesPlantaoApp}
+                    agoraIso={agoraIso}
+                    usuarios={usuarios}
+                    participantes={participantesPlantaoApp}
+                    timezone={grupo.timezone}
+                    dataHoje={dataHojeGrupo}
+                    loginUsuarioAtual={usuario.login}
+                  />
+                )}
+                {!multipostoTela && (
                 <div className="today-summary-grid today-dashboard-grid plantao-screen-grid">
                   {/*
                    * CARD-PLANTAO-AGORA-1 — quem está de plantão, com início e fim
@@ -5726,6 +5889,7 @@ export function EmployeeApp() {
                     )}
                   </article>
                 </div>
+                )}
 
                 {estatisticas && <PlantaoStatsRow estatisticas={estatisticas} />}
 
