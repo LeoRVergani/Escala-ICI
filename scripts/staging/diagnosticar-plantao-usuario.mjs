@@ -56,35 +56,16 @@ async function main() {
     linha('unidade responsável', grupo.unidadeResponsavelId ?? '(ausente — grupo antigo)');
     linha('equipes que consultam', (grupo.equipesConsulta ?? []).join(', '));
     linha('Matriz (responsáveis)', matriz ? `${matriz.ativo ? 'ATIVA' : 'INATIVA'} · ${(matriz.responsaveisLogin ?? []).join(', ') || '—'}` : '(sem Matriz)');
+    if (matriz) linha('Matriz (equipes consulta)', (matriz.equipesConsulta ?? []).join(', ') || '(VAZIA)');
+    const participante = await db.collection('gruposPlantao').doc(doc.id).collection('participantes').doc(login).get();
+    linha('a pessoa é participante?', participante.exists ? (participante.data().ativo ? 'sim (ativa)' : 'sim (INATIVA)') : 'não');
+    const publicadas = await db.collection('competenciasPlantao').where('grupoId', '==', doc.id).get();
+    linha('competências publicadas', publicadas.docs.map((item) => `${item.data().competencia} (${item.data().status})`).join(', ') || '(nenhuma)');
     if (matriz && !matriz.ativo) {
       riscos.push(`"${grupo.nome}" (${doc.id}) tem Matriz INATIVA: as regras bloqueiam a leitura dele, e como ele entra na consulta do App, a consulta INTEIRA é recusada → é o erro de permissão.`);
     }
     if (grupo.ativo === false) {
       riscos.push(`"${grupo.nome}" (${doc.id}) está INATIVO mas ainda tem "${equipeId}" em equipes que consultam (retire a equipe ou exclua o grupo).`);
-    }
-  }
-
-  // 2. Onde a pessoa é participante (independe da equipe).
-  console.log(`\n=== 2. Grupos em que "${login}" é participante`);
-  const participacoes = await db.collectionGroup('participantes').where('login', '==', login).get();
-  if (participacoes.empty) {
-    console.log('  ✗ a pessoa NÃO é participante de nenhum Grupo de Plantão.');
-  }
-  for (const doc of participacoes.docs) {
-    const grupoId = doc.ref.parent.parent?.id ?? '?';
-    const visivel = gruposConsulta.some((grupo) => grupo.id === grupoId);
-    console.log(`  • ${grupoId} — participante ${doc.data().ativo ? 'ativo' : 'INATIVO'} — ${visivel ? 'visível pela equipe ✓' : 'NÃO visível pela equipe da pessoa ✗'}`);
-    if (!visivel) {
-      riscos.push(`É participante de "${grupoId}", mas a equipe "${equipeId}" não está em "equipes que consultam" desse grupo → o App não encontra o Plantão dela.`);
-    }
-    // 3. Competências publicadas desse grupo.
-    const competencias = await db.collection('competenciasPlantao').where('grupoId', '==', grupoId).get();
-    for (const competencia of competencias.docs) {
-      const dados = competencia.data();
-      console.log(`      competência ${dados.competencia} · ${dados.status} · ${dados.periodoInicio} → ${dados.periodoFim}`);
-    }
-    if (competencias.empty) {
-      riscos.push(`"${grupoId}" ainda não tem competência PUBLICADA (só rascunho?) → não há escala para mostrar.`);
     }
   }
 

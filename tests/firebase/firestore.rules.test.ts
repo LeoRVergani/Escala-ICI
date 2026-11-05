@@ -693,6 +693,60 @@ describe('regras Firestore do Escala ICI', () => {
       await assertFails(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI', 'participantes', usuarios.colaborador.login)));
     });
 
+    /*
+     * CONSULTA-PLANTAO-UNIFICADA-1 — cenário real do CODB: Matriz ATIVA com a
+     * lista de consulta VAZIA. Antes ninguém lia a escala (nem os plantonistas);
+     * agora vale a lista do grupo e o próprio participante sempre lê.
+     */
+    async function semearCenarioCodb(equipesConsultaGrupo: string[]) {
+      await semearMatriz({ equipesConsulta: [] });
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        const db = contexto.firestore();
+        await Promise.all([
+          setDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI'), {
+            ...grupoPlantaoMatriz(),
+            equipesConsulta: ['EQ_PLANTAO_COSI', ...equipesConsultaGrupo],
+          }),
+          setDoc(doc(db, 'competenciasPlantao', 'PLANTAO_COSI_2026-08'), competenciaPlantaoMatriz('PUBLICADA')),
+          setDoc(
+            doc(db, 'gruposPlantao', 'PLANTAO_COSI', 'participantes', usuarios.colega.login),
+            { grupoId: 'PLANTAO_COSI', login: usuarios.colega.login, ativo: true },
+          ),
+        ]);
+      });
+    }
+
+    it('CONSULTA-PLANTAO-UNIFICADA-1: Matriz ativa com consulta vazia — a lista do GRUPO libera a leitura da escala', async () => {
+      await semearCenarioCodb([usuarios.colaborador.equipeId]);
+      const db = autenticarComo(usuarios.colaborador);
+      await assertSucceeds(getDoc(doc(db, 'competenciasPlantao', 'PLANTAO_COSI_2026-08')));
+      await assertSucceeds(getDocs(query(collection(db, 'competenciasPlantao'), where('grupoId', '==', 'PLANTAO_COSI'))));
+      await assertSucceeds(getDocs(collection(db, 'gruposPlantao', 'PLANTAO_COSI', 'participantes')));
+    });
+
+    it('CONSULTA-PLANTAO-UNIFICADA-1: o próprio plantonista (participante ativo) sempre lê a escala do seu Plantão', async () => {
+      await semearCenarioCodb([]);
+      const db = autenticarComo(usuarios.colega);
+      await assertSucceeds(getDoc(doc(db, 'competenciasPlantao', 'PLANTAO_COSI_2026-08')));
+      await assertSucceeds(getDoc(doc(db, 'gruposPlantao', 'PLANTAO_COSI', 'participantes', usuarios.colega.login)));
+    });
+
+    it('CONSULTA-PLANTAO-UNIFICADA-1: quem não está em lista nenhuma e não é participante continua sem ler', async () => {
+      await semearCenarioCodb([]);
+      const db = autenticarComo(usuarios.colaborador);
+      await assertFails(getDoc(doc(db, 'competenciasPlantao', 'PLANTAO_COSI_2026-08')));
+      await assertFails(getDocs(collection(db, 'gruposPlantao', 'PLANTAO_COSI', 'participantes')));
+    });
+
+    it('CONSULTA-PLANTAO-UNIFICADA-1: participante de Plantão com Matriz INATIVA continua bloqueado', async () => {
+      await semearCenarioCodb([usuarios.colaborador.equipeId]);
+      await ambiente.withSecurityRulesDisabled(async (contexto) => {
+        await updateDoc(doc(contexto.firestore(), 'escoposOperacionais', 'PLANTAO_PLANTAO_COSI'), { ativo: false });
+      });
+      await assertFails(getDoc(doc(autenticarComo(usuarios.colega), 'competenciasPlantao', 'PLANTAO_COSI_2026-08')));
+      await assertFails(getDoc(doc(autenticarComo(usuarios.colaborador), 'competenciasPlantao', 'PLANTAO_COSI_2026-08')));
+    });
+
     it('responsável não consegue reendereçar rascunho ou estado de publicação de Jornada pelo payload', async () => {
       await semearMatriz();
       await ambiente.withSecurityRulesDisabled(async (contexto) => {
