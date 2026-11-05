@@ -80,6 +80,7 @@
     "staging:seed": "node scripts/staging/seed-hierarquia-ici.mjs",
     "staging:validate": "node scripts/staging/validate-staging.mjs",
     "staging:repair:cosi": "node scripts/staging/auditar-reparar-plantao-cosi.mjs",
+    "staging:diagnosticar:plantao": "node scripts/staging/diagnosticar-plantao-usuario.mjs",
     "lint": "node scripts/run-local-tool.mjs lint",
     "db:generate": "node scripts/run-local-tool.mjs db-generate",
     "seed": "vite-node seed/seed.ts"
