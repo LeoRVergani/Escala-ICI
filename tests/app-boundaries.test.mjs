@@ -769,3 +769,12 @@ test('IMPORTAR-PLANTAO-APP-1 — exceção controlada: só quem coordena importa
   }
   assert.match(modulo, /origemApp: true/);
 });
+
+test('APP-SEM-NOMES-FIXOS-1 — o App é universal: nenhum nome de unidade/equipe fixo no texto exibido', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  // Textos exibidos (JSX/strings) não podem citar unidades/equipes específicas;
+  // o caminho do cabeçalho vem da equipe e da unidade da PRÓPRIA pessoa.
+  assert.doesNotMatch(app, /COSI &gt;|&gt; SOC|>\s*(COSI|SOC|NOC|CODB)\s*</);
+  assert.doesNotMatch(app, /['"`](COSI|SOC|NOC|CODB)( &gt;| ›| >|['"`])/);
+  assert.match(app, /unidadeUsuarioApp\?\.sigla \|\| unidadeUsuarioApp\?\.nome, equipeUsuarioApp\?\.sigla \|\| equipeUsuarioApp\?\.nome/);
+});
