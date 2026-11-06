@@ -126,7 +126,7 @@ function descreverDiaGrade(dia: Dia | undefined, catalogo: Record<string, TipoTu
   }
   const descricao = catalogo[dia.c]?.descricao ?? dia.c;
   const turno = dia.t !== undefined ? ` · ${catalogo[dia.t]?.descricao ?? dia.t}` : '';
-  const horario = dia.i !== undefined && dia.f !== undefined ? ` ${dia.i}–${dia.f}` : '';
+  const horario = dia.i !== undefined && dia.f !== undefined ? ` ${dia.i} - ${dia.f}` : '';
   return `${descricao}${turno}${horario}`;
 }
 
