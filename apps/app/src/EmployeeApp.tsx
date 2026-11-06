@@ -63,6 +63,7 @@ import {
   UserRound,
   Users,
   X,
+  BarChart3,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -217,6 +218,7 @@ import { listarEquipesLeitura, listarUnidadesLeitura } from '@/lib/firebase/estr
 import { listarEscoposOperacionais } from '@/lib/firebase/escoposOperacionaisRepository';
 import { PainelHojeEquipes, VisaoEquipesCoordenador, type EquipeJornadaVisao, type PlantaoVisao } from './VisaoCoordenador';
 import { ImportarPlantaoCoordenacao } from './ImportarPlantaoCoordenacao';
+import { calcularEstatisticasJornada } from './estatisticasJornada';
 import {
   AVISO_APROVACAO_NAO_PUBLICA,
   destinatariosNotificacaoGestorPlantao,
@@ -851,7 +853,8 @@ function PlantaoAgoraPorPostoCard({
   timezone,
   dataHoje,
   loginUsuarioAtual,
-}: {
+  onAbrirPlantonista,
+  }: {
   atribuicoes: readonly AtribuicaoPlantaoPersistida[];
   agoraIso: string;
   usuarios: readonly Usuario[];
@@ -859,7 +862,8 @@ function PlantaoAgoraPorPostoCard({
   timezone: string;
   dataHoje: string;
   loginUsuarioAtual: string;
-}) {
+  onAbrirPlantonista?: (atribuicao: AtribuicaoPlantaoPersistida) => void;
+  }) {
   const postos = resolverPlantaoAgoraPorPosto(atribuicoes, agoraIso);
   const ativos = postos.filter((posto) => posto.atual !== null).length;
   return (
@@ -886,8 +890,14 @@ function PlantaoAgoraPorPostoCard({
               </header>
               {atual && nome && intervalo ? (
                 <>
-                  <div className="plantao-agora-pessoa">
-                    <span className="plantao-agora-avatar" aria-hidden="true">{obterIniciaisParticipantePlantao(nome, atual.plantonistaLogin)}</span>
+                  <div
+                  className="plantao-agora-pessoa plantao-pessoa-clicavel"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onAbrirPlantonista?.(atual)}
+                  onKeyDown={(evento) => { if (evento.key === 'Enter' || evento.key === ' ') onAbrirPlantonista?.(atual); }}
+                  >
+                  <span className="plantao-agora-avatar" aria-hidden="true">{obterIniciaisParticipantePlantao(nome, atual.plantonistaLogin)}</span>
                     <div>
                       <strong>{nome}</strong>
                       <small>{atual.plantonistaLogin === loginUsuarioAtual ? 'Você' : atual.plantonistaLogin}</small>
@@ -905,7 +915,13 @@ function PlantaoAgoraPorPostoCard({
               ) : proximo && intervaloProximo ? (
               <>
               <p className="plantao-posto-vazio">Ninguém de plantão agora.</p>
-              <div className="plantao-posto-proximo-destaque">
+              <div
+              className="plantao-posto-proximo-destaque plantao-pessoa-clicavel"
+              role="button"
+              tabIndex={0}
+              onClick={() => onAbrirPlantonista?.(proximo)}
+              onKeyDown={(evento) => { if (evento.key === 'Enter' || evento.key === ' ') onAbrirPlantonista?.(proximo); }}
+              >
               <small>Próximo</small>
               <div className="plantao-agora-pessoa">
               <span className="plantao-agora-avatar" aria-hidden="true">
@@ -941,19 +957,144 @@ function PlantaoAgoraPorPostoCard({
  * (COSI, CODB…) de uma vez, um bloco por Plantão e uma linha por posto com
  * quem está agora (e até quando) ou, se ninguém, quem vem depois.
  */
+/**
+ * HOJE-ESTATISTICAS-1 — "Meus números": semana e mês de trabalho, com o que
+ * já foi cumprido, folgas do mês e a próxima folga.
+ */
+function MinhasEstatisticasCard({
+  escala,
+  catalogo,
+  dataHoje,
+}: {
+  escala: TurnosMes;
+  catalogo: typeof CATALOGO_SOC;
+  dataHoje: string;
+}) {
+  const numeros = calcularEstatisticasJornada(escala, catalogo, dataHoje);
+  const horas = (minutos: number) => `${Math.round(minutos / 60)}h`;
+  const faixa = (rotulo: string, dados: typeof numeros.semana) => {
+    const percentual = dados.dias === 0 ? 0 : Math.round((dados.diasCumpridos / dados.dias) * 100);
+    return (
+      <div className="meus-numeros-faixa">
+        <small>{rotulo}</small>
+        <strong>{dados.dias} {dados.dias === 1 ? 'dia' : 'dias'} <span>· {horas(dados.minutos)}</span></strong>
+        <div className="meus-numeros-barra" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentual}>
+          <i style={{ width: `${percentual}%` }} />
+        </div>
+        <em>{dados.diasCumpridos} cumprido(s) · {horas(dados.minutosCumpridos)}</em>
+      </div>
+    );
+  };
+  return (
+    <article className="panel meus-numeros">
+      <header className="plantoes-agora-cabecalho">
+        <span><BarChart3 size={16} aria-hidden="true" /> Meus números</span>
+        <small>{formatarCompetencia(escala.competencia)}</small>
+      </header>
+      <div className="meus-numeros-grade">
+        {faixa('Esta semana', numeros.semana)}
+        {faixa('Este mês', numeros.mes)}
+        <div className="meus-numeros-mini">
+          <small>Folgas no mês</small>
+          <strong>{numeros.folgasMes}</strong>
+        </div>
+        <div className="meus-numeros-mini">
+          <small>Próxima folga</small>
+          <strong>{numeros.proximaFolga ? capitalizar(formatarData(numeros.proximaFolga, { weekday: 'short', day: '2-digit', month: '2-digit' }).replace('.', '')) : '—'}</strong>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+/**
+ * HOJE-ESTATISTICAS-1 — detalhes de um plantonista: posto, se está agora ou
+ * é o próximo, início → fim do plantão e os contatos para tocar e ligar.
+ */
+interface PlantonistaAberto {
+  grupo: GrupoPlantao;
+  atribuicao: AtribuicaoPlantaoPersistida;
+  participantes: readonly ParticipantePlantao[];
+}
+
+function ModalPlantonistaApp({
+  aberto,
+  usuarios,
+  agoraIso,
+  loginUsuarioAtual,
+  onFechar,
+}: {
+  aberto: PlantonistaAberto;
+  usuarios: readonly Usuario[];
+  agoraIso: string;
+  loginUsuarioAtual: string;
+  onFechar: () => void;
+}) {
+  const { grupo, atribuicao, participantes } = aberto;
+  const nome = nomeExibicaoPlantonista(atribuicao.plantonistaLogin, usuarios);
+  const intervalo = intervaloPlantaoCivil(atribuicao, grupo.timezone);
+  const contatos = contatosAtivosDoPlantonista(atribuicao.plantonistaLogin, [...participantes]);
+  const agora = atribuicao.inicio <= agoraIso && agoraIso < atribuicao.fim;
+  const funcao = atribuicao.funcao ?? 'UNICO';
+  return (
+    <div className="modal-backdrop modal-backdrop-sheet" role="presentation" onMouseDown={onFechar}>
+      <section
+        className="edit-modal plantonista-modal"
+        data-funcao={funcao}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="plantonista-modal-titulo"
+        onMouseDown={(evento) => evento.stopPropagation()}
+      >
+        <div className="panel-title">
+          <div className="plantonista-modal-identidade">
+            <span className="plantao-agora-avatar" aria-hidden="true">{obterIniciaisParticipantePlantao(nome, atribuicao.plantonistaLogin)}</span>
+            <div>
+              <h2 id="plantonista-modal-titulo">{nome}</h2>
+              <p>
+                <span className="plantao-posto-selo" data-funcao={funcao}>
+                  {atribuicao.funcao ? ROTULO_FUNCAO_PLANTAO[atribuicao.funcao] : 'Plantão'}
+                </span>
+                {' '}{rotuloGrupoPlantao(grupo.nome)}
+                {atribuicao.plantonistaLogin === loginUsuarioAtual && <span className="app-participant-badge">Você</span>}
+              </p>
+            </div>
+          </div>
+          <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar"><X size={18} /></button>
+        </div>
+        {agora
+          ? <span className="live-badge plantonista-modal-status"><i /> De plantão agora</span>
+          : <span className="plantonista-modal-status plantonista-modal-proximo">Próximo plantão</span>}
+        {intervalo.valido && (
+          <div className="plantao-agora-periodo" aria-label={tituloPeriodoPlantao(intervalo)}>
+            <div><small>Início</small><strong>{diaCurtoComSemana(intervalo.dataInicio)}</strong><span>{intervalo.horaInicio}</span></div>
+            <ArrowRight size={16} aria-hidden="true" />
+            <div><small>Fim</small><strong>{diaCurtoComSemana(intervalo.dataFim)}</strong><span>{intervalo.horaFim}</span></div>
+          </div>
+        )}
+        {contatos.length > 0
+          ? <ContatosPlantaoLista contatos={contatos} />
+          : <p className="plantao-posto-vazio">Sem contatos cadastrados para este plantonista.</p>}
+      </section>
+    </div>
+  );
+}
+
 function PlantoesAgoraTodos({
   grupos,
   detalhes,
   agoraIso,
   usuarios,
   onAbrirGrupo,
-}: {
+  onAbrirPlantonista,
+  }: {
   grupos: readonly GrupoPlantao[];
   detalhes: Readonly<Record<string, DetalhePlantaoGrupo>>;
   agoraIso: string;
   usuarios: readonly Usuario[];
   onAbrirGrupo: (grupoId: string) => void;
-}) {
+  onAbrirPlantonista?: (aberto: PlantonistaAberto) => void;
+  }) {
   const blocos = grupos
     .map((grupo) => ({ grupo, detalhe: detalhes[grupo.grupoId] }))
     .filter((item) => item.detalhe !== undefined && item.detalhe.erro === '' && item.detalhe.atribuicoes.length > 0);
@@ -991,7 +1132,12 @@ function PlantoesAgoraTodos({
                         {posto.funcao ? ROTULO_FUNCAO_PLANTAO[posto.funcao] : 'Plantão'}
                       </span>
                       {pessoa && nome && intervalo ? (
-                        <span className="plantoes-agora-pessoa">
+                      <button
+                      type="button"
+                      className="plantoes-agora-pessoa"
+                      onClick={() => onAbrirPlantonista?.({ grupo, atribuicao: pessoa, participantes: detalhe!.participantes })}
+                      title={`Ver detalhes e contatos de ${nome}`}
+                      >
                           <i aria-hidden="true">{obterIniciaisParticipantePlantao(nome, pessoa.plantonistaLogin)}</i>
                           <span>
                             <strong>{nome}</strong>
@@ -1000,10 +1146,10 @@ function PlantoesAgoraTodos({
                                 ? `Agora · até ${diaCurtoComSemana(intervalo.dataFim)} ${intervalo.horaFim}`
                                 : `Próximo · ${diaCurtoComSemana(intervalo.dataInicio)} ${intervalo.horaInicio}`}
                             </small>
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="plantoes-agora-vazio">Sem próximos plantões publicados</span>
+                            </span>
+                            </button>
+                            ) : (
+                            <span className="plantoes-agora-vazio">Sem próximos plantões publicados</span>
                       )}
                     </li>
                   );
@@ -3144,6 +3290,8 @@ export function EmployeeApp() {
   const [jornadasAdministradasApp, setJornadasAdministradasApp] = useState<string[]>([]);
   /** IMPORTAR-PLANTAO-APP-1 — Plantão sendo importado pelo coordenador e recarga da visão depois. */
   const [importandoPlantaoGrupo, setImportandoPlantaoGrupo] = useState<GrupoPlantao | null>(null);
+  /** HOJE-ESTATISTICAS-1 — plantonista aberto no modal de detalhes/contatos. */
+  const [plantonistaAberto, setPlantonistaAberto] = useState<PlantonistaAberto | null>(null);
   const [recargaVisaoCoordenacao, setRecargaVisaoCoordenacao] = useState(0);
   /** VISAO-COORDENADOR-APP-1 — equipes 6x1 e Plantões administrados, com a escala do mês. */
   const [estruturaCoordenacaoApp, setEstruturaCoordenacaoApp] = useState<{
@@ -5147,6 +5295,7 @@ export function EmployeeApp() {
                         agoraIso={agora.toISOString()}
                         usuarios={usuarios}
                         onAbrirGrupo={(grupoId) => { selecionarGrupoPlantaoApp(grupoId); setTela('plantao'); }}
+                        onAbrirPlantonista={setPlantonistaAberto}
                       />
                     ) : (
                       <>
@@ -5156,20 +5305,24 @@ export function EmployeeApp() {
                         agoraIso={agora.toISOString()}
                         usuarios={usuarios}
                         onAbrirGrupo={(grupoId) => { selecionarGrupoPlantaoApp(grupoId); setTela('plantao'); }}
+                        onAbrirPlantonista={setPlantonistaAberto}
                       />
                       {souPlantonistaAtivoApp && (
                           <PlantaoStatsRow estatisticas={estatisticasPlantaoApp(usuario.login, atribuicoesPlantaoApp, grupoPlantaoApp.timezone)} />
                         )}
                       </>
-                    )
-                  )}
-                </>
-              )}
-            </div>
-          )}
+                      )
+                      )}
+                      {jornadaPublicadaApp && escalaVisivelApp && (
+                      <MinhasEstatisticasCard escala={escalaVisivelApp} catalogo={catalogo} dataHoje={dataHoje} />
+                      )}
+                      </>
+                      )}
+                      </div>
+                      )}
 
-          {jornadaPublicadaApp && (
-            <article className="panel today-team-panel">
+                      {jornadaPublicadaApp && (
+                      <article className="panel today-team-panel">
               <div className="panel-title today-team-title">
                 <div>
                   <h2>{tituloEquipeEscalada}</h2>
@@ -5851,7 +6004,8 @@ export function EmployeeApp() {
                     timezone={grupo.timezone}
                     dataHoje={dataHojeGrupo}
                     loginUsuarioAtual={usuario.login}
-                  />
+                    onAbrirPlantonista={(atribuicao) => setPlantonistaAberto({ grupo, atribuicao, participantes: participantesPlantaoApp })}
+                    />
                 )}
 
                 {estatisticas && <PlantaoStatsRow estatisticas={estatisticas} />}
@@ -6259,6 +6413,15 @@ export function EmployeeApp() {
         </section>
       )}
 
+      {plantonistaAberto && usuario && (
+      <ModalPlantonistaApp
+      aberto={plantonistaAberto}
+      usuarios={usuarios}
+      agoraIso={agora.toISOString()}
+      loginUsuarioAtual={usuario.login}
+      onFechar={() => setPlantonistaAberto(null)}
+      />
+      )}
       {importandoPlantaoGrupo && usuario && (
         <ImportarPlantaoCoordenacao
           grupo={importandoPlantaoGrupo}
