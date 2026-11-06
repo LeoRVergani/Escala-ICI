@@ -102,7 +102,7 @@ test('9. participar do Plantão (ParticipantePlantao) nunca é confundido com o 
   assert.doesNotMatch(interfaceParticipante[1], /\bperfil\b|\bescopo\b|\bequipeId\b/u, 'participação de Plantão nunca pode carregar perfil/escopo/equipeId — vínculo é registro separado do cadastro principal (usuarios/{login})');
 
   const writeRepo = semComentarios(await ler('lib/firebase/plantaoWriteRepository.ts'));
-  const corpo = /export async function salvarParticipantePlantao\(participante: ParticipantePlantao\): Promise<void> \{([\s\S]*?)\n\}/u.exec(writeRepo);
+  const corpo = /export async function salvarParticipantePlantao\(participante: ParticipantePlantao(?:, opcoes: OpcoesEscritaPlantao = \{\})?\): Promise<void> \{([\s\S]*?)\n\}/u.exec(writeRepo);
   assert.ok(corpo, 'salvarParticipantePlantao precisa existir');
   assert.match(corpo[1], /setDoc\(\s*doc\(db, 'gruposPlantao', participante\.grupoId, 'participantes', participante\.login\),\s*removerUndefined\(participante\)/u, 'grava só o objeto ParticipantePlantao tipado, nunca um payload solto que poderia incluir campos do usuário');
 });

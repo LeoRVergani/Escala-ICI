@@ -140,8 +140,24 @@ export async function atualizarEquipeConsultaPlantao(
   }));
 }
 
-export async function salvarParticipantePlantao(participante: ParticipantePlantao): Promise<void> {
-  exigirEscritaAdministrativaHabilitada();
+/**
+ * IMPORTAR-PLANTAO-APP-1 — o App (autoatendimento) não tem a "escrita
+ * administrativa" do Dashboard; a importação feita pelo coordenador no App
+ * passa `{ origemApp: true }`. Quem pode gravar continua decidido pelas Rules
+ * (administração do Plantão), como na aprovação de trocas pelo App.
+ */
+export interface OpcoesEscritaPlantao {
+  origemApp?: boolean;
+}
+
+function exigirEscritaPlantao(opcoes: OpcoesEscritaPlantao): void {
+  if (!opcoes.origemApp) {
+    exigirEscritaAdministrativaHabilitada();
+  }
+}
+
+export async function salvarParticipantePlantao(participante: ParticipantePlantao, opcoes: OpcoesEscritaPlantao = {}): Promise<void> {
+  exigirEscritaPlantao(opcoes);
   const erros = validarParticipantePlantao(participante);
   if (erros.length > 0) {
     throw new Error(erros.join(' '));
@@ -218,8 +234,8 @@ export async function desativarParticipantePlantao(grupoId: string, login: strin
 }
 
 /** Recusa qualquer status diferente de `RASCUNHO`; publicação usa a função dedicada abaixo. */
-export async function salvarCompetenciaPlantaoRascunho(competencia: CompetenciaPlantao): Promise<void> {
-  exigirEscritaAdministrativaHabilitada();
+export async function salvarCompetenciaPlantaoRascunho(competencia: CompetenciaPlantao, opcoes: OpcoesEscritaPlantao = {}): Promise<void> {
+  exigirEscritaPlantao(opcoes);
   if (competencia.status !== 'RASCUNHO') {
     throw new Error('Esta fase só permite salvar competências de Plantão como RASCUNHO.');
   }
@@ -262,8 +278,9 @@ export async function salvarAtribuicoesPlantaoRascunho(
   grupoId: string,
   competenciaId: string,
   atribuicoes: readonly AtribuicaoPlantaoPersistida[],
+  opcoes: OpcoesEscritaPlantao = {},
 ): Promise<void> {
-  exigirEscritaAdministrativaHabilitada();
+  exigirEscritaPlantao(opcoes);
 
   for (const atribuicao of atribuicoes) {
     const erros = validarAtribuicaoPlantaoPersistida(atribuicao);
@@ -313,8 +330,9 @@ export async function salvarAtribuicoesPlantaoRascunho(
 export async function publicarCompetenciaPlantao(
   competenciaRascunho: CompetenciaPlantao,
   atribuicoesRascunho: readonly AtribuicaoPlantaoPersistida[],
+  opcoes: OpcoesEscritaPlantao = {},
 ): Promise<CompetenciaPlantao> {
-  exigirEscritaAdministrativaHabilitada();
+  exigirEscritaPlantao(opcoes);
   if (competenciaRascunho.status !== 'RASCUNHO') {
     throw new Error('Somente um rascunho de Plantão pode ser publicado.');
   }

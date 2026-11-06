@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarDays, ChevronLeft, ChevronRight, Radio, Users, X } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Radio, Upload, Users, X } from 'lucide-react';
 import { codigoPeriodoDia, formatarData, ROTULO_FUNCAO_PLANTAO, type FuncaoPlantao, type TipoTurno, type TurnosMes } from '@escala-ici/contrato';
 
 import type { AtribuicaoPlantaoPersistida, GrupoPlantao, ParticipantePlantao } from '@escala-ici/contrato';
@@ -268,6 +268,7 @@ export function VisaoEquipesCoordenador({
   renderizarMes6x1,
   renderizarCalendarioPlantao,
   renderizarMesPessoa,
+  onImportarPlantao,
 }: {
   equipes: readonly EquipeJornadaVisao[];
   plantoes: readonly PlantaoVisao[];
@@ -279,6 +280,8 @@ export function VisaoEquipesCoordenador({
   renderizarCalendarioPlantao?: (plantao: PlantaoVisao) => ReactNode;
   /** NOMES-BOTOES-1 — o mesmo calendário da Agenda do colaborador, no modal do mês. */
   renderizarMesPessoa?: (documento: TurnosMes) => ReactNode;
+  /** IMPORTAR-PLANTAO-APP-1 — abre a importação rápida da planilha do mês. */
+  onImportarPlantao?: (grupo: GrupoPlantao) => void;
 }) {
   const abas = [
     ...equipes.map((equipe) => ({ chave: `J:${equipe.id}`, nome: equipe.nome, tipo: '6x1' as const })),
@@ -458,12 +461,19 @@ export function VisaoEquipesCoordenador({
             <div><small>Dia útil</small><strong>{plantonistas.reduce((soma, item) => soma + item.plantoesCurtos, 0)}</strong></div>
           </div>
 
+          <div className="visao-coord-acoes">
           <div className="visao-coord-seletor" role="tablist" aria-label="Visualização">
             {([['calendario', 'Calendário'], ['lista', 'Próximos'], ['totais', 'Totais']] as const).map(([valor, rotulo]) => (
               <button key={valor} type="button" role="tab" aria-selected={visaoPlantao === valor} className={visaoPlantao === valor ? 'active' : ''} onClick={() => setVisaoPlantao(valor)}>
                 {rotulo}
               </button>
             ))}
+          </div>
+          {onImportarPlantao && (
+            <button className="primary-button compact-button visao-coord-importar" type="button" onClick={() => onImportarPlantao(plantao.grupo)}>
+              <Upload size={15} /> Importar planilha do mês
+            </button>
+          )}
           </div>
 
           {plantao.atribuicoes.length === 0 ? (

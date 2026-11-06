@@ -746,3 +746,26 @@ test('o App não trata mais ausência de Jornada 6x1 como erro global — operac
   // saberem se existe Plantão publicado antes de o usuário visitar a aba.
   assert.match(app, /useEffect\(\(\) => \{\s*if \(usuario !== null\) \{\s*void Promise\.resolve\(\)\.then\(\(\) => carregarPlantaoApp\(\)\);/u);
 });
+
+test('IMPORTAR-PLANTAO-APP-1 — exceção controlada: só quem coordena importa Plantão pelo App, por um único caminho', async () => {
+  const [app, componente, visao, modulo] = await Promise.all([
+    ler('apps/app/src/EmployeeApp.tsx'),
+    ler('apps/app/src/ImportarPlantaoCoordenacao.tsx'),
+    ler('apps/app/src/VisaoCoordenador.tsx'),
+    ler('lib/firebase/importacaoPlantaoApp.ts'),
+  ]);
+  // O EmployeeApp não ganha símbolos de gestão: só abre o componente dedicado.
+  assert.doesNotMatch(app, /importacaoPlantaoApp|montagemRascunhoPlantao|salvarParticipantePlantao|salvarCompetenciaPlantaoRascunho|publicarCompetenciaPlantao/);
+  assert.match(app, /<ImportarPlantaoCoordenacao/);
+  // O botão só existe na visão de coordenação (renderizada só para quem coordena).
+  assert.match(app, /souCoordenacaoApp && \(\s*<VisaoEquipesCoordenador[\s\S]*?onImportarPlantao=/);
+  assert.match(visao, /onImportarPlantao &&/);
+  // O componente fala apenas com o módulo dedicado — nunca com o repositório de escrita direto.
+  assert.match(componente, /from '@\/lib\/firebase\/importacaoPlantaoApp'/);
+  assert.doesNotMatch(componente, /plantaoWriteRepository|montagemRascunhoPlantao/);
+  // O módulo usa o MESMO pipeline do Dashboard e marca a origem App (Rules decidem quem grava).
+  for (const funcao of ['montarCompetenciaPlantaoRascunho', 'montarAtribuicoesPlantaoRascunho', 'montarParticipantesPlantaoParaSalvar', 'publicarCompetenciaPlantao']) {
+    assert.match(modulo, new RegExp(funcao), funcao);
+  }
+  assert.match(modulo, /origemApp: true/);
+});

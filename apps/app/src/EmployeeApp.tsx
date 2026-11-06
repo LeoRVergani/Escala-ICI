@@ -216,6 +216,7 @@ import { resolverEscoposOperacionais } from '@/lib/escoposOperacionais';
 import { listarEquipesLeitura, listarUnidadesLeitura } from '@/lib/firebase/estruturaLeitura';
 import { listarEscoposOperacionais } from '@/lib/firebase/escoposOperacionaisRepository';
 import { PainelHojeEquipes, VisaoEquipesCoordenador, type EquipeJornadaVisao, type PlantaoVisao } from './VisaoCoordenador';
+import { ImportarPlantaoCoordenacao } from './ImportarPlantaoCoordenacao';
 import {
   AVISO_APROVACAO_NAO_PUBLICA,
   destinatariosNotificacaoGestorPlantao,
@@ -3114,6 +3115,9 @@ export function EmployeeApp() {
   const [ultimaDecisaoTroca, setUltimaDecisaoTroca] = useState<{ texto: string; aprovada: boolean } | null>(null);
   /** APROVAR-TROCA-APP-2 — escalas 6x1 que a pessoa administra (mesma regra do Dashboard). */
   const [jornadasAdministradasApp, setJornadasAdministradasApp] = useState<string[]>([]);
+  /** IMPORTAR-PLANTAO-APP-1 — Plantão sendo importado pelo coordenador e recarga da visão depois. */
+  const [importandoPlantaoGrupo, setImportandoPlantaoGrupo] = useState<GrupoPlantao | null>(null);
+  const [recargaVisaoCoordenacao, setRecargaVisaoCoordenacao] = useState(0);
   /** VISAO-COORDENADOR-APP-1 — equipes 6x1 e Plantões administrados, com a escala do mês. */
   const [estruturaCoordenacaoApp, setEstruturaCoordenacaoApp] = useState<{
     equipes: Array<{ id: string; nome: string }>;
@@ -3339,7 +3343,7 @@ export function EmployeeApp() {
     };
     // A estrutura entra pela chave; recarrega ao trocar de mês ou de tela.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listenersLiberados, souCoordenacaoApp, telaUsaVisaoCoordenacao, chaveEstruturaCoordenacao, competenciaAtiva, dataHoje]);
+  }, [listenersLiberados, souCoordenacaoApp, telaUsaVisaoCoordenacao, chaveEstruturaCoordenacao, competenciaAtiva, dataHoje, recargaVisaoCoordenacao]);
 
   const equipesQueCoordenoApp = usuario !== null && souCoordenacaoApp
     ? [...new Set([
@@ -5987,6 +5991,7 @@ export function EmployeeApp() {
                   avisoDivergencia={false}
                 />
               )}
+              onImportarPlantao={(grupo) => setImportandoPlantaoGrupo(grupo)}
               renderizarMesPessoa={(documento) => (
                 <CalendarioPessoaCoordenador documento={documento} dataHoje={dataHoje} catalogo={catalogo} />
               )}
@@ -6295,6 +6300,14 @@ export function EmployeeApp() {
         </section>
       )}
 
+      {importandoPlantaoGrupo && usuario && (
+        <ImportarPlantaoCoordenacao
+          grupo={importandoPlantaoGrupo}
+          loginAtual={usuario.login}
+          onFechar={() => setImportandoPlantaoGrupo(null)}
+          onConcluido={() => setRecargaVisaoCoordenacao((valor) => valor + 1)}
+        />
+      )}
       {trocaDecisaoAberta && (
         <ModalDecisaoTrocaApp
           troca={trocaDecisaoAberta}
