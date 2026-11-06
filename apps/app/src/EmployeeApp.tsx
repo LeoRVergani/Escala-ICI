@@ -182,7 +182,7 @@ import {
 import { obterEscopoOperacional } from '@/lib/firebase/escoposOperacionaisRepository';
 import { usuarioPodeAdministrarAlvoOperacional } from '@/lib/escoposOperacionaisMatriz';
 import { GESTOR_DEMO, USUARIOS_DEMO } from '@/lib/demoIdentidades';
-import type { Equipe, EscopoOperacional, EventoEscala, Usuario } from '@/lib/modelos';
+import type { Equipe, EscopoOperacional, EventoEscala, UnidadeOrganizacional, Usuario } from '@/lib/modelos';
 import { deveExibirRestauracao, podeIniciarListeners } from '@/lib/sessao';
 import {
   classificarDiaSemana,
@@ -214,7 +214,7 @@ import {
 } from '@/lib/trocaFolga';
 import { perfilEfetivo } from '@/lib/sessao';
 import { resolverEscoposOperacionais } from '@/lib/escoposOperacionais';
-import { listarEquipesLeitura, listarUnidadesLeitura } from '@/lib/firebase/estruturaLeitura';
+import { listarEquipesLeitura, listarUnidadesLeitura, obterUnidadeLeitura } from '@/lib/firebase/estruturaLeitura';
 import { listarEscoposOperacionais } from '@/lib/firebase/escoposOperacionaisRepository';
 import { PainelHojeEquipes, VisaoEquipesCoordenador, type EquipeJornadaVisao, type PlantaoVisao } from './VisaoCoordenador';
 import { ImportarPlantaoCoordenacao } from './ImportarPlantaoCoordenacao';
@@ -3208,6 +3208,21 @@ export function EmployeeApp() {
    * Perfil cai de volta para o próprio `equipeId`, nunca um erro.
    */
   const [equipeUsuarioApp, setEquipeUsuarioApp] = useState<Equipe | null | undefined>(undefined);
+  /** APP-SEM-NOMES-FIXOS-1 — unidade da equipe da pessoa, para o caminho do cabeçalho. */
+  const [unidadeCarregadaApp, setUnidadeCarregadaApp] = useState<UnidadeOrganizacional | null>(null);
+  const unidadeIdEquipeApp = equipeUsuarioApp?.unidadeId ?? '';
+  // Só vale a unidade da equipe ATUAL (troca de usuário/equipe não mostra a anterior).
+  const unidadeUsuarioApp = unidadeCarregadaApp?.unidadeId === unidadeIdEquipeApp ? unidadeCarregadaApp : null;
+  useEffect(() => {
+    if (unidadeIdEquipeApp === '') {
+      return undefined;
+    }
+    let cancelado = false;
+    void obterUnidadeLeitura(unidadeIdEquipeApp)
+      .then((unidade) => { if (!cancelado) setUnidadeCarregadaApp(unidade); })
+      .catch(() => undefined);
+    return () => { cancelado = true; };
+  }, [unidadeIdEquipeApp]);
   const [competenciaPlantaoApp, setCompetenciaPlantaoApp] = useState<string | null>(null);
   /**
    * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-2 — período REAL da
@@ -6128,7 +6143,14 @@ export function EmployeeApp() {
           <>
           <header className="page-heading">
             <div>
-              <p className="eyebrow">COSI &gt; SOC</p>
+              {/* APP-SEM-NOMES-FIXOS-1 — caminho da PRÓPRIA pessoa (antes era um nome de equipe fixo para todos). */}
+              <p className="eyebrow">
+                {equipeOperacaoEfetiva === 'PLANTAO' && grupoPlantaoApp
+                  ? rotuloGrupoPlantao(grupoPlantaoApp.nome)
+                  : [unidadeUsuarioApp?.sigla || unidadeUsuarioApp?.nome, equipeUsuarioApp?.sigla || equipeUsuarioApp?.nome]
+                    .filter(Boolean)
+                    .join(' › ') || 'Minha equipe'}
+              </p>
               <h1>{equipeOperacaoEfetiva === 'PLANTAO' ? 'Participantes do Plantão' : 'Escala da equipe'}</h1>
               <p>
                 {equipeOperacaoEfetiva === 'PLANTAO'
