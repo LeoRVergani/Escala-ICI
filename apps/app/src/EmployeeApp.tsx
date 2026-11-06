@@ -474,6 +474,8 @@ function TurnoHoje({ contexto, horasPrevisao }: { contexto: ContextoJornada; hor
       <header className="today-card-heading">
         <span>Seu turno hoje</span>
       </header>
+      {/* TURNO-TEMPO-LADO-1 — horário à esquerda, previsão à direita na mesma linha. */}
+      <div className="today-hero-linha">
       <div className="today-hero-heading">
         <span className="today-hero-icon">
           {turnoDestaque ? <IconeTurno codigo={turnoDestaque.periodo} /> : <Coffee />}
@@ -507,17 +509,19 @@ function TurnoHoje({ contexto, horasPrevisao }: { contexto: ContextoJornada; hor
         if (!previsao) return null;
         return (
           <div className="tempo-turno" data-tipo={previsao.tipo} title={`Previsão para o seu turno · ${LOCAL_PREVISAO.nome}`}>
-            <span className="tempo-turno-icone"><IconeTempo tipo={previsao.tipo} size={22} /></span>
+            <span className="tempo-turno-icone"><IconeTempo tipo={previsao.tipo} size={46} /></span>
             <span className="tempo-turno-texto">
-              <strong>{faixaTemperatura(previsao)} · {previsao.rotulo}</strong>
-              <small>
-                {previsao.chuvaMax !== null && previsao.chuvaMax >= 20 ? `${previsao.chuvaMax}% de chance de chuva · ` : ''}
-                Previsão no seu turno · {LOCAL_PREVISAO.nome}
-              </small>
+              <strong>{faixaTemperatura(previsao)}</strong>
+              <span className="tempo-turno-condicao">{previsao.rotulo}</span>
+              {previsao.chuvaMax !== null && previsao.chuvaMax >= 20 && (
+                <span className="tempo-turno-chuva"><Droplets size={12} aria-hidden="true" /> {previsao.chuvaMax}% de chuva</span>
+              )}
+              <small>No seu turno · {LOCAL_PREVISAO.nome}</small>
             </span>
           </div>
         );
       })()}
+      </div>
 
       {turnoDestaque ? (
         <div className="today-meta">
