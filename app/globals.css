@@ -8679,3 +8679,23 @@ button.plantoes-agora-pessoa:focus-visible { outline: none; box-shadow: var(--fo
   .tempo-turno { margin: 0 14px 10px; padding: 8px 12px; }
   .tempo-turno-icone { width: 32px; height: 32px; }
 }
+
+/* =====================================================================
+ * CARDS-SEM-SOMBRA-1 — nenhum card do App tem sombra (claro, escuro e ao
+ * passar o mouse). Os cards se separam pela borda e pelo espaço padrão.
+ * As janelas (modais) mantêm a sombra, porque ficam por cima da tela.
+ * ===================================================================== */
+.app-shell.product-app .panel,
+.app-shell.product-app .panel:hover,
+.app-shell.product-app .metric-grid article,
+.app-shell.product-app .metric-grid article:hover,
+.app-shell.product-app .today-hero,
+.app-shell.product-app .today-hero[data-state],
+.app-shell.product-app .next-shift-card,
+.app-shell.product-app .week-strip,
+.app-shell.product-app .employee-calendar-panel,
+:root[data-theme="dark"] .app-shell.product-app .panel,
+:root[data-theme="dark"] .app-shell.product-app .today-hero,
+:root[data-theme="dark"] .app-shell.product-app .metric-grid article {
+  box-shadow: none !important;
+}
