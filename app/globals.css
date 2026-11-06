@@ -8320,3 +8320,158 @@ a.plantao-contato-linha:focus-visible { background: var(--surface-muted); }
 @media (max-width: 720px) {
   .importar-plantao-passos > li { padding: 5px 6px; font-size: 11px; }
 }
+
+/* =====================================================================
+ * PLANTAO-VISUAL-UNIFICADO-1 — Hoje com todos os Plantões, abas em pílula,
+ * COSI e CODB no mesmo padrão.
+ * ===================================================================== */
+[data-funcao="UNICO"] { --posto-cor: #4f46e5; }
+:root[data-theme="dark"] [data-funcao="UNICO"] { --posto-cor: #818cf8; }
+
+/* Hoje: Plantões agora (todos). */
+.plantoes-agora { padding: 0; overflow: hidden; }
+.plantoes-agora-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.plantoes-agora-cabecalho > span { display: inline-flex; align-items: center; gap: 8px; color: var(--text); font-weight: 750; font-size: 14px; }
+.plantoes-agora-cabecalho > span > svg { color: var(--primary-bright); }
+.plantoes-agora-cabecalho small { color: var(--muted); font-size: 12px; font-weight: 650; }
+.plantoes-agora-grupos { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; padding: 14px 16px 16px; }
+.plantoes-agora-grupo { display: grid; align-content: start; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.plantoes-agora-grupo-titulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 2px 8px;
+  border: 0;
+  border-bottom: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.plantoes-agora-grupo-titulo strong { font-size: 15px; font-weight: 800; }
+.plantoes-agora-grupo-titulo small { flex: 1 1 auto; color: var(--muted); font-size: 12px; font-weight: 650; }
+.plantoes-agora-grupo-titulo > svg { color: var(--muted); }
+.plantoes-agora-grupo ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.plantoes-agora-grupo li {
+  display: grid;
+  grid-template-columns: 82px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--posto-cor, var(--border));
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+.plantoes-agora-grupo li .plantao-posto-selo { justify-self: start; }
+.plantoes-agora-grupo li:has(.plantao-posto-selo[data-funcao="DBA"]) { --posto-cor: #7c3aed; }
+.plantoes-agora-grupo li:has(.plantao-posto-selo[data-funcao="LINUX"]) { --posto-cor: #d97706; }
+.plantoes-agora-grupo li:has(.plantao-posto-selo[data-funcao="TELECOM"]) { --posto-cor: #0891b2; }
+.plantoes-agora-grupo li:has(.plantao-posto-selo[data-funcao="WINDOWS"]) { --posto-cor: #2563eb; }
+.plantoes-agora-grupo li:has(.plantao-posto-selo[data-funcao="UNICO"]) { --posto-cor: #4f46e5; }
+.plantoes-agora-pessoa { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.plantoes-agora-pessoa > i {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--posto-cor, var(--primary)) 16%, var(--surface));
+  color: var(--posto-cor, var(--primary));
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 800;
+}
+.plantoes-agora-pessoa > span { display: grid; min-width: 0; }
+.plantoes-agora-pessoa strong { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.plantoes-agora-pessoa small { color: var(--muted); font-size: 11.5px; }
+.plantoes-agora-grupo li[data-agora] .plantoes-agora-pessoa small { color: var(--success); font-weight: 700; }
+.plantoes-agora-vazio { color: var(--muted); font-size: 12px; }
+
+/* Tela Plantão: abas dos times em pílula, espaçadas. */
+.plantao-grupo-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.plantao-grupo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 170px;
+  padding: 10px 16px 10px 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.plantao-grupo-chip:hover { border-color: color-mix(in srgb, var(--primary-bright) 40%, var(--border)); }
+.plantao-grupo-chip.active {
+  border-color: var(--primary-bright);
+  background: color-mix(in srgb, var(--primary-bright) 7%, var(--surface));
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--primary-bright) 18%, transparent);
+}
+.plantao-grupo-chip .plantao-grupo-chip-badge {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+.plantao-grupo-chip-texto { display: grid; gap: 1px; }
+.plantao-grupo-chip-texto strong { font-size: 14px; font-weight: 750; }
+.plantao-grupo-chip-texto small { color: var(--muted); font-size: 11.5px; font-weight: 650; }
+
+/* Card por posto: próximo em destaque quando ninguém está agora. */
+.plantao-posto-proximo-destaque {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed color-mix(in srgb, var(--posto-cor, var(--primary)) 45%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--posto-cor, var(--primary)) 5%, var(--surface));
+}
+.plantao-posto-proximo-destaque > small {
+  color: var(--posto-cor, var(--primary));
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.plantao-posto-proximo-destaque .plantao-agora-pessoa small { color: var(--muted); font-size: 12px; }
+.plantao-posto-card .plantao-agora-avatar {
+  background: color-mix(in srgb, var(--posto-cor, var(--primary)) 16%, var(--surface));
+  color: var(--posto-cor, var(--primary));
+}
+
+/* Calendário de posto único: primeiro nome + iniciais na linha. */
+.plantao-posto-linha > b.plantao-posto-linha-nome {
+  overflow: hidden;
+  color: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .plantoes-agora-grupos { grid-template-columns: 1fr; padding: 10px; gap: 10px; }
+  .plantoes-agora-grupo li { grid-template-columns: 72px 1fr; }
+  .plantao-grupo-chip { flex: 1 1 140px; min-width: 0; padding: 8px 12px 8px 8px; }
+  .plantao-grupo-chip .plantao-grupo-chip-badge { width: 28px; height: 28px; }
+}
