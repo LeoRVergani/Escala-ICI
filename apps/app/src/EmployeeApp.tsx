@@ -219,6 +219,7 @@ import { listarEscoposOperacionais } from '@/lib/firebase/escoposOperacionaisRep
 import { PainelHojeEquipes, VisaoEquipesCoordenador, type EquipeJornadaVisao, type PlantaoVisao } from './VisaoCoordenador';
 import { ImportarPlantaoCoordenacao } from './ImportarPlantaoCoordenacao';
 import { calcularEstatisticasJornada } from './estatisticasJornada';
+import { faixaHorario, normalizarFaixaHorario } from './formatoHorario';
 import {
   AVISO_APROVACAO_NAO_PUBLICA,
   destinatariosNotificacaoGestorPlantao,
@@ -454,7 +455,7 @@ function TurnoHoje({ contexto }: { contexto: ContextoJornada }) {
               className="today-hours"
               aria-label={`Das ${turnoDestaque.inicio} às ${turnoDestaque.fim}`}
             >
-              <strong>{turnoDestaque.inicio}–{turnoDestaque.fim}</strong>
+              <strong>{faixaHorario(turnoDestaque.inicio, turnoDestaque.fim)}</strong>
             </div>
           )}
           <span className="today-date">
@@ -513,7 +514,7 @@ function ProximosDias({ turnos }: { turnos: IntervaloTurno[] }) {
               </span>
               <span className="proximos-dias-info">
                 <strong>{turno.descricao}</strong>
-                <small>{turno.inicio}–{turno.fim}</small>
+                <small>{faixaHorario(turno.inicio, turno.fim)}</small>
               </span>
             </div>
           ))}
@@ -673,7 +674,7 @@ function JornadaResumoCompacta({ contexto, onAbrir }: { contexto: ContextoJornad
       <span className="today-secondary-row-text">
         <small>Jornada 6x1 hoje</small>
         <strong>{turnoDestaque?.descricao ?? 'Sem turno hoje'}</strong>
-        {turnoDestaque && <span>{turnoDestaque.inicio}–{turnoDestaque.fim}</span>}
+        {turnoDestaque && <span>{faixaHorario(turnoDestaque.inicio, turnoDestaque.fim)}</span>}
       </span>
       <ChevronRight size={18} />
     </button>
@@ -1454,7 +1455,7 @@ function DetalheDia({
           <strong>{jornada.descricao}</strong>
           <span>
             {jornada.trabalha && jornada.inicio && jornada.fim
-              ? `${jornada.inicio}–${jornada.fim}`
+              ? `${faixaHorario(jornada.inicio, jornada.fim)}`
               : 'Sem horário de trabalho'}
           </span>
         </div>
@@ -1468,7 +1469,7 @@ function DetalheDia({
           <span>Horário</span>
           <strong>
             {jornada.trabalha && jornada.inicio && jornada.fim
-              ? `${jornada.inicio}–${jornada.fim}`
+              ? `${faixaHorario(jornada.inicio, jornada.fim)}`
               : 'Não se aplica'}
           </strong>
         </div>
@@ -1544,7 +1545,7 @@ function CalendarioPessoaCoordenador({
       />
       <p className="visao-coord-dia-escolhido">
         <strong>{capitalizar(formatarData(dataSelecionada, { weekday: 'long', day: '2-digit', month: '2-digit' }))}</strong>
-        {' · '}{jornada.descricao}{jornada.inicio && jornada.fim ? ` · ${jornada.inicio}–${jornada.fim}` : ''}
+        {' · '}{jornada.descricao}{jornada.inicio && jornada.fim ? ` · ${faixaHorario(jornada.inicio, jornada.fim)}` : ''}
       </p>
     </>
   );
@@ -1597,7 +1598,7 @@ function CalendarioEscala({
               <ChipJornada jornada={jornada} as="strong" />
               <small>
                 {jornada.trabalha && jornada.inicio && jornada.fim
-                  ? `${jornada.inicio}–${jornada.fim}`
+                  ? `${faixaHorario(jornada.inicio, jornada.fim)}`
                   : jornada.descricao}
               </small>
             </button>
@@ -1648,7 +1649,7 @@ function AgendaEscala({
               <strong>{jornada.descricao}</strong>
               <small>
                 {jornada.trabalha && jornada.inicio && jornada.fim
-                  ? `${jornada.inicio}–${jornada.fim} · ${formatarMinutos(jornada.duracaoMinutos)}`
+                  ? `${faixaHorario(jornada.inicio, jornada.fim)} · ${formatarMinutos(jornada.duracaoMinutos)}`
                   : 'Sem horário de trabalho'}
               </small>
             </span>
@@ -1675,7 +1676,7 @@ function descricaoMudanca(
   const descricao = turno !== undefined
     ? `${catalogo[turno]?.descricao ?? turno} · ${descricaoCodigo}`
     : descricaoCodigo;
-  return horario ? `${descricao} · ${horario}` : descricao;
+  return horario ? `${descricao} · ${normalizarFaixaHorario(horario)}` : descricao;
 }
 
 /**
@@ -1696,7 +1697,7 @@ function turnoDaAlteracao(
     return undefined;
   }
   return Object.values(catalogo).find((tipo) => tipo.categoria === 'TRABALHO'
-    && `${tipo.horaInicio}–${tipo.horaFim}` === horario)?.codigo;
+    && faixaHorario(tipo.horaInicio, tipo.horaFim) === normalizarFaixaHorario(horario))?.codigo;
 }
 
 /** NOTIFICACOES-CLARAS-1 — um lado (antes/agora) de uma mudança: chip colorido + texto. */
@@ -2164,7 +2165,7 @@ function ModalTrocaFolga({
         {selecionado !== null && (
           <div className="troca-folga-resumo" role="status">
             <span>Você vai <strong>trabalhar</strong> em {dia(selecionado.dataFolga)} ({catalogo[turnoTrabalho?.c ?? '']?.descricao ?? turnoTrabalho?.c}
-              {turnoTrabalho?.i && turnoTrabalho?.f ? ` ${turnoTrabalho.i}–${turnoTrabalho.f}` : ''})</span>
+              {turnoTrabalho?.i && turnoTrabalho?.f ? ` ${faixaHorario(turnoTrabalho.i, turnoTrabalho.f)}` : ''})</span>
             <span>e <strong>folgar</strong> em {dia(selecionado.dataTrabalho)}. As horas do mês continuam as mesmas.</span>
           </div>
         )}
@@ -2583,7 +2584,7 @@ function AssistenteNovaTroca({
                       {capitalizar(formatarData(diaIso, { weekday: 'short' })).replace('.', '')}
                       {' '}{formatarData(diaIso, { day: '2-digit', month: 'short' }).replace('.', '')}
                     </strong>
-                    <small>{jornada.descricao}{jornada.inicio ? ` · ${jornada.inicio}–${jornada.fim}` : ''}</small>
+                    <small>{jornada.descricao}{jornada.inicio ? ` · ${faixaHorario(jornada.inicio, jornada.fim)}` : ''}</small>
                   </div>
                   <span className="shift-chip" data-code={jornada.codigo ?? ''}>{jornada.codigo}</span>
                 </button>
@@ -2611,7 +2612,7 @@ function AssistenteNovaTroca({
                   >
                     <div>
                       <strong>{nome}</strong>
-                      <small>{jornada.descricao}{jornada.inicio ? ` · ${jornada.inicio}–${jornada.fim}` : ''}</small>
+                      <small>{jornada.descricao}{jornada.inicio ? ` · ${faixaHorario(jornada.inicio, jornada.fim)}` : ''}</small>
                     </div>
                     <span className="shift-chip" data-code={jornada.codigo ?? ''}>{jornada.codigo}</span>
                   </button>
@@ -5376,7 +5377,7 @@ export function EmployeeApp() {
                         <span className="shift-chip" data-code={turno}>{turno}</span>
                         <div>
                           <strong>{tipo?.descricao}</strong>
-                          <small>{tipo?.horaInicio}–{tipo?.horaFim}</small>
+                          <small>{faixaHorario(tipo?.horaInicio, tipo?.horaFim)}</small>
                         </div>
                         <b>{pessoas.length}</b>
                       </header>
@@ -5393,7 +5394,7 @@ export function EmployeeApp() {
                             <div>
                               <strong>{nomes[documento.login] ?? documento.login}</strong>
                               <small>
-                                {jornada.inicio}–{jornada.fim} · {documento.login}
+                                {faixaHorario(jornada.inicio, jornada.fim)} · {documento.login}
                                 {jornada.horaExtra ? ' · Hora extra' : ''}
                               </small>
                             </div>
@@ -5560,7 +5561,7 @@ export function EmployeeApp() {
                       <strong>{proximoTurnoTrabalho?.descricao ?? 'Não encontrado'}</strong>
                       <small>
                         {proximoTurnoTrabalho
-                          ? `${proximoTurnoTrabalho.inicio}–${proximoTurnoTrabalho.fim}`
+                          ? `${faixaHorario(proximoTurnoTrabalho.inicio, proximoTurnoTrabalho.fim)}`
                           : 'Neste período'}
                       </small>
                     </p>
