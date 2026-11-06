@@ -8548,3 +8548,60 @@ button.plantoes-agora-pessoa:focus-visible { outline: none; box-shadow: var(--fo
   .meus-numeros-grade { padding: 10px; gap: 8px; }
   .meus-numeros-faixa strong { font-size: 19px; }
 }
+
+/* =====================================================================
+ * ESPACAMENTO-PADRAO-1 — UMA regra de espaço entre os blocos de toda tela do
+ * App. Antes cada bloco dependia da própria margem: abas sem margem ficavam
+ * coladas no card de baixo, `.panel + .panel { margin-top }` SOMAVA espaço
+ * dentro das grades (buraco entre "Minha semana" e "Plantões agora") e as
+ * grades da Hoje tinham margin-bottom próprio. Agora: a tela é uma coluna com
+ * o mesmo gap; margens dos filhos diretos zeradas; dentro de grade, só o gap.
+ * ===================================================================== */
+.app-shell.product-app {
+  --app-espaco-blocos: 20px;
+}
+.app-shell.product-app .employee-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-espaco-blocos);
+}
+.app-shell.product-app .employee-screen > * {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+/* Grades internas (Hoje, Plantão, visões): só o gap, nunca margem somada. */
+.app-shell.product-app .today-summary-grid,
+.app-shell.product-app .today-dashboard-grid {
+  gap: var(--app-espaco-blocos);
+  margin-bottom: 0;
+}
+.app-shell.product-app .today-summary-grid > *,
+.app-shell.product-app .today-dashboard-grid > * {
+  margin: 0;
+}
+/* Cards empilhados dentro de outro bloco seguem o mesmo espaço. */
+.app-shell.product-app .employee-screen .panel + .panel { margin-top: 0; }
+.app-shell.product-app .employee-screen > section > .panel + .panel,
+.app-shell.product-app .employee-screen > div > .panel + .panel { margin-top: var(--app-espaco-blocos); }
+
+/* Próximos dias: sem a borda interna colada; linhas suaves com respiro. */
+.app-shell.product-app .proximos-dias-lista {
+  gap: 6px;
+  margin: 0;
+  padding: 4px 12px 12px;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+.app-shell.product-app .proximos-dias-item {
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+.app-shell.product-app .proximos-dias-item + .proximos-dias-item { border-top: 0; }
+
+@media (max-width: 720px) {
+  .app-shell.product-app { --app-espaco-blocos: 14px; }
+  .app-shell.product-app .proximos-dias-lista { padding: 2px 10px 10px; }
+}
+/* Seletores segmentados ficam no tamanho natural (a coluna esticaria). */
+.app-shell.product-app .employee-screen > .segmented-control { align-self: flex-start; }
