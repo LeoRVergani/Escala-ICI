@@ -778,3 +778,12 @@ test('APP-SEM-NOMES-FIXOS-1 — o App é universal: nenhum nome de unidade/equip
   assert.doesNotMatch(app, /['"`](COSI|SOC|NOC|CODB)( &gt;| ›| >|['"`])/);
   assert.match(app, /unidadeUsuarioApp\?\.sigla \|\| unidadeUsuarioApp\?\.nome, equipeUsuarioApp\?\.sigla \|\| equipeUsuarioApp\?\.nome/);
 });
+
+test('ESPACAMENTO-PADRAO-2 — grades do App nunca somam margem ao gap (cards com espaço igual)', async () => {
+  const css = await ler('app/globals.css');
+  // A regra que "devolvia" margem a todo div > .panel + .panel (e pegava a grade da Hoje) não pode voltar.
+  assert.doesNotMatch(css, /\.employee-screen > div > \.panel \+ \.panel/);
+  // Dentro das grades da Hoje e do Perfil, card depois de card não ganha margem: só o gap.
+  assert.match(css, /\.today-dashboard-grid > \.panel \+ \.panel,\s*\.app-shell\.product-app \.today-summary-grid > \.panel \+ \.panel,\s*\.app-shell\.product-app \.profile-layout > \.panel \+ \.panel \{\s*margin-top: 0;/);
+  assert.match(css, /\.app-shell\.product-app \.employee-screen \{\s*display: flex;\s*flex-direction: column;\s*gap: var\(--app-espaco-blocos\);/);
+});

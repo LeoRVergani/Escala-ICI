@@ -8579,10 +8579,18 @@ button.plantoes-agora-pessoa:focus-visible { outline: none; box-shadow: var(--fo
 .app-shell.product-app .today-dashboard-grid > * {
   margin: 0;
 }
-/* Cards empilhados dentro de outro bloco seguem o mesmo espaço. */
-.app-shell.product-app .employee-screen .panel + .panel { margin-top: 0; }
-.app-shell.product-app .employee-screen > section > .panel + .panel,
-.app-shell.product-app .employee-screen > div > .panel + .panel { margin-top: var(--app-espaco-blocos); }
+/*
+ * ESPACAMENTO-PADRAO-2 — `.panel + .panel` (margem em cima do card que vem
+ * depois de outro) continua valendo em blocos de fluxo normal, mas é ZERADA
+ * dentro de grades/colunas, onde o espaço já vem do `gap`. Antes uma regra
+ * "devolvia" essa margem a todo `div > .panel + .panel` — e a grade da Hoje
+ * também é um `div`: "Minha semana" e "Plantões agora" ganhavam 14px a mais.
+ */
+.app-shell.product-app .today-dashboard-grid > .panel + .panel,
+.app-shell.product-app .today-summary-grid > .panel + .panel,
+.app-shell.product-app .profile-layout > .panel + .panel {
+  margin-top: 0;
+}
 
 /* Próximos dias: sem a borda interna colada; linhas suaves com respiro. */
 .app-shell.product-app .proximos-dias-lista {
@@ -8605,3 +8613,7 @@ button.plantoes-agora-pessoa:focus-visible { outline: none; box-shadow: var(--fo
 }
 /* Seletores segmentados ficam no tamanho natural (a coluna esticaria). */
 .app-shell.product-app .employee-screen > .segmented-control { align-self: flex-start; }
+/* Cards empilhados no App usam o mesmo espaço da tela (20px; 14px no celular).
+ * Filhos diretos da tela já são espaçados pelo gap, então não somam margem. */
+.app-shell.product-app .panel + .panel { margin-top: var(--app-espaco-blocos); }
+.app-shell.product-app .employee-screen > .panel + .panel { margin-top: 0; }
