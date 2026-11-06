@@ -64,6 +64,15 @@ import {
   Users,
   X,
   BarChart3,
+  Cloud,
+  CloudDrizzle,
+  CloudFog,
+  CloudLightning,
+  CloudRain,
+  CloudSun,
+  Droplets,
+  Snowflake,
+  Sun,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -220,6 +229,14 @@ import { PainelHojeEquipes, VisaoEquipesCoordenador, type EquipeJornadaVisao, ty
 import { ImportarPlantaoCoordenacao } from './ImportarPlantaoCoordenacao';
 import { calcularEstatisticasJornada } from './estatisticasJornada';
 import { faixaHorario, normalizarFaixaHorario } from './formatoHorario';
+import {
+  faixaTemperatura,
+  LOCAL_PREVISAO,
+  obterPrevisaoHoraria,
+  previsaoDoTurno,
+  type HoraPrevisao,
+  type TipoTempo,
+} from './previsaoTempo';
 import {
   AVISO_APROVACAO_NAO_PUBLICA,
   destinatariosNotificacaoGestorPlantao,
@@ -423,7 +440,22 @@ function ChipJornada({
   );
 }
 
-function TurnoHoje({ contexto }: { contexto: ContextoJornada }) {
+/** PREVISAO-TEMPO-1 — ícone do tempo (sol, nuvem, chuva…). */
+function IconeTempo({ tipo, size = 18 }: { tipo: TipoTempo; size?: number }) {
+  const props = { size, 'aria-hidden': true as const };
+  switch (tipo) {
+    case 'sol': return <Sun {...props} />;
+    case 'parcial': return <CloudSun {...props} />;
+    case 'neblina': return <CloudFog {...props} />;
+    case 'garoa': return <CloudDrizzle {...props} />;
+    case 'chuva': return <CloudRain {...props} />;
+    case 'tempestade': return <CloudLightning {...props} />;
+    case 'neve': return <Snowflake {...props} />;
+    default: return <Cloud {...props} />;
+  }
+}
+
+function TurnoHoje({ contexto, horasPrevisao }: { contexto: ContextoJornada; horasPrevisao?: readonly HoraPrevisao[] | null }) {
   const turnoDestaque = contexto.turnoAtual ?? (
     contexto.hoje.trabalha
       && contexto.hoje.inicio !== undefined
@@ -467,6 +499,25 @@ function TurnoHoje({ contexto }: { contexto: ContextoJornada }) {
           </span>
         </div>
       </div>
+      {/* PREVISAO-TEMPO-1 — o tempo DURANTE o turno (pior condição do período). */}
+      {(() => {
+        const previsao = turnoDestaque && horasPrevisao
+          ? previsaoDoTurno(horasPrevisao, turnoDestaque.data, turnoDestaque.inicio, turnoDestaque.fim)
+          : null;
+        if (!previsao) return null;
+        return (
+          <div className="tempo-turno" data-tipo={previsao.tipo} title={`Previsão para o seu turno · ${LOCAL_PREVISAO.nome}`}>
+            <span className="tempo-turno-icone"><IconeTempo tipo={previsao.tipo} size={22} /></span>
+            <span className="tempo-turno-texto">
+              <strong>{faixaTemperatura(previsao)} · {previsao.rotulo}</strong>
+              <small>
+                {previsao.chuvaMax !== null && previsao.chuvaMax >= 20 ? `${previsao.chuvaMax}% de chance de chuva · ` : ''}
+                Previsão no seu turno · {LOCAL_PREVISAO.nome}
+              </small>
+            </span>
+          </div>
+        );
+      })()}
 
       {turnoDestaque ? (
         <div className="today-meta">
@@ -492,7 +543,7 @@ function TurnoHoje({ contexto }: { contexto: ContextoJornada }) {
  * semana, descrição do turno e horário — mesmos dados/ícone que
  * `TurnoHoje` já usa para o turno de hoje.
  */
-function ProximosDias({ turnos }: { turnos: IntervaloTurno[] }) {
+function ProximosDias({ turnos, horasPrevisao }: { turnos: IntervaloTurno[]; horasPrevisao?: readonly HoraPrevisao[] | null }) {
   return (
     <article className="panel next-shift-card proximos-dias-card">
       <header className="today-card-heading">
@@ -516,6 +567,20 @@ function ProximosDias({ turnos }: { turnos: IntervaloTurno[] }) {
                 <strong>{turno.descricao}</strong>
                 <small>{faixaHorario(turno.inicio, turno.fim)}</small>
               </span>
+              {/* PREVISAO-TEMPO-1 — ícone, temperatura e chance de chuva no horário do turno. */}
+              {(() => {
+                const previsao = horasPrevisao ? previsaoDoTurno(horasPrevisao, turno.data, turno.inicio, turno.fim) : null;
+                if (!previsao) return null;
+                return (
+                  <span className="tempo-dia" data-tipo={previsao.tipo} title={`${previsao.rotulo} · ${faixaTemperatura(previsao)} no turno`}>
+                    <IconeTempo tipo={previsao.tipo} size={18} />
+                    <strong>{previsao.tempMax}°</strong>
+                    {previsao.chuvaMax !== null && previsao.chuvaMax >= 30 && (
+                      <small><Droplets size={11} aria-hidden="true" />{previsao.chuvaMax}%</small>
+                    )}
+                  </span>
+                );
+              })()}
             </div>
           ))}
         </div>
@@ -3308,6 +3373,17 @@ export function EmployeeApp() {
   const [importandoPlantaoGrupo, setImportandoPlantaoGrupo] = useState<GrupoPlantao | null>(null);
   /** HOJE-ESTATISTICAS-1 — plantonista aberto no modal de detalhes/contatos. */
   const [plantonistaAberto, setPlantonistaAberto] = useState<PlantonistaAberto | null>(null);
+  /** PREVISAO-TEMPO-1 — previsão hora a hora (Open-Meteo, cache de 1 h no aparelho). */
+  const [horasPrevisao, setHorasPrevisao] = useState<HoraPrevisao[] | null>(null);
+  useEffect(() => {
+    let cancelado = false;
+    const carregar = () => {
+      void obterPrevisaoHoraria().then((horas) => { if (!cancelado && horas) setHorasPrevisao(horas); });
+    };
+    carregar();
+    const intervalo = window.setInterval(carregar, 60 * 60 * 1000);
+    return () => { cancelado = true; window.clearInterval(intervalo); };
+  }, []);
   const [recargaVisaoCoordenacao, setRecargaVisaoCoordenacao] = useState(0);
   /** VISAO-COORDENADOR-APP-1 — equipes 6x1 e Plantões administrados, com a escala do mês. */
   const [estruturaCoordenacaoApp, setEstruturaCoordenacaoApp] = useState<{
@@ -5291,8 +5367,8 @@ export function EmployeeApp() {
                 <>
                   {jornadaPublicadaApp && (
                     <>
-                      <TurnoHoje contexto={contextoHoje} />
-                      <ProximosDias turnos={proximosDiasTrabalhados(escalaVisivelApp, catalogo, dataHoje, 3)} />
+                      <TurnoHoje contexto={contextoHoje} horasPrevisao={horasPrevisao} />
+                      <ProximosDias turnos={proximosDiasTrabalhados(escalaVisivelApp, catalogo, dataHoje, 3)} horasPrevisao={horasPrevisao} />
                       <ResumoSemana
                         datas={datas}
                         dataHoje={dataHoje}
