@@ -8,6 +8,7 @@ import {
   CATALOGO_PADRAO,
   competenciaDaData,
   enviarAlertaUmaVez,
+  idDoAlerta,
   resolverTurnoDoDia,
   type DependenciasEnvio,
   type PreferenciasAlertas,
@@ -114,6 +115,17 @@ describe('ALERTAS-TURNO-2 — agenda dos avisos', () => {
   });
 });
 
+describe('ALERTAS-TURNO-3 — horário alterado no mesmo dia gera um aviso novo', () => {
+  it('mesmo tipo e dia, horários diferentes → identidades diferentes; mesmo horário → mesma', () => {
+    const base = { tipo: 'ALERTA_TURNO_INTERVALO' as const, data: '2026-11-08', titulo: '', corpo: '' };
+    const as2200 = idDoAlerta('ana', { ...base, quando: '2026-11-08T22:00' });
+    const as2230 = idDoAlerta('ana', { ...base, quando: '2026-11-08T22:30' });
+    expect(as2200).not.toBe(as2230);
+    expect(idDoAlerta('ana', { ...base, quando: '2026-11-08T22:00' })).toBe(as2200);
+    expect(as2200).toBe('ana_2026-11-08_ALERTA_TURNO_INTERVALO_202611082200');
+  });
+});
+
 describe('ALERTAS-TURNO-2 — envio uma única vez', () => {
   const alerta = { tipo: 'ALERTA_TURNO_ENTRADA' as const, data: '2026-11-09', quando: '2026-11-09T07:00', titulo: 'T', corpo: 'C' };
   function fakes(opcoes: { jaExiste?: boolean; dispositivos?: Array<{ deviceId: string; fid: string }>; invalido?: boolean } = {}) {
@@ -151,7 +163,7 @@ describe('ALERTAS-TURNO-2 — envio uma única vez', () => {
   it('envia com tipo ALERTA_TURNO_* e rota hoje; desativa dispositivo inválido', async () => {
     const { deps, registro, desativados, enviados } = fakes({ dispositivos: [{ deviceId: 'd1', fid: 'f1' }, { deviceId: 'd2', fid: 'f2' }], invalido: true });
     expect(await enviarAlertaUmaVez('ana', alerta, deps, 'x')).toBe('enviado');
-    expect(enviados[0]).toMatchObject({ fids: ['f1', 'f2'], data: { tipo: 'ALERTA_TURNO_ENTRADA', route: 'hoje', eventId: 'ana_2026-11-09_ALERTA_TURNO_ENTRADA' } });
+    expect(enviados[0]).toMatchObject({ fids: ['f1', 'f2'], data: { tipo: 'ALERTA_TURNO_ENTRADA', route: 'hoje', eventId: 'ana_2026-11-09_ALERTA_TURNO_ENTRADA_202611090700' } });
     expect(desativados).toEqual(['d2']);
     expect(registro[0]).toMatchObject({ status: 'ENVIADO', successCount: 1, failureCount: 1 });
   });
