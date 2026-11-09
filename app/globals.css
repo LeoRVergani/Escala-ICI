@@ -8935,3 +8935,159 @@ button.plantoes-agora-pessoa:focus-visible { outline: none; box-shadow: var(--fo
 /* CONTA-SETOR-2 — celular do setor: "Plantões agora" primeiro (prioridade do
  * NOC), "Equipe escalada hoje" logo abaixo. */
 .app-shell.product-app .employee-today-screen[data-conta-setor] > .today-team-panel { order: 1; }
+
+/* =====================================================================
+ * LEMBRETE-MODAL-2 — modal de lembrete: cabeçalho e botões fixos, só o meio
+ * rola (Salvar sempre visível); título em destaque; bloco "Quando" com
+ * "Em um horário | Dia inteiro"; descrição e repetição recolhidas.
+ * No celular: folha presa embaixo, no máximo 92% da altura da tela.
+ * ===================================================================== */
+.edit-modal.lembrete-form {
+  display: flex;
+  flex-direction: column;
+  width: min(500px, calc(100vw - 32px));
+  max-height: min(720px, calc(100dvh - 32px));
+  padding: 0;
+  overflow: hidden;
+}
+.edit-modal.lembrete-form > * { margin: 0; }
+.lembrete-form-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.lembrete-form-cabecalho h2 { margin: 0; color: var(--text); font-size: 17px; font-weight: 750; }
+.lembrete-form-corpo {
+  display: grid;
+  flex: 1 1 auto;
+  align-content: start;
+  gap: 12px;
+  padding: 16px 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.lembrete-form-corpo > * { margin: 0; }
+.edit-modal.lembrete-form .lembrete-form-titulo {
+  width: 100%;
+  min-height: 0;
+  padding: 6px 2px 10px;
+  border: 0;
+  border-bottom: 2px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 750;
+}
+.edit-modal.lembrete-form .lembrete-form-titulo:focus { border-bottom-color: var(--primary-bright); box-shadow: none; outline: none; }
+.lembrete-form-bloco {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+.lembrete-form-linha {
+  display: grid;
+  grid-template-columns: auto 1fr minmax(150px, auto);
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.lembrete-form-linha > svg { color: var(--primary-bright); }
+.lembrete-form-segmento {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.lembrete-form-segmento > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.lembrete-form-segmento > button.active {
+  background: color-mix(in srgb, var(--primary-bright) 16%, var(--surface));
+  color: var(--primary-bright);
+}
+.lembrete-form-horas { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.lembrete-form-horas label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.lembrete-form-horas small { font-weight: 500; }
+.lembrete-form-abrir {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--primary-bright);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.lembrete-form-descricao > span,
+.lembrete-form-rotulo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+.edit-modal.lembrete-form .lembrete-form-descricao textarea { min-height: 80px; }
+.lembrete-form-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.lembrete-form-adicionar-data { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.lembrete-form-rodape {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.lembrete-form-excluir { margin-right: auto !important; }
+.edit-modal.lembrete-form .lembrete-vira-dia-aviso { margin: 0; color: var(--warning); font-size: 12px; font-weight: 700; }
+
+@media (max-width: 720px) {
+  .edit-modal.lembrete-form {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    max-height: 92dvh;
+    border-radius: 18px 18px 0 0;
+  }
+  .lembrete-form-corpo { padding: 14px 16px; }
+  .lembrete-form-cabecalho, .lembrete-form-rodape { padding-left: 16px; padding-right: 16px; }
+  .lembrete-form-linha { grid-template-columns: auto 1fr; }
+  .lembrete-form-linha > input { grid-column: 1 / -1; }
+  /* 16px nos campos evita o zoom automático do iPhone ao tocar. */
+  .edit-modal.lembrete-form :where(input, textarea) { font-size: 16px; }
+  .edit-modal.lembrete-form .lembrete-form-titulo { font-size: 19px; }
+  .lembrete-form-rodape > button { flex: 1 1 0; }
+  .lembrete-form-rodape > .lembrete-form-excluir { flex: 0 0 auto; }
+}

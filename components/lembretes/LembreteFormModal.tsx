@@ -1,5 +1,5 @@
 import { formatarData } from '@escala-ici/contrato';
-import { Plus, Trash2, X } from 'lucide-react';
+import { AlignLeft, CalendarDays, Clock, Plus, Repeat, Sun, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 
 import {
@@ -57,6 +57,9 @@ export function LembreteFormModal({
   const [confirmandoExclusao, setConfirmandoExclusao] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
   const [erroExclusao, setErroExclusao] = useState('');
+  /** LEMBRETE-MODAL-2 — campos pouco usados ficam recolhidos até a pessoa abrir. */
+  const [mostrarDescricao, setMostrarDescricao] = useState(() => (lembreteEmEdicao?.descricao ?? '') !== '');
+  const [mostrarRepetir, setMostrarRepetir] = useState(false);
 
   const viraDia = !form.diaInteiro
     && normalizarHorarioLembrete({ diaInteiro: false, horaInicio: form.horaInicio || null, horaFim: form.horaFim || null }).viraDia;
@@ -147,133 +150,139 @@ export function LembreteFormModal({
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
       <section
-        className="edit-modal lembrete-modal"
+        className="edit-modal lembrete-modal lembrete-form"
         role="dialog"
         aria-modal="true"
         aria-labelledby="lembrete-modal-title"
         onMouseDown={(evento) => evento.stopPropagation()}
       >
-        <div className="panel-title">
-          <div>
-            <h2 id="lembrete-modal-title">{modo === 'criar' ? 'Novo lembrete' : 'Editar lembrete'}</h2>
-          </div>
+        {/* LEMBRETE-MODAL-2 — cabeçalho e botões fixos; só o meio rola. */}
+        <header className="lembrete-form-cabecalho">
+          <h2 id="lembrete-modal-title">{modo === 'criar' ? 'Novo lembrete' : 'Editar lembrete'}</h2>
           <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
             <X size={18} />
           </button>
-        </div>
+        </header>
 
-        {lembreteEmEdicao?.serieId && <p className="lembrete-serie-nota">Parte de uma série</p>}
+        <div className="lembrete-form-corpo">
+          {lembreteEmEdicao?.serieId && <p className="lembrete-serie-nota">Parte de uma série</p>}
 
-        <div className="admin-form-grid">
-          <label className="admin-form-full" htmlFor="lembrete-titulo">
-            Título
-            <input
-              id="lembrete-titulo"
-              autoFocus
-              maxLength={LIMITE_TITULO_LEMBRETE}
-              placeholder="Ex.: Estudar para a certificação"
-              value={form.titulo}
-              onChange={(evento) => setForm((atual) => ({ ...atual, titulo: evento.target.value }))}
-            />
-          </label>
+          <input
+            id="lembrete-titulo"
+            className="lembrete-form-titulo"
+            aria-label="Título do lembrete"
+            autoFocus
+            maxLength={LIMITE_TITULO_LEMBRETE}
+            placeholder="O que você quer lembrar?"
+            value={form.titulo}
+            onChange={(evento) => setForm((atual) => ({ ...atual, titulo: evento.target.value }))}
+          />
 
-          <label htmlFor="lembrete-data">
-            Data
-            <input
-              id="lembrete-data"
-              type="date"
-              value={form.datas[0] ?? ''}
-              onChange={(evento) => setForm((atual) => ({ ...atual, datas: [evento.target.value, ...atual.datas.slice(1)] }))}
-            />
-          </label>
+          <section className="lembrete-form-bloco" aria-label="Quando">
+            <label className="lembrete-form-linha" htmlFor="lembrete-data">
+              <CalendarDays size={17} aria-hidden="true" />
+              <span>Data</span>
+              <input
+                id="lembrete-data"
+                type="date"
+                value={form.datas[0] ?? ''}
+                onChange={(evento) => setForm((atual) => ({ ...atual, datas: [evento.target.value, ...atual.datas.slice(1)] }))}
+              />
+            </label>
 
-          <label className="checkbox-row" htmlFor="lembrete-dia-inteiro">
-            <input
-              id="lembrete-dia-inteiro"
-              type="checkbox"
-              checked={form.diaInteiro}
-              onChange={(evento) => setForm((atual) => ({ ...atual, diaInteiro: evento.target.checked }))}
-            />
-            <span>Dia inteiro</span>
-          </label>
+            <div className="lembrete-form-segmento" role="radiogroup" aria-label="Horário">
+              <button type="button" role="radio" aria-checked={!form.diaInteiro} className={!form.diaInteiro ? 'active' : ''}
+                onClick={() => setForm((atual) => ({ ...atual, diaInteiro: false }))}>
+                <Clock size={15} aria-hidden="true" /> Em um horário
+              </button>
+              <button type="button" role="radio" aria-checked={form.diaInteiro} className={form.diaInteiro ? 'active' : ''}
+                onClick={() => setForm((atual) => ({ ...atual, diaInteiro: true }))}>
+                <Sun size={15} aria-hidden="true" /> Dia inteiro
+              </button>
+            </div>
 
-          {!form.diaInteiro && (
-            <>
-              <label htmlFor="lembrete-hora-inicio">
-                Hora inicial
-                <input
-                  id="lembrete-hora-inicio"
-                  type="time"
-                  value={form.horaInicio}
-                  onChange={(evento) => setForm((atual) => ({ ...atual, horaInicio: evento.target.value }))}
-                />
-              </label>
-              <label htmlFor="lembrete-hora-fim">
-                Hora final (opcional)
-                <input
-                  id="lembrete-hora-fim"
-                  type="time"
-                  value={form.horaFim}
-                  onChange={(evento) => setForm((atual) => ({ ...atual, horaFim: evento.target.value }))}
-                />
-              </label>
-            </>
+            {!form.diaInteiro && (
+              <div className="lembrete-form-horas">
+                <label htmlFor="lembrete-hora-inicio">
+                  <span>Das</span>
+                  <input
+                    id="lembrete-hora-inicio"
+                    type="time"
+                    value={form.horaInicio}
+                    onChange={(evento) => setForm((atual) => ({ ...atual, horaInicio: evento.target.value }))}
+                  />
+                </label>
+                <label htmlFor="lembrete-hora-fim">
+                  <span>até <small>(opcional)</small></span>
+                  <input
+                    id="lembrete-hora-fim"
+                    type="time"
+                    value={form.horaFim}
+                    onChange={(evento) => setForm((atual) => ({ ...atual, horaFim: evento.target.value }))}
+                  />
+                </label>
+              </div>
+            )}
+            {viraDia && <p className="lembrete-vira-dia-aviso">Termina no dia seguinte</p>}
+          </section>
+
+          {mostrarDescricao ? (
+            <label className="lembrete-form-bloco lembrete-form-descricao" htmlFor="lembrete-descricao">
+              <span><AlignLeft size={15} aria-hidden="true" /> Descrição</span>
+              <textarea
+                id="lembrete-descricao"
+                autoFocus={form.descricao === ''}
+                maxLength={LIMITE_DESCRICAO_LEMBRETE}
+                placeholder="Detalhes do compromisso"
+                value={form.descricao}
+                onChange={(evento) => setForm((atual) => ({ ...atual, descricao: evento.target.value }))}
+              />
+            </label>
+          ) : (
+            <button type="button" className="lembrete-form-abrir" onClick={() => setMostrarDescricao(true)}>
+              <AlignLeft size={16} aria-hidden="true" /> Adicionar descrição
+            </button>
           )}
 
-          {viraDia && <p className="admin-form-full lembrete-vira-dia-aviso">Termina no dia seguinte</p>}
-
-          <label className="admin-form-full" htmlFor="lembrete-descricao">
-            Descrição (opcional)
-            <textarea
-              id="lembrete-descricao"
-              maxLength={LIMITE_DESCRICAO_LEMBRETE}
-              placeholder="Detalhes do compromisso"
-              value={form.descricao}
-              onChange={(evento) => setForm((atual) => ({ ...atual, descricao: evento.target.value }))}
-            />
-          </label>
-
-          {modo === 'criar' && (
-            <div className="admin-form-full lembrete-datas-adicionais">
-              <span>Datas adicionais</span>
-              <div className="alias-editor-list">
-                {form.datas.slice(1).length === 0 && (
-                  <small className="empty-inline">Nenhuma data adicional.</small>
-                )}
-                {form.datas.slice(1).map((data) => (
-                  <span className="alias-chip" key={data}>
-                    {formatarData(data, { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                    <button type="button" onClick={() => removerData(data)} aria-label={`Remover data ${data}`}>
-                      <X size={12} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-              <div className="alias-editor-add lembrete-datas-adicionais-add">
-                <input
-                  type="date"
-                  value={novaData}
-                  onChange={(evento) => setNovaData(evento.target.value)}
-                  aria-label="Nova data"
-                />
-                <button type="button" className="secondary-button" onClick={adicionarData}>
-                  <Plus size={14} /> Adicionar outra data
+          {modo === 'criar' && (mostrarRepetir || form.datas.length > 1 ? (
+            <section className="lembrete-form-bloco lembrete-datas-adicionais" aria-label="Repetir em outras datas">
+              <span className="lembrete-form-rotulo"><Repeat size={15} aria-hidden="true" /> Repetir em outras datas</span>
+              {form.datas.length > 1 && (
+                <div className="lembrete-form-chips">
+                  {form.datas.slice(1).map((data) => (
+                    <span className="alias-chip" key={data}>
+                      {formatarData(data, { weekday: 'short', day: '2-digit', month: '2-digit' })}
+                      <button type="button" onClick={() => removerData(data)} aria-label={`Remover data ${data}`}>
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="lembrete-form-adicionar-data">
+                <input type="date" value={novaData} onChange={(evento) => setNovaData(evento.target.value)} aria-label="Outra data" />
+                <button type="button" className="secondary-button" onClick={adicionarData} disabled={novaData === ''}>
+                  <Plus size={14} /> Adicionar
                 </button>
               </div>
+            </section>
+          ) : (
+            <button type="button" className="lembrete-form-abrir" onClick={() => setMostrarRepetir(true)}>
+              <Repeat size={16} aria-hidden="true" /> Repetir em outras datas
+            </button>
+          ))}
+
+          {erros.length > 0 && (
+            <div className="alert error" role="alert">
+              {erros.map((erro) => <p key={erro}>{erro}</p>)}
             </div>
           )}
         </div>
 
-        {erros.length > 0 && (
-          <div className="alert error" role="alert">
-            {erros.map((erro) => <p key={erro}>{erro}</p>)}
-          </div>
-        )}
-
-        <div className="rollback-actions">
+        <footer className="lembrete-form-rodape">
           {modo === 'editar' && onExcluir && (
             <button
-              className="secondary-button danger-button"
+              className="secondary-button danger-button lembrete-form-excluir"
               type="button"
               disabled={salvando}
               onClick={() => setConfirmandoExclusao(true)}
@@ -285,7 +294,7 @@ export function LembreteFormModal({
           <button className="primary-button" type="button" onClick={() => void salvar()} disabled={salvando}>
             {salvando ? 'Salvando…' : 'Salvar'}
           </button>
-        </div>
+        </footer>
       </section>
     </div>
   );

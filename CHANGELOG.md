@@ -11,6 +11,11 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.0.1 — modal de lembrete
+- Modal de lembrete redesenhado: Salvar sempre visível (só o meio rola), título
+  em destaque, "Em um horário | Dia inteiro", "Das … até …", descrição e
+  repetição recolhidas; no celular, folha presa embaixo que cabe na tela.
+
 ## 3.0.0 — notificações no celular
 - Push ligado: trocas 6x1 e de Plantão, escala publicada/alterada.
 - Avisos do turno: "Você trabalha hoje", ponto de entrada/saída, intervalo por turno.
