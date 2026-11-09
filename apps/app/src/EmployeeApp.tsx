@@ -6517,6 +6517,8 @@ export function EmployeeApp() {
                 </div>
               </article>
             )}
+            {/* ALERTAS-TURNO-LAYOUT-1 — Avisos do turno ANTES das Notificações, na largura toda. */}
+            <AlertasTurnoPerfil login={usuario.login} turnos={turnosDaPessoaNoMes(escalaVisivelApp, catalogo)} />
             <CardNotificacoesPush
               estado={estadoNotificacoesPush}
               erro={erroNotificacoesPush}
@@ -6530,8 +6532,6 @@ export function EmployeeApp() {
               onReparar={() => void repararNotificacoesPush()}
               onTestarLocal={() => void testarNotificacaoLocalNesteDispositivo()}
             />
-            {/* ALERTAS-TURNO-1 — avisos do turno (antes do turno, ponto, intervalo). */}
-            <AlertasTurnoPerfil login={usuario.login} turnos={turnosDaPessoaNoMes(escalaVisivelApp, catalogo)} />
             <button className="secondary-button profile-logout" type="button" onClick={() => void encerrarSessao()}>
               <LogOut size={17} /> Sair deste dispositivo
             </button>

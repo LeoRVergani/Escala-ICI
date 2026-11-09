@@ -8900,3 +8900,21 @@ button.plantoes-agora-pessoa:focus-visible { outline: none; box-shadow: var(--fo
   .alertas-turno-lista > li { padding: 10px; gap: 10px; }
   .alerta-turno-turno-hora input[type="time"] { min-width: 88px; font-size: 14px; }
 }
+
+/* =====================================================================
+ * ALERTAS-TURNO-LAYOUT-1 — "Avisos do turno" na largura toda do Perfil,
+ * antes das Notificações. No desktop, duas colunas: à esquerda os avisos
+ * simples (antes do turno, entrada, saída), à direita o Intervalo (mais alto).
+ * ===================================================================== */
+.app-shell.product-app .profile-layout > .alertas-turno-perfil { grid-column: 1 / -1; }
+@media (min-width: 900px) {
+  .app-shell.product-app .alertas-turno-lista {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+  .app-shell.product-app .alertas-turno-lista > li:nth-child(1),
+  .app-shell.product-app .alertas-turno-lista > li:nth-child(2),
+  .app-shell.product-app .alertas-turno-lista > li:nth-child(4) { grid-column: 1; }
+  .app-shell.product-app .alertas-turno-lista > li:nth-child(3) { grid-column: 2; grid-row: 1 / span 3; align-self: stretch; }
+  .app-shell.product-app .alertas-turno-perfil .alerta-turno-turnos { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+}
