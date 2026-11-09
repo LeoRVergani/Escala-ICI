@@ -8765,3 +8765,16 @@ button.plantoes-agora-pessoa:focus-visible { outline: none; box-shadow: var(--fo
   .app-shell.product-app .today-hero-linha .tempo-turno-texto { text-align: left; }
   .app-shell.product-app .tempo-turno-chuva { justify-content: flex-start; }
 }
+
+/* VERSAO-APP-1 — versão do App no Perfil. */
+.profile-versao {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  grid-column: 1 / -1;
+  justify-self: center;
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.profile-versao strong { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
