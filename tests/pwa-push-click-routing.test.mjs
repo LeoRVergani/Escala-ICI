@@ -399,3 +399,22 @@ test('processarAberturaClique não abre nada quando o envelope não tem destino 
   assert.equal(chamouListarClientes, false, 'não deve nem consultar clientes se não há destino');
   assert.equal(chamouAbrirJanela, false);
 });
+
+test('ALERTAS-TURNO-2 — aviso do turno (ALERTA_TURNO_*) abre o App na tela inicial, sem trocaId', () => {
+  const envelope = construirEnvelopeTroca({
+    eventId: 'ana_2026-11-09_ALERTA_TURNO_ENTRADA',
+    tipo: 'ALERTA_TURNO_ENTRADA',
+    route: 'hoje',
+    titulo: 'Hora de bater o ponto de entrada',
+    corpo: 'Seu turno de Manhã começa agora (07:00).',
+  });
+  const url = resolverUrlInternaDoEnvelope(envelope, { origin: ORIGEM, appEntry: APP_ENTRY });
+  assert.ok(url, 'o clique precisa abrir o App');
+  assert.equal(url.origin, ORIGEM);
+  assert.equal(url.search, '', 'sem trocaId nem parâmetro externo');
+});
+
+test('ALERTAS-TURNO-2 — tipo desconhecido sem trocaId continua sem destino (nada muda para os outros tipos)', () => {
+  const envelope = construirEnvelopeTroca({ eventId: 'x', tipo: 'OUTRA_COISA', route: 'hoje' });
+  assert.equal(resolverUrlInternaDoEnvelope(envelope, { origin: ORIGEM, appEntry: APP_ENTRY }), null);
+});

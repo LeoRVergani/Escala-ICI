@@ -11,6 +11,12 @@
 export const ESCALA_ICI_ENVELOPE_MARCADOR = 'ESCALA_ICI_PUSH';
 export const ESCALA_ICI_ENVELOPE_VERSAO = 1;
 export const TIPO_MENSAGEM_CLIQUE_NOTIFICACAO = 'ESCALA_ICI_NOTIFICATION_CLICK';
+/** ALERTAS-TURNO-2 — avisos do turno (antes do turno, ponto, intervalo): o clique abre o App. */
+export const PREFIXO_TIPO_ALERTA_TURNO = 'ALERTA_TURNO_';
+
+function ehAlertaTurno(dados) {
+  return typeof dados.tipo === 'string' && dados.tipo.startsWith(PREFIXO_TIPO_ALERTA_TURNO);
+}
 
 function textoOuNulo(valor) {
   return typeof valor === 'string' && valor.trim() !== '' ? valor.trim() : null;
@@ -75,6 +81,9 @@ export function resolverUrlInternaDoEnvelope(dados, { origin, appEntry }) {
   }
   if (dados.diagnostico) {
     return new URL(`${appEntry}?pushDiagnostico=1`, origin);
+  }
+  if (ehAlertaTurno(dados)) {
+    return new URL(appEntry, origin);
   }
   if (!dados.trocaId) {
     return null;

@@ -342,3 +342,25 @@ uma notificação recebida em cada dispositivo, sem duplicidade. Worker
 permanente retornou e permaneceu com `PUSH_ENABLED=false`. Aprovação da fase
 classificada como parcial, por causa do achado de clique acima. Ver
 `CHECKPOINT-FASE-PUSH-PWA-2B.md` para o consolidado completo.
+
+## Avisos do turno (ALERTAS-TURNO-2)
+
+O push-worker também envia os **Avisos do turno** que cada pessoa configura no
+Perfil do App (`preferenciasAlertasTurno/{login}`): "Você trabalha hoje" (X min
+antes), ponto de entrada, intervalo (início e fim) e ponto de saída.
+
+- A cada minuto calcula os avisos de hoje e de ontem (turno da noite) a partir da
+  escala **publicada**; só em dia de trabalho; horário real (HE com turno, trocas).
+- Cada aviso sai **uma vez**: registro em `alertasTurnoEnviados/{login}_{data}_{tipo}`
+  (criação atômica). Aviso vencido há mais de 5 min (worker parado) é descartado.
+- Respeita o kill switch: com `PUSH_ENABLED=false` nada é enviado.
+- Log: `agendador de avisos do turno iniciado` e, por aviso, `aviso do turno processado`.
+
+### Ligar o push (troca + avisos) com segurança
+
+1. **Atualize `PUSH_ACTIVATED_AT` para o momento da ativação** (ex.: `2026-11-09T12:00:00.000Z`).
+   Notificações de troca criadas ANTES dessa data nunca viram push — sem isso,
+   notificações antigas ainda não lidas seriam enviadas ao ligar.
+2. `PUSH_ENABLED=true` no `.env.staging.push-worker`.
+3. `npm run docker:push-worker:staging:up` (recria o container com a nova config).
+4. Para desligar: `PUSH_ENABLED=false` e `up` de novo.
