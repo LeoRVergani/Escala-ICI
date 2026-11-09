@@ -231,6 +231,7 @@ import { ImportarPlantaoCoordenacao } from './ImportarPlantaoCoordenacao';
 import { calcularEstatisticasJornada } from './estatisticasJornada';
 import { faixaHorario, normalizarFaixaHorario } from './formatoHorario';
 import { textoVersaoApp } from './versaoApp';
+import { AlertasTurnoPerfil, type TurnoDaPessoa } from './AlertasTurnoPerfil';
 import {
   faixaTemperatura,
   LOCAL_PREVISAO,
@@ -440,6 +441,24 @@ function ChipJornada({
       )}
     </Elemento>
   );
+}
+
+/** ALERTAS-TURNO-1 — turnos que a pessoa faz no mês (um por período), para escolher o intervalo. */
+function turnosDaPessoaNoMes(escala: TurnosMes | null | undefined, catalogo: typeof CATALOGO_SOC): TurnoDaPessoa[] {
+  if (!escala) return [];
+  const vistos = new Map<string, TurnoDaPessoa>();
+  for (const data of Object.keys(escala.dias).sort()) {
+    const jornada = resolverJornadaDia(escala, catalogo, data);
+    if (!jornada.trabalha || !jornada.inicio || !jornada.fim) continue;
+    if (!['MD', 'M', 'T', 'N'].includes(jornada.periodo) || vistos.has(jornada.periodo)) continue;
+    vistos.set(jornada.periodo, {
+      periodo: jornada.periodo as TurnoDaPessoa['periodo'],
+      descricao: catalogo[jornada.periodo]?.descricao ?? jornada.descricao,
+      inicio: jornada.inicio,
+      fim: jornada.fim,
+    });
+  }
+  return ['MD', 'M', 'T', 'N'].map((periodo) => vistos.get(periodo)).filter((item): item is TurnoDaPessoa => item !== undefined);
 }
 
 /** PREVISAO-TEMPO-1 — ícone do tempo (sol, nuvem, chuva…). */
@@ -6511,6 +6530,8 @@ export function EmployeeApp() {
               onReparar={() => void repararNotificacoesPush()}
               onTestarLocal={() => void testarNotificacaoLocalNesteDispositivo()}
             />
+            {/* ALERTAS-TURNO-1 — avisos do turno (antes do turno, ponto, intervalo). */}
+            <AlertasTurnoPerfil login={usuario.login} turnos={turnosDaPessoaNoMes(escalaVisivelApp, catalogo)} />
             <button className="secondary-button profile-logout" type="button" onClick={() => void encerrarSessao()}>
               <LogOut size={17} /> Sair deste dispositivo
             </button>
