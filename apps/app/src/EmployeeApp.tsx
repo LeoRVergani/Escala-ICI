@@ -4382,6 +4382,13 @@ export function EmployeeApp() {
       grupos.forEach((item, indice) => {
         mapa[item.grupoId] = detalhes[indice]!;
         participantesPorGrupo[item.grupoId] = detalhes[indice]!.participantes;
+        /*
+         * NOMES-PLANTONISTAS-TODOS-1 — nomes completos de TODOS os Plantões já
+         * na carga (mesmos dados, nenhuma leitura nova). Antes só o Plantão
+         * selecionado registrava: "Plantões agora" na Hoje mostrava o login dos
+         * outros (ex.: CODB) até a pessoa abrir aquele Plantão.
+         */
+        registrarNomesPlantonistas(detalhes[indice]!.participantes);
       });
       setDetalhesPlantaoPorGrupoApp(mapa);
       /**
