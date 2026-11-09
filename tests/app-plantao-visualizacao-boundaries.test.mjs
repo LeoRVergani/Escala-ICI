@@ -243,3 +243,11 @@ test('20. Messaging (Push em primeiro plano) nunca derruba o EmployeeApp — get
   assert.match(janela, /try \{/u);
   assert.match(app.slice(inicio, inicio + 600), /\} catch \(falha\) \{\s*console\.warn\(/u);
 });
+
+test('NOMES-PLANTONISTAS-TODOS-1 — a carga inicial registra os nomes de TODOS os Plantões (não só o selecionado)', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  assert.match(
+    app,
+    /grupos\.forEach\(\(item, indice\) => \{[\s\S]{0,700}registrarNomesPlantonistas\(detalhes\[indice\]!\.participantes\);[\s\S]{0,40}\}\);\s*setDetalhesPlantaoPorGrupoApp\(mapa\);/u,
+  );
+});
