@@ -1876,6 +1876,49 @@ service cloud.firestore {
      * garantindo que cada usuário só veja/gerencie o próprio dispositivo,
      * com o `fid` sempre presente e nunca um campo `token` legado.
      */
+    /**
+     * ALERTAS-TURNO-1 — preferências dos avisos do turno de cada pessoa (Perfil do App).
+     * Só a própria pessoa lê/grava as suas; o push-worker lê pelo Admin SDK.
+     * Valores validados aqui também (não só no App): horário HH:MM, aviso
+     * entre 15 e 240 min, intervalo entre 5 e 120 min, só campos conhecidos.
+     */
+    function horaAlertaTurnoValida(hora) {
+      return hora is string && hora.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$');
+    }
+
+    function intervaloAlertaTurnoValido(intervalo) {
+      return intervalo is map
+        && intervalo.keys().hasOnly(['ativo', 'duracaoMinutos', 'horarios'])
+        && intervalo.ativo is bool
+        && intervalo.duracaoMinutos is int
+        && intervalo.duracaoMinutos >= 5 && intervalo.duracaoMinutos <= 120
+        && intervalo.horarios is map
+        && intervalo.horarios.keys().hasOnly(['MD', 'M', 'T', 'N'])
+        && (!('MD' in intervalo.horarios) || horaAlertaTurnoValida(intervalo.horarios.MD))
+        && (!('M' in intervalo.horarios) || horaAlertaTurnoValida(intervalo.horarios.M))
+        && (!('T' in intervalo.horarios) || horaAlertaTurnoValida(intervalo.horarios.T))
+        && (!('N' in intervalo.horarios) || horaAlertaTurnoValida(intervalo.horarios.N));
+    }
+
+    function preferenciasAlertasTurnoValidas(dados) {
+      return dados.keys().hasOnly(['login', 'avisoAntes', 'pontoEntrada', 'pontoSaida', 'intervalo', 'atualizadoEm'])
+        && dados.login == loginDoAuth()
+        && dados.avisoAntes is map && dados.avisoAntes.keys().hasOnly(['ativo', 'minutos'])
+        && dados.avisoAntes.ativo is bool
+        && dados.avisoAntes.minutos is int && dados.avisoAntes.minutos >= 15 && dados.avisoAntes.minutos <= 240
+        && dados.pontoEntrada is map && dados.pontoEntrada.keys().hasOnly(['ativo']) && dados.pontoEntrada.ativo is bool
+        && dados.pontoSaida is map && dados.pontoSaida.keys().hasOnly(['ativo']) && dados.pontoSaida.ativo is bool
+        && intervaloAlertaTurnoValido(dados.intervalo)
+        && dados.atualizadoEm is string;
+    }
+
+    match /preferenciasAlertasTurno/{login} {
+      allow get: if autenticado() && login == loginDoAuth();
+      allow create, update: if autenticado() && login == loginDoAuth()
+        && preferenciasAlertasTurnoValidas(request.resource.data);
+      allow delete: if autenticado() && login == loginDoAuth();
+    }
+
     match /dispositivosPush/{deviceId} {
       // `resource == null` cobre a primeira ativação: `registrarOuRenovarDispositivo()`
       // sempre faz um `getDoc()` antes do `setDoc()` para decidir criar vs.

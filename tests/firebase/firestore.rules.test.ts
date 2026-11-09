@@ -747,6 +747,50 @@ describe('regras Firestore do Escala ICI', () => {
       await assertFails(getDoc(doc(autenticarComo(usuarios.colaborador), 'competenciasPlantao', 'PLANTAO_COSI_2026-08')));
     });
 
+    /* ALERTAS-TURNO-1 — preferências dos avisos do turno: só a própria pessoa, valores validados. */
+    function preferenciasAlertas(login: string, extra: Record<string, unknown> = {}) {
+      return {
+        login,
+        avisoAntes: { ativo: true, minutos: 60 },
+        pontoEntrada: { ativo: true },
+        pontoSaida: { ativo: true },
+        intervalo: { ativo: true, duracaoMinutos: 15, horarios: { M: '10:00', N: '22:00' } },
+        atualizadoEm: '2026-11-08T12:00:00.000Z',
+        ...extra,
+      };
+    }
+
+    it('ALERTAS-TURNO-1: a pessoa grava e lê as próprias preferências dos avisos do turno', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      const referencia = doc(db, 'preferenciasAlertasTurno', usuarios.colaborador.login);
+      await assertSucceeds(getDoc(referencia));
+      await assertSucceeds(setDoc(referencia, preferenciasAlertas(usuarios.colaborador.login)));
+      await assertSucceeds(getDoc(referencia));
+    });
+
+    it('ALERTAS-TURNO-1: ninguém lê nem grava os lembretes de outra pessoa', async () => {
+      const db = autenticarComo(usuarios.colega);
+      const referencia = doc(db, 'preferenciasAlertasTurno', usuarios.colaborador.login);
+      await assertFails(getDoc(referencia));
+      await assertFails(setDoc(referencia, preferenciasAlertas(usuarios.colaborador.login)));
+      await assertFails(setDoc(referencia, preferenciasAlertas(usuarios.colega.login)));
+    });
+
+    it('ALERTAS-TURNO-1: valores inválidos são recusados pelo banco', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      const referencia = doc(db, 'preferenciasAlertasTurno', usuarios.colaborador.login);
+      await assertFails(setDoc(referencia, preferenciasAlertas(usuarios.colaborador.login, {
+        intervalo: { ativo: true, duracaoMinutos: 15, horarios: { M: '9h' } },
+      })));
+      await assertFails(setDoc(referencia, preferenciasAlertas(usuarios.colaborador.login, {
+        intervalo: { ativo: true, duracaoMinutos: 600, horarios: {} },
+      })));
+      await assertFails(setDoc(referencia, preferenciasAlertas(usuarios.colaborador.login, {
+        avisoAntes: { ativo: true, minutos: 1 },
+      })));
+      await assertFails(setDoc(referencia, preferenciasAlertas(usuarios.colaborador.login, { campoExtra: true })));
+    });
+
     it('responsável não consegue reendereçar rascunho ou estado de publicação de Jornada pelo payload', async () => {
       await semearMatriz();
       await ambiente.withSecurityRulesDisabled(async (contexto) => {

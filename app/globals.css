@@ -8778,3 +8778,125 @@ button.plantoes-agora-pessoa:focus-visible { outline: none; box-shadow: var(--fo
   font-size: 12px;
 }
 .profile-versao strong { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* =====================================================================
+ * ALERTAS-TURNO-1 — Perfil › Avisos do turno.
+ * ===================================================================== */
+.alertas-turno-perfil { display: grid; gap: 12px; padding: 18px 20px; }
+.alertas-turno-cabecalho { display: flex; align-items: flex-start; gap: 10px; }
+.alertas-turno-cabecalho > svg { flex: 0 0 auto; margin-top: 3px; color: var(--primary-bright); }
+.alertas-turno-cabecalho > div { flex: 1 1 auto; min-width: 0; }
+.alertas-turno-cabecalho h2 { margin: 0; color: var(--text); font-size: 17px; font-weight: 750; }
+.alertas-turno-ajuda { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
+.alertas-turno-lista { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.alertas-turno-lista > li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+.alerta-turno-icone {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary-bright) 12%, var(--surface));
+  color: var(--primary-bright);
+}
+.alerta-turno-texto { display: grid; gap: 2px; min-width: 0; }
+.alerta-turno-texto > strong { color: var(--text); font-size: 14px; font-weight: 750; }
+.alerta-turno-texto > small { color: var(--muted); font-size: 12px; }
+
+/* Interruptor (liga/desliga) */
+.alerta-turno-interruptor {
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 26px;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 35%, var(--surface));
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.alerta-turno-interruptor > span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
+  transition: transform 0.15s ease;
+}
+.alerta-turno-interruptor[aria-checked="true"] { background: var(--primary-bright); }
+.alerta-turno-interruptor[aria-checked="true"] > span { transform: translateX(18px); }
+.alerta-turno-interruptor:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* Opções em pílula (quanto tempo antes, duração do intervalo) */
+.alerta-turno-opcoes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.alerta-turno-opcoes > button {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.alerta-turno-opcoes > button.active {
+  border-color: var(--primary-bright);
+  background: color-mix(in srgb, var(--primary-bright) 12%, var(--surface));
+  color: var(--primary-bright);
+}
+
+/* Intervalo por turno, com o seletor de hora nativo */
+.alerta-turno-turnos { display: grid; gap: 6px; margin-top: 10px; }
+.alerta-turno-turno {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.alerta-turno-turno-nome { display: grid; min-width: 0; }
+.alerta-turno-turno-nome strong { color: var(--text); font-size: 13px; }
+.alerta-turno-turno-nome small { color: var(--muted); font-size: 11.5px; }
+.alerta-turno-turno-hora { display: grid; justify-items: end; gap: 2px; }
+.alerta-turno-turno-hora small { color: var(--muted); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+.alerta-turno-turno-hora input[type="time"] {
+  min-width: 96px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color-scheme: light dark;
+}
+.alerta-turno-turno-hora input[type="time"]:focus { outline: none; border-color: var(--primary-bright); box-shadow: var(--focus-ring); }
+.alerta-turno-turno[data-fora] { border-color: color-mix(in srgb, var(--warning) 50%, var(--border)); }
+.alerta-turno-turno > em { grid-column: 1 / -1; color: var(--warning); font-size: 11.5px; font-style: normal; font-weight: 700; }
+.alertas-turno-mensagem { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 700; }
+.alertas-turno-mensagem.ok { color: var(--success); }
+.alertas-turno-mensagem.erro { color: var(--danger); }
+
+@media (max-width: 720px) {
+  .alertas-turno-perfil { padding: 14px; }
+  .alertas-turno-lista > li { padding: 10px; gap: 10px; }
+  .alerta-turno-turno-hora input[type="time"] { min-width: 88px; font-size: 14px; }
+}
