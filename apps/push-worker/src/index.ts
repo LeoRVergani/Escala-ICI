@@ -1,6 +1,7 @@
 import { ConfigError, loadConfig } from './config.js';
 import { initAdmin } from './firebaseAdmin.js';
 import { writeHeartbeat } from './health.js';
+import { iniciarAgendadorAlertas } from './agendadorAlertas.js';
 import { iniciarWatcher } from './notificationWatcher.js';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -31,6 +32,9 @@ async function main(): Promise<void> {
 
   console.info('listener de notificacoesTroca iniciado — firestore=connected fcm=ready listener=started');
 
+  // ALERTAS-TURNO-2 — avisos do turno (antes do turno, ponto, intervalo).
+  const pararAgendador = iniciarAgendadorAlertas({ db, messaging, config });
+
   let encerrando = false;
   const shutdown = (signal: string): void => {
     if (encerrando) {
@@ -40,6 +44,7 @@ async function main(): Promise<void> {
     console.info(`recebido ${signal}, encerrando graciosamente`);
     clearInterval(heartbeatIntervalo);
     unsubscribe();
+    pararAgendador();
     process.exit(0);
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
