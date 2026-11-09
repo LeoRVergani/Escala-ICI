@@ -230,7 +230,7 @@ import { PainelHojeEquipes, VisaoEquipesCoordenador, type EquipeJornadaVisao, ty
 import { ImportarPlantaoCoordenacao } from './ImportarPlantaoCoordenacao';
 import { calcularEstatisticasJornada } from './estatisticasJornada';
 import { faixaHorario, normalizarFaixaHorario } from './formatoHorario';
-import { textoVersaoApp } from './versaoApp';
+import { detalheVersaoApp, numeroVersaoApp } from './versaoApp';
 import { AlertasTurnoPerfil, type TurnoDaPessoa } from './AlertasTurnoPerfil';
 import {
   faixaTemperatura,
@@ -6593,7 +6593,8 @@ export function EmployeeApp() {
             </button>
             {/* VERSAO-APP-1 — para saber se o App realmente atualizou. */}
             <p className="profile-versao">
-              <Info size={13} aria-hidden="true" /> Versão do App: <strong>{textoVersaoApp()}</strong>
+              <Info size={13} aria-hidden="true" /> Versão do App: <strong>{numeroVersaoApp()}</strong>
+              {detalheVersaoApp() && <small>{detalheVersaoApp()}</small>}
             </p>
           </div>
         </section>

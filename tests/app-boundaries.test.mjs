@@ -798,3 +798,19 @@ test('CONTA-SETOR-1 — conta do setor (sem escala própria) vê a equipe do dia
   assert.match(app, /!jornadaPublicadaApp && plantaoPublicadoApp && !contaSetorApp/);
   assert.match(app, /!contaSetorApp && \(\s*<AlertasTurnoPerfil/);
 });
+
+test('PWA-INSTALAR-1 / PWA-ATUALIZAR-1 / CONTA-SETOR-2 — instalar uma vez, atualização confiável, NOC com Plantões primeiro', async () => {
+  const pwa = await ler('components/PwaProvider.tsx');
+  // Instalar: lembra que fechou/instalou/recusou e nunca mostra com o App instalado.
+  assert.match(pwa, /if \(estaInstalado\(\) \|\| instalacaoEncerrada\(\)\) \{/);
+  assert.match(pwa, /const concluirInstalacao = \(\) => \{\s*encerrarInstalacao\(\);/);
+  // Atualizar: confere o /versao.json (sem cache) e o botão funciona sem SW em espera.
+  assert.match(pwa, /fetch\(`\/versao\.json\?t=\$\{Date\.now\(\)\}`, \{ cache: 'no-store' \}\)/);
+  assert.match(pwa, /\(atualizacao \|\| versaoNovaPublicada\) &&/);
+  const main = await ler('apps/app/src/main.tsx');
+  assert.match(main, /verificarVersaoNova=\{\(publicada\) => versaoPublicadaDiferente\(VERSAO_APP, publicada\)\}/);
+  // Conta do setor: "Equipe escalada hoje" depois dos Plantões.
+  const css = await ler('app/globals.css');
+  assert.match(css, /\[data-conta-setor\] > \.today-team-panel \{ order: 1; \}/);
+  assert.doesNotMatch(css, /\[data-conta-setor\] > \.today-team-panel \{ order: -1; \}/);
+});

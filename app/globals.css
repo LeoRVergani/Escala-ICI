@@ -8922,10 +8922,16 @@ button.plantoes-agora-pessoa:focus-visible { outline: none; box-shadow: var(--fo
 /* CONTA-SETOR-1 — celular do setor: "Equipe escalada hoje" logo abaixo do
  * título, antes dos Plantões (a tela é uma coluna; só muda a ordem). */
 .app-shell.product-app .employee-today-screen[data-conta-setor] > .page-heading { order: -2; }
-.app-shell.product-app .employee-today-screen[data-conta-setor] > .today-team-panel { order: -1; }
 
 /* AVISO-FOLGA-1 — "Dia de folga" entra na coluna da esquerda, abaixo da saída. */
 @media (min-width: 900px) {
   .app-shell.product-app .alertas-turno-lista > li:nth-child(5) { grid-column: 1; }
   .app-shell.product-app .alertas-turno-lista > li:nth-child(3) { grid-row: 1 / span 4; }
 }
+
+/* VERSAO-APP-2 — número da versão em destaque, detalhe do build ao lado. */
+.profile-versao small { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+/* CONTA-SETOR-2 — celular do setor: "Plantões agora" primeiro (prioridade do
+ * NOC), "Equipe escalada hoje" logo abaixo. */
+.app-shell.product-app .employee-today-screen[data-conta-setor] > .today-team-panel { order: 1; }

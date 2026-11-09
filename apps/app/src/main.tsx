@@ -5,6 +5,7 @@ import '@/app/globals.css';
 import { PwaProvider } from '@/components/PwaProvider';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { EmployeeApp } from './EmployeeApp';
+import { VERSAO_APP, versaoPublicadaDiferente } from './versaoApp';
 
 const raiz = document.getElementById('root');
 
@@ -15,7 +16,7 @@ if (raiz === null) {
 createRoot(raiz).render(
   <StrictMode>
     <ThemeProvider>
-      <PwaProvider>
+      <PwaProvider verificarVersaoNova={(publicada) => versaoPublicadaDiferente(VERSAO_APP, publicada)}>
         <EmployeeApp />
       </PwaProvider>
     </ThemeProvider>

@@ -1,41 +1,30 @@
 import react from '@vitejs/plugin-react';
-import { execSync } from 'node:child_process';
 import { fileURLToPath, URL } from 'node:url';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
+
+import { versaoDoBuild } from './versaoBuild';
 
 const diretorioApp = fileURLToPath(new URL('.', import.meta.url));
 const raizRepositorio = fileURLToPath(new URL('../../', import.meta.url));
+const versao = versaoDoBuild();
 
-/**
- * VERSAO-APP-1 — versão gravada no build: data/hora (Brasília) + commit curto.
- * No Cloudflare Pages o commit vem de CF_PAGES_COMMIT_SHA; localmente, do Git.
- */
-function versaoDoBuild(): { commit: string; data: string } {
-  let commit = process.env.CF_PAGES_COMMIT_SHA ?? '';
-  if (!commit) {
-    try {
-      commit = execSync('git rev-parse HEAD', { cwd: raizRepositorio, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    } catch {
-      commit = '';
-    }
-  }
-  const data = new Date().toLocaleString('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).replace(',', '');
-  return { commit: commit.slice(0, 7) || 'local', data };
+/** VERSAO-APP-2 — publica /versao.json: o App compara com a versão em execução. */
+function publicarVersao(): Plugin {
+  return {
+    name: 'escala-ici-versao-json',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'versao.json', source: `${JSON.stringify(versao)}\n` });
+    },
+  };
 }
+
 
 export default defineConfig({
   root: diretorioApp,
   envDir: raizRepositorio,
-  plugins: [react()],
+  plugins: [react(), publicarVersao()],
   define: {
-    __VERSAO_APP__: JSON.stringify(versaoDoBuild()),
+    __VERSAO_APP__: JSON.stringify(versao),
   },
   resolve: {
     alias: {
