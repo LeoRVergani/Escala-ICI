@@ -5,10 +5,16 @@ import {
   processarMensagemEmSegundoPlano,
 } from './pushClickRouting.js';
 
+/* global __VERSAO_SW__ */
+// VERSAO-APP-2 — versão do build (vite.sw.config.ts); fora do build (testes) cai no padrão.
+const VERSAO_BUILD = typeof __VERSAO_SW__ !== 'undefined' ? __VERSAO_SW__ : { versao: 'dev', commit: 'dev' };
 const VERSION = 'fase-3k-c-v2';
+// Caches com a versão do build: cada deploy cria caches novos e o 'activate'
+// apaga os anteriores (todos começam com 'escala-ici-').
+const VERSAO_CACHE = `${VERSION}-${VERSAO_BUILD.versao}-${VERSAO_BUILD.commit}`;
 const PUSH_DIAGNOSTIC_VERSION = 'push-pwa-2b2d';
-const CACHE_SHELL = `escala-ici-shell-${VERSION}`;
-const CACHE_RUNTIME = `escala-ici-runtime-${VERSION}`;
+const CACHE_SHELL = `escala-ici-shell-${VERSAO_CACHE}`;
+const CACHE_RUNTIME = `escala-ici-runtime-${VERSAO_CACHE}`;
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, '');
 const APP_ENTRY = SCOPE_PATH || '/';
 const APP_MANIFEST = SCOPE_PATH === '/app'

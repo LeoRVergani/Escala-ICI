@@ -1,6 +1,8 @@
 import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vite';
 
+import { versaoDoBuild } from './versaoBuild';
+
 const diretorioApp = fileURLToPath(new URL('.', import.meta.url));
 const raizRepositorio = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -24,6 +26,11 @@ export default defineConfig({
   root: diretorioApp,
   envDir: raizRepositorio,
   publicDir: false,
+  // VERSAO-APP-2 — o SW carrega a versão: muda a cada deploy (o navegador
+  // detecta a atualização e os caches da versão anterior são limpos).
+  define: {
+    __VERSAO_SW__: JSON.stringify(versaoDoBuild()),
+  },
   resolve: {
     alias: {
       '@': raizRepositorio,
