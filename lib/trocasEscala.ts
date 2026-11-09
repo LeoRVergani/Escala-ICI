@@ -102,6 +102,8 @@ export type TipoNotificacaoTroca =
   | 'TROCA_SOLICITADA'
   | 'TROCA_RECUSADA_USUARIO'
   | 'TROCA_ACEITA_AGUARDANDO_GESTOR'
+  /** AVISO-GESTOR-6X1-1 — para quem aprova, quando o colega aceita. */
+  | 'TROCA_AGUARDANDO_APROVACAO_GESTOR'
   | 'TROCA_RECUSADA_GESTOR'
   | 'TROCA_APROVADA_PUBLICADA'
   | 'TROCA_CANCELADA';

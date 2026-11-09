@@ -2,6 +2,7 @@ import { ConfigError, loadConfig } from './config.js';
 import { initAdmin } from './firebaseAdmin.js';
 import { writeHeartbeat } from './health.js';
 import { iniciarAgendadorAlertas } from './agendadorAlertas.js';
+import { iniciarOutrosSinos } from './outrosSinos.js';
 import { iniciarWatcher } from './notificationWatcher.js';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -34,6 +35,8 @@ async function main(): Promise<void> {
 
   // ALERTAS-TURNO-2 — avisos do turno (antes do turno, ponto, intervalo).
   const pararAgendador = iniciarAgendadorAlertas({ db, messaging, config });
+  // SINOS-NO-CELULAR-1 — trocas de Plantão e escala publicada também viram push.
+  const pararOutrosSinos = iniciarOutrosSinos({ db, messaging, config });
 
   let encerrando = false;
   const shutdown = (signal: string): void => {
@@ -45,6 +48,7 @@ async function main(): Promise<void> {
     clearInterval(heartbeatIntervalo);
     unsubscribe();
     pararAgendador();
+    pararOutrosSinos();
     process.exit(0);
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));

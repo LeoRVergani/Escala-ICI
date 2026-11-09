@@ -3,6 +3,7 @@ import type { Messaging } from 'firebase-admin/messaging';
 
 import {
   agoraLocal,
+  alertasDaFolga,
   alertasDevidos,
   alertasDoTurno,
   CATALOGO_PADRAO,
@@ -43,7 +44,8 @@ const logConsole: Logger = {
 
 function algumAtivo(preferencias: PreferenciasAlertas): boolean {
   return preferencias.avisoAntes?.ativo || preferencias.pontoEntrada?.ativo
-    || preferencias.pontoSaida?.ativo || preferencias.intervalo?.ativo;
+    || preferencias.pontoSaida?.ativo || preferencias.intervalo?.ativo
+    || preferencias.folga?.vespera !== false || preferencias.folga?.dia !== false;
 }
 
 export function iniciarAgendadorAlertas({
@@ -141,12 +143,18 @@ export function iniciarAgendadorAlertas({
       const agora = agoraLocal(new Date(agoraMs));
       const hoje = agora.slice(0, 10);
       const ontem = somarDias(hoje, -1);
+      // Amanhã também: o aviso de véspera de folga e o "X h antes" de um turno
+      // da madrugada (ex.: 01:00 com 2 h antes = 23:00 de hoje) pertencem a amanhã.
+      const amanha = somarDias(hoje, 1);
       for (const [login, pref] of preferencias) {
         if (!algumAtivo(pref)) continue;
         try {
-          const escala = await escalaDe(login, [ontem, hoje], agoraMs);
+          const escala = await escalaDe(login, [ontem, hoje, amanha], agoraMs);
           const catalogo = await catalogoDe(escala.equipeId, agoraMs);
-          const alertas = [ontem, hoje].flatMap((data) => alertasDoTurno(pref, data, resolverTurnoDoDia(escala.dias, catalogo, data)));
+          const alertas = [ontem, hoje, amanha].flatMap((data) => {
+            const turno = resolverTurnoDoDia(escala.dias, catalogo, data);
+            return [...alertasDoTurno(pref, data, turno), ...alertasDaFolga(pref, data, turno)];
+          });
           for (const alerta of alertasDevidos(alertas, agora)) {
             const resultado = await enviarAlertaUmaVez(login, alerta, deps, new Date(agoraMs).toISOString());
             if (resultado !== 'ja-enviado') {

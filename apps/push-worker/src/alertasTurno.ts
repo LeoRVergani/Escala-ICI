@@ -50,6 +50,8 @@ export const CATALOGO_PADRAO: Readonly<Record<string, TipoTurnoMin>> = {
 };
 
 export interface TurnoDoDia {
+  /** AVISO-FOLGA-1 — categoria do código do dia (DESCANSO, COMPENSACAO, AUSENCIA…). */
+  categoria?: string | undefined;
   trabalha: boolean;
   inicio?: string | undefined;
   fim?: string | undefined;
@@ -85,6 +87,7 @@ export function resolverTurnoDoDia(
   const trabalha = (duracao > 0 || categoriaTrabalha(tipo?.categoria)) && inicio !== undefined && fim !== undefined;
   const descricaoBase = tipo?.descricao ?? dia.c;
   return {
+    categoria: tipo?.categoria,
     trabalha,
     inicio,
     fim,
@@ -102,6 +105,8 @@ export interface PreferenciasAlertas {
   pontoEntrada: { ativo: boolean };
   pontoSaida: { ativo: boolean };
   intervalo: { ativo: boolean; duracaoMinutos: number; horarios: Partial<Record<string, string>> };
+  /** AVISO-FOLGA-1 — ausente em documentos antigos = ligado (o mesmo padrão que o Perfil mostra). */
+  folga?: { vespera?: boolean; dia?: boolean };
 }
 
 export type TipoAlertaTurno =
@@ -109,7 +114,9 @@ export type TipoAlertaTurno =
   | 'ALERTA_TURNO_ENTRADA'
   | 'ALERTA_TURNO_INTERVALO'
   | 'ALERTA_TURNO_FIM_INTERVALO'
-  | 'ALERTA_TURNO_SAIDA';
+  | 'ALERTA_TURNO_SAIDA'
+  | 'ALERTA_TURNO_FOLGA_VESPERA'
+  | 'ALERTA_TURNO_FOLGA_DIA';
 
 export interface AlertaAgendado {
   tipo: TipoAlertaTurno;
@@ -200,6 +207,48 @@ export function alertasDoTurno(preferencias: PreferenciasAlertas, data: string, 
     });
   }
   return alertas;
+}
+
+// ---------------------------------------------------------------------------
+// AVISO-FOLGA-1 — "Amanhã você está de folga" (véspera, 20:00) e "Hoje você
+// está de folga" (07:00). Folga = DSR, feriado, aniversário, compensação de
+// BH (DESCANSO/COMPENSACAO). Férias e afastamento (AUSENCIA) não avisam.
+export const HORA_FOLGA_VESPERA = '20:00';
+export const HORA_FOLGA_DIA = '07:00';
+const CATEGORIAS_FOLGA = new Set(['DESCANSO', 'COMPENSACAO']);
+const DIAS_SEMANA = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+
+export function ehFolga(turno: TurnoDoDia): boolean {
+  return !turno.trabalha && turno.categoria !== undefined && CATEGORIAS_FOLGA.has(turno.categoria);
+}
+
+function rotuloDia(data: string): string {
+  const [, mes, dia] = data.split('-');
+  return `${DIAS_SEMANA[new Date(`${data}T12:00:00Z`).getUTCDay()]}, ${dia}/${mes}`;
+}
+
+export function alertasDaFolga(preferencias: PreferenciasAlertas, data: string, turno: TurnoDoDia): AlertaAgendado[] {
+  if (!ehFolga(turno)) return [];
+  const alertas: AlertaAgendado[] = [];
+  if (preferencias.folga?.vespera !== false) {
+    alertas.push({
+      tipo: 'ALERTA_TURNO_FOLGA_VESPERA', data, quando: `${somarDias(data, -1)}T${HORA_FOLGA_VESPERA}`,
+      titulo: 'Amanhã você está de folga',
+      corpo: `${capitalizar(rotuloDia(data))} · ${turno.descricao}. Não precisa vir trabalhar. Bom descanso!`,
+    });
+  }
+  if (preferencias.folga?.dia !== false) {
+    alertas.push({
+      tipo: 'ALERTA_TURNO_FOLGA_DIA', data, quando: `${data}T${HORA_FOLGA_DIA}`,
+      titulo: 'Hoje você está de folga',
+      corpo: `${turno.descricao}. Não precisa vir trabalhar hoje. Aproveite!`,
+    });
+  }
+  return alertas;
+}
+
+function capitalizar(texto: string): string {
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
 
 /** Os avisos que venceram agora (até JANELA_ATRASO_MINUTOS de atraso). */

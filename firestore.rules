@@ -1901,7 +1901,7 @@ service cloud.firestore {
     }
 
     function preferenciasAlertasTurnoValidas(dados) {
-      return dados.keys().hasOnly(['login', 'avisoAntes', 'pontoEntrada', 'pontoSaida', 'intervalo', 'atualizadoEm'])
+      return dados.keys().hasOnly(['login', 'avisoAntes', 'pontoEntrada', 'pontoSaida', 'intervalo', 'folga', 'atualizadoEm'])
         && dados.login == loginDoAuth()
         && dados.avisoAntes is map && dados.avisoAntes.keys().hasOnly(['ativo', 'minutos'])
         && dados.avisoAntes.ativo is bool
@@ -1909,6 +1909,11 @@ service cloud.firestore {
         && dados.pontoEntrada is map && dados.pontoEntrada.keys().hasOnly(['ativo']) && dados.pontoEntrada.ativo is bool
         && dados.pontoSaida is map && dados.pontoSaida.keys().hasOnly(['ativo']) && dados.pontoSaida.ativo is bool
         && intervaloAlertaTurnoValido(dados.intervalo)
+        // AVISO-FOLGA-1 — opcional (documentos salvos antes continuam válidos).
+        && (!('folga' in dados) || (
+          dados.folga is map && dados.folga.keys().hasOnly(['vespera', 'dia'])
+          && dados.folga.vespera is bool && dados.folga.dia is bool
+        ))
         && dados.atualizadoEm is string;
     }
 

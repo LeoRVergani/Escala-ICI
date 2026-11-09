@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { AlarmClock, BellRing, CheckCircle2, Coffee, LogIn, LogOut } from 'lucide-react';
+import { AlarmClock, BellRing, CheckCircle2, Coffee, LogIn, LogOut, Palmtree } from 'lucide-react';
 import {
+  HORARIO_AVISO_FOLGA_DIA,
+  HORARIO_AVISO_FOLGA_VESPERA,
   horarioDentroDoTurno,
   OPCOES_AVISO_ANTES_MINUTOS,
   OPCOES_DURACAO_INTERVALO_MINUTOS,
@@ -203,6 +205,31 @@ export function AlertasTurnoPerfil({ login, turnos }: { login: string; turnos: r
           </div>
           <Interruptor rotulo="Ponto de saída" ativo={preferencias.pontoSaida.ativo}
             onMudar={(ativo) => mudar((atual) => ({ ...atual, pontoSaida: { ativo } }))} />
+        </li>
+
+        {/* AVISO-FOLGA-1 — para ninguém vir trabalhar no dia de folga. */}
+        <li>
+          <span className="alerta-turno-icone"><Palmtree size={18} aria-hidden="true" /></span>
+          <div className="alerta-turno-texto">
+            <strong>Dia de folga</strong>
+            <small>Avisa que você está de folga (DSR, feriado, banco de horas)</small>
+            {(preferencias.folga.vespera || preferencias.folga.dia) && (
+              <div className="alerta-turno-opcoes" role="group" aria-label="Quando avisar a folga">
+                <button type="button" role="checkbox" aria-checked={preferencias.folga.vespera}
+                  className={preferencias.folga.vespera ? 'active' : ''}
+                  onClick={() => mudar((atual) => ({ ...atual, folga: { ...atual.folga, vespera: !atual.folga.vespera } }))}>
+                  Na véspera às {HORARIO_AVISO_FOLGA_VESPERA}
+                </button>
+                <button type="button" role="checkbox" aria-checked={preferencias.folga.dia}
+                  className={preferencias.folga.dia ? 'active' : ''}
+                  onClick={() => mudar((atual) => ({ ...atual, folga: { ...atual.folga, dia: !atual.folga.dia } }))}>
+                  No dia às {HORARIO_AVISO_FOLGA_DIA}
+                </button>
+              </div>
+            )}
+          </div>
+          <Interruptor rotulo="Dia de folga" ativo={preferencias.folga.vespera || preferencias.folga.dia}
+            onMudar={(ativo) => mudar((atual) => ({ ...atual, folga: { vespera: ativo, dia: ativo } }))} />
         </li>
       </ul>
 

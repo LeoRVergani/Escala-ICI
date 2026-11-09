@@ -20,8 +20,14 @@ export interface PreferenciasAlertasTurno {
   pontoSaida: { ativo: boolean };
   /** Intervalo: um horário por TURNO que a pessoa faz + duração (aviso de início e de fim). */
   intervalo: { ativo: boolean; duracaoMinutos: number; horarios: Partial<Record<PeriodoAlertaTurno, string>> };
+  /** AVISO-FOLGA-1 — "Amanhã você está de folga" (véspera, 20:00) e "Hoje você está de folga" (07:00). */
+  folga: { vespera: boolean; dia: boolean };
   atualizadoEm: string;
 }
+
+/** AVISO-FOLGA-1 — horários fixos dos avisos de folga. */
+export const HORARIO_AVISO_FOLGA_VESPERA = '20:00';
+export const HORARIO_AVISO_FOLGA_DIA = '07:00';
 
 export function preferenciasAlertasTurnoPadrao(login: string): PreferenciasAlertasTurno {
   return {
@@ -30,6 +36,7 @@ export function preferenciasAlertasTurnoPadrao(login: string): PreferenciasAlert
     pontoEntrada: { ativo: true },
     pontoSaida: { ativo: true },
     intervalo: { ativo: false, duracaoMinutos: 15, horarios: {} },
+    folga: { vespera: true, dia: true },
     atualizadoEm: '',
   };
 }

@@ -5,6 +5,7 @@ import {
   type TipoTurno,
   type TurnosMes,
 } from '@escala-ici/contrato';
+import { criarIdEscopoOperacional } from '../escoposOperacionaisMatriz';
 import {
   collection,
   doc,
@@ -67,6 +68,16 @@ function criarEventoHistorico(parametros: {
  * real: um gestor que também é parte da troca (solicitante ou destinatário)
  * aprovando a própria solicitação.
  */
+/** AVISO-GESTOR-6X1-1 — responsáveis ativos do escopo, sem os envolvidos e sem repetir. */
+export function gestoresParaAvisar(
+  escopo: { ativo?: boolean; responsaveisLogin?: readonly string[] } | null,
+  excluir: readonly string[],
+): string[] {
+  if (escopo === null || escopo.ativo === false) return [];
+  const fora = new Set(excluir);
+  return [...new Set(escopo.responsaveisLogin ?? [])].filter((login) => !fora.has(login));
+}
+
 function criarNotificacaoTroca(parametros: {
   destinatarioLogin: string;
   equipeId: string;
@@ -591,6 +602,29 @@ export async function responderSolicitacaoTroca(
   }));
   if (notificacao) {
     batch.set(doc(db, 'notificacoesTroca', notificacao.id), removerUndefined(notificacao));
+  }
+  /*
+   * AVISO-GESTOR-6X1-1 — aceita pelo colega: avisa quem aprova (responsáveis
+   * do escopo JORNADA da equipe — o mesmo critério do Plantão), menos os dois
+   * envolvidos. Falha ao ler o escopo nunca impede o aceite.
+   */
+  if (aceitar) {
+    const escopo = await getDoc(doc(db, 'escoposOperacionais', criarIdEscopoOperacional('JORNADA', troca.equipeId)))
+      .then((resultado) => (resultado.exists() ? (resultado.data() as { ativo?: boolean; responsaveisLogin?: string[] }) : null))
+      .catch(() => null);
+    for (const gestorLogin of gestoresParaAvisar(escopo, [troca.solicitanteLogin, destinatario.login])) {
+      const aviso = criarNotificacaoTroca({
+        destinatarioLogin: gestorLogin,
+        equipeId: troca.equipeId,
+        tipo: 'TROCA_AGUARDANDO_APROVACAO_GESTOR',
+        titulo: 'Troca aguardando sua aprovação',
+        mensagem: `${troca.solicitanteNome} e ${destinatario.nome} combinaram uma troca no dia ${troca.data} — falta sua aprovação.`,
+        trocaId,
+        criadoPorLogin: destinatario.login,
+        em: agora,
+      });
+      if (aviso) batch.set(doc(db, 'notificacoesTroca', aviso.id), removerUndefined(aviso));
+    }
   }
   try {
     await batch.commit();

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   agoraLocal,
+  alertasDaFolga,
   alertasDevidos,
   alertasDoTurno,
   CATALOGO_PADRAO,
@@ -166,5 +167,42 @@ describe('ALERTAS-TURNO-2 — envio uma única vez', () => {
     expect(enviados[0]).toMatchObject({ fids: ['f1', 'f2'], data: { tipo: 'ALERTA_TURNO_ENTRADA', route: 'hoje', eventId: 'ana_2026-11-09_ALERTA_TURNO_ENTRADA_202611090700' } });
     expect(desativados).toEqual(['d2']);
     expect(registro[0]).toMatchObject({ status: 'ENVIADO', successCount: 1, failureCount: 1 });
+  });
+});
+
+describe('AVISO-FOLGA-1 — "Amanhã você está de folga" e "Hoje você está de folga"', () => {
+  const semFolgaDefinida: PreferenciasAlertas = { ...tudoLigado };
+
+  it('DSR: véspera às 20:00 (do dia anterior) e no dia às 07:00; padrão ligado', () => {
+    const turno = resolverTurnoDoDia({ '2026-11-14': { c: 'DF' } }, CATALOGO_PADRAO, '2026-11-14');
+    const alertas = alertasDaFolga(semFolgaDefinida, '2026-11-14', turno);
+    expect(alertas.map((a) => `${a.tipo}@${a.quando}`)).toEqual([
+      'ALERTA_TURNO_FOLGA_VESPERA@2026-11-13T20:00',
+      'ALERTA_TURNO_FOLGA_DIA@2026-11-14T07:00',
+    ]);
+    expect(alertas[0]?.corpo).toContain('Sábado, 14/11');
+  });
+
+  it('feriado, aniversário e compensação de BH também; férias, afastamento e trabalho não', () => {
+    for (const c of ['FOLGA', 'AN', 'BH', 'DU']) {
+      expect(alertasDaFolga(tudoLigado, '2026-11-14', resolverTurnoDoDia({ '2026-11-14': { c } }, CATALOGO_PADRAO, '2026-11-14')), c).toHaveLength(2);
+    }
+    for (const c of ['X', 'AFA', 'M', 'N', 'HE']) {
+      expect(alertasDaFolga(tudoLigado, '2026-11-14', resolverTurnoDoDia({ '2026-11-14': { c, t: c === 'HE' ? 'T' : undefined } as never }, CATALOGO_PADRAO, '2026-11-14')), c)
+        .toEqual([]);
+    }
+  });
+
+  it('respeita o que a pessoa desligou', () => {
+    const turno = resolverTurnoDoDia({ '2026-11-14': { c: 'DF' } }, CATALOGO_PADRAO, '2026-11-14');
+    expect(alertasDaFolga({ ...tudoLigado, folga: { vespera: false, dia: true } }, '2026-11-14', turno).map((a) => a.tipo)).toEqual(['ALERTA_TURNO_FOLGA_DIA']);
+    expect(alertasDaFolga({ ...tudoLigado, folga: { vespera: false, dia: false } }, '2026-11-14', turno)).toEqual([]);
+  });
+
+  it('madrugada com "2 h antes" cai às 23:00 do dia anterior (por isso o agendador olha amanhã)', () => {
+    const turno = resolverTurnoDoDia({ '2026-11-10': { c: 'MD' } }, CATALOGO_PADRAO, '2026-11-10');
+    const antes = alertasDoTurno({ ...tudoLigado, avisoAntes: { ativo: true, minutos: 120 } }, '2026-11-10', turno)
+      .find((a) => a.tipo === 'ALERTA_TURNO_ANTES');
+    expect(antes?.quando).toBe('2026-11-09T23:00');
   });
 });

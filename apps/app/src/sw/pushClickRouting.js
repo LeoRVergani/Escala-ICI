@@ -14,8 +14,11 @@ export const TIPO_MENSAGEM_CLIQUE_NOTIFICACAO = 'ESCALA_ICI_NOTIFICATION_CLICK';
 /** ALERTAS-TURNO-2 — avisos do turno (antes do turno, ponto, intervalo): o clique abre o App. */
 export const PREFIXO_TIPO_ALERTA_TURNO = 'ALERTA_TURNO_';
 
+/** SINOS-NO-CELULAR-1 — avisos sem trocaId que também abrem o App: escala publicada e trocas de Plantão. */
+const PREFIXOS_ABRIR_APP = [PREFIXO_TIPO_ALERTA_TURNO, 'ESCALA_', 'TROCA_PLANTAO_'];
+
 function ehAlertaTurno(dados) {
-  return typeof dados.tipo === 'string' && dados.tipo.startsWith(PREFIXO_TIPO_ALERTA_TURNO);
+  return typeof dados.tipo === 'string' && PREFIXOS_ABRIR_APP.some((prefixo) => dados.tipo.startsWith(prefixo));
 }
 
 function textoOuNulo(valor) {
