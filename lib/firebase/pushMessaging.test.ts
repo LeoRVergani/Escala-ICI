@@ -426,6 +426,57 @@ describe('diagnóstico local via service worker (PUSH-PWA-2B.2A)', () => {
   });
 });
 
+describe('PUSH-AUTO-REPARO-1 — aparelho desativado pelo servidor por FID renovado volta sozinho', () => {
+  function depsComFid(fidAtual: string) {
+    return criarDeps({
+      permissaoAtual: () => 'granted',
+      onRegistered: (_messaging, callback) => {
+        queueMicrotask(() => callback(fidAtual));
+        return () => {};
+      },
+      register: vi.fn(async () => {}),
+    });
+  }
+
+  it('documento inativo com FID DIFERENTE do atual (o Firebase renovou): repara sozinho, sem pedir permissão', async () => {
+    const deps = depsComFid('fid-novo');
+    const resultado = await retomarPushSeAderido(
+      { deviceIdExistente: 'dev-1', verificarDispositivoAtivo: vi.fn(async () => false), fidRegistrado: vi.fn(async () => 'fid-antigo') },
+      deps,
+    );
+    expect(resultado).toEqual({ estado: 'ATIVO', fid: 'fid-novo', reparado: true });
+    expect(deps.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it('documento inexistente/sem FID: também repara (a pessoa não desligou — o desligar apaga o deviceId local)', async () => {
+    const resultado = await retomarPushSeAderido(
+      { deviceIdExistente: 'dev-1', verificarDispositivoAtivo: vi.fn(async () => false), fidRegistrado: vi.fn(async () => null) },
+      depsComFid('fid-novo'),
+    );
+    expect(resultado).toEqual({ estado: 'ATIVO', fid: 'fid-novo', reparado: true });
+  });
+
+  it('documento inativo com o MESMO FID (desativado de propósito): respeita e não reativa', async () => {
+    const resultado = await retomarPushSeAderido(
+      { deviceIdExistente: 'dev-1', verificarDispositivoAtivo: vi.fn(async () => false), fidRegistrado: vi.fn(async () => 'fid-igual') },
+      depsComFid('fid-igual'),
+    );
+    expect(resultado).toEqual({ estado: 'NAO_ADERIU' });
+  });
+
+  it('permissão negada continua sem nada, mesmo com fidRegistrado', async () => {
+    const fidRegistrado = vi.fn(async () => 'fid-antigo');
+    const deps = criarDeps({ permissaoAtual: () => 'denied' });
+    const resultado = await retomarPushSeAderido(
+      { deviceIdExistente: 'dev-1', verificarDispositivoAtivo: vi.fn(async () => false), fidRegistrado },
+      deps,
+    );
+    expect(resultado).toEqual({ estado: 'NAO_ADERIU' });
+    expect(fidRegistrado).not.toHaveBeenCalled();
+    expect(deps.register).not.toHaveBeenCalled();
+  });
+});
+
 describe('retomarPushSeAderido (auditoria PUSH-PWA-1.1 — reabertura/recarregamento)', () => {
   it('usuário sem adesão anterior (sem deviceId local) não registra — nunca chama isSupported/verificarDispositivoAtivo/register', async () => {
     const verificarDispositivoAtivo = vi.fn(async () => true);

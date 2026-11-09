@@ -33,7 +33,8 @@ test('2. a visão "Plantão" só lê a competência PUBLICADA — nunca rascunho
   for (const proibido of ['listarAtribuicoesPlantaoRascunho', 'obterCompetenciaPlantaoRascunho', 'rascunhosCompetenciasPlantao']) {
     assert.doesNotMatch(app, new RegExp(proibido, 'u'), proibido);
   }
-  // localStorage no App continua só para notificações lidas/dispositivo —
+  // localStorage no App continua só para notificações lidas/dispositivo e para a
+  // PREFERÊNCIA de qual Grupo abrir (PLANTAO-LEMBRADO-1: só o ID, nunca escala) —
   // nunca para guardar a escala/atribuições de Plantão.
   const usosLocalStorage = app.match(/window\.localStorage\.(?:get|set)Item\([^)]*\)/gu) ?? [];
   for (const uso of usosLocalStorage) {

@@ -138,6 +138,8 @@ export interface ResultadoStatusDispositivo {
   status: StatusDispositivoPush;
   /** Campo já existente no contrato — nunca introduz dado novo, só o repassa para a UI decidir um rótulo relativo. */
   ultimaConfirmacaoEm: string | null;
+  /** PUSH-AUTO-REPARO-1 — FID gravado no documento (para saber se o aparelho renovou o seu). */
+  fid?: string | null;
 }
 
 /**
@@ -159,18 +161,20 @@ export async function obterStatusDispositivo(
     return { status: 'INATIVO', ultimaConfirmacaoEm: null };
   }
   const dados = snapshot.data();
+  const fidGravado = typeof dados.fid === 'string' && dados.fid.trim() !== '' ? dados.fid : null;
   const ultimaConfirmacaoEm = typeof dados.ultimaConfirmacaoEm === 'string' ? dados.ultimaConfirmacaoEm : null;
   if (loginEsperado !== undefined && dados.login !== loginEsperado) {
     return { status: 'INATIVO', ultimaConfirmacaoEm };
   }
   if (dados.ativo !== true) {
-    return { status: 'INATIVO', ultimaConfirmacaoEm };
+    return { status: 'INATIVO', ultimaConfirmacaoEm, fid: fidGravado };
   }
   const fidValido = typeof dados.fid === 'string' && dados.fid.trim() !== '';
   const contratoValido = dados.plataforma === 'WEB' && dados.environment === 'STAGING';
   return {
     status: fidValido && contratoValido ? 'ATIVO' : 'PRECISA_REPARO',
     ultimaConfirmacaoEm,
+    fid: fidGravado,
   };
 }
 
