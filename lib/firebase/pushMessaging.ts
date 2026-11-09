@@ -41,6 +41,8 @@ export interface ResultadoAtivacao {
   estado: EstadoPush;
   fid?: string;
   erro?: string;
+  /** PUSH-AUTO-REPARO-1 — reativado sozinho porque o FID do aparelho tinha sido renovado. */
+  reparado?: boolean;
 }
 
 export const PUSH_SW_STATUS_REQUEST = 'ESCALA_ICI_SW_STATUS';
@@ -257,6 +259,16 @@ export interface RetomarAutomaticoParams {
   deviceIdExistente: string | null;
   /** `get` do documento conhecido — nunca `list`. */
   verificarDispositivoAtivo: (deviceId: string) => Promise<boolean>;
+  /**
+   * PUSH-AUTO-REPARO-1 — FID gravado no documento deste aparelho. Quando
+   * informado e o documento NÃO está ativo, o App registra no Firebase e
+   * compara: FID diferente = o Firebase renovou o FID e o servidor desativou
+   * o antigo (FCM: "installation-id-not-registered") — a pessoa não desligou
+   * nada (o desligar manual apaga o deviceId local), então REPARA sozinho.
+   * FID igual = desativado de propósito → respeita (NAO_ADERIU).
+   * Sem este parâmetro, o comportamento antigo (não reativa) se mantém.
+   */
+  fidRegistrado?: (deviceId: string) => Promise<string | null>;
 }
 
 /**
@@ -297,10 +309,22 @@ export async function retomarPushSeAderido(
     return { estado: 'NAO_ADERIU' };
   }
   const ativo = await params.verificarDispositivoAtivo(params.deviceIdExistente).catch(() => false);
-  if (!ativo) {
+  if (ativo) {
+    return ativarPush(deps);
+  }
+  if (!params.fidRegistrado) {
     return { estado: 'NAO_ADERIU' };
   }
-  return ativarPush(deps);
+  const fidNoBanco = await params.fidRegistrado(params.deviceIdExistente).catch(() => null);
+  const resultado = await ativarPush(deps);
+  if (resultado.estado !== 'ATIVO' || !resultado.fid) {
+    return { estado: 'NAO_ADERIU' };
+  }
+  if (fidNoBanco !== null && fidNoBanco === resultado.fid) {
+    // Mesmo FID e documento inativo: alguém desativou de propósito — respeita.
+    return { estado: 'NAO_ADERIU' };
+  }
+  return { ...resultado, reparado: true };
 }
 
 /**

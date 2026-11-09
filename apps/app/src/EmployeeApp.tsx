@@ -443,6 +443,27 @@ function ChipJornada({
   );
 }
 
+/** PLANTAO-LEMBRADO-1 — só a PREFERÊNCIA de qual Grupo abrir (o ID), por conta, neste aparelho. Nunca dado da escala. */
+function chaveGrupoPreferido(login: string): string {
+  return `escala-ici:plantao-selecionado:${login}`;
+}
+
+function lerGrupoPreferido(login: string): string | null {
+  try {
+    return window.localStorage.getItem(chaveGrupoPreferido(login));
+  } catch {
+    return null;
+  }
+}
+
+function lembrarGrupoPreferido(login: string, grupoId: string): void {
+  try {
+    window.localStorage.setItem(chaveGrupoPreferido(login), grupoId);
+  } catch {
+    // modo privado/sem espaço: só não lembra
+  }
+}
+
 /** ALERTAS-TURNO-1 — turnos que a pessoa faz no mês (um por período), para escolher o intervalo. */
 function turnosDaPessoaNoMes(escala: TurnosMes | null | undefined, catalogo: typeof CATALOGO_SOC): TurnoDaPessoa[] {
   if (!escala) return [];
@@ -4376,7 +4397,18 @@ export function EmployeeApp() {
       grupos.forEach((item) => {
         temPublicacaoAtualPorGrupo[item.grupoId] = mapa[item.grupoId]?.competencia !== null;
       });
-      const grupoIdPadrao = escolherGrupoPlantaoPadrao(grupos, participantesPorGrupo, usuario.login, temPublicacaoAtualPorGrupo) ?? grupo.grupoId;
+      const grupoIdEscolhido = escolherGrupoPlantaoPadrao(grupos, participantesPorGrupo, usuario.login, temPublicacaoAtualPorGrupo) ?? grupo.grupoId;
+      /*
+       * PLANTAO-LEMBRADO-1 — quem NÃO é plantonista (ex.: celular do NOC) abre
+       * no último Plantão que escolheu neste aparelho; quem é plantonista
+       * continua abrindo no próprio Plantão.
+       */
+      const participaDoEscolhido = (participantesPorGrupo[grupoIdEscolhido] ?? [])
+        .some((participante) => participante.login === usuario.login && participante.ativo);
+      const lembrado = lerGrupoPreferido(usuario.login);
+      const grupoIdPadrao = !participaDoEscolhido && lembrado !== null && grupos.some((item) => item.grupoId === lembrado)
+        ? lembrado
+        : grupoIdEscolhido;
       const grupoPadrao = grupos.find((item) => item.grupoId === grupoIdPadrao) ?? grupo;
       aplicarDetalhePlantaoSelecionado(grupoPadrao, mapa[grupoPadrao.grupoId]!);
     } catch (falha) {
@@ -4398,6 +4430,7 @@ export function EmployeeApp() {
       return;
     }
     aplicarDetalhePlantaoSelecionado(grupo, detalhe);
+    lembrarGrupoPreferido(usuario.login, grupoId);
   }
 
   /** Sempre os próprios contatos, no próprio Grupo — nunca outro login, nunca outro campo (ver `firestore.rules`). */
@@ -4786,6 +4819,8 @@ export function EmployeeApp() {
       // estivesse funcionando — cai para `NAO_ADERIU` e o usuário vê
       // `PRECISA_REPARO` ao abrir o Perfil (`avaliarEstadoNotificacoesPush`).
       verificarDispositivoAtivo: async (id) => (await obterStatusDispositivo(id, login)).status === 'ATIVO',
+      // PUSH-AUTO-REPARO-1 — aparelho desativado pelo servidor por FID renovado volta sozinho.
+      fidRegistrado: async (id) => (await obterStatusDispositivo(id, login)).fid ?? null,
     });
     if (resultado.estado === 'ATIVO' && resultado.fid) {
       deviceIdPushRef.current = deviceId;
