@@ -5,7 +5,7 @@
  * (preferenciasAlertasTurno/{login}), calcula os avisos de HOJE e de ONTEM
  * (turno da noite: saída/intervalo depois da meia-noite) a partir da escala
  * PUBLICADA e envia os que venceram — UMA vez cada (reserva atômica em
- * alertasTurnoEnviados/{login}_{data}_{tipo}). Só em dia de trabalho, com o
+ * alertasTurnoEnviados/{login}_{data}_{tipo}_{quando}). Só em dia de trabalho, com o
  * horário real (HE com turno, trocas já aplicadas). Respeita PUSH_ENABLED.
  */
 
@@ -239,8 +239,14 @@ export interface DependenciasEnvio {
 
 export type ResultadoAlerta = 'ja-enviado' | 'sem-dispositivo' | 'enviado' | 'falhou';
 
-export function idDoAlerta(login: string, alerta: Pick<AlertaAgendado, 'data' | 'tipo'>): string {
-  return `${login}_${alerta.data}_${alerta.tipo}`;
+/**
+ * ALERTAS-TURNO-3 — o horário do aviso faz parte da identidade: se a pessoa
+ * MUDA o horário (ex.: intervalo de 22:00 para 22:30), o novo aviso é outro e
+ * sai; o mesmo aviso no mesmo horário continua saindo uma única vez.
+ * (Antes era login+dia+tipo: um segundo horário no mesmo dia nunca saía.)
+ */
+export function idDoAlerta(login: string, alerta: Pick<AlertaAgendado, 'data' | 'tipo' | 'quando'>): string {
+  return `${login}_${alerta.data}_${alerta.tipo}_${alerta.quando.replace(/[-:T]/gu, '')}`;
 }
 
 export async function enviarAlertaUmaVez(

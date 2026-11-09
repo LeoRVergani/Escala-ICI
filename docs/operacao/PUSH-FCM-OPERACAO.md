@@ -351,7 +351,7 @@ antes), ponto de entrada, intervalo (início e fim) e ponto de saída.
 
 - A cada minuto calcula os avisos de hoje e de ontem (turno da noite) a partir da
   escala **publicada**; só em dia de trabalho; horário real (HE com turno, trocas).
-- Cada aviso sai **uma vez**: registro em `alertasTurnoEnviados/{login}_{data}_{tipo}`
+- Cada aviso sai **uma vez**: registro em `alertasTurnoEnviados/{login}_{data}_{tipo}_{AAAAMMDDHHMM}` (o horário entra no nome: mudar o horário gera um aviso novo)
   (criação atômica). Aviso vencido há mais de 5 min (worker parado) é descartado.
 - Respeita o kill switch: com `PUSH_ENABLED=false` nada é enviado.
 - Log: `agendador de avisos do turno iniciado` e, por aviso, `aviso do turno processado`.
