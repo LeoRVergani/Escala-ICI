@@ -776,6 +776,14 @@ describe('regras Firestore do Escala ICI', () => {
       await assertFails(setDoc(referencia, preferenciasAlertas(usuarios.colega.login)));
     });
 
+    it('AVISO-FOLGA-1: preferências de folga válidas são aceitas; formato errado é recusado', async () => {
+      const db = autenticarComo(usuarios.colaborador);
+      const referencia = doc(db, 'preferenciasAlertasTurno', usuarios.colaborador.login);
+      await assertSucceeds(setDoc(referencia, preferenciasAlertas(usuarios.colaborador.login, { folga: { vespera: true, dia: false } })));
+      await assertFails(setDoc(referencia, preferenciasAlertas(usuarios.colaborador.login, { folga: { vespera: 'sim', dia: true } })));
+      await assertFails(setDoc(referencia, preferenciasAlertas(usuarios.colaborador.login, { folga: { vespera: true, dia: true, hora: '05:00' } })));
+    });
+
     it('ALERTAS-TURNO-1: valores inválidos são recusados pelo banco', async () => {
       const db = autenticarComo(usuarios.colaborador);
       const referencia = doc(db, 'preferenciasAlertasTurno', usuarios.colaborador.login);

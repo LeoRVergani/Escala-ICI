@@ -364,3 +364,17 @@ antes), ponto de entrada, intervalo (início e fim) e ponto de saída.
 2. `PUSH_ENABLED=true` no `.env.staging.push-worker`.
 3. `npm run docker:push-worker:staging:up` (recria o container com a nova config).
 4. Para desligar: `PUSH_ENABLED=false` e `up` de novo.
+
+## Todos os sinos no celular (SINOS-NO-CELULAR-1) e avisos de folga (AVISO-FOLGA-1)
+
+- **Trocas de Plantão** (`notificacoesTrocaPlantao`) e **escala publicada/alterada**
+  (`eventosEscala`) também viram push, com textos fixos (sem nomes na tela
+  bloqueada), uma vez cada (`pushSinosEnviados/{TP_|EE_}{id}`), só depois de
+  `PUSH_ACTIVATED_AT`. Log: `push de sino processado`.
+- **Troca 6x1 aceita pelo colega** avisa quem aprova (responsáveis do escopo
+  JORNADA da equipe): tipo `TROCA_AGUARDANDO_APROVACAO_GESTOR` em `notificacoesTroca`.
+- **Folga**: "Amanhã você está de folga" (véspera, 20:00) e "Hoje você está de
+  folga" (07:00) para DSR, feriado, aniversário e compensação de BH — nunca
+  férias/afastamento. Preferência `folga` em `preferenciasAlertasTurno`.
+- O agendador calcula ontem, hoje e **amanhã** (véspera de folga e "X h antes"
+  de turno da madrugada).

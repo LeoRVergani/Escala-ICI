@@ -28,6 +28,7 @@ const TEXTOS_PADRAO: Record<TipoNotificacaoTroca, { titulo: string; corpo: strin
   TROCA_SOLICITADA: { titulo: 'Nova solicitação de troca', corpo: 'Você recebeu uma solicitação de troca de escala.' },
   TROCA_RECUSADA_USUARIO: { titulo: 'Troca recusada', corpo: 'Sua solicitação de troca foi recusada.' },
   TROCA_ACEITA_AGUARDANDO_GESTOR: { titulo: 'Troca aceita', corpo: 'Sua solicitação foi aceita e aguarda o gestor.' },
+  TROCA_AGUARDANDO_APROVACAO_GESTOR: { titulo: 'Troca aguardando sua aprovação', corpo: 'Uma troca de escala da sua equipe precisa da sua aprovação.' },
   TROCA_RECUSADA_GESTOR: { titulo: 'Troca recusada pelo gestor', corpo: 'O gestor recusou a troca de escala.' },
   TROCA_APROVADA_PUBLICADA: { titulo: 'Troca aprovada', corpo: 'Sua troca foi aprovada. Abra o app para ver a escala atualizada.' },
   TROCA_CANCELADA: { titulo: 'Troca cancelada', corpo: 'A solicitação de troca foi cancelada.' },

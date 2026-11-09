@@ -21,6 +21,7 @@ export async function obterPreferenciasAlertasTurno(login: string): Promise<Pref
     pontoEntrada: { ...padrao.pontoEntrada, ...dados.pontoEntrada },
     pontoSaida: { ...padrao.pontoSaida, ...dados.pontoSaida },
     intervalo: { ...padrao.intervalo, ...dados.intervalo, horarios: { ...dados.intervalo?.horarios } },
+    folga: { ...padrao.folga, ...dados.folga },
     login,
   };
 }
@@ -37,6 +38,7 @@ export async function salvarPreferenciasAlertasTurno(preferencias: PreferenciasA
       duracaoMinutos: preferencias.intervalo.duracaoMinutos,
       horarios: preferencias.intervalo.horarios,
     },
+    folga: { vespera: preferencias.folga.vespera, dia: preferencias.folga.dia },
     atualizadoEm: new Date().toISOString(),
   });
 }
