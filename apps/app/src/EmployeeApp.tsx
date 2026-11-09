@@ -5184,6 +5184,16 @@ export function EmployeeApp() {
     competenciaAtiva,
   );
   const jornadaPublicadaApp = temJornadaPublicada(operacoesApp);
+  /**
+   * CONTA-SETOR-1 — conta de um SETOR (ex.: celular compartilhado do NOC):
+   * pertence a uma equipe com escala publicada, mas o próprio login não está
+   * em nenhuma escala. A Hoje mostra como principais "Equipe escalada hoje" e
+   * "Plantões agora"; o que é pessoal (avisos do turno, aviso de jornada) some.
+   */
+  const contaSetorApp = Boolean(usuario?.equipeId)
+    && !souCoordenacaoApp
+    && documentos.some((documento) => documento.equipeId === usuario?.equipeId)
+    && !documentos.some((documento) => documento.login === usuario?.login);
   const plantaoPublicadoApp = temPlantaoPublicado(operacoesApp);
   /** FASE-TROCAS-PLANTAO-1 — só participante ATIVO do Grupo pode solicitar/receber troca de Plantão (mesmo critério de `resolverOperacoesApp` acima). */
   const souPlantonistaAtivoApp = participantesPlantaoApp.some(
@@ -5305,12 +5315,14 @@ export function EmployeeApp() {
       {mensagemErro && <div className="alert error">{mensagemErro}</div>}
 
       {tela === 'hoje' && (
-        <section className="employee-screen employee-today-screen">
+        <section className="employee-screen employee-today-screen" data-conta-setor={contaSetorApp ? '' : undefined}>
           <header className="page-heading today-heading">
             <div>
               <p className="eyebrow">{dataHojeFormatada}</p>
               <h1>Olá, {usuario.nome.split(' ')[0]}</h1>
-              <p>Veja sua jornada e quem estará com você hoje.</p>
+              <p>{contaSetorApp
+                ? `Quem trabalha hoje${equipeUsuarioApp?.nome ? ` no ${equipeUsuarioApp.nome}` : ''} e quem está de plantão.`
+                : 'Veja sua jornada e quem estará com você hoje.'}</p>
             </div>
             <div className="today-heading-actions">
               <span className="today-period">
@@ -5351,7 +5363,7 @@ export function EmployeeApp() {
             amigável quando nenhuma existe. Nunca um erro vermelho global
             só porque falta uma das duas.
           */}
-          {!jornadaPublicadaApp && plantaoPublicadoApp && (
+          {!jornadaPublicadaApp && plantaoPublicadoApp && !contaSetorApp && (
             <div className="alert warning" role="status">
               Nenhuma jornada 6x1 publicada para este período.
             </div>
@@ -5438,7 +5450,7 @@ export function EmployeeApp() {
                       </div>
                       )}
 
-                      {jornadaPublicadaApp && (
+                      {(jornadaPublicadaApp || contaSetorApp) && (
                       <article className="panel today-team-panel">
               <div className="panel-title today-team-title">
                 <div>
@@ -6366,7 +6378,7 @@ export function EmployeeApp() {
         <section className="employee-screen employee-profile-screen">
           <header className="page-heading">
             <div>
-              <p className="eyebrow">Conta do colaborador</p>
+              <p className="eyebrow">{contaSetorApp ? 'Conta do setor' : 'Conta do colaborador'}</p>
               <h1>Perfil</h1>
               <p>Identidade usada para localizar sua escala publicada.</p>
             </div>
@@ -6518,7 +6530,9 @@ export function EmployeeApp() {
               </article>
             )}
             {/* ALERTAS-TURNO-LAYOUT-1 — Avisos do turno ANTES das Notificações, na largura toda. */}
-            <AlertasTurnoPerfil login={usuario.login} turnos={turnosDaPessoaNoMes(escalaVisivelApp, catalogo)} />
+            {!contaSetorApp && (
+              <AlertasTurnoPerfil login={usuario.login} turnos={turnosDaPessoaNoMes(escalaVisivelApp, catalogo)} />
+            )}
             <CardNotificacoesPush
               estado={estadoNotificacoesPush}
               erro={erroNotificacoesPush}

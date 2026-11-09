@@ -787,3 +787,14 @@ test('ESPACAMENTO-PADRAO-2 — grades do App nunca somam margem ao gap (cards co
   assert.match(css, /\.today-dashboard-grid > \.panel \+ \.panel,\s*\.app-shell\.product-app \.today-summary-grid > \.panel \+ \.panel,\s*\.app-shell\.product-app \.profile-layout > \.panel \+ \.panel \{\s*margin-top: 0;/);
   assert.match(css, /\.app-shell\.product-app \.employee-screen \{\s*display: flex;\s*flex-direction: column;\s*gap: var\(--app-espaco-blocos\);/);
 });
+
+test('CONTA-SETOR-1 — conta do setor (sem escala própria) vê a equipe do dia e os plantões', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  // Reconhecida pela escala: tem equipe com escala publicada, mas o login não está nela.
+  assert.match(app, /const contaSetorApp = Boolean\(usuario\?\.equipeId\)[\s\S]{0,200}!documentos\.some\(\(documento\) => documento\.login === usuario\?\.login\)/);
+  // A "Equipe escalada hoje" aparece também para a conta do setor.
+  assert.match(app, /\(jornadaPublicadaApp \|\| contaSetorApp\) && \(\s*<article className="panel today-team-panel">/);
+  // Nada pessoal: sem aviso de jornada e sem avisos do turno.
+  assert.match(app, /!jornadaPublicadaApp && plantaoPublicadoApp && !contaSetorApp/);
+  assert.match(app, /!contaSetorApp && \(\s*<AlertasTurnoPerfil/);
+});
