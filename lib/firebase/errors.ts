@@ -86,3 +86,18 @@ export function mensagemErroFirebase(
   }
   return mensagem.length > 400 ? fallback : mensagem || fallback;
 }
+
+/**
+ * TROCA-CONTA-1 — erro de ENCERRAMENTO do cliente Firestore (logout chama
+ * `terminate()` com ouvintes ainda ligados; troca de conta sem recarregar).
+ * É esperado, não é falha: os ouvintes devem ignorá-lo em vez de mostrar
+ * "A conexão com o Firestore foi reiniciada" na tela da próxima conta.
+ */
+export function ehErroEncerramentoFirestore(falha: unknown): boolean {
+  const codigo = typeof falha === 'object' && falha !== null && 'code' in falha ? String((falha as { code?: unknown }).code) : '';
+  const mensagem = falha instanceof Error ? falha.message : String(falha ?? '');
+  return codigo === 'aborted'
+    || mensagem.includes('shutting down')
+    || mensagem.includes('has already been terminated')
+    || mensagem.includes('The client has already been terminated');
+}

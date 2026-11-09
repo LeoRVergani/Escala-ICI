@@ -11,6 +11,11 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.0.2 — troca de conta sem erro
+- Sair e entrar com outra conta não mostra mais "A conexão com o Firestore foi
+  reiniciada" (os ouvintes ignoram o encerramento do logout e os erros da
+  sessão anterior são apagados ao entrar).
+
 ## 3.0.1 — modal de lembrete
 - Modal de lembrete redesenhado: Salvar sempre visível (só o meio rola), título
   em destaque, "Em um horário | Dia inteiro", "Das … até …", descrição e
