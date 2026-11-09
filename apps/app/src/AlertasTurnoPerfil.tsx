@@ -211,7 +211,7 @@ export function AlertasTurnoPerfil({ login, turnos }: { login: string; turnos: r
           {mensagem.tipo === 'ok' && <CheckCircle2 size={15} aria-hidden="true" />} {mensagem.texto}
         </p>
       )}
-      <p className="alertas-turno-ajuda">Para receber, ative as notificações neste aparelho (no card acima).</p>
+      <p className="alertas-turno-ajuda">Para receber, ative as notificações neste aparelho (no card Notificações, logo abaixo).</p>
     </article>
   );
 }
