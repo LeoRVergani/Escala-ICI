@@ -86,7 +86,7 @@ import {
 import { ScheduleGrid } from '@/components/ScheduleGrid';
 import { ScheduleLegend } from '@/components/ScheduleLegend';
 import { sair } from '@/lib/firebase/authRepository';
-import { mensagemErroFirebase } from '@/lib/firebase/errors';
+import { ehErroEncerramentoFirestore, mensagemErroFirebase } from '@/lib/firebase/errors';
 import { ambienteFirebaseAtual } from '@/lib/firebase/shared';
 import { pushConfigurado } from '@/lib/firebase/client';
 import {
@@ -3450,6 +3450,13 @@ export function EmployeeApp() {
   }>({ estado: 'carregando', falhas: [] });
   const [processandoTroca, setProcessandoTroca] = useState(false);
   const [erroTroca, setErroTroca] = useState('');
+  /** TROCA-CONTA-1 — zera as mensagens de erro ao entrar e ao sair (troca de conta sem recarregar). */
+  function limparErrosDaSessao() {
+    setErro('');
+    setErroTroca('');
+    setErroTrocaPlantao('');
+    setErroPlantaoApp('');
+  }
   const [estadoNotificacoesPush, setEstadoNotificacoesPush] = useState<EstadoNotificacoesPush>('NAO_CONFIGURADO');
   const [erroNotificacoesPush, setErroNotificacoesPush] = useState('');
   const [ultimaConfirmacaoPush, setUltimaConfirmacaoPush] = useState<string | null>(null);
@@ -3731,7 +3738,7 @@ export function EmployeeApp() {
       equipeUsuario,
       janelaCompetenciasApp,
       setDocumentos,
-      (falha) => setErro(mensagemErroFirebase(falha, 'A sincronização em tempo real foi interrompida.', ambienteFirebaseAtual)),
+      (falha) => { if (!ehErroEncerramentoFirestore(falha)) setErro(mensagemErroFirebase(falha, 'A sincronização em tempo real foi interrompida.', ambienteFirebaseAtual)); },
     );
     const cancelarEventos = observarEventosEscala(
       loginUsuario,
@@ -3757,19 +3764,19 @@ export function EmployeeApp() {
           }
         }
       },
-      (falha) => setErro(mensagemErroFirebase(falha, 'Não foi possível acompanhar as atualizações.', ambienteFirebaseAtual)),
+      (falha) => { if (!ehErroEncerramentoFirestore(falha)) setErro(mensagemErroFirebase(falha, 'Não foi possível acompanhar as atualizações.', ambienteFirebaseAtual)); },
     );
     const cancelarTrocas = observarTrocasDoUsuario(
       equipeUsuario,
       competenciaAtiva,
       loginUsuario,
       setTrocas,
-      (falha) => setErroTroca(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de escala.', ambienteFirebaseAtual)),
+      (falha) => { if (!ehErroEncerramentoFirestore(falha)) setErroTroca(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de escala.', ambienteFirebaseAtual)); },
     );
     const cancelarNotificacoesTroca = observarNotificacoesTroca(
       loginUsuario,
       setNotificacoesTroca,
-      (falha) => setErroTroca(mensagemErroFirebase(falha, 'Não foi possível acompanhar as notificações de troca.', ambienteFirebaseAtual)),
+      (falha) => { if (!ehErroEncerramentoFirestore(falha)) setErroTroca(mensagemErroFirebase(falha, 'Não foi possível acompanhar as notificações de troca.', ambienteFirebaseAtual)); },
     );
     return () => {
       cancelarEscalas();
@@ -3786,7 +3793,7 @@ export function EmployeeApp() {
     const cancelarNotificacoesTrocaPlantao = observarNotificacoesTrocaPlantao(
       loginUsuario,
       setNotificacoesTrocaPlantaoApp,
-      (falha) => setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível acompanhar as notificações de troca de plantão.', ambienteFirebaseAtual)),
+      (falha) => { if (!ehErroEncerramentoFirestore(falha)) setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível acompanhar as notificações de troca de plantão.', ambienteFirebaseAtual)); },
     );
     return cancelarNotificacoesTrocaPlantao;
   }, [listenersLiberados, loginUsuario]);
@@ -3846,7 +3853,7 @@ export function EmployeeApp() {
       competenciaPlantaoApp,
       loginUsuario,
       setTrocasPlantaoApp,
-      (falha) => setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de plantão.', ambienteFirebaseAtual)),
+      (falha) => { if (!ehErroEncerramentoFirestore(falha)) setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de plantão.', ambienteFirebaseAtual)); },
     );
     return () => {
       cancelarTrocasPlantao();
@@ -3863,7 +3870,7 @@ export function EmployeeApp() {
       grupoIdPlantaoApp,
       competenciaPlantaoApp,
       setTrocasPlantaoDoGrupoApp,
-      (falha) => setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de plantão do grupo.', ambienteFirebaseAtual)),
+      (falha) => { if (!ehErroEncerramentoFirestore(falha)) setErroTrocaPlantao(mensagemErroFirebase(falha, 'Não foi possível acompanhar as trocas de plantão do grupo.', ambienteFirebaseAtual)); },
     );
     return () => {
       cancelarTrocasPlantaoDoGrupo();
@@ -3935,12 +3942,12 @@ export function EmployeeApp() {
         setDetalhesPlantaoPorGrupoApp((atuais) => ({ ...atuais, [grupo.grupoId]: detalhe }));
         aplicarDetalhePlantaoSelecionado(grupo, detalhe);
       }).catch((falha) => {
-        if (!cancelado && carga === revisaoCarga) {
+        if (!cancelado && carga === revisaoCarga && !ehErroEncerramentoFirestore(falha)) {
           setErroPlantaoApp(mensagemErroFirebase(falha, 'Não foi possível atualizar o Plantão.', ambienteFirebaseAtual, 'autoatendimento'));
         }
       });
     }, (falha) => {
-      if (!cancelado) setErroPlantaoApp(mensagemErroFirebase(falha, 'Não foi possível acompanhar as publicações do Plantão.', ambienteFirebaseAtual, 'autoatendimento'));
+      if (!cancelado && !ehErroEncerramentoFirestore(falha)) setErroPlantaoApp(mensagemErroFirebase(falha, 'Não foi possível acompanhar as publicações do Plantão.', ambienteFirebaseAtual, 'autoatendimento'));
     });
     return () => { cancelado = true; parar(); };
     // As funções de aplicação só escrevem estado; não são dependências da assinatura.
@@ -4161,6 +4168,8 @@ export function EmployeeApp() {
     }
     setUsuario(autenticado);
     setModoDemonstracao(demonstracao);
+    // TROCA-CONTA-1 — nenhuma mensagem de erro da sessão anterior sobrevive à troca de conta.
+    limparErrosDaSessao();
     setEventos([]);
     setTrocas([]);
     setNotificacoesTroca([]);
@@ -4543,6 +4552,7 @@ export function EmployeeApp() {
     await sair();
     setUsuario(null);
     setDocumentos([]);
+    limparErrosDaSessao();
     setEventos([]);
     setTrocas([]);
     setNotificacoesTroca([]);

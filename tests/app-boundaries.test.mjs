@@ -814,3 +814,13 @@ test('PWA-INSTALAR-1 / PWA-ATUALIZAR-1 / CONTA-SETOR-2 — instalar uma vez, atu
   assert.match(css, /\[data-conta-setor\] > \.today-team-panel \{ order: 1; \}/);
   assert.doesNotMatch(css, /\[data-conta-setor\] > \.today-team-panel \{ order: -1; \}/);
 });
+
+test('TROCA-CONTA-1 — ouvintes ignoram o encerramento do Firestore e erros não sobrevivem à troca de conta', async () => {
+  for (const arquivo of ['apps/app/src/EmployeeApp.tsx', 'apps/app/src/lembretes/useLembretes.ts']) {
+    const fonte = await ler(arquivo);
+    // Nenhum ouvinte mostra erro sem antes descartar o encerramento (logout).
+    assert.doesNotMatch(fonte, /\(falha\) => set[A-Za-z]+\(mensagemErroFirebase\(/u, `${arquivo}: ouvinte sem ehErroEncerramentoFirestore`);
+  }
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  assert.equal((app.match(/limparErrosDaSessao\(\);/gu) ?? []).length, 2, 'limpar ao entrar e ao sair');
+});

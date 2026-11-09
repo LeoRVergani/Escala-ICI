@@ -10,7 +10,7 @@
  */
 import { useEffect, useState } from 'react';
 
-import { mensagemErroFirebase } from '@/lib/firebase/errors';
+import { ehErroEncerramentoFirestore, mensagemErroFirebase } from '@/lib/firebase/errors';
 import {
   atualizarLembretePessoal as atualizarLembretePessoalFirebase,
   criarLembretePessoal as criarLembretePessoalFirebase,
@@ -147,14 +147,14 @@ export function useLembretes(parametros: ParametrosUseLembretes): ResultadoUseLe
       dataInicio,
       dataFim,
       setPessoaisReais,
-      (falha) => setErro(mensagemErroFirebase(falha, 'Não foi possível acompanhar seus lembretes.', ambienteFirebaseAtual, 'autoatendimento')),
+      (falha) => { if (!ehErroEncerramentoFirestore(falha)) setErro(mensagemErroFirebase(falha, 'Não foi possível acompanhar seus lembretes.', ambienteFirebaseAtual, 'autoatendimento')); },
     );
     const cancelarAtribuidos = observarLembretesAtribuidosDoUsuario(
       login,
       dataInicio,
       dataFim,
       setAtribuidosReais,
-      (falha) => setErro(mensagemErroFirebase(falha, 'Não foi possível acompanhar lembretes atribuídos.', ambienteFirebaseAtual, 'autoatendimento')),
+      (falha) => { if (!ehErroEncerramentoFirestore(falha)) setErro(mensagemErroFirebase(falha, 'Não foi possível acompanhar lembretes atribuídos.', ambienteFirebaseAtual, 'autoatendimento')); },
     );
     return () => {
       cancelarPessoais();
