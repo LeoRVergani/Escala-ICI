@@ -860,3 +860,26 @@ test('LEMBRETE-EQUIPE-APP-1 — lembrete para a equipe: caminho único, origemAp
   assert.match(modulo, /origemApp: true/);
   assert.match(modulo, /grupoPlantaoId: alvo\.grupoPlantaoId/);
 });
+
+test('IMPORTAR-6X1-APP-1 — exceção controlada: importar 6x1 pelo App por um único caminho, com o mesmo pipeline', async () => {
+  const [app, componente, visao, modulo] = await Promise.all([
+    ler('apps/app/src/EmployeeApp.tsx'),
+    ler('apps/app/src/ImportarEscala6x1Coordenacao.tsx'),
+    ler('apps/app/src/VisaoCoordenador.tsx'),
+    ler('lib/firebase/importacao6x1App.ts'),
+  ]);
+  // O EmployeeApp não ganha símbolos de gestão: só abre o componente dedicado.
+  assert.doesNotMatch(app, /importacao6x1App|salvarRascunho|publicarEscalas|parsePlanilhaEscala/);
+  assert.match(app, /<ImportarEscala6x1Coordenacao/);
+  // O botão só existe na visão de coordenação.
+  assert.match(app, /souCoordenacaoApp && \(\s*<VisaoEquipesCoordenador[\s\S]*?onImportar6x1=/);
+  assert.match(visao, /onImportar6x1 &&/);
+  // O componente fala só com o módulo dedicado.
+  assert.match(componente, /from '@\/lib\/firebase\/importacao6x1App'/);
+  assert.doesNotMatch(componente, /writeRepository/);
+  // MESMO pipeline do Dashboard (leitura, conciliação, rascunho, publicação) e origem App.
+  for (const funcao of ['processarArquivoImportado', 'conciliarPlanilha', 'loginParaUidComConciliacao', 'salvarRascunho', 'publicarEscalas', 'temErroBloqueante']) {
+    assert.match(modulo, new RegExp(funcao), funcao);
+  }
+  assert.match(modulo, /origemApp: true/);
+});

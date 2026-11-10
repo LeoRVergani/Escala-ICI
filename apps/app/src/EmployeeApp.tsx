@@ -238,6 +238,7 @@ import { AlertasTurnoPerfil, type TurnoDaPessoa } from './AlertasTurnoPerfil';
 import { HojePlantonista } from './HojePlantonista';
 import { HojeCoordenacao } from './HojeCoordenacao';
 import { CriarLembreteEquipe, type AlvoLembreteEquipe } from './CriarLembreteEquipe';
+import { ImportarEscala6x1Coordenacao } from './ImportarEscala6x1Coordenacao';
 import {
   faixaTemperatura,
   LOCAL_PREVISAO,
@@ -3473,6 +3474,8 @@ export function EmployeeApp() {
   /** LEMBRETE-EQUIPE-APP-1 — para quem o coordenador está criando um lembrete. */
   const [alvoLembreteEquipe, setAlvoLembreteEquipe] = useState<AlvoLembreteEquipe | null>(null);
   const [lembreteEquipeCriado, setLembreteEquipeCriado] = useState<string | null>(null);
+  /** IMPORTAR-6X1-APP-1 — equipe cuja escala 6x1 o coordenador está importando. */
+  const [importando6x1Equipe, setImportando6x1Equipe] = useState<{ id: string; nome: string } | null>(null);
   /** PREVISAO-TEMPO-1 — previsão hora a hora (Open-Meteo, cache de 1 h no aparelho). */
   const [horasPrevisao, setHorasPrevisao] = useState<HoraPrevisao[] | null>(null);
   useEffect(() => {
@@ -6424,6 +6427,7 @@ export function EmployeeApp() {
               )}
               onImportarPlantao={(grupo) => setImportandoPlantaoGrupo(grupo)}
               onCriarLembrete={(alvo) => setAlvoLembreteEquipe(alvo)}
+              onImportar6x1={(equipe) => setImportando6x1Equipe({ id: equipe.id, nome: equipe.nome })}
               renderizarMesPessoa={(documento) => (
                 <CalendarioPessoaCoordenador documento={documento} dataHoje={dataHoje} catalogo={catalogo} />
               )}
@@ -6776,6 +6780,17 @@ export function EmployeeApp() {
         <div className="toast-lembrete-equipe" role="status">
           <BellPlus size={16} aria-hidden="true" /> Lembrete criado para <strong>{lembreteEquipeCriado}</strong> — ele recebe o aviso no celular.
         </div>
+      )}
+      {/* IMPORTAR-6X1-APP-1 — importar a escala 6x1 do mês pelo App. */}
+      {importando6x1Equipe && usuario && (
+        <ImportarEscala6x1Coordenacao
+          equipe={importando6x1Equipe}
+          competenciaAtual={competenciaAtiva}
+          catalogo={catalogo}
+          autor={usuario}
+          onFechar={() => setImportando6x1Equipe(null)}
+          onConcluido={() => setRecargaVisaoCoordenacao((valor) => valor + 1)}
+        />
       )}
       {importandoPlantaoGrupo && usuario && (
         <ImportarPlantaoCoordenacao

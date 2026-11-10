@@ -113,12 +113,22 @@ function motivoPublicacao(
   return motivo.trim();
 }
 
+/**
+ * IMPORTAR-6X1-APP-1 — o coordenador importa a escala 6x1 pelo App:
+ * `origemApp` dispensa a trava de escrita administrativa (mesmo padrão da
+ * importação de Plantão); QUEM pode gravar continua decidido pelas Rules.
+ */
+export interface OpcoesEscritaEscala {
+  origemApp?: boolean;
+}
+
 export async function salvarRascunho(
   resultado: ResultadoParse,
   enviadoPor: Usuario,
   nomeArquivo: string,
+  opcoes: OpcoesEscritaEscala = {},
 ): Promise<string> {
-  exigirEscritaAdministrativaHabilitada();
+  if (!opcoes.origemApp) exigirEscritaAdministrativaHabilitada();
   const primeiro = resultado.documentos[0];
   if (primeiro === undefined) {
     throw new Error('Não é permitido salvar uma escala sem colaboradores.');
@@ -175,8 +185,9 @@ export async function publicarEscalas(
   publicadoPor: string,
   motivo = '',
   pendenciasImportacao: readonly ErroImportacao[] = documentos[0]?.pendenciasImportacao ?? [],
+  opcoes: OpcoesEscritaEscala = {},
 ): Promise<PublicacaoEscala> {
-  exigirEscritaAdministrativaHabilitada();
+  if (!opcoes.origemApp) exigirEscritaAdministrativaHabilitada();
   const { db } = exigirFirebase();
   const { equipeId, competencia, chavePublicacao } = validarConjuntoPublicacao(documentos);
   const estadoRef = doc(db, 'publicacoesEscala', chavePublicacao);

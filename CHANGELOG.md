@@ -11,6 +11,13 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.5.0 — importar a escala 6x1 pelo App
+- Equipe › 6x1 › "Importar planilha do mês": Planilha → Conferir → Publicar,
+  com escolha do mês (atual ou próximo). Mesmo processo do Dashboard: nomes
+  conciliados com cadastros e apelidos, erros que impedem publicar, avisos.
+- Sem pendências: publica para a equipe (quem teve mudança recebe o aviso).
+  Com pendências: salva o rascunho para resolver no Dashboard.
+
 ## 3.4.0 — lembrete com aviso para a equipe
 - Em Equipe, o coordenador cria lembrete para alguém da 6x1 (no mês da pessoa)
   ou do Plantão (sino em Totais e Próximos), com Avisar e Repetir; a pessoa
