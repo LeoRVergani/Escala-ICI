@@ -796,7 +796,7 @@ test('CONTA-SETOR-1 — conta do setor (sem escala própria) vê a equipe do dia
   assert.match(app, /\(jornadaPublicadaApp \|\| contaSetorApp\) && \(\s*<article className="panel today-team-panel">/);
   // Nada pessoal: sem aviso de jornada e sem avisos do turno.
   assert.match(app, /!jornadaPublicadaApp && plantaoPublicadoApp && !contaSetorApp/);
-  assert.match(app, /!contaSetorApp && \(\s*<AlertasTurnoPerfil/);
+  assert.match(app, /!contaSetorApp && Boolean\(usuario\.equipeId\) && \(\s*<AlertasTurnoPerfil/);
 });
 
 test('PWA-INSTALAR-1 / PWA-ATUALIZAR-1 / CONTA-SETOR-2 — instalar uma vez, atualização confiável, NOC com Plantões primeiro', async () => {
@@ -832,4 +832,14 @@ test('HOJE-PLANTONISTA-1 — Hoje do plantonista: o próprio Plantão, passagem 
   assert.match(app, /const meuGrupo = gruposPlantaoApp\.find\(\(item\) => \(detalhesPlantaoPorGrupoApp\[item\.grupoId\]\?\.participantes \?\? \[\]\)\s*\.some\(\(participante\) => participante\.login === usuario\.login && participante\.ativo\)\)/);
   // Tocar na pessoa abre o mesmo modal de contatos dos "Plantões agora".
   assert.match(app, /onAbrirPlantonista=\{\(atribuicao\) => setPlantonistaAberto\(\{ grupo: meuGrupo, atribuicao, participantes: detalhe\.participantes \}\)\}/);
+});
+
+test('HOJE-COORDENACAO-1 — coordenação: visão do dia, histórico de trocas, Agenda com lembretes, Perfil sem avisos do turno', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  assert.match(app, /<HojeCoordenacao[\s\S]{0,900}onAbrirPlantonista=\{\(plantao, atribuicao\) => setPlantonistaAberto\(\{ grupo: plantao\.grupo, atribuicao, participantes: plantao\.participantes \}\)\}/);
+  assert.match(app, /const historicoTrocasEquipeApp = Object\.values\(trocasParaAprovarPorChave\)\.flat\(\)/, 'histórico sai da MESMA consulta (sem leitura nova)');
+  assert.match(app, /AGENDA-COORDENACAO-1[\s\S]{0,1200}<LembretesView/);
+  const tela = await ler('apps/app/src/HojeCoordenacao.tsx');
+  assert.match(tela, /\(\['ontem', 'hoje', 'amanha'\] as const\)/, 'Ontem | Hoje | Amanhã');
+  assert.match(tela, /sequenciaDoPosto\(plantao\.atribuicoes, agoraIso, funcao\)/, 'Antes · Agora · Depois por posto');
 });
