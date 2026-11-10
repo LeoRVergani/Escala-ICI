@@ -18,6 +18,8 @@ export interface HoraPrevisao {
   temperatura: number;
   chuva: number | null;
   codigo: number;
+  /** PREVISAO-NOITE-1 — a API diz, hora a hora, se é dia (true) ou noite (false). */
+  dia?: boolean;
 }
 
 export interface PrevisaoTurno {
@@ -28,13 +30,15 @@ export interface PrevisaoTurno {
   codigo: number;
   tipo: TipoTempo;
   rotulo: string;
+  /** PREVISAO-NOITE-1 — a maior parte das horas do turno é de noite (ícone de lua). */
+  noite: boolean;
 }
 
 export function urlPrevisao(local: { latitude: number; longitude: number; timezone: string } = LOCAL_PREVISAO): string {
   const parametros = new URLSearchParams({
     latitude: String(local.latitude),
     longitude: String(local.longitude),
-    hourly: 'temperature_2m,precipitation_probability,weather_code',
+    hourly: 'temperature_2m,precipitation_probability,weather_code,is_day',
     timezone: local.timezone,
     forecast_days: '16',
   });
@@ -48,6 +52,7 @@ export function interpretarPrevisao(resposta: unknown): HoraPrevisao[] {
   const temperaturas = horaria?.temperature_2m;
   const codigos = horaria?.weather_code;
   const chuvas = horaria?.precipitation_probability;
+  const dias = horaria?.is_day;
   if (!Array.isArray(horas) || !Array.isArray(temperaturas) || !Array.isArray(codigos)) {
     return [];
   }
@@ -57,7 +62,9 @@ export function interpretarPrevisao(resposta: unknown): HoraPrevisao[] {
     const codigo = codigos[indice];
     if (typeof hora !== 'string' || typeof temperatura !== 'number' || typeof codigo !== 'number') return;
     const chuva = Array.isArray(chuvas) && typeof chuvas[indice] === 'number' ? (chuvas[indice] as number) : null;
-    resultado.push({ hora, temperatura, chuva, codigo });
+    const item: HoraPrevisao = { hora, temperatura, chuva, codigo };
+    if (Array.isArray(dias) && typeof dias[indice] === 'number') item.dia = dias[indice] === 1;
+    resultado.push(item);
   });
   return resultado;
 }
@@ -103,7 +110,9 @@ export function previsaoDoTurno(horas: readonly HoraPrevisao[], data: string, in
     GRAVIDADE[descreverTempo(hora.codigo).tipo] > GRAVIDADE[descreverTempo(atual.codigo).tipo] ? hora : atual
   ));
   const descricao = descreverTempo(pior.codigo);
+  const horasDeNoite = doTurno.filter((hora) => hora.dia === false).length;
   return {
+    noite: horasDeNoite * 2 > doTurno.length,
     tempMin: Math.round(Math.min(...temperaturas)),
     tempMax: Math.round(Math.max(...temperaturas)),
     chuvaMax: chuvas.length > 0 ? Math.max(...chuvas) : null,
@@ -119,7 +128,7 @@ export function faixaTemperatura(previsao: Pick<PrevisaoTurno, 'tempMin' | 'temp
 
 // ---------------------------------------------------------------------------
 // Busca com cache de 1 hora no aparelho (localStorage). Falha → null, sem erro.
-const CHAVE_CACHE = 'escala-ici:previsao-tempo:v1';
+const CHAVE_CACHE = 'escala-ici:previsao-tempo:v2'; // v2: com is_day (dia/noite)
 const VALIDADE_MS = 60 * 60 * 1000;
 
 export async function obterPrevisaoHoraria(agora: number = Date.now()): Promise<HoraPrevisao[] | null> {

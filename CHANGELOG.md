@@ -11,6 +11,10 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.1.1 — previsão com lua no turno da noite
+- A previsão já usava só as horas do turno; o ícone agora mostra a lua quando a
+  maior parte do turno é de noite (Noite, Madrugada), em vez do sol.
+
 ## 3.1.0 — lembretes que avisam e se repetem
 - Lembretes da Agenda viram push: "Avisar" no modal (sem aviso, no horário,
   5 min antes — padrão —, 15 min, 1 h, 1 dia antes; dia inteiro às 08:00).
