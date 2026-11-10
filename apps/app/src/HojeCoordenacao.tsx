@@ -38,8 +38,10 @@ function horaDeBrasilia(agora: Date): number {
   return Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hourCycle: 'h23' }).format(agora));
 }
 
-function primeiroNome(nome: string): string {
-  return nome.split(' ')[0] ?? nome;
+/** COORD-VISUAL-1 — com trim: nome cadastrado com espaço no começo não some. */
+export function primeiroNome(nome: string): string {
+  const limpo = nome.trim();
+  return limpo.split(/\s+/u)[0] || limpo;
 }
 
 function iniciais(nome: string): string {

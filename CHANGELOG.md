@@ -11,6 +11,10 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.5.1 — ajustes da Hoje da coordenação
+- Nome com espaço no começo do cadastro aparecia vazio; cards da equipe e do
+  Plantão alinhados; título e legenda separados; "Ver escala" numa linha.
+
 ## 3.5.0 — importar a escala 6x1 pelo App
 - Equipe › 6x1 › "Importar planilha do mês": Planilha → Conferir → Publicar,
   com escolha do mês (atual ou próximo). Mesmo processo do Dashboard: nomes
