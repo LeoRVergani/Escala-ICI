@@ -9473,3 +9473,8 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
   transform: translateX(-50%);
 }
 .toast-lembrete-equipe strong { color: #fff; }
+
+/* IMPORTAR-6X1-APP-1 — seletor de competência (mês atual / próximo). */
+.importar-6x1-competencia { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
+.importar-6x1-competencia > button { min-height: 38px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.importar-6x1-competencia > button.active { background: var(--surface); color: var(--primary-bright); box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12); }

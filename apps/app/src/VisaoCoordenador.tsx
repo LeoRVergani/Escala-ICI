@@ -270,6 +270,7 @@ export function VisaoEquipesCoordenador({
   renderizarCalendarioPlantao,
   renderizarMesPessoa,
   onImportarPlantao,
+  onImportar6x1,
   onCriarLembrete,
 }: {
   equipes: readonly EquipeJornadaVisao[];
@@ -284,6 +285,8 @@ export function VisaoEquipesCoordenador({
   renderizarMesPessoa?: (documento: TurnosMes) => ReactNode;
   /** IMPORTAR-PLANTAO-APP-1 — abre a importação rápida da planilha do mês. */
   onImportarPlantao?: (grupo: GrupoPlantao) => void;
+  /** IMPORTAR-6X1-APP-1 — importar a escala 6x1 do mês pelo App. */
+  onImportar6x1?: (equipe: EquipeJornadaVisao) => void;
   /** LEMBRETE-EQUIPE-APP-1 — criar lembrete (com aviso no celular) para alguém da equipe. */
   onCriarLembrete?: (alvo: { login: string; nome: string; equipeId?: string | null; grupoPlantaoId?: string }) => void;
 }) {
@@ -354,12 +357,20 @@ export function VisaoEquipesCoordenador({
             </div>
           </div>
 
+          <div className="visao-coord-acoes">
           <div className="visao-coord-seletor" role="tablist" aria-label="Visualização">
             {([['mes', 'Mês'], ['semana', 'Semana'], ['totais', 'Totais']] as const).map(([valor, rotulo]) => (
               <button key={valor} type="button" role="tab" aria-selected={visao6x1 === valor} className={visao6x1 === valor ? 'active' : ''} onClick={() => setVisao6x1(valor)}>
                 {rotulo}
               </button>
             ))}
+          </div>
+          {/* IMPORTAR-6X1-APP-1 — importar a escala 6x1 do mês pelo App. */}
+          {onImportar6x1 && (
+            <button className="primary-button compact-button visao-coord-importar" type="button" onClick={() => onImportar6x1(equipe)}>
+              <Upload size={15} /> Importar planilha do mês
+            </button>
+          )}
           </div>
 
           {equipe.documentos.length === 0 ? (
