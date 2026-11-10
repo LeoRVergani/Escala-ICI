@@ -843,3 +843,20 @@ test('HOJE-COORDENACAO-1 — coordenação: visão do dia, histórico de trocas,
   assert.match(tela, /\(\['ontem', 'hoje', 'amanha'\] as const\)/, 'Ontem | Hoje | Amanhã');
   assert.match(tela, /sequenciaDoPosto\(plantao\.atribuicoes, agoraIso, funcao\)/, 'Antes · Agora · Depois por posto');
 });
+
+test('LEMBRETE-EQUIPE-APP-1 — lembrete para a equipe: caminho único, origemApp e Plantão informado', async () => {
+  const [app, componente, modulo] = await Promise.all([
+    ler('apps/app/src/EmployeeApp.tsx'),
+    ler('apps/app/src/CriarLembreteEquipe.tsx'),
+    ler('lib/firebase/lembreteEquipeApp.ts'),
+  ]);
+  // O EmployeeApp não chama o repositório de escrita: só abre o componente dedicado.
+  assert.doesNotMatch(app, /criarLembreteAtribuido|criarSerieLembretesAtribuidos|lembreteEquipeApp/);
+  assert.match(app, /<CriarLembreteEquipe/);
+  // O componente fala só com o módulo dedicado.
+  assert.match(componente, /from '@\/lib\/firebase\/lembreteEquipeApp'/);
+  assert.doesNotMatch(componente, /lembretesRepository/);
+  // O módulo marca a origem App e repassa o Plantão (as Rules decidem quem pode).
+  assert.match(modulo, /origemApp: true/);
+  assert.match(modulo, /grupoPlantaoId: alvo\.grupoPlantaoId/);
+});

@@ -76,6 +76,7 @@ import {
   Info,
   CloudMoon,
   CloudMoonRain,
+  BellPlus,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -236,6 +237,7 @@ import { detalheVersaoApp, numeroVersaoApp } from './versaoApp';
 import { AlertasTurnoPerfil, type TurnoDaPessoa } from './AlertasTurnoPerfil';
 import { HojePlantonista } from './HojePlantonista';
 import { HojeCoordenacao } from './HojeCoordenacao';
+import { CriarLembreteEquipe, type AlvoLembreteEquipe } from './CriarLembreteEquipe';
 import {
   faixaTemperatura,
   LOCAL_PREVISAO,
@@ -3468,6 +3470,9 @@ export function EmployeeApp() {
   const [importandoPlantaoGrupo, setImportandoPlantaoGrupo] = useState<GrupoPlantao | null>(null);
   /** HOJE-ESTATISTICAS-1 — plantonista aberto no modal de detalhes/contatos. */
   const [plantonistaAberto, setPlantonistaAberto] = useState<PlantonistaAberto | null>(null);
+  /** LEMBRETE-EQUIPE-APP-1 — para quem o coordenador está criando um lembrete. */
+  const [alvoLembreteEquipe, setAlvoLembreteEquipe] = useState<AlvoLembreteEquipe | null>(null);
+  const [lembreteEquipeCriado, setLembreteEquipeCriado] = useState<string | null>(null);
   /** PREVISAO-TEMPO-1 — previsão hora a hora (Open-Meteo, cache de 1 h no aparelho). */
   const [horasPrevisao, setHorasPrevisao] = useState<HoraPrevisao[] | null>(null);
   useEffect(() => {
@@ -6418,6 +6423,7 @@ export function EmployeeApp() {
                 />
               )}
               onImportarPlantao={(grupo) => setImportandoPlantaoGrupo(grupo)}
+              onCriarLembrete={(alvo) => setAlvoLembreteEquipe(alvo)}
               renderizarMesPessoa={(documento) => (
                 <CalendarioPessoaCoordenador documento={documento} dataHoje={dataHoje} catalogo={catalogo} />
               )}
@@ -6751,6 +6757,25 @@ export function EmployeeApp() {
       loginUsuarioAtual={usuario.login}
       onFechar={() => setPlantonistaAberto(null)}
       />
+      )}
+      {/* LEMBRETE-EQUIPE-APP-1 — lembrete com aviso no celular para alguém da equipe. */}
+      {alvoLembreteEquipe && usuario && (
+        <CriarLembreteEquipe
+          alvo={alvoLembreteEquipe}
+          autor={{ login: usuario.login, nome: usuario.nome }}
+          dataInicial={dataHoje}
+          onFechar={() => setAlvoLembreteEquipe(null)}
+          onCriado={(nome) => {
+            setAlvoLembreteEquipe(null);
+            setLembreteEquipeCriado(nome);
+            window.setTimeout(() => setLembreteEquipeCriado(null), 5000);
+          }}
+        />
+      )}
+      {lembreteEquipeCriado && (
+        <div className="toast-lembrete-equipe" role="status">
+          <BellPlus size={16} aria-hidden="true" /> Lembrete criado para <strong>{lembreteEquipeCriado}</strong> — ele recebe o aviso no celular.
+        </div>
       )}
       {importandoPlantaoGrupo && usuario && (
         <ImportarPlantaoCoordenacao
