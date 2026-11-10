@@ -9117,3 +9117,8 @@ button.plantoes-agora-pessoa:focus-visible { outline: none; box-shadow: var(--fo
 .lembrete-form-semana { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .lembrete-form-semana > button { min-height: 38px; padding: 0; border-radius: 10px; font-size: 14px; font-weight: 800; }
 .lembrete-form-resumo { margin: 0; color: var(--muted); font-size: 12.5px; font-weight: 600; }
+
+/* PREVISAO-NOITE-1 — turno de noite com céu limpo/parcial: lua em lilás. */
+[data-noite][data-tipo="sol"], [data-noite][data-tipo="parcial"] { --tempo-cor: #6366f1; }
+:root[data-theme="dark"] [data-noite][data-tipo="sol"],
+:root[data-theme="dark"] [data-noite][data-tipo="parcial"] { --tempo-cor: #a5b4fc; }

@@ -9,6 +9,7 @@ const resposta = {
     temperature_2m: [14.2, 15.4, 16.8, 22.6, 23.1, 19.4, 16.2, 15.6, 15.1],
     precipitation_probability: [0, 5, 10, 20, 15, 60, 80, 70, 40],
     weather_code: [0, 1, 2, 3, 3, 61, 63, 61, 3],
+    is_day: [1, 1, 1, 1, 1, 0, 0, 0, 0],
   },
 };
 
@@ -42,5 +43,13 @@ describe('PREVISAO-TEMPO-1', () => {
     expect(descreverTempo(45).tipo).toBe('neblina');
     expect(urlPrevisao()).toContain('latitude=-25.4284');
     expect(urlPrevisao()).toContain('forecast_days=16');
+  });
+
+  it('PREVISAO-NOITE-1: turno da noite usa a lua; turno do dia, o sol', () => {
+    expect(previsaoDoTurno(horas, '2026-11-06', '19:00', '01:00')?.noite).toBe(true);
+    expect(previsaoDoTurno(horas, '2026-11-06', '07:00', '13:00')?.noite).toBe(false);
+    // Sem o dado de dia/noite (cache antigo), nunca vira noite.
+    const semDia = interpretarPrevisao({ hourly: { ...resposta.hourly, is_day: undefined } });
+    expect(previsaoDoTurno(semDia, '2026-11-06', '19:00', '01:00')?.noite).toBe(false);
   });
 });

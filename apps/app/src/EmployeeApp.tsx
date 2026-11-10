@@ -74,6 +74,8 @@ import {
   Snowflake,
   Sun,
   Info,
+  CloudMoon,
+  CloudMoonRain,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -483,8 +485,12 @@ function turnosDaPessoaNoMes(escala: TurnosMes | null | undefined, catalogo: typ
 }
 
 /** PREVISAO-TEMPO-1 — ícone do tempo (sol, nuvem, chuva…). */
-function IconeTempo({ tipo, size = 18 }: { tipo: TipoTempo; size?: number }) {
+function IconeTempo({ tipo, size = 18, noite = false }: { tipo: TipoTempo; size?: number; noite?: boolean }) {
   const props = { size, 'aria-hidden': true as const };
+  // PREVISAO-NOITE-1 — turno de noite: lua no lugar do sol.
+  if (noite && tipo === 'sol') return <Moon {...props} />;
+  if (noite && tipo === 'parcial') return <CloudMoon {...props} />;
+  if (noite && tipo === 'chuva') return <CloudMoonRain {...props} />;
   switch (tipo) {
     case 'sol': return <Sun {...props} />;
     case 'parcial': return <CloudSun {...props} />;
@@ -550,8 +556,8 @@ function TurnoHoje({ contexto, horasPrevisao }: { contexto: ContextoJornada; hor
           : null;
         if (!previsao) return null;
         return (
-          <div className="tempo-turno" data-tipo={previsao.tipo} title={`Previsão para o seu turno · ${LOCAL_PREVISAO.nome}`}>
-            <span className="tempo-turno-icone"><IconeTempo tipo={previsao.tipo} size={46} /></span>
+          <div className="tempo-turno" data-tipo={previsao.tipo} data-noite={previsao.noite ? '' : undefined} title={`Previsão para o seu turno · ${LOCAL_PREVISAO.nome}`}>
+            <span className="tempo-turno-icone"><IconeTempo tipo={previsao.tipo} size={46} noite={previsao.noite} /></span>
             <span className="tempo-turno-texto">
               <strong>{faixaTemperatura(previsao)}</strong>
               <span className="tempo-turno-condicao">{previsao.rotulo}</span>
@@ -618,8 +624,8 @@ function ProximosDias({ turnos, horasPrevisao }: { turnos: IntervaloTurno[]; hor
                 const previsao = horasPrevisao ? previsaoDoTurno(horasPrevisao, turno.data, turno.inicio, turno.fim) : null;
                 if (!previsao) return null;
                 return (
-                  <span className="tempo-dia" data-tipo={previsao.tipo} title={`${previsao.rotulo} · ${faixaTemperatura(previsao)} no turno`}>
-                    <IconeTempo tipo={previsao.tipo} size={18} />
+                  <span className="tempo-dia" data-tipo={previsao.tipo} data-noite={previsao.noite ? '' : undefined} title={`${previsao.rotulo} · ${faixaTemperatura(previsao)} no turno`}>
+                    <IconeTempo tipo={previsao.tipo} size={18} noite={previsao.noite} />
                     <strong>{previsao.tempMax}°</strong>
                     {previsao.chuvaMax !== null && previsao.chuvaMax >= 30 && (
                       <small><Droplets size={11} aria-hidden="true" />{previsao.chuvaMax}%</small>
