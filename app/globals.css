@@ -9122,3 +9122,136 @@ button.plantoes-agora-pessoa:focus-visible { outline: none; box-shadow: var(--fo
 [data-noite][data-tipo="sol"], [data-noite][data-tipo="parcial"] { --tempo-cor: #6366f1; }
 :root[data-theme="dark"] [data-noite][data-tipo="sol"],
 :root[data-theme="dark"] [data-noite][data-tipo="parcial"] { --tempo-cor: #a5b4fc; }
+
+/* =====================================================================
+ * HOJE-PLANTONISTA-1 — Hoje de quem é plantonista: "Seu plantão",
+ * "Passagem do plantão" (antes · agora · depois) e "Minha semana de plantão".
+ * ===================================================================== */
+.app-shell.product-app .today-dashboard-grid > .plantonista-hero { grid-column: 1 / -1; }
+.plantonista-hero, .plantonista-passagem, .plantonista-semana { display: grid; align-content: start; gap: 0; padding: 0; overflow: hidden; }
+.plantonista-hero > .panel-title,
+.plantonista-passagem > .panel-title,
+.plantonista-semana > .panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.plantonista-semana > .panel-title > span { display: inline-flex; align-items: center; gap: 6px; }
+.plantonista-posto {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-bright) 14%, var(--surface));
+  color: var(--primary-bright);
+  font-size: 12px;
+  font-weight: 800;
+}
+.plantonista-hero-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; padding: 18px; }
+.plantonista-hero-principal { display: flex; align-items: center; gap: 14px; min-width: 0; flex: 1 1 320px; }
+.plantonista-hero-principal > div { display: grid; gap: 3px; min-width: 0; flex: 1 1 auto; }
+.plantonista-hero-icone {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #2563eb);
+  color: #fff;
+}
+.plantonista-hero[data-estado="AGORA"] .plantonista-hero-icone { background: linear-gradient(135deg, #10b981, #059669); }
+.plantonista-hero-estado { color: var(--primary-bright); font-size: 15px; font-weight: 800; }
+.plantonista-hero[data-estado="AGORA"] .plantonista-hero-estado { color: #10b981; }
+.plantonista-hero-horario { color: var(--text); font-size: 34px; font-weight: 800; line-height: 1.05; letter-spacing: -0.02em; }
+.plantonista-hero-datas { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--muted); font-size: 12.5px; }
+.plantonista-hero-datas b { color: var(--text); font-weight: 750; }
+.plantonista-progresso { display: block; height: 6px; margin-top: 6px; border-radius: 999px; background: var(--surface-muted); overflow: hidden; }
+.plantonista-progresso > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #10b981, #34d399); }
+.plantonista-hero-linha > .tempo-turno { display: flex; align-items: center; gap: 12px; margin: 0; padding: 0; border: 0; background: none; }
+.plantonista-hero-linha > .tempo-turno .tempo-turno-icone { width: auto; height: auto; background: none; color: var(--tempo-cor, var(--primary)); }
+.plantonista-hero-linha > .tempo-turno .tempo-turno-texto { display: grid; gap: 1px; text-align: right; }
+.plantonista-hero-linha > .tempo-turno .tempo-turno-texto strong { color: var(--text); font-size: 24px; font-weight: 750; }
+.plantonista-hero-vazio { display: flex; align-items: center; gap: 12px; padding: 18px; color: var(--muted); }
+.plantonista-hero-vazio div { display: grid; gap: 2px; }
+.plantonista-hero-vazio strong { color: var(--text); }
+
+.plantonista-passagem ul { display: grid; gap: 8px; margin: 0; padding: 14px 16px 6px; list-style: none; }
+.passagem-linha > button,
+.passagem-linha.vazia {
+  display: grid;
+  grid-template-columns: 66px auto 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.passagem-linha.vazia { grid-template-columns: 66px 1fr; cursor: default; opacity: 0.75; }
+.passagem-linha > button:hover { border-color: var(--primary-bright); }
+.passagem-linha.agora > button { border-color: color-mix(in srgb, #10b981 55%, var(--border)); background: color-mix(in srgb, #10b981 10%, var(--surface)); }
+.passagem-rotulo { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
+.passagem-linha.agora .passagem-rotulo { color: #10b981; }
+.passagem-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--primary-bright) 18%, var(--surface));
+  color: var(--primary-bright);
+  font-size: 12px;
+  font-weight: 800;
+}
+.passagem-pessoa { display: grid; gap: 1px; min-width: 0; }
+.passagem-pessoa strong { display: inline-flex; align-items: center; gap: 6px; overflow: hidden; color: var(--text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.passagem-pessoa small { color: var(--muted); font-size: 12px; }
+.passagem-voce { padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--primary-bright) 16%, var(--surface)); color: var(--primary-bright); font-size: 10.5px; font-style: normal; font-weight: 800; }
+.passagem-ligar { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: color-mix(in srgb, #10b981 16%, var(--surface)); color: #10b981; }
+.passagem-seta { color: var(--muted); }
+.passagem-vazio { color: var(--muted); font-size: 13px; }
+.plantonista-dica { margin: 0; padding: 4px 18px 14px; color: var(--muted); font-size: 12px; }
+
+.plantonista-semana ol { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 14px 16px 16px; list-style: none; }
+.plantonista-semana li {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 2px;
+  min-height: 92px;
+  padding: 8px 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  text-align: center;
+}
+.plantonista-semana-dia { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: capitalize; }
+.plantonista-semana li > strong { color: var(--text); font-size: 18px; font-weight: 800; }
+.plantonista-semana li > small { color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.25; }
+.plantonista-semana li.com-plantao { border-color: color-mix(in srgb, #6366f1 55%, var(--border)); background: color-mix(in srgb, #6366f1 14%, var(--surface)); }
+.plantonista-semana li.com-plantao > small { color: #818cf8; }
+.plantonista-semana li.continuacao { border-style: dashed; }
+.plantonista-semana li.hoje { outline: 2px solid var(--primary-bright); outline-offset: -2px; }
+
+@media (max-width: 720px) {
+  .app-shell.product-app .today-dashboard-grid > .plantonista-passagem,
+  .app-shell.product-app .today-dashboard-grid > .plantonista-semana { grid-column: 1 / -1; }
+  .plantonista-hero-horario { font-size: 28px; }
+  .plantonista-hero-linha > .tempo-turno { width: 100%; padding-left: 68px; }
+  .plantonista-hero-linha > .tempo-turno .tempo-turno-texto { text-align: left; }
+  .passagem-linha > button { grid-template-columns: auto 1fr auto; }
+  .passagem-linha > button > .passagem-rotulo { grid-column: 1 / -1; }
+  .passagem-linha > button > .passagem-seta { display: none; }
+  .plantonista-semana ol { gap: 4px; padding: 12px; }
+  .plantonista-semana li { min-height: 78px; padding: 6px 2px; }
+  .plantonista-semana li > strong { font-size: 15px; }
+  .plantonista-semana li > small { font-size: 10px; }
+}

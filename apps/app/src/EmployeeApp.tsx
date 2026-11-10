@@ -234,6 +234,7 @@ import { calcularEstatisticasJornada } from './estatisticasJornada';
 import { faixaHorario, normalizarFaixaHorario } from './formatoHorario';
 import { detalheVersaoApp, numeroVersaoApp } from './versaoApp';
 import { AlertasTurnoPerfil, type TurnoDaPessoa } from './AlertasTurnoPerfil';
+import { HojePlantonista } from './HojePlantonista';
 import {
   faixaTemperatura,
   LOCAL_PREVISAO,
@@ -482,6 +483,25 @@ function turnosDaPessoaNoMes(escala: TurnosMes | null | undefined, catalogo: typ
     });
   }
   return ['MD', 'M', 'T', 'N'].map((periodo) => vistos.get(periodo)).filter((item): item is TurnoDaPessoa => item !== undefined);
+}
+
+/** HOJE-PLANTONISTA-1 — previsão do tempo no horário do plantão (mesmo visual do "Seu turno hoje"). */
+function PrevisaoNoHorario({ horas, data, inicio, fim }: { horas: readonly HoraPrevisao[] | null; data: string; inicio: string; fim: string }) {
+  const previsao = horas ? previsaoDoTurno(horas, data, inicio, fim) : null;
+  if (!previsao) return null;
+  return (
+    <div className="tempo-turno" data-tipo={previsao.tipo} data-noite={previsao.noite ? '' : undefined} title={`Previsão para o seu plantão · ${LOCAL_PREVISAO.nome}`}>
+      <span className="tempo-turno-icone"><IconeTempo tipo={previsao.tipo} size={40} noite={previsao.noite} /></span>
+      <span className="tempo-turno-texto">
+        <strong>{faixaTemperatura(previsao)}</strong>
+        <span className="tempo-turno-condicao">{previsao.rotulo}</span>
+        {previsao.chuvaMax !== null && previsao.chuvaMax >= 20 && (
+          <span className="tempo-turno-chuva"><Droplets size={12} aria-hidden="true" /> {previsao.chuvaMax}% de chuva</span>
+        )}
+        <small>No seu plantão · {LOCAL_PREVISAO.nome}</small>
+      </span>
+    </div>
+  );
 }
 
 /** PREVISAO-TEMPO-1 — ícone do tempo (sol, nuvem, chuva…). */
@@ -5380,7 +5400,9 @@ export function EmployeeApp() {
               <h1>Olá, {usuario.nome.split(' ')[0]}</h1>
               <p>{contaSetorApp
                 ? `Quem trabalha hoje${equipeUsuarioApp?.nome ? ` no ${equipeUsuarioApp.nome}` : ''} e quem está de plantão.`
-                : 'Veja sua jornada e quem estará com você hoje.'}</p>
+                : !jornadaPublicadaApp && souPlantonistaAtivoApp
+                  ? 'Seus plantões, quem passa o plantão para você e quem está de plantão agora.'
+                  : 'Veja sua jornada e quem estará com você hoje.'}</p>
             </div>
             <div className="today-heading-actions">
               <span className="today-period">
@@ -5421,7 +5443,7 @@ export function EmployeeApp() {
             amigável quando nenhuma existe. Nunca um erro vermelho global
             só porque falta uma das duas.
           */}
-          {!jornadaPublicadaApp && plantaoPublicadoApp && !contaSetorApp && (
+          {!jornadaPublicadaApp && plantaoPublicadoApp && !contaSetorApp && !souPlantonistaAtivoApp && (
             <div className="alert warning" role="status">
               Nenhuma jornada 6x1 publicada para este período.
             </div>
@@ -5486,6 +5508,26 @@ export function EmployeeApp() {
                       />
                     ) : (
                       <>
+                      {/* HOJE-PLANTONISTA-1 — o Plantão do PRÓPRIO plantonista (não o aberto na aba Plantão). */}
+                      {souPlantonistaAtivoApp && (() => {
+                        const meuGrupo = gruposPlantaoApp.find((item) => (detalhesPlantaoPorGrupoApp[item.grupoId]?.participantes ?? [])
+                          .some((participante) => participante.login === usuario.login && participante.ativo));
+                        const detalhe = meuGrupo ? detalhesPlantaoPorGrupoApp[meuGrupo.grupoId] : undefined;
+                        if (!meuGrupo || !detalhe) return null;
+                        return (
+                          <HojePlantonista
+                            login={usuario.login}
+                            grupo={meuGrupo}
+                            atribuicoes={detalhe.atribuicoes}
+                            usuarios={usuarios}
+                            agora={agora}
+                            dataHoje={dataHoje}
+                            renderPrevisao={(data, inicio, fim) => <PrevisaoNoHorario horas={horasPrevisao} data={data} inicio={inicio} fim={fim} />}
+                            onAbrirPlantonista={(atribuicao) => setPlantonistaAberto({ grupo: meuGrupo, atribuicao, participantes: detalhe.participantes })}
+                            onVerPlantao={() => { selecionarGrupoPlantaoApp(meuGrupo.grupoId); setTela('plantao'); }}
+                          />
+                        );
+                      })()}
                       <PlantoesAgoraTodos
                         grupos={gruposPlantaoApp}
                         detalhes={detalhesPlantaoPorGrupoApp}
