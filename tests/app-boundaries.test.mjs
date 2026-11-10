@@ -824,3 +824,12 @@ test('TROCA-CONTA-1 — ouvintes ignoram o encerramento do Firestore e erros nã
   const app = await ler('apps/app/src/EmployeeApp.tsx');
   assert.equal((app.match(/limparErrosDaSessao\(\);/gu) ?? []).length, 2, 'limpar ao entrar e ao sair');
 });
+
+test('HOJE-PLANTONISTA-1 — Hoje do plantonista: o próprio Plantão, passagem com contatos e sem aviso de 6x1', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  assert.match(app, /!jornadaPublicadaApp && plantaoPublicadoApp && !contaSetorApp && !souPlantonistaAtivoApp && \(/, 'plantonista não vê "Nenhuma jornada 6x1"');
+  // O grupo é o do PRÓPRIO plantonista (participante ativo), não o aberto na aba Plantão.
+  assert.match(app, /const meuGrupo = gruposPlantaoApp\.find\(\(item\) => \(detalhesPlantaoPorGrupoApp\[item\.grupoId\]\?\.participantes \?\? \[\]\)\s*\.some\(\(participante\) => participante\.login === usuario\.login && participante\.ativo\)\)/);
+  // Tocar na pessoa abre o mesmo modal de contatos dos "Plantões agora".
+  assert.match(app, /onAbrirPlantonista=\{\(atribuicao\) => setPlantonistaAberto\(\{ grupo: meuGrupo, atribuicao, participantes: detalhe\.participantes \}\)\}/);
+});

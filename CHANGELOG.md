@@ -11,6 +11,14 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.2.0 — Hoje do plantonista
+- "Seu plantão": de plantão agora (progresso e quanto falta) ou o próximo
+  (quanto falta para começar), com a previsão do tempo no horário.
+- "Passagem do plantão": antes · agora · depois no meu posto; tocar abre os
+  telefones para ligar.
+- "Minha semana de plantão": os 7 próximos dias.
+- Sem o aviso "Nenhuma jornada 6x1" para quem é plantonista.
+
 ## 3.1.1 — previsão com lua no turno da noite
 - A previsão já usava só as horas do turno; o ícone agora mostra a lua quando a
   maior parte do turno é de noite (Noite, Madrugada), em vez do sol.
