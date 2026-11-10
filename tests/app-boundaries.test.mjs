@@ -883,3 +883,13 @@ test('IMPORTAR-6X1-APP-1 — exceção controlada: importar 6x1 pelo App por um 
   }
   assert.match(modulo, /origemApp: true/);
 });
+
+test('NOME-SEM-ESPACOS-1 — nome gravado sempre limpo, e o script usa a MESMA regra', async () => {
+  const repositorio = await ler('lib/firebase/writeRepository.ts');
+  // As três gravações de nome passam pela normalização.
+  assert.equal((repositorio.match(/nome: normalizarNomePessoa\(/gu) ?? []).length, 3);
+  const regra = (await ler('lib/nomePessoa.ts')).match(/\/\[\\s\\u00a0[^/]+\]\+\/gu/u)?.[0];
+  const script = (await ler('scripts/staging/normalizar-nomes-usuarios.mjs')).match(/\/\[\\s\\u00a0[^/]+\]\+\/gu/u)?.[0];
+  assert.ok(regra && script, 'regra encontrada nos dois arquivos');
+  assert.equal(script, regra, 'o script de correção usa a mesma regra do repositório');
+});
