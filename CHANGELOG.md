@@ -11,6 +11,14 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.3.0 — tela da coordenação
+- Hoje do coordenador: números do dia (trabalhando agora, na escala, folga,
+  ausentes, de plantão agora, trocas para aprovar); por equipe 6x1,
+  Ontem | Hoje | Amanhã por turno com previsão do tempo e o "Agora"; por
+  Plantão, Antes · Agora · Depois de cada posto (tocar abre os telefones).
+- Trocas: "Histórico da equipe" com aprovadas, recusadas e canceladas.
+- Agenda do coordenador sem equipe fixa: Lembretes. Perfil sem avisos do turno.
+
 ## 3.2.0 — Hoje do plantonista
 - "Seu plantão": de plantão agora (progresso e quanto falta) ou o próximo
   (quanto falta para começar), com a previsão do tempo no horário.

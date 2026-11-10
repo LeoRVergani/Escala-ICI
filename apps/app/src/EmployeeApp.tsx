@@ -235,6 +235,7 @@ import { faixaHorario, normalizarFaixaHorario } from './formatoHorario';
 import { detalheVersaoApp, numeroVersaoApp } from './versaoApp';
 import { AlertasTurnoPerfil, type TurnoDaPessoa } from './AlertasTurnoPerfil';
 import { HojePlantonista } from './HojePlantonista';
+import { HojeCoordenacao } from './HojeCoordenacao';
 import {
   faixaTemperatura,
   LOCAL_PREVISAO,
@@ -483,6 +484,28 @@ function turnosDaPessoaNoMes(escala: TurnosMes | null | undefined, catalogo: typ
     });
   }
   return ['MD', 'M', 'T', 'N'].map((periodo) => vistos.get(periodo)).filter((item): item is TurnoDaPessoa => item !== undefined);
+}
+
+/** HISTORICO-TROCAS-COORD-1 — rótulo de cada decisão no histórico da equipe. */
+const ROTULO_STATUS_HISTORICO_TROCA: Partial<Record<string, string>> = {
+  APROVADA_PUBLICADA: 'Aprovada',
+  RECUSADA_GESTOR: 'Recusada pelo gestor',
+  RECUSADA_USUARIO: 'Recusada pelo colega',
+  CANCELADA_SOLICITANTE: 'Cancelada',
+  EXPIRADA: 'Expirada',
+};
+
+/** HOJE-COORDENACAO-1 — previsão compacta (ícone + temperatura) no horário de um turno. */
+function PrevisaoCompacta({ horas, data, inicio, fim }: { horas: readonly HoraPrevisao[] | null; data: string; inicio: string; fim: string }) {
+  const previsao = horas ? previsaoDoTurno(horas, data, inicio, fim) : null;
+  if (!previsao) return null;
+  return (
+    <span className="tempo-dia" data-tipo={previsao.tipo} data-noite={previsao.noite ? '' : undefined} title={`${previsao.rotulo} · ${faixaTemperatura(previsao)} no turno`}>
+      <IconeTempo tipo={previsao.tipo} size={16} noite={previsao.noite} />
+      <strong>{previsao.tempMax}°</strong>
+      {previsao.chuvaMax !== null && previsao.chuvaMax >= 30 && <small><Droplets size={11} aria-hidden="true" />{previsao.chuvaMax}%</small>}
+    </span>
+  );
 }
 
 /** HOJE-PLANTONISTA-1 — previsão do tempo no horário do plantão (mesmo visual do "Seu turno hoje"). */
@@ -3739,6 +3762,12 @@ export function EmployeeApp() {
       && item.solicitanteLogin !== loginUsuario && item.destinatarioLogin !== loginUsuario)
     .sort((a, b) => a.data.localeCompare(b.data));
   const trocaDecisaoAberta = trocasParaAprovarApp.find((item) => item.trocaId === trocaDecisaoAbertaId) ?? null;
+  /** HISTORICO-TROCAS-COORD-1 — trocas já decididas das equipes que coordeno (mesma consulta, nenhuma leitura nova). */
+  const historicoTrocasEquipeApp = Object.values(trocasParaAprovarPorChave).flat()
+    .filter((item, indice, lista) => lista.findIndex((outra) => outra.trocaId === item.trocaId) === indice)
+    .filter((item) => item.status in ROTULO_STATUS_HISTORICO_TROCA)
+    .sort((a, b) => b.atualizadoEm.localeCompare(a.atualizadoEm))
+    .slice(0, 30);
 
   /**
    * FASE-PWA-COMPETENCIAS-MULTIPERIODOS-1 — janela de competências que a
@@ -5424,7 +5453,22 @@ export function EmployeeApp() {
               <ChevronRight size={18} aria-hidden="true" />
             </button>
           )}
-          {souCoordenacaoApp && (
+          {/* HOJE-COORDENACAO-1 — com equipes carregadas, a visão nova; sem, o painel de estado (carregando/sem equipes). */}
+          {souCoordenacaoApp && (visaoCoordenacaoApp.equipes.length > 0 || visaoCoordenacaoApp.plantoes.length > 0 ? (
+            <HojeCoordenacao
+              equipes={visaoCoordenacaoApp.equipes}
+              plantoes={visaoCoordenacaoApp.plantoes}
+              dataHoje={dataHoje}
+              agora={agora}
+              catalogo={catalogo}
+              usuarios={usuarios}
+              trocasParaAprovar={trocasParaAprovarApp.length}
+              renderPrevisao={(data, inicio, fim) => <PrevisaoCompacta horas={horasPrevisao} data={data} inicio={inicio} fim={fim} />}
+              onAbrirEquipes={() => setTela('equipe')}
+              onAbrirTrocas={() => setTela('trocas')}
+              onAbrirPlantonista={(plantao, atribuicao) => setPlantonistaAberto({ grupo: plantao.grupo, atribuicao, participantes: plantao.participantes })}
+            />
+          ) : (
             <PainelHojeEquipes
               equipes={visaoCoordenacaoApp.equipes}
               plantoes={visaoCoordenacaoApp.plantoes}
@@ -5434,7 +5478,7 @@ export function EmployeeApp() {
               onAbrir={() => setTela('equipe')}
               diagnostico={diagnosticoVisaoCoordenacao}
             />
-          )}
+          ))}
 
           {/*
             FASE-APP-OPERACOES-UNIVERSAIS-1 — regra 4: Jornada e Plantão
@@ -5644,14 +5688,28 @@ export function EmployeeApp() {
       {/* VISAO-COORDENADOR-MOBILE-3 — coordenador sem equipe fixa não tem agenda própria. */}
       {tela === 'minha' && souCoordenacaoApp && !usuario.equipeId && (
         <section className="employee-screen employee-agenda-screen">
-          <article className="panel organization-empty-state coordenacao-sem-escala">
-              <Users size={28} aria-hidden="true" />
-              <h2>Você não tem escala própria</h2>
-              <p>Como coordenador sem equipe fixa, sua Agenda fica vazia. As escalas das equipes que você administra — 6x1 e Plantão — estão em Equipe.</p>
-              <button className="primary-button" type="button" onClick={() => setTela('equipe')}>
-                Ver suas equipes <ChevronRight size={16} aria-hidden="true" />
-              </button>
-            </article>
+          {/* AGENDA-COORDENACAO-1 — sem escala própria, a Agenda do coordenador é dos Lembretes. */}
+          <header className="page-heading schedule-page-heading">
+            <div>
+              <p className="eyebrow">Coordenação</p>
+              <h1>Agenda</h1>
+              <p>Seus lembretes. As escalas das equipes que você administra ficam em Equipe.</p>
+            </div>
+            <button className="secondary-button" type="button" onClick={() => setTela('equipe')}>
+              <Users size={16} aria-hidden="true" /> Ver suas equipes
+            </button>
+          </header>
+          <article className="panel agenda-coordenacao-lembretes">
+            <LembretesView
+              login={usuario.login}
+              nomeGestorDemo={GESTOR_DEMO.nome}
+              modoDemonstracao={modoDemonstracao}
+              listenersLiberados={listenersLiberados}
+              dataHoje={dataHoje}
+              escala={null}
+              catalogo={catalogo}
+            />
+          </article>
         </section>
       )}
       {tela === 'minha' && !(souCoordenacaoApp && !usuario.equipeId) && (
@@ -5979,6 +6037,32 @@ export function EmployeeApp() {
                     ))}
                   </div>
                 )}
+              </article>
+            )}
+
+            {/* HISTORICO-TROCAS-COORD-1 — decisões da equipe (aceites, recusas, cancelamentos), mais recentes primeiro. */}
+            {souCoordenacaoApp && historicoTrocasEquipeApp.length > 0 && (
+              <article className="panel troca-historico-equipe">
+                <div className="panel-title">
+                  <div>
+                    <h2>Histórico da equipe</h2>
+                    <p>Trocas de 6x1 decididas nesta competência e na próxima.</p>
+                  </div>
+                </div>
+                <ul>
+                  {historicoTrocasEquipeApp.map((troca) => (
+                    <li key={troca.trocaId} data-status={troca.status}>
+                      <span className="troca-historico-status">{ROTULO_STATUS_HISTORICO_TROCA[troca.status] ?? troca.status}</span>
+                      <span className="troca-historico-texto">
+                        <strong>{troca.solicitanteNome} <ArrowLeftRight size={13} aria-hidden="true" /> {troca.destinatarioNome}</strong>
+                        <small>
+                          Troca do dia {formatarData(troca.data, { day: '2-digit', month: '2-digit' })} · decidida {formatarDataHoraSafe(troca.atualizadoEm)}
+                        </small>
+                        {troca.motivoRecusa && <em>Motivo: {troca.motivoRecusa}</em>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </article>
             )}
 
@@ -6478,7 +6562,7 @@ export function EmployeeApp() {
         <section className="employee-screen employee-profile-screen">
           <header className="page-heading">
             <div>
-              <p className="eyebrow">{contaSetorApp ? 'Conta do setor' : 'Conta do colaborador'}</p>
+              <p className="eyebrow">{contaSetorApp ? 'Conta do setor' : souCoordenacaoApp && !usuario.equipeId ? 'Conta da coordenação' : 'Conta do colaborador'}</p>
               <h1>Perfil</h1>
               <p>Identidade usada para localizar sua escala publicada.</p>
             </div>
@@ -6630,7 +6714,8 @@ export function EmployeeApp() {
               </article>
             )}
             {/* ALERTAS-TURNO-LAYOUT-1 — Avisos do turno ANTES das Notificações, na largura toda. */}
-            {!contaSetorApp && (
+            {/* PERFIL-COORDENACAO-1 — coordenador sem equipe fixa não tem turno: sem avisos do turno. */}
+            {!contaSetorApp && Boolean(usuario.equipeId) && (
               <AlertasTurnoPerfil login={usuario.login} turnos={turnosDaPessoaNoMes(escalaVisivelApp, catalogo)} />
             )}
             <CardNotificacoesPush
