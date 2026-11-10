@@ -1110,6 +1110,22 @@ service cloud.firestore {
      * `equipeId` real de `usuarios/{destinatarioLogin}` via
      * `usuarioPorLogin()` antes de checar `podeOperarNaEquipe()`.
      */
+    /**
+     * LEMBRETE-EQUIPE-APP-1 — quem pode criar lembrete para alguém da equipe:
+     *  - a regra de antes (gestor com a equipe nas suas permitidas);
+     *  - quem ADMINISTRA a escala 6x1 da equipe do destinatário (Matriz,
+     *    gestor da equipe ou da unidade — a mesma função das trocas);
+     *  - quem ADMINISTRA um Plantão do qual o destinatário é participante
+     *    (`grupoPlantaoId` no documento) — plantonistas de outras equipes.
+     */
+    function podeAtribuirLembrete(dados) {
+      return (souGestor() && podeOperarNaEquipe(dados.destinatarioEquipeId))
+        || podeAdministrarJornada(dados.destinatarioEquipeId)
+        || (dados.get('grupoPlantaoId', null) is string
+          && podeAdministrarEscalaPlantao(dados.grupoPlantaoId)
+          && exists(/databases/$(database)/documents/gruposPlantao/$(dados.grupoPlantaoId)/participantes/$(dados.destinatarioLogin)));
+    }
+
     match /lembretesAtribuidos/{lembreteId} {
       // Cobre tanto o colaborador lendo o próprio quanto o gestor em escopo
       // lendo/listando os do seu time (Dashboard, Fase 5) — a mesma consulta
@@ -1121,7 +1137,7 @@ service cloud.firestore {
           || (souGestor() && podeOperarNaEquipe(resource.data.destinatarioEquipeId))
         );
 
-      allow create: if souGestor()
+      allow create: if podeAtribuirLembrete(request.resource.data)
         && request.resource.data.tipo == 'ATRIBUIDO'
         && request.resource.data.schemaVersion in [1]
         && request.resource.data.status == 'ATIVO'
@@ -1132,7 +1148,6 @@ service cloud.firestore {
         && request.resource.data.criadoPorNome == eu().nome
         && request.resource.data.destinatarioEquipeId
           == usuarioPorLogin(request.resource.data.destinatarioLogin).equipeId
-        && podeOperarNaEquipe(request.resource.data.destinatarioEquipeId)
         && request.resource.data.get('canceladoEm', null) == null
         && request.resource.data.get('canceladoPorLogin', null) == null
         && request.resource.data.keys().hasOnly([
@@ -1140,7 +1155,7 @@ service cloud.firestore {
           'destinatarioEquipeId', 'titulo', 'descricao', 'data', 'horario',
           'serieId', 'alertasAntecedenciaMin', 'criadoPorLogin',
           'criadoPorNome', 'status', 'criadoEm', 'atualizadoEm',
-          'canceladoEm', 'canceladoPorLogin',
+          'canceladoEm', 'canceladoPorLogin', 'grupoPlantaoId',
         ]);
 
       // Destinatário/equipe/autoria/criadoEm imutáveis — só conteúdo e
@@ -1159,6 +1174,8 @@ service cloud.firestore {
         && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
         && request.resource.data.criadoPorNome == resource.data.criadoPorNome
         && request.resource.data.criadoEm == resource.data.criadoEm
+        // LEMBRETE-EQUIPE-APP-1 — o vínculo com o Plantão também é imutável.
+        && request.resource.data.get('grupoPlantaoId', null) == resource.data.get('grupoPlantaoId', null)
         && request.resource.data.titulo is string
         && request.resource.data.titulo.size() > 0
         && request.resource.data.data is string
@@ -1175,7 +1192,7 @@ service cloud.firestore {
           'destinatarioEquipeId', 'titulo', 'descricao', 'data', 'horario',
           'serieId', 'alertasAntecedenciaMin', 'criadoPorLogin',
           'criadoPorNome', 'status', 'criadoEm', 'atualizadoEm',
-          'canceladoEm', 'canceladoPorLogin',
+          'canceladoEm', 'canceladoPorLogin', 'grupoPlantaoId',
         ]);
 
       // Sem delete físico para ninguém, nem ADMIN_SISTEMA (revisão da Fase 4):

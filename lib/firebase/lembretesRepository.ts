@@ -285,12 +285,25 @@ export type AutorLembreteAtribuido = Pick<Usuario, 'login' | 'nome'>;
  * Rule, que revalida o destinatário real contra `usuarios/{login}` — ver
  * `firestore.rules` e o teste de ataque "equipe falsificada".
  */
+/**
+ * LEMBRETE-EQUIPE-APP-1 — o coordenador cria lembretes para a equipe pelo App.
+ * `origemApp` dispensa a trava de escrita administrativa (mesmo padrão da
+ * importação de Plantão); QUEM pode criar continua decidido pelas Rules.
+ * `grupoPlantaoId`: o destinatário é participante desse Plantão (permite que
+ * quem administra o Plantão avise um plantonista de outra equipe).
+ */
+export interface OpcoesCriacaoLembreteAtribuido {
+  origemApp?: boolean;
+  grupoPlantaoId?: string;
+}
+
 export async function criarLembreteAtribuido(
   destinatario: DestinatarioLembreteAtribuido,
   criadoPor: AutorLembreteAtribuido,
   entrada: EntradaLembrete,
+  opcoes: OpcoesCriacaoLembreteAtribuido = {},
 ): Promise<string> {
-  exigirEscritaAdministrativaHabilitada();
+  if (!opcoes.origemApp) exigirEscritaAdministrativaHabilitada();
   validarEntradaOuLancar(entrada);
   const { db } = exigirFirebase();
   const conteudo = normalizarLembrete(entrada);
@@ -316,7 +329,10 @@ export async function criarLembreteAtribuido(
     canceladoEm: null,
     canceladoPorLogin: null,
   };
-  await setDoc(doc(db, COLECAO_ATRIBUIDOS, lembreteId), removerUndefined(documento));
+  await setDoc(doc(db, COLECAO_ATRIBUIDOS, lembreteId), removerUndefined({
+    ...documento,
+    ...(opcoes.grupoPlantaoId ? { grupoPlantaoId: opcoes.grupoPlantaoId } : {}),
+  }));
   return lembreteId;
 }
 
@@ -324,8 +340,9 @@ export async function criarSerieLembretesAtribuidos(
   destinatario: DestinatarioLembreteAtribuido,
   criadoPor: AutorLembreteAtribuido,
   entrada: EntradaSerieLembrete,
+  opcoes: OpcoesCriacaoLembreteAtribuido = {},
 ): Promise<string[]> {
-  exigirEscritaAdministrativaHabilitada();
+  if (!opcoes.origemApp) exigirEscritaAdministrativaHabilitada();
   validarEntradaSerieOuLancar(entrada);
   const { db } = exigirFirebase();
   const serieId = gerarUuid();
@@ -356,7 +373,10 @@ export async function criarSerieLembretesAtribuidos(
       canceladoEm: null,
       canceladoPorLogin: null,
     };
-    batch.set(doc(db, COLECAO_ATRIBUIDOS, lembreteId), removerUndefined(documento));
+    batch.set(doc(db, COLECAO_ATRIBUIDOS, lembreteId), removerUndefined({
+      ...documento,
+      ...(opcoes.grupoPlantaoId ? { grupoPlantaoId: opcoes.grupoPlantaoId } : {}),
+    }));
   }
   await batch.commit();
   return idsGerados;

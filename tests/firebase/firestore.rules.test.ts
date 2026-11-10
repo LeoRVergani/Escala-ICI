@@ -3079,6 +3079,56 @@ function lembreteAtribuido(ajustes: Record<string, unknown> = {}) {
   };
 }
 
+describe('LEMBRETE-EQUIPE-APP-1 — quem administra o Plantão avisa plantonista de outra equipe', () => {
+  // Ravi (EQ_CODB_NOC) participa do PLANTAO_TESTE; Marina administra o Plantão pela Matriz,
+  // mas NÃO opera a equipe do Ravi.
+  function paraRavi(ajustes: Record<string, unknown> = {}) {
+    return lembreteAtribuido({
+      lembreteId: 'lembrete-plantao-1',
+      destinatarioLogin: usuarios.externo.login,
+      destinatarioEquipeId: usuarios.externo.equipeId,
+      ...ajustes,
+    });
+  }
+  async function prepararPlantao(comParticipante: boolean) {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(doc(db, 'escoposOperacionais', 'PLANTAO_PLANTAO_TESTE'), escopoOperacional());
+      if (comParticipante) {
+        await setDoc(doc(db, 'gruposPlantao', 'PLANTAO_TESTE', 'participantes', usuarios.externo.login), {
+          login: usuarios.externo.login, ativo: true,
+        });
+      }
+    });
+  }
+
+  it('com o Plantão informado e o destinatário participante: cria', async () => {
+    await prepararPlantao(true);
+    const marina = autenticarComo(usuarios.gestor);
+    await assertSucceeds(setDoc(doc(marina, 'lembretesAtribuidos', 'lembrete-plantao-1'), paraRavi({ grupoPlantaoId: 'PLANTAO_TESTE' })));
+  });
+
+  it('sem informar o Plantão: negado (Marina não opera a equipe do Ravi)', async () => {
+    await prepararPlantao(true);
+    const marina = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(doc(marina, 'lembretesAtribuidos', 'lembrete-plantao-1'), paraRavi()));
+  });
+
+  it('Plantão informado, mas o destinatário não é participante: negado', async () => {
+    await prepararPlantao(false);
+    const marina = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(doc(marina, 'lembretesAtribuidos', 'lembrete-plantao-1'), paraRavi({ grupoPlantaoId: 'PLANTAO_TESTE' })));
+  });
+
+  it('colaborador comum não cria lembrete atribuído, nem informando o Plantão', async () => {
+    await prepararPlantao(true);
+    const colaborador = autenticarComo(usuarios.colaborador);
+    await assertFails(setDoc(doc(colaborador, 'lembretesAtribuidos', 'lembrete-plantao-1'), paraRavi({
+      grupoPlantaoId: 'PLANTAO_TESTE', criadoPorLogin: usuarios.colaborador.login, criadoPorNome: usuarios.colaborador.nome,
+    })));
+  });
+});
+
 describe('lembretesAtribuidos — escopo do gestor e ataques (lembretesAtribuidos)', () => {
   it('gestor cria, lê e atualiza um atribuído para colaborador do seu escopo; destinatário só lê', async () => {
     const gestor = autenticarComo(usuarios.gestor);

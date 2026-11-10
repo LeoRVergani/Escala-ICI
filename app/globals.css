@@ -9446,3 +9446,30 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
   .troca-historico-equipe li { grid-template-columns: 1fr; gap: 6px; }
   .troca-historico-status { justify-self: start; }
 }
+
+/* LEMBRETE-EQUIPE-APP-1 — lembrete para alguém da equipe. */
+.lembrete-form-titulo-bloco { display: grid; gap: 2px; min-width: 0; }
+.lembrete-form-para { color: var(--muted); font-size: 12px; }
+.lembrete-form-para strong { color: var(--primary-bright); }
+.visao-coord-criar-lembrete { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 12px; }
+.visao-coord-sino { color: var(--primary-bright); }
+.visao-coord-plantoes > li { position: relative; }
+.visao-coord-plantoes > li > .visao-coord-sino { margin-left: auto; }
+.toast-lembrete-equipe {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  padding: 12px 18px;
+  border-radius: 12px;
+  background: #065f46;
+  color: #ecfdf5;
+  font-size: 14px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.3);
+  transform: translateX(-50%);
+}
+.toast-lembrete-equipe strong { color: #fff; }

@@ -32,6 +32,8 @@ interface LembreteFormModalProps {
   onSalvarUnico: (entrada: EntradaLembrete) => Promise<void>;
   onSalvarSerie: (entrada: EntradaSerieLembrete) => Promise<void>;
   onExcluir?: () => Promise<void>;
+  /** LEMBRETE-EQUIPE-APP-1 — para quem é o lembrete (coordenador criando para a equipe). */
+  paraQuem?: string;
 }
 
 function formularioInicial(dataInicial: string, lembreteEmEdicao?: ItemLembretePessoal): FormularioLembrete {
@@ -86,6 +88,7 @@ export function LembreteFormModal({
   onSalvarUnico,
   onSalvarSerie,
   onExcluir,
+  paraQuem,
 }: LembreteFormModalProps) {
   const [form, setForm] = useState<FormularioLembrete>(() => formularioInicial(dataInicial, lembreteEmEdicao));
   const [novaData, setNovaData] = useState('');
@@ -210,7 +213,10 @@ export function LembreteFormModal({
       >
         {/* LEMBRETE-MODAL-2 — cabeçalho e botões fixos; só o meio rola. */}
         <header className="lembrete-form-cabecalho">
-          <h2 id="lembrete-modal-title">{modo === 'criar' ? 'Novo lembrete' : 'Editar lembrete'}</h2>
+          <div className="lembrete-form-titulo-bloco">
+            <h2 id="lembrete-modal-title">{modo === 'criar' ? 'Novo lembrete' : 'Editar lembrete'}</h2>
+            {paraQuem && <small className="lembrete-form-para">Para <strong>{paraQuem}</strong> · ele recebe o aviso no celular</small>}
+          </div>
           <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar">
             <X size={18} />
           </button>

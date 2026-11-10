@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarDays, ChevronLeft, ChevronRight, Radio, Upload, Users, X } from 'lucide-react';
+import {
+  BellPlus, CalendarDays, ChevronLeft, ChevronRight, Radio, Upload, Users, X } from 'lucide-react';
 import { codigoPeriodoDia, formatarData, ROTULO_FUNCAO_PLANTAO, type FuncaoPlantao, type TipoTurno, type TurnosMes } from '@escala-ici/contrato';
 
 import type { AtribuicaoPlantaoPersistida, GrupoPlantao, ParticipantePlantao } from '@escala-ici/contrato';
@@ -269,6 +270,7 @@ export function VisaoEquipesCoordenador({
   renderizarCalendarioPlantao,
   renderizarMesPessoa,
   onImportarPlantao,
+  onCriarLembrete,
 }: {
   equipes: readonly EquipeJornadaVisao[];
   plantoes: readonly PlantaoVisao[];
@@ -282,6 +284,8 @@ export function VisaoEquipesCoordenador({
   renderizarMesPessoa?: (documento: TurnosMes) => ReactNode;
   /** IMPORTAR-PLANTAO-APP-1 — abre a importação rápida da planilha do mês. */
   onImportarPlantao?: (grupo: GrupoPlantao) => void;
+  /** LEMBRETE-EQUIPE-APP-1 — criar lembrete (com aviso no celular) para alguém da equipe. */
+  onCriarLembrete?: (alvo: { login: string; nome: string; equipeId?: string | null; grupoPlantaoId?: string }) => void;
 }) {
   const abas = [
     ...equipes.map((equipe) => ({ chave: `J:${equipe.id}`, nome: equipe.nome, tipo: '6x1' as const })),
@@ -491,6 +495,7 @@ export function VisaoEquipesCoordenador({
                     <th>Fim de semana / feriado (24h)</th>
                     <th>Dia útil</th>
                     <th>Horas</th>
+                    {onCriarLembrete && <th aria-label="Lembrete" />}
                   </tr>
                 </thead>
                 <tbody>
@@ -504,6 +509,14 @@ export function VisaoEquipesCoordenador({
                       <td>{item.plantoes24h}</td>
                       <td>{item.plantoesCurtos}</td>
                       <td>{formatarHorasMinutos(item.minutos)}</td>
+                      {onCriarLembrete && (
+                        <td>
+                          <button type="button" className="icon-button visao-coord-sino" aria-label={`Criar lembrete para ${nomeExibicaoPlantonista(item.login, [])}`}
+                            onClick={() => onCriarLembrete({ login: item.login, nome: nomeExibicaoPlantonista(item.login, []), grupoPlantaoId: plantao.grupo.grupoId })}>
+                            <BellPlus size={15} />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -525,6 +538,12 @@ export function VisaoEquipesCoordenador({
                         <strong>{nome} <SeloPosto funcao={atribuicao.funcao} /></strong>
                         <small>{tituloPeriodoPlantao(intervalo)}</small>
                       </span>
+                      {onCriarLembrete && (
+                        <button type="button" className="icon-button visao-coord-sino" aria-label={`Criar lembrete para ${nome}`}
+                          onClick={() => onCriarLembrete({ login: atribuicao.plantonistaLogin, nome, grupoPlantaoId: plantao.grupo.grupoId })}>
+                          <BellPlus size={15} />
+                        </button>
+                      )}
                     </li>
                   );
                 })}
@@ -540,6 +559,10 @@ export function VisaoEquipesCoordenador({
           catalogo={catalogo}
           onFechar={() => setPessoaAberta(null)}
           renderizarCalendario={renderizarMesPessoa}
+          onCriarLembrete={onCriarLembrete ? () => {
+            onCriarLembrete({ login: pessoaAberta.documento.login, nome: pessoaAberta.nome, equipeId: pessoaAberta.documento.equipeId });
+            setPessoaAberta(null);
+          } : undefined}
         />
       )}
     </article>
@@ -552,12 +575,14 @@ function ModalMesDaPessoa({
   catalogo,
   onFechar,
   renderizarCalendario,
+  onCriarLembrete,
 }: {
   documento: TurnosMes;
   nome: string;
   catalogo: Record<string, TipoTurno>;
   onFechar: () => void;
   renderizarCalendario?: (documento: TurnosMes) => ReactNode;
+  onCriarLembrete?: () => void;
 }) {
   const datas = Object.keys(documento.dias).sort();
   const deslocamento = datas.length === 0 ? 0 : new Date(`${datas[0]}T12:00:00Z`).getUTCDay();
@@ -624,6 +649,11 @@ function ModalMesDaPessoa({
           {resumo.folgasFeriado > 0 && <div><dt>Folga feriado</dt><dd>{resumo.folgasFeriado}</dd></div>}
           {resumo.horasExtras > 0 && <div><dt>Hora extra</dt><dd>{resumo.horasExtras}</dd></div>}
         </dl>
+        {onCriarLembrete && (
+          <button className="primary-button visao-coord-criar-lembrete" type="button" onClick={onCriarLembrete}>
+            <BellPlus size={16} aria-hidden="true" /> Criar lembrete para {nome.split(' ')[0]}
+          </button>
+        )}
       </section>
     </div>,
     destino,
