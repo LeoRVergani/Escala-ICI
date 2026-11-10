@@ -378,3 +378,13 @@ antes), ponto de entrada, intervalo (início e fim) e ponto de saída.
   férias/afastamento. Preferência `folga` em `preferenciasAlertasTurno`.
 - O agendador calcula ontem, hoje e **amanhã** (véspera de folga e "X h antes"
   de turno da madrugada).
+
+## Lembretes da Agenda (LEMBRETE-ALARME-1)
+
+- `alertasAntecedenciaMin` do lembrete (minutos antes; dia inteiro conta das 08:00)
+  vira push. Pessoais: `usuarios/{login}/lembretes` (consulta *collection group*
+  por `data` — índice em `firestore.indexes.json`, publicado junto com as regras);
+  atribuídos: `lembretesAtribuidos` (status ATIVO).
+- Uma vez cada (`pushSinosEnviados/LB_…`, com o horário no nome), janela de 5 min,
+  lê só hoje e amanhã (cache de 5 min). Atribuído novo avisa na hora.
+- Log: `agendador de lembretes iniciado`, `aviso de lembrete processado`.

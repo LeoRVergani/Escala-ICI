@@ -4,155 +4,314 @@
       "collectionGroup": "turnosMes",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "equipeId", "order": "ASCENDING" },
-        { "fieldPath": "competencia", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
+        {
+          "fieldPath": "equipeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "competencia",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "turnosMes",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "usuarioUid", "order": "ASCENDING" },
-        { "fieldPath": "competencia", "order": "DESCENDING" }
+        {
+          "fieldPath": "usuarioUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "competencia",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "turnosMes",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "usuarioUid", "order": "ASCENDING" },
-        { "fieldPath": "competencia", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
+        {
+          "fieldPath": "usuarioUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "competencia",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "trocasEscala",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "equipeId", "order": "ASCENDING" },
-        { "fieldPath": "competencia", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
+        {
+          "fieldPath": "equipeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "competencia",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "trocasEscala",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "equipeId", "order": "ASCENDING" },
-        { "fieldPath": "competencia", "order": "ASCENDING" },
-        { "fieldPath": "solicitanteLogin", "order": "ASCENDING" }
+        {
+          "fieldPath": "equipeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "competencia",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "solicitanteLogin",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "trocasEscala",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "equipeId", "order": "ASCENDING" },
-        { "fieldPath": "competencia", "order": "ASCENDING" },
-        { "fieldPath": "destinatarioLogin", "order": "ASCENDING" }
+        {
+          "fieldPath": "equipeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "competencia",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "destinatarioLogin",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "lembretesAtribuidos",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "destinatarioLogin", "order": "ASCENDING" },
-        { "fieldPath": "data", "order": "ASCENDING" }
+        {
+          "fieldPath": "destinatarioLogin",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "data",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "lembretesAtribuidos",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "destinatarioLogin", "order": "ASCENDING" },
-        { "fieldPath": "destinatarioEquipeId", "order": "ASCENDING" },
-        { "fieldPath": "data", "order": "ASCENDING" }
+        {
+          "fieldPath": "destinatarioLogin",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "destinatarioEquipeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "data",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "usuarios",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "equipeId", "order": "ASCENDING" },
-        { "fieldPath": "cadastroOperacional.tipo", "order": "ASCENDING" },
-        { "fieldPath": "cadastroOperacional.alvoId", "order": "ASCENDING" }
+        {
+          "fieldPath": "equipeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "cadastroOperacional.tipo",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "cadastroOperacional.alvoId",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "rascunhosCompetenciasPlantao",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "grupoId", "order": "ASCENDING" },
-        { "fieldPath": "competencia", "order": "ASCENDING" }
+        {
+          "fieldPath": "grupoId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "competencia",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "competenciasPlantao",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "grupoId", "order": "ASCENDING" },
-        { "fieldPath": "competencia", "order": "ASCENDING" }
+        {
+          "fieldPath": "grupoId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "competencia",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "atribuicoes",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "grupoId", "order": "ASCENDING" },
-        { "fieldPath": "atribuicaoId", "order": "ASCENDING" }
+        {
+          "fieldPath": "grupoId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "atribuicaoId",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "trocasEscala",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "equipeId", "order": "ASCENDING" },
-        { "fieldPath": "solicitanteLogin", "order": "ASCENDING" }
+        {
+          "fieldPath": "equipeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "solicitanteLogin",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "trocasEscala",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "equipeId", "order": "ASCENDING" },
-        { "fieldPath": "destinatarioLogin", "order": "ASCENDING" }
+        {
+          "fieldPath": "equipeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "destinatarioLogin",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "notificacoesTroca",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "equipeId", "order": "ASCENDING" },
-        { "fieldPath": "destinatarioLogin", "order": "ASCENDING" }
+        {
+          "fieldPath": "equipeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "destinatarioLogin",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "notificacoesTroca",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "equipeId", "order": "ASCENDING" },
-        { "fieldPath": "criadoPorLogin", "order": "ASCENDING" }
+        {
+          "fieldPath": "equipeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "criadoPorLogin",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "trocasPlantao",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "grupoId", "order": "ASCENDING" },
-        { "fieldPath": "competencia", "order": "ASCENDING" },
-        { "fieldPath": "solicitanteLogin", "order": "ASCENDING" }
+        {
+          "fieldPath": "grupoId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "competencia",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "solicitanteLogin",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "trocasPlantao",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "grupoId", "order": "ASCENDING" },
-        { "fieldPath": "competencia", "order": "ASCENDING" },
-        { "fieldPath": "destinatarioLogin", "order": "ASCENDING" }
+        {
+          "fieldPath": "grupoId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "competencia",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "destinatarioLogin",
+          "order": "ASCENDING"
+        }
       ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "lembretes",
+      "fieldPath": "data",
+      "ttl": false,
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "arrayConfig": "CONTAINS",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
+    }
+  ]
 }

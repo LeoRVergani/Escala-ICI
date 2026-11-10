@@ -9091,3 +9091,29 @@ button.plantoes-agora-pessoa:focus-visible { outline: none; box-shadow: var(--fo
   .lembrete-form-rodape > button { flex: 1 1 0; }
   .lembrete-form-rodape > .lembrete-form-excluir { flex: 0 0 auto; }
 }
+
+/* LEMBRETE-ALARME-1 / LEMBRETE-REPETICAO-1 — "Avisar" e "Repetir" no modal. */
+.lembrete-form-aviso { display: grid; gap: 8px; padding-top: 4px; border-top: 1px dashed var(--border); }
+.lembrete-form-pilulas { display: flex; flex-wrap: wrap; gap: 6px; }
+.lembrete-form-pilulas > button,
+.lembrete-form-semana > button {
+  min-height: 32px;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.lembrete-form-pilulas > button.active,
+.lembrete-form-semana > button.active {
+  border-color: var(--primary-bright);
+  background: color-mix(in srgb, var(--primary-bright) 14%, var(--surface));
+  color: var(--primary-bright);
+}
+.lembrete-form-semana { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.lembrete-form-semana > button { min-height: 38px; padding: 0; border-radius: 10px; font-size: 14px; font-weight: 800; }
+.lembrete-form-resumo { margin: 0; color: var(--muted); font-size: 12.5px; font-weight: 600; }

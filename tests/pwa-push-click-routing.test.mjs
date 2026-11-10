@@ -420,7 +420,7 @@ test('ALERTAS-TURNO-2 — tipo desconhecido sem trocaId continua sem destino (na
 });
 
 test('SINOS-NO-CELULAR-1 — escala publicada e troca de plantão também abrem o App', () => {
-  for (const tipo of ['ESCALA_PUBLICADA', 'TROCA_PLANTAO_SOLICITADA', 'TROCA_PLANTAO_AGUARDANDO_APROVACAO_GESTOR']) {
+  for (const tipo of ['ESCALA_PUBLICADA', 'TROCA_PLANTAO_SOLICITADA', 'TROCA_PLANTAO_AGUARDANDO_APROVACAO_GESTOR', 'LEMBRETE_ALARME', 'LEMBRETE_ATRIBUIDO']) {
     const envelope = construirEnvelopeTroca({ eventId: `x-${tipo}`, tipo, route: 'hoje', titulo: 't', corpo: 'c' });
     const url = resolverUrlInternaDoEnvelope(envelope, { origin: ORIGEM, appEntry: APP_ENTRY });
     assert.ok(url, tipo);

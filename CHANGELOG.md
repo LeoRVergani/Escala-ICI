@@ -11,6 +11,13 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.1.0 — lembretes que avisam e se repetem
+- Lembretes da Agenda viram push: "Avisar" no modal (sem aviso, no horário,
+  5 min antes — padrão —, 15 min, 1 h, 1 dia antes; dia inteiro às 08:00).
+- Lembrete atribuído pelo gestor avisa na hora em que é criado.
+- "Repetir": todo dia, seg a sex, dias escolhidos (D S T Q Q S S) ou datas
+  específicas, até uma data final (padrão 3 meses; até 180 por vez).
+
 ## 3.0.2 — troca de conta sem erro
 - Sair e entrar com outra conta não mostra mais "A conexão com o Firestore foi
   reiniciada" (os ouvintes ignoram o encerramento do logout e os erros da
