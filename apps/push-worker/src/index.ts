@@ -3,6 +3,7 @@ import { initAdmin } from './firebaseAdmin.js';
 import { writeHeartbeat } from './health.js';
 import { iniciarAgendadorAlertas } from './agendadorAlertas.js';
 import { iniciarOutrosSinos } from './outrosSinos.js';
+import { iniciarAgendadorLembretes } from './agendadorLembretes.js';
 import { iniciarWatcher } from './notificationWatcher.js';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -37,6 +38,8 @@ async function main(): Promise<void> {
   const pararAgendador = iniciarAgendadorAlertas({ db, messaging, config });
   // SINOS-NO-CELULAR-1 — trocas de Plantão e escala publicada também viram push.
   const pararOutrosSinos = iniciarOutrosSinos({ db, messaging, config });
+  // LEMBRETE-ALARME-1 — lembretes da Agenda viram push na hora escolhida.
+  const pararLembretes = iniciarAgendadorLembretes({ db, messaging, config });
 
   let encerrando = false;
   const shutdown = (signal: string): void => {
@@ -49,6 +52,7 @@ async function main(): Promise<void> {
     unsubscribe();
     pararAgendador();
     pararOutrosSinos();
+    pararLembretes();
     process.exit(0);
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));

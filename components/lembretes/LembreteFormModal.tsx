@@ -1,8 +1,13 @@
 import { formatarData } from '@escala-ici/contrato';
-import { AlignLeft, CalendarDays, Clock, Plus, Repeat, Sun, Trash2, X } from 'lucide-react';
+import { AlignLeft, BellRing, CalendarDays, Clock, Plus, Repeat, Sun, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 
 import {
+  dataFinalPadraoRepeticao,
+  diasSemanaDaRepeticao,
+  gerarDatasRepeticao,
+  LIMITE_OCORRENCIAS_REPETICAO_LEMBRETE,
+  type ModoRepeticaoLembrete,
   LIMITE_DESCRICAO_LEMBRETE,
   LIMITE_TITULO_LEMBRETE,
   normalizarHorarioLembrete,
@@ -10,6 +15,8 @@ import {
   type EntradaSerieLembrete,
 } from '@/lib/lembretes';
 import {
+  AVISO_PADRAO_LEMBRETE_MIN,
+  HORARIO_AVISO_LEMBRETE_DIA_INTEIRO,
   entradaLembreteDoFormulario,
   entradaSerieLembreteDoFormulario,
   validarFormularioLembrete,
@@ -29,7 +36,7 @@ interface LembreteFormModalProps {
 
 function formularioInicial(dataInicial: string, lembreteEmEdicao?: ItemLembretePessoal): FormularioLembrete {
   if (lembreteEmEdicao === undefined) {
-    return { titulo: '', descricao: '', datas: [dataInicial], diaInteiro: false, horaInicio: '', horaFim: '' };
+    return { titulo: '', descricao: '', datas: [dataInicial], diaInteiro: false, horaInicio: '', horaFim: '', alertasAntecedenciaMin: [AVISO_PADRAO_LEMBRETE_MIN] };
   }
   return {
     titulo: lembreteEmEdicao.titulo,
@@ -38,7 +45,37 @@ function formularioInicial(dataInicial: string, lembreteEmEdicao?: ItemLembreteP
     diaInteiro: lembreteEmEdicao.horario.diaInteiro,
     horaInicio: lembreteEmEdicao.horario.horaInicio ?? '',
     horaFim: lembreteEmEdicao.horario.horaFim ?? '',
+    alertasAntecedenciaMin: lembreteEmEdicao.alertasAntecedenciaMin ?? [],
   };
+}
+
+/** LEMBRETE-ALARME-1 — opções de aviso (minutos antes; vazio = sem aviso). */
+const OPCOES_AVISO_COM_HORARIO: ReadonlyArray<{ rotulo: string; minutos: number[] }> = [
+  { rotulo: 'Sem aviso', minutos: [] },
+  { rotulo: 'No horário', minutos: [0] },
+  { rotulo: '5 min antes', minutos: [5] },
+  { rotulo: '15 min antes', minutos: [15] },
+  { rotulo: '1 h antes', minutos: [60] },
+  { rotulo: '1 dia antes', minutos: [1440] },
+];
+const OPCOES_AVISO_DIA_INTEIRO: ReadonlyArray<{ rotulo: string; minutos: number[] }> = [
+  { rotulo: 'Sem aviso', minutos: [] },
+  { rotulo: `No dia às ${HORARIO_AVISO_LEMBRETE_DIA_INTEIRO}`, minutos: [0] },
+  { rotulo: '1 dia antes', minutos: [1440] },
+];
+const MODOS_REPETICAO: ReadonlyArray<{ modo: ModoRepeticaoLembrete; rotulo: string }> = [
+  { modo: 'NAO', rotulo: 'Não repete' },
+  { modo: 'DIARIO', rotulo: 'Todo dia' },
+  { modo: 'DIAS_UTEIS', rotulo: 'Seg a sex' },
+  { modo: 'SEMANAL', rotulo: 'Escolher dias' },
+  { modo: 'DATAS', rotulo: 'Datas específicas' },
+];
+const LETRAS_SEMANA = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
+const NOMES_SEMANA = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+
+function mesmoAviso(a: readonly number[] | undefined, b: readonly number[]): boolean {
+  const x = a ?? [];
+  return x.length === b.length && x.every((valor, indice) => valor === b[indice]);
 }
 
 export function LembreteFormModal({
@@ -59,7 +96,15 @@ export function LembreteFormModal({
   const [erroExclusao, setErroExclusao] = useState('');
   /** LEMBRETE-MODAL-2 — campos pouco usados ficam recolhidos até a pessoa abrir. */
   const [mostrarDescricao, setMostrarDescricao] = useState(() => (lembreteEmEdicao?.descricao ?? '') !== '');
-  const [mostrarRepetir, setMostrarRepetir] = useState(false);
+  /** LEMBRETE-REPETICAO-1 — como repetir: todo dia, seg a sex, dias escolhidos ou datas específicas. */
+  const [modoRepeticao, setModoRepeticao] = useState<ModoRepeticaoLembrete>('NAO');
+  const [diasEscolhidos, setDiasEscolhidos] = useState<number[]>(() => [new Date(`${dataInicial}T12:00:00Z`).getUTCDay()]);
+  const [repetirAte, setRepetirAte] = useState(() => dataFinalPadraoRepeticao(dataInicial));
+  const repeteNaSemana = modoRepeticao === 'DIARIO' || modoRepeticao === 'DIAS_UTEIS' || modoRepeticao === 'SEMANAL';
+  const datasDaRepeticao = repeteNaSemana
+    ? gerarDatasRepeticao(form.datas[0] ?? '', repetirAte, diasSemanaDaRepeticao(modoRepeticao, diasEscolhidos))
+    : [];
+  const opcoesAviso = form.diaInteiro ? OPCOES_AVISO_DIA_INTEIRO : OPCOES_AVISO_COM_HORARIO;
 
   const viraDia = !form.diaInteiro
     && normalizarHorarioLembrete({ diaInteiro: false, horaInicio: form.horaInicio || null, horaFim: form.horaFim || null }).viraDia;
@@ -77,7 +122,14 @@ export function LembreteFormModal({
   }
 
   async function salvar() {
-    const errosValidacao = validarFormularioLembrete(form);
+    // Repetição semanal: as datas vêm da regra (início → "Até"), não da lista manual.
+    const datasFinais = repeteNaSemana ? datasDaRepeticao : modoRepeticao === 'DATAS' ? form.datas : form.datas.slice(0, 1);
+    if (repeteNaSemana && datasFinais.length === 0) {
+      setErros(['Nenhum dia corresponde à repetição escolhida até a data final.']);
+      return;
+    }
+    const formFinal = { ...form, datas: datasFinais };
+    const errosValidacao = validarFormularioLembrete(formFinal);
     if (errosValidacao.length > 0) {
       setErros(errosValidacao);
       return;
@@ -85,10 +137,10 @@ export function LembreteFormModal({
     setErros([]);
     setSalvando(true);
     try {
-      if (form.datas.length <= 1) {
-        await onSalvarUnico(entradaLembreteDoFormulario(form));
+      if (formFinal.datas.length <= 1) {
+        await onSalvarUnico(entradaLembreteDoFormulario(formFinal));
       } else {
-        await onSalvarSerie(entradaSerieLembreteDoFormulario(form));
+        await onSalvarSerie(entradaSerieLembreteDoFormulario(formFinal));
       }
       onFechar();
     } catch (falha) {
@@ -192,11 +244,21 @@ export function LembreteFormModal({
 
             <div className="lembrete-form-segmento" role="radiogroup" aria-label="Horário">
               <button type="button" role="radio" aria-checked={!form.diaInteiro} className={!form.diaInteiro ? 'active' : ''}
-                onClick={() => setForm((atual) => ({ ...atual, diaInteiro: false }))}>
+                onClick={() => setForm((atual) => ({
+                  ...atual,
+                  diaInteiro: false,
+                  alertasAntecedenciaMin: OPCOES_AVISO_COM_HORARIO.some((opcao) => mesmoAviso(atual.alertasAntecedenciaMin, opcao.minutos))
+                    ? atual.alertasAntecedenciaMin : [AVISO_PADRAO_LEMBRETE_MIN],
+                }))}>
                 <Clock size={15} aria-hidden="true" /> Em um horário
               </button>
               <button type="button" role="radio" aria-checked={form.diaInteiro} className={form.diaInteiro ? 'active' : ''}
-                onClick={() => setForm((atual) => ({ ...atual, diaInteiro: true }))}>
+                onClick={() => setForm((atual) => ({
+                  ...atual,
+                  diaInteiro: true,
+                  alertasAntecedenciaMin: OPCOES_AVISO_DIA_INTEIRO.some((opcao) => mesmoAviso(atual.alertasAntecedenciaMin, opcao.minutos))
+                    ? atual.alertasAntecedenciaMin : [0],
+                }))}>
                 <Sun size={15} aria-hidden="true" /> Dia inteiro
               </button>
             </div>
@@ -224,6 +286,21 @@ export function LembreteFormModal({
               </div>
             )}
             {viraDia && <p className="lembrete-vira-dia-aviso">Termina no dia seguinte</p>}
+
+            {/* LEMBRETE-ALARME-1 — notificação no celular. */}
+            <div className="lembrete-form-aviso">
+              <span className="lembrete-form-rotulo"><BellRing size={15} aria-hidden="true" /> Avisar</span>
+              <div className="lembrete-form-pilulas" role="radiogroup" aria-label="Quando avisar">
+                {opcoesAviso.map((opcao) => (
+                  <button key={opcao.rotulo} type="button" role="radio"
+                    aria-checked={mesmoAviso(form.alertasAntecedenciaMin, opcao.minutos)}
+                    className={mesmoAviso(form.alertasAntecedenciaMin, opcao.minutos) ? 'active' : ''}
+                    onClick={() => setForm((atual) => ({ ...atual, alertasAntecedenciaMin: [...opcao.minutos] }))}>
+                    {opcao.rotulo}
+                  </button>
+                ))}
+              </div>
+            </div>
           </section>
 
           {mostrarDescricao ? (
@@ -244,33 +321,71 @@ export function LembreteFormModal({
             </button>
           )}
 
-          {modo === 'criar' && (mostrarRepetir || form.datas.length > 1 ? (
-            <section className="lembrete-form-bloco lembrete-datas-adicionais" aria-label="Repetir em outras datas">
-              <span className="lembrete-form-rotulo"><Repeat size={15} aria-hidden="true" /> Repetir em outras datas</span>
-              {form.datas.length > 1 && (
-                <div className="lembrete-form-chips">
-                  {form.datas.slice(1).map((data) => (
-                    <span className="alias-chip" key={data}>
-                      {formatarData(data, { weekday: 'short', day: '2-digit', month: '2-digit' })}
-                      <button type="button" onClick={() => removerData(data)} aria-label={`Remover data ${data}`}>
-                        <X size={12} />
-                      </button>
-                    </span>
+          {modo === 'criar' && (
+            <section className="lembrete-form-bloco lembrete-datas-adicionais" aria-label="Repetir">
+              <span className="lembrete-form-rotulo"><Repeat size={15} aria-hidden="true" /> Repetir</span>
+              <div className="lembrete-form-pilulas" role="radiogroup" aria-label="Como repetir">
+                {MODOS_REPETICAO.map((opcao) => (
+                  <button key={opcao.modo} type="button" role="radio" aria-checked={modoRepeticao === opcao.modo}
+                    className={modoRepeticao === opcao.modo ? 'active' : ''}
+                    onClick={() => setModoRepeticao(opcao.modo)}>
+                    {opcao.rotulo}
+                  </button>
+                ))}
+              </div>
+
+              {modoRepeticao === 'SEMANAL' && (
+                <div className="lembrete-form-semana" role="group" aria-label="Dias da semana">
+                  {LETRAS_SEMANA.map((letra, dia) => (
+                    <button key={dia} type="button" aria-pressed={diasEscolhidos.includes(dia)} aria-label={NOMES_SEMANA[dia]}
+                      className={diasEscolhidos.includes(dia) ? 'active' : ''}
+                      onClick={() => setDiasEscolhidos((atuais) => (atuais.includes(dia) ? atuais.filter((item) => item !== dia) : [...atuais, dia]))}>
+                      {letra}
+                    </button>
                   ))}
                 </div>
               )}
-              <div className="lembrete-form-adicionar-data">
-                <input type="date" value={novaData} onChange={(evento) => setNovaData(evento.target.value)} aria-label="Outra data" />
-                <button type="button" className="secondary-button" onClick={adicionarData} disabled={novaData === ''}>
-                  <Plus size={14} /> Adicionar
-                </button>
-              </div>
+
+              {repeteNaSemana && (
+                <>
+                  <label className="lembrete-form-linha" htmlFor="lembrete-repetir-ate">
+                    <CalendarDays size={17} aria-hidden="true" />
+                    <span>Até</span>
+                    <input id="lembrete-repetir-ate" type="date" min={form.datas[0]} value={repetirAte} onChange={(evento) => setRepetirAte(evento.target.value)} />
+                  </label>
+                  <p className="lembrete-form-resumo">
+                    {datasDaRepeticao.length === 0
+                      ? 'Nenhum dia nesse período.'
+                      : `Vai criar ${datasDaRepeticao.length} ${datasDaRepeticao.length === 1 ? 'lembrete' : 'lembretes'}, de ${formatarData(datasDaRepeticao[0]!, { weekday: 'short', day: '2-digit', month: '2-digit' })} a ${formatarData(datasDaRepeticao.at(-1)!, { weekday: 'short', day: '2-digit', month: '2-digit' })}.`}
+                    {datasDaRepeticao.length >= LIMITE_OCORRENCIAS_REPETICAO_LEMBRETE && ` (limite de ${LIMITE_OCORRENCIAS_REPETICAO_LEMBRETE} por vez)`}
+                  </p>
+                </>
+              )}
+
+              {modoRepeticao === 'DATAS' && (
+                <>
+                  {form.datas.length > 1 && (
+                    <div className="lembrete-form-chips">
+                      {form.datas.slice(1).map((data) => (
+                        <span className="alias-chip" key={data}>
+                          {formatarData(data, { weekday: 'short', day: '2-digit', month: '2-digit' })}
+                          <button type="button" onClick={() => removerData(data)} aria-label={`Remover data ${data}`}>
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="lembrete-form-adicionar-data">
+                    <input type="date" value={novaData} onChange={(evento) => setNovaData(evento.target.value)} aria-label="Outra data" />
+                    <button type="button" className="secondary-button" onClick={adicionarData} disabled={novaData === ''}>
+                      <Plus size={14} /> Adicionar
+                    </button>
+                  </div>
+                </>
+              )}
             </section>
-          ) : (
-            <button type="button" className="lembrete-form-abrir" onClick={() => setMostrarRepetir(true)}>
-              <Repeat size={16} aria-hidden="true" /> Repetir em outras datas
-            </button>
-          ))}
+          )}
 
           {erros.length > 0 && (
             <div className="alert error" role="alert">

@@ -373,3 +373,47 @@ export function filtrarLembretesPorIntervalo<T extends { data: string }>(
 export function lembretesAtribuidosAtivos(itens: readonly LembreteAtribuido[]): LembreteAtribuido[] {
   return itens.filter((item) => item.status === 'ATIVO');
 }
+
+// ---------------------------------------------------------------------------
+// LEMBRETE-REPETICAO-1 — repetir um lembrete: todo dia, de segunda a sexta ou
+// em dias da semana escolhidos, até uma data final. Gera as datas que a série
+// (criarSerieLembretesPessoais) grava — cada ocorrência é um lembrete próprio.
+export const LIMITE_OCORRENCIAS_REPETICAO_LEMBRETE = 180;
+export type ModoRepeticaoLembrete = 'NAO' | 'DIARIO' | 'DIAS_UTEIS' | 'SEMANAL' | 'DATAS';
+
+/** 0 = domingo … 6 = sábado. */
+export function diasSemanaDaRepeticao(modo: ModoRepeticaoLembrete, escolhidos: readonly number[]): number[] {
+  if (modo === 'DIARIO') return [0, 1, 2, 3, 4, 5, 6];
+  if (modo === 'DIAS_UTEIS') return [1, 2, 3, 4, 5];
+  if (modo === 'SEMANAL') return [...new Set(escolhidos)].filter((dia) => dia >= 0 && dia <= 6).sort();
+  return [];
+}
+
+function diaDaSemana(data: string): number {
+  return new Date(`${data}T12:00:00Z`).getUTCDay();
+}
+
+function proximoDia(data: string): string {
+  const base = new Date(`${data}T12:00:00Z`);
+  base.setUTCDate(base.getUTCDate() + 1);
+  return base.toISOString().slice(0, 10);
+}
+
+/** Datas de `inicio` até `ate` (inclusive) nos dias da semana pedidos; no máximo o limite. */
+export function gerarDatasRepeticao(inicio: string, ate: string, diasSemana: readonly number[]): string[] {
+  if (!validarDataCivil(inicio) || !validarDataCivil(ate) || ate < inicio || diasSemana.length === 0) return [];
+  const permitidos = new Set(diasSemana);
+  const datas: string[] = [];
+  for (let data = inicio; data <= ate && datas.length < LIMITE_OCORRENCIAS_REPETICAO_LEMBRETE; data = proximoDia(data)) {
+    if (permitidos.has(diaDaSemana(data))) datas.push(data);
+  }
+  return datas;
+}
+
+/** Data final sugerida: 3 meses depois do início. */
+export function dataFinalPadraoRepeticao(inicio: string): string {
+  if (!validarDataCivil(inicio)) return inicio;
+  const base = new Date(`${inicio}T12:00:00Z`);
+  base.setUTCMonth(base.getUTCMonth() + 3);
+  return base.toISOString().slice(0, 10);
+}

@@ -36,6 +36,8 @@ export interface ItemLembretePessoal {
   data: string;
   horario: HorarioLembrete;
   serieId: string | null;
+  /** LEMBRETE-ALARME-1 — minutos antes para o push (vazio = sem aviso). */
+  alertasAntecedenciaMin?: number[];
 }
 
 export interface ItemLembreteAtribuido {
@@ -172,7 +174,14 @@ export interface FormularioLembrete {
   diaInteiro: boolean;
   horaInicio: string;
   horaFim: string;
+  /** LEMBRETE-ALARME-1 — minutos antes para o push (vazio = sem aviso). */
+  alertasAntecedenciaMin?: number[];
 }
+
+/** LEMBRETE-ALARME-1 — padrão de um lembrete novo: avisar 5 minutos antes. */
+export const AVISO_PADRAO_LEMBRETE_MIN = 5;
+/** Lembrete de dia inteiro avisa às 08:00 do dia (ou da véspera, com "1 dia antes"). */
+export const HORARIO_AVISO_LEMBRETE_DIA_INTEIRO = '08:00';
 
 function horarioDoFormulario(form: FormularioLembrete): Pick<EntradaLembrete, 'diaInteiro' | 'horaInicio' | 'horaFim'> {
   if (form.diaInteiro) {
@@ -191,6 +200,7 @@ export function entradaLembreteDoFormulario(form: FormularioLembrete): EntradaLe
     descricao: form.descricao.trim() === '' ? null : form.descricao,
     data: form.datas[0] ?? '',
     ...horarioDoFormulario(form),
+    alertasAntecedenciaMin: form.alertasAntecedenciaMin ?? [],
   };
 }
 
@@ -200,6 +210,7 @@ export function entradaSerieLembreteDoFormulario(form: FormularioLembrete): Entr
     descricao: form.descricao.trim() === '' ? null : form.descricao,
     datas: form.datas,
     ...horarioDoFormulario(form),
+    alertasAntecedenciaMin: form.alertasAntecedenciaMin ?? [],
   };
 }
 

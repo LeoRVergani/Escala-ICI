@@ -177,7 +177,13 @@ describe('entradaLembreteDoFormulario / entradaSerieLembreteDoFormulario', () =>
       diaInteiro: false,
       horaInicio: '21:00',
       horaFim: null,
+      // LEMBRETE-ALARME-1 — o aviso vai junto; formulário sem aviso = lista vazia.
+      alertasAntecedenciaMin: [],
     });
+  });
+
+  it('LEMBRETE-ALARME-1: o aviso escolhido no formulário vai para a entrada', () => {
+    expect(entradaLembreteDoFormulario(formularioBase({ alertasAntecedenciaMin: [5] })).alertasAntecedenciaMin).toEqual([5]);
   });
 
   it('dia inteiro zera os horários mesmo se o formulário ainda tiver texto neles', () => {
