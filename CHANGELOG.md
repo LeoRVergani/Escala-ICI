@@ -11,6 +11,14 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.6.0 — telas iguais para quem lidera
+- Uma regra só: quem administra equipe ou Plantão e não tem escala própria vê
+  as telas de liderança em todas as abas (com ou sem equipe fixa no cadastro).
+- Hoje: sem o aviso "Nenhuma jornada 6x1" para líder. Agenda: lembretes.
+  Trocas: "Para aprovar" e "Histórico da equipe" sempre. Plantão: os que
+  administra (Antes · Agora · Depois) + os que a equipe consulta. Equipe: só
+  a visão da coordenação. Perfil: "Conta da coordenação", sem avisos do turno.
+
 ## 3.5.1 — ajustes da Hoje da coordenação
 - Nome com espaço no começo do cadastro aparecia vazio; cards da equipe e do
   Plantão alinhados; título e legenda separados; "Ver escala" numa linha.

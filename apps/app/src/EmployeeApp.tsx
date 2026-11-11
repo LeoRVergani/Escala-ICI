@@ -236,7 +236,7 @@ import { faixaHorario, normalizarFaixaHorario } from './formatoHorario';
 import { detalheVersaoApp, numeroVersaoApp } from './versaoApp';
 import { AlertasTurnoPerfil, type TurnoDaPessoa } from './AlertasTurnoPerfil';
 import { HojePlantonista } from './HojePlantonista';
-import { HojeCoordenacao } from './HojeCoordenacao';
+import { HojeCoordenacao, PlantoesDaCoordenacao } from './HojeCoordenacao';
 import { CriarLembreteEquipe, type AlvoLembreteEquipe } from './CriarLembreteEquipe';
 import { ImportarEscala6x1Coordenacao } from './ImportarEscala6x1Coordenacao';
 import {
@@ -5314,6 +5314,14 @@ export function EmployeeApp() {
   const souPlantonistaAtivoApp = participantesPlantaoApp.some(
     (participante) => participante.login === usuario.login && participante.ativo,
   );
+  /**
+   * LIDERANCA-PADRAO-1 — regra ÚNICA das telas de liderança: quem administra
+   * equipe ou Plantão (souCoordenacaoApp) e NÃO tem escala própria (nem
+   * jornada publicada, nem participação como plantonista) vê as telas de
+   * liderança em TODAS as abas — tenha ou não equipe fixa no cadastro.
+   * Quem lidera e também tem escala própria vê as duas coisas.
+   */
+  const liderSemEscalaPropriaApp = souCoordenacaoApp && !jornadaPublicadaApp && !souPlantonistaAtivoApp;
   const estadoGlobalApp = derivarEstadoGlobalApp(operacoesApp);
   const operacaoPrincipalHojeApp = operacaoPrincipalHoje(operacoesApp);
   // "Ainda não sabemos" (consulta de Plantão em andamento) nunca deve
@@ -5495,13 +5503,13 @@ export function EmployeeApp() {
             amigável quando nenhuma existe. Nunca um erro vermelho global
             só porque falta uma das duas.
           */}
-          {!jornadaPublicadaApp && plantaoPublicadoApp && !contaSetorApp && !souPlantonistaAtivoApp && (
+          {!jornadaPublicadaApp && plantaoPublicadoApp && !contaSetorApp && !souPlantonistaAtivoApp && !souCoordenacaoApp && (
             <div className="alert warning" role="status">
               Nenhuma jornada 6x1 publicada para este período.
             </div>
           )}
           {/* VISAO-COORDENADOR-APP-4 — quem coordena e não tem escala própria vê o painel das equipes, não um aviso vazio. */}
-          {statusPlantaoConhecido && estadoGlobalApp === 'sem-operacoes' && souCoordenacaoApp && !usuario.equipeId ? null : statusPlantaoConhecido && estadoGlobalApp === 'sem-operacoes' ? (
+          {statusPlantaoConhecido && estadoGlobalApp === 'sem-operacoes' && liderSemEscalaPropriaApp ? null : statusPlantaoConhecido && estadoGlobalApp === 'sem-operacoes' ? (
             <article className="panel organization-empty-state">
               <CalendarDays size={28} aria-hidden="true" />
               <h2>Nenhuma escala publicada para este período</h2>
@@ -5694,7 +5702,7 @@ export function EmployeeApp() {
       )}
 
       {/* VISAO-COORDENADOR-MOBILE-3 — coordenador sem equipe fixa não tem agenda própria. */}
-      {tela === 'minha' && souCoordenacaoApp && !usuario.equipeId && (
+      {tela === 'minha' && liderSemEscalaPropriaApp && (
         <section className="employee-screen employee-agenda-screen">
           {/* AGENDA-COORDENACAO-1 — sem escala própria, a Agenda do coordenador é dos Lembretes. */}
           <header className="page-heading schedule-page-heading">
@@ -5720,7 +5728,7 @@ export function EmployeeApp() {
           </article>
         </section>
       )}
-      {tela === 'minha' && !(souCoordenacaoApp && !usuario.equipeId) && (
+      {tela === 'minha' && !liderSemEscalaPropriaApp && (
         <section className="employee-screen employee-agenda-screen">
           <div className="agenda-mobile-intro">
             <span className="avatar">
@@ -6010,7 +6018,8 @@ export function EmployeeApp() {
               )}
             </header>
 
-            {equipesQueCoordenoApp.length > 0 && (
+            {/* LIDERANCA-PADRAO-1 — todo líder vê "Para aprovar" (vazio quando não há 6x1). */}
+            {souCoordenacaoApp && (
               <article className="panel troca-bloco-aprovar">
                 <div className="panel-title">
                   <div>
@@ -6049,7 +6058,7 @@ export function EmployeeApp() {
             )}
 
             {/* HISTORICO-TROCAS-COORD-1 — decisões da equipe (aceites, recusas, cancelamentos), mais recentes primeiro. */}
-            {souCoordenacaoApp && historicoTrocasEquipeApp.length > 0 && (
+            {souCoordenacaoApp && (
               <article className="panel troca-historico-equipe">
                 <div className="panel-title">
                   <div>
@@ -6057,6 +6066,7 @@ export function EmployeeApp() {
                     <p>Trocas de 6x1 decididas nesta competência e na próxima.</p>
                   </div>
                 </div>
+                {historicoTrocasEquipeApp.length === 0 && <p className="empty-inline">Nenhuma troca decidida ainda.</p>}
                 <ul>
                   {historicoTrocasEquipeApp.map((troca) => (
                     <li key={troca.trocaId} data-status={troca.status}>
@@ -6075,7 +6085,7 @@ export function EmployeeApp() {
             )}
 
             {/* VISAO-COORDENADOR-MOBILE-3 — sem equipe fixa, o coordenador só decide trocas ("Para aprovar"). */}
-            {!(souCoordenacaoApp && !usuario.equipeId) && (
+            {!liderSemEscalaPropriaApp && (
             <>
             <article className="panel troca-bloco-jornada">
               <div className="panel-title">
@@ -6249,7 +6259,48 @@ export function EmployeeApp() {
         );
       })()}
 
-      {tela === 'plantao' && usuario && (
+      {/* LIDERANCA-PADRAO-1 — Plantão de quem lidera (sem plantão próprio): os que administra + os que a equipe consulta. */}
+      {tela === 'plantao' && usuario && (liderSemEscalaPropriaApp ? (
+        <section className="employee-screen employee-plantao-screen">
+          <header className="page-heading">
+            <div>
+              <p className="eyebrow">Coordenação</p>
+              <h1>Plantão</h1>
+              <p>Quem está de plantão agora, quem passou e quem vem — toque na pessoa para ligar.</p>
+            </div>
+            <button className="secondary-button" type="button" onClick={() => setTela('equipe')}>
+              <CalendarDays size={16} aria-hidden="true" /> Calendário e totais em Equipe
+            </button>
+          </header>
+          {visaoCoordenacaoApp.plantoes.length > 0 && (
+            <PlantoesDaCoordenacao
+              plantoes={visaoCoordenacaoApp.plantoes}
+              agora={agora}
+              usuarios={usuarios}
+              onAbrirPlantonista={(plantao, atribuicao) => setPlantonistaAberto({ grupo: plantao.grupo, atribuicao, participantes: plantao.participantes })}
+              onAbrirEquipes={() => setTela('equipe')}
+            />
+          )}
+          {gruposPlantaoApp.some((grupo) => !visaoCoordenacaoApp.plantoes.some((plantao) => plantao.grupo.grupoId === grupo.grupoId)) && (
+            <PlantoesAgoraTodos
+              grupos={gruposPlantaoApp.filter((grupo) => !visaoCoordenacaoApp.plantoes.some((plantao) => plantao.grupo.grupoId === grupo.grupoId))}
+              detalhes={detalhesPlantaoPorGrupoApp}
+              agoraIso={agora.toISOString()}
+              usuarios={usuarios}
+              onAbrirGrupo={() => setTela('equipe')}
+              onAbrirPlantonista={setPlantonistaAberto}
+            />
+          )}
+          {visaoCoordenacaoApp.plantoes.length === 0 && gruposPlantaoApp.length === 0 && (
+            <article className="panel organization-empty-state">
+              <Radio size={28} aria-hidden="true" />
+              <h2>Nenhum Plantão nas suas equipes</h2>
+              <p>Quando sua equipe tiver um Plantão ou consultar um, ele aparece aqui.</p>
+            </article>
+          )}
+        </section>
+      ) : null)}
+      {tela === 'plantao' && usuario && !liderSemEscalaPropriaApp && (
         <section className="employee-screen employee-plantao-screen">
           <header className="page-heading">
             <div>
@@ -6279,7 +6330,7 @@ export function EmployeeApp() {
             <div className="alert error" role="alert">{erroPlantaoApp}</div>
           )}
 
-          {!carregandoPlantaoApp && erroPlantaoApp === '' && grupoPlantaoApp === null && souCoordenacaoApp && !usuario.equipeId && (
+          {!carregandoPlantaoApp && erroPlantaoApp === '' && grupoPlantaoApp === null && liderSemEscalaPropriaApp && (
             <article className="panel organization-empty-state coordenacao-sem-escala">
               <Users size={28} aria-hidden="true" />
               <h2>Os Plantões que você administra estão em Equipe</h2>
@@ -6289,7 +6340,7 @@ export function EmployeeApp() {
               </button>
             </article>
           )}
-          {!carregandoPlantaoApp && erroPlantaoApp === '' && grupoPlantaoApp === null && !(souCoordenacaoApp && !usuario.equipeId) && (
+          {!carregandoPlantaoApp && erroPlantaoApp === '' && grupoPlantaoApp === null && !liderSemEscalaPropriaApp && (
             <article className="panel organization-empty-state">
               <Radio size={28} aria-hidden="true" />
               <h2>Nenhum Plantão configurado para sua equipe</h2>
@@ -6446,7 +6497,7 @@ export function EmployeeApp() {
             />
           )}
           {/* VISAO-COORDENADOR-APP-4 — coordenador sem equipe fixa não vê a "Escala da equipe" pessoal (sempre vazia para ele). */}
-          {!(souCoordenacaoApp && !usuario.equipeId) && (
+          {!liderSemEscalaPropriaApp && (
           <>
           <header className="page-heading">
             <div>
@@ -6572,7 +6623,7 @@ export function EmployeeApp() {
         <section className="employee-screen employee-profile-screen">
           <header className="page-heading">
             <div>
-              <p className="eyebrow">{contaSetorApp ? 'Conta do setor' : souCoordenacaoApp && !usuario.equipeId ? 'Conta da coordenação' : 'Conta do colaborador'}</p>
+              <p className="eyebrow">{contaSetorApp ? 'Conta do setor' : liderSemEscalaPropriaApp ? 'Conta da coordenação' : 'Conta do colaborador'}</p>
               <h1>Perfil</h1>
               <p>Identidade usada para localizar sua escala publicada.</p>
             </div>
@@ -6725,7 +6776,7 @@ export function EmployeeApp() {
             )}
             {/* ALERTAS-TURNO-LAYOUT-1 — Avisos do turno ANTES das Notificações, na largura toda. */}
             {/* PERFIL-COORDENACAO-1 — coordenador sem equipe fixa não tem turno: sem avisos do turno. */}
-            {!contaSetorApp && Boolean(usuario.equipeId) && (
+            {!contaSetorApp && !liderSemEscalaPropriaApp && (
               <AlertasTurnoPerfil login={usuario.login} turnos={turnosDaPessoaNoMes(escalaVisivelApp, catalogo)} />
             )}
             <CardNotificacoesPush
