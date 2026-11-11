@@ -3079,6 +3079,36 @@ function lembreteAtribuido(ajustes: Record<string, unknown> = {}) {
   };
 }
 
+describe('LIDERANCAS-1 — uma liderança torna outra pessoa liderança (só promove, com registro)', () => {
+  const promover = (quem: { login: string; email: string }, alvo: string, ajustes: Record<string, unknown> = {}) => updateDoc(
+    doc(autenticarComo(quem), 'usuarios', alvo),
+    {
+      perfil: 'GESTOR_EQUIPE', nivelHierarquico: 5, promovidoPorLogin: quem.login,
+      promovidoEm: '2026-11-10T12:00:00.000Z', atualizadoEm: '2026-11-10T12:00:00.000Z', ...ajustes,
+    },
+  );
+
+  it('a liderança torna um colaborador liderança, registrando quem promoveu', async () => {
+    await assertSucceeds(promover(usuarios.gestor, usuarios.colaborador.login));
+  });
+
+  it('colaborador não promove ninguém', async () => {
+    await assertFails(promover(usuarios.colaborador, usuarios.colega.login));
+  });
+
+  it('a liderança não dá perfil de administrador', async () => {
+    await assertFails(promover(usuarios.gestor, usuarios.colaborador.login, { perfil: 'ADMIN_SISTEMA' }));
+  });
+
+  it('a promoção precisa registrar a própria liderança como quem promoveu', async () => {
+    await assertFails(promover(usuarios.gestor, usuarios.colaborador.login, { promovidoPorLogin: usuarios.admin.login }));
+  });
+
+  it('a liderança não mexe no perfil de outra liderança (rebaixar é só do administrador)', async () => {
+    await assertFails(promover(usuarios.gestor, usuarios.gestorUnidade.login));
+  });
+});
+
 describe('MINHA-EQUIPE-PLANTOES-1 — o chefe da equipe escolhe os Plantões que a equipe vê', () => {
   // Ravi é responsável pela escala da NOC SÓ pela Matriz (sem perfil de gestor);
   // o Plantão de teste pertence a outra equipe (EQ_COSI_SOC).

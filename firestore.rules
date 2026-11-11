@@ -908,6 +908,27 @@ service cloud.firestore {
             && request.resource.data.login == resource.data.login
           )
 
+          /**
+           * LIDERANCAS-1 — uma liderança torna outra pessoa liderança:
+           * só promove (nunca rebaixa — isso é do administrador), nunca a
+           * si mesma, só quem ainda não é liderança, sempre para
+           * GESTOR_EQUIPE (nunca admin/gestor de unidade), sobe o nível para
+           * 5 (acesso ao Dashboard) e registra quem promoveu e quando.
+           */
+          || (
+            !souAdminSistema()
+            && souResponsavelOperacionalElegivel()
+            && loginDoAuth() != login
+            && !(resource.data.get('perfil', '') in ['ADMIN_SISTEMA', 'GESTOR_UNIDADE', 'GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'])
+            && request.resource.data.perfil == 'GESTOR_EQUIPE'
+            && request.resource.data.nivelHierarquico
+              == (resource.data.get('nivelHierarquico', 6) <= 5 ? resource.data.get('nivelHierarquico', 6) : 5)
+            && request.resource.data.promovidoPorLogin == loginDoAuth()
+            && request.resource.data.promovidoEm is string
+            && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['perfil', 'nivelHierarquico', 'promovidoPorLogin', 'promovidoEm', 'atualizadoEm'])
+          )
+
           // Na importação da Jornada, o responsável do alvo pode apenas
           // reconciliar os aliases da planilha. Isso não vira permissão de
           // administração geral do cadastro do usuário.

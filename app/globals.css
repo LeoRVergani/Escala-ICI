@@ -9577,3 +9577,48 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
   .plantoes-da-equipe { padding: 16px; }
   .plantoes-da-equipe-lista > li { padding: 10px 12px; }
 }
+
+/* =====================================================================
+ * LIDERANCAS-1 — Dashboard › Lideranças (lista limpa, sem herança de cards).
+ * ===================================================================== */
+.liderancas-pagina { display: grid; gap: 16px; }
+.liderancas-pagina > * { margin: 0; }
+.liderancas-barra { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.liderancas-abas { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.liderancas-abas > button {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 14px;
+  border: 0; border-radius: 9px; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
+}
+.liderancas-abas > button.active { background: color-mix(in srgb, var(--primary-bright) 14%, var(--surface)); color: var(--primary-bright); }
+.liderancas-abas > button > span { padding: 1px 8px; border-radius: 999px; background: var(--surface-muted); color: var(--text); font-size: 12px; }
+.liderancas-busca {
+  display: flex; flex: 1 1 260px; align-items: center; gap: 8px; max-width: 420px; padding: 0 12px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--muted);
+}
+.liderancas-busca input { flex: 1 1 auto; min-height: 40px; border: 0; background: transparent; color: var(--text); font: inherit; outline: none; }
+.liderancas-lista { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.liderancas-lista > li {
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  border: 1px solid var(--border); border-radius: 14px; background: var(--surface);
+}
+.liderancas-avatar {
+  display: inline-grid; flex: 0 0 auto; place-items: center; width: 40px; height: 40px; border-radius: 50%;
+  background: color-mix(in srgb, var(--muted) 18%, var(--surface)); color: var(--text); font-size: 13px; font-weight: 800;
+}
+.liderancas-avatar[data-lideranca] { background: linear-gradient(135deg, #6366f1, #2563eb); color: #fff; }
+.liderancas-pessoa { display: grid; flex: 1 1 auto; gap: 2px; min-width: 0; }
+.liderancas-pessoa strong { color: var(--text); font-size: 14.5px; font-weight: 750; }
+.liderancas-pessoa small { overflow: hidden; color: var(--muted); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.liderancas-pessoa em { color: var(--primary-bright); font-size: 12px; font-style: normal; font-weight: 600; }
+.liderancas-ok { display: flex; align-items: center; gap: 6px; color: var(--success); font-size: 13.5px; font-weight: 700; }
+.liderancas-dica, .liderancas-carregando, .liderancas-vazio { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.liderancas-confirmar { display: grid; gap: 12px; width: min(460px, calc(100vw - 32px)); }
+.liderancas-confirmar > * { margin: 0; }
+.liderancas-confirmar h2 { color: var(--text); font-size: 18px; }
+.liderancas-confirmar p { color: var(--muted); font-size: 14px; line-height: 1.5; }
+.liderancas-confirmar-acoes { display: flex; justify-content: flex-end; gap: 10px; }
+@media (max-width: 720px) {
+  .liderancas-busca { max-width: none; }
+  .liderancas-lista > li { flex-wrap: wrap; padding: 12px; }
+  .liderancas-lista > li > button { width: 100%; justify-content: center; }
+}
