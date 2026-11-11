@@ -11,6 +11,12 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.7.0 — liderança aprova troca de Plantão pelo App
+- Quem lidera Plantão (inclusive só Plantão) vê em Trocas › "Para aprovar" as
+  trocas aceitas pelo colega de TODOS os Plantões que administra (competência
+  atual e próxima) e decide ali — aprovar ou recusar com motivo.
+- "Trocas para aprovar" na Hoje e o aviso do topo somam 6x1 e Plantão.
+
 ## 3.6.0 — telas iguais para quem lidera
 - Uma regra só: quem administra equipe ou Plantão e não tem escala própria vê
   as telas de liderança em todas as abas (com ou sem equipe fixa no cadastro).

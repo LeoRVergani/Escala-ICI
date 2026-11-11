@@ -3438,6 +3438,8 @@ export function EmployeeApp() {
    */
   const [trocasPlantaoApp, setTrocasPlantaoApp] = useState<SolicitacaoTrocaPlantao[]>([]);
   const [trocasPlantaoDoGrupoApp, setTrocasPlantaoDoGrupoApp] = useState<SolicitacaoTrocaPlantao[]>([]);
+  /** APROVAR-TROCA-PLANTAO-LIDER-1 — trocas dos Plantões que a pessoa lidera (todos, não só o selecionado). */
+  const [trocasPlantaoLiderancaPorChave, setTrocasPlantaoLiderancaPorChave] = useState<Record<string, SolicitacaoTrocaPlantao[]>>({});
   const [notificacoesTrocaPlantaoApp, setNotificacoesTrocaPlantaoApp] = useState<NotificacaoTrocaPlantao[]>([]);
   const [abaTrocasPlantao, setAbaTrocasPlantao] = useState<AbaTrocas>('minhas');
   const [trocaPlantaoAbertaId, setTrocaPlantaoAbertaId] = useState<string | null>(null);
@@ -3941,6 +3943,35 @@ export function EmployeeApp() {
     };
   }, [competenciaPlantaoApp, grupoIdPlantaoApp, listenersLiberados, podeAprovarTrocaPlantaoApp]);
 
+  // APROVAR-TROCA-PLANTAO-LIDER-1 — quem lidera Plantão acompanha as trocas de TODOS os que administra
+  // (competência atual e a próxima, como na 6x1). Sem acesso a um grupo: lista vazia, sem erro na tela.
+  const chavePlantoesLideradosApp = visaoCoordenacaoApp.plantoes.map((plantao) => plantao.grupo.grupoId).sort().join('|');
+  useEffect(() => {
+    if (!listenersLiberados || !souCoordenacaoApp || chavePlantoesLideradosApp === '') {
+      return undefined;
+    }
+    const cancelar: Array<() => void> = [];
+    for (const grupoId of chavePlantoesLideradosApp.split('|')) {
+      for (const competencia of [competenciaAtiva, competenciaSeguinteApp]) {
+        const chave = `${grupoId}:${competencia}`;
+        try {
+          cancelar.push(observarTrocasPlantaoDoGrupo(
+            grupoId,
+            competencia,
+            (lista) => setTrocasPlantaoLiderancaPorChave((atuais) => ({ ...atuais, [chave]: lista })),
+            () => setTrocasPlantaoLiderancaPorChave((atuais) => ({ ...atuais, [chave]: [] })),
+          ));
+        } catch {
+          // sem Firebase pronto: tenta de novo na próxima renderização
+        }
+      }
+    }
+    return () => {
+      cancelar.forEach((parar) => parar());
+      setTrocasPlantaoLiderancaPorChave({});
+    };
+  }, [chavePlantoesLideradosApp, competenciaAtiva, competenciaSeguinteApp, listenersLiberados, souCoordenacaoApp]);
+
   // Renovação de FID (chamada de novo por `pushsubscriptionchange` ou por
   // outra aba) — assinatura de longa duração, só enquanto o dispositivo
   // está de fato ATIVO. Idempotente: `registrarOuRenovarDispositivo`
@@ -4113,11 +4144,26 @@ export function EmployeeApp() {
    * aprovação, só carregada para quem administra o Grupo): quem abre uma
    * troca pela fila de "Aprovações de Plantão" pode não ser parte dela.
    */
+  /** APROVAR-TROCA-PLANTAO-LIDER-1 — trocas de Plantão aguardando a decisão de quem lidera. */
+  const trocasPlantaoLiderancaApp = Object.values(trocasPlantaoLiderancaPorChave).flat()
+    .filter((item, indice, lista) => lista.findIndex((outra) => outra.trocaId === item.trocaId) === indice);
+  const pendentesPlantaoLiderancaApp = trocasPlantaoLiderancaApp
+    .filter((item) => item.status === 'PENDENTE_GESTOR'
+      && item.solicitanteLogin !== loginUsuario && item.destinatarioLogin !== loginUsuario);
+  /** Total para aprovar (6x1 + Plantão) — aviso do topo, números da Hoje e contador. */
+  const totalTrocasParaAprovarApp = trocasParaAprovarApp.length + pendentesPlantaoLiderancaApp.length;
+  const trocaPlantaoAbertaDaLideranca = trocaPlantaoAbertaId !== null
+    ? trocasPlantaoLiderancaApp.find((item) => item.trocaId === trocaPlantaoAbertaId) ?? null
+    : null;
   const trocaPlantaoAberta = trocaPlantaoAbertaId !== null
     ? trocasPlantaoApp.find((item) => item.trocaId === trocaPlantaoAbertaId)
       ?? trocasPlantaoDoGrupoApp.find((item) => item.trocaId === trocaPlantaoAbertaId)
-      ?? null
+      ?? trocaPlantaoAbertaDaLideranca
     : null;
+  /** O Plantão da troca aberta (o selecionado ou, se veio da liderança, o dela). */
+  const grupoDaTrocaPlantaoAberta = trocaPlantaoAbertaDaLideranca
+    ? visaoCoordenacaoApp.plantoes.find((plantao) => plantao.grupo.grupoId === trocaPlantaoAbertaDaLideranca.grupoId)?.grupo ?? grupoPlantaoApp
+    : grupoPlantaoApp;
 
   const escalasDoUsuario = documentos.filter(
     (documento) => documento.login === usuario?.login,
@@ -5459,11 +5505,11 @@ export function EmployeeApp() {
             </div>
           </header>
           {/* APROVAR-TROCA-APP-1 — coordenador vê na hora que há troca esperando por ele. */}
-          {trocasParaAprovarApp.length > 0 && (
+          {totalTrocasParaAprovarApp > 0 && (
             <button type="button" className="aviso-aprovar-trocas" onClick={() => setTela('trocas')}>
               <ArrowLeftRight size={18} aria-hidden="true" />
               <span>
-                <strong>{trocasParaAprovarApp.length === 1 ? '1 troca aguardando sua aprovação' : `${trocasParaAprovarApp.length} trocas aguardando sua aprovação`}</strong>
+                <strong>{totalTrocasParaAprovarApp === 1 ? '1 troca aguardando sua aprovação' : `${totalTrocasParaAprovarApp} trocas aguardando sua aprovação`}</strong>
                 <small>Toque para revisar e decidir.</small>
               </span>
               <ChevronRight size={18} aria-hidden="true" />
@@ -5478,7 +5524,7 @@ export function EmployeeApp() {
               agora={agora}
               catalogo={catalogo}
               usuarios={usuarios}
-              trocasParaAprovar={trocasParaAprovarApp.length}
+              trocasParaAprovar={totalTrocasParaAprovarApp}
               renderPrevisao={(data, inicio, fim) => <PrevisaoCompacta horas={horasPrevisao} data={data} inicio={inicio} fim={fim} />}
               onAbrirEquipes={() => setTela('equipe')}
               onAbrirTrocas={() => setTela('trocas')}
@@ -6023,8 +6069,8 @@ export function EmployeeApp() {
               <article className="panel troca-bloco-aprovar">
                 <div className="panel-title">
                   <div>
-                    <h2>Para aprovar {trocasParaAprovarApp.length > 0 && <span className="notification-badge-inline">{trocasParaAprovarApp.length}</span>}</h2>
-                    <p>Trocas de 6x1 da sua equipe aguardando a sua decisão.</p>
+                    <h2>Para aprovar {totalTrocasParaAprovarApp > 0 && <span className="notification-badge-inline">{totalTrocasParaAprovarApp}</span>}</h2>
+                    <p>Trocas de 6x1 e de Plantão das suas equipes aguardando a sua decisão.</p>
                   </div>
                 </div>
                 {ultimaDecisaoTroca && (
@@ -6033,9 +6079,9 @@ export function EmployeeApp() {
                     <button className="icon-button" type="button" onClick={() => setUltimaDecisaoTroca(null)} aria-label="Fechar aviso"><X size={15} /></button>
                   </div>
                 )}
-                {trocasParaAprovarApp.length === 0 ? (
+                {totalTrocasParaAprovarApp === 0 ? (
                   <p className="empty-inline">Nenhuma troca aguardando aprovação.</p>
-                ) : (
+                ) : trocasParaAprovarApp.length > 0 && (
                   <div className="troca-lista">
                     {trocasParaAprovarApp.map((troca) => (
                       <button key={troca.trocaId} type="button" className="troca-item-button" onClick={() => { setErroTroca(''); setTrocaDecisaoAbertaId(troca.trocaId); }}>
@@ -6047,6 +6093,22 @@ export function EmployeeApp() {
                             {ehTrocaDeFolga(troca) && troca.dataTroca ? ` ⇄ ${formatarDiaTrocaSafe(troca.dataTroca, { day: '2-digit', month: 'short' }).replace('.', '')}` : ''}
                             {' · '}{troca.turnoSolicitanteAntes || '—'} ⇄ {troca.turnoDestinatarioAntes || '—'}
                           </small>
+                        </div>
+                        <span className="status-badge warning">Decidir</span>
+                        <ChevronRight size={16} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {/* APROVAR-TROCA-PLANTAO-LIDER-1 — trocas de Plantão dos Plantões que lidero. */}
+                {pendentesPlantaoLiderancaApp.length > 0 && (
+                  <div className="troca-lista troca-lista-plantao-lideranca">
+                    {pendentesPlantaoLiderancaApp.map((troca) => (
+                      <button key={troca.trocaId} type="button" className="troca-item-button" onClick={() => { setErroTrocaPlantao(''); setTrocaPlantaoAbertaId(troca.trocaId); }}>
+                        <Radio size={16} />
+                        <div>
+                          <strong>{troca.solicitanteNome} ⇄ {troca.destinatarioNome}</strong>
+                          <small>{visaoCoordenacaoApp.plantoes.find((plantao) => plantao.grupo.grupoId === troca.grupoId)?.grupo.nome ?? 'Plantão'} · aceita pelo colega</small>
                         </div>
                         <span className="status-badge warning">Decidir</span>
                         <ChevronRight size={16} />
@@ -6943,11 +7005,11 @@ export function EmployeeApp() {
         />
       )}
 
-      {trocaPlantaoAberta && usuario && grupoPlantaoApp != null && (
+      {trocaPlantaoAberta && usuario && grupoDaTrocaPlantaoAberta != null && (
         trocaPlantaoAberta.destinatarioLogin === usuario.login && trocaPlantaoAberta.status === 'PENDENTE_USUARIO' ? (
           <ModalRespostaTrocaPlantao
             troca={trocaPlantaoAberta}
-            timezone={grupoPlantaoApp.timezone}
+            timezone={grupoDaTrocaPlantaoAberta.timezone}
             processando={processandoTrocaPlantao}
             erro={erroTrocaPlantao}
             onFechar={() => { setTrocaPlantaoAbertaId(null); setErroTrocaPlantao(''); }}
@@ -6958,10 +7020,10 @@ export function EmployeeApp() {
           <ModalDetalheTrocaPlantao
             troca={trocaPlantaoAberta}
             usuario={usuario}
-            timezone={grupoPlantaoApp.timezone}
+            timezone={grupoDaTrocaPlantaoAberta.timezone}
             processando={processandoTrocaPlantao}
             erro={erroTrocaPlantao}
-            podeDecidirComoGestor={podeAprovarTrocaPlantaoApp}
+            podeDecidirComoGestor={trocaPlantaoAbertaDaLideranca !== null || podeAprovarTrocaPlantaoApp}
             onFechar={() => { setTrocaPlantaoAbertaId(null); setErroTrocaPlantao(''); }}
             onCancelar={() => void cancelarSolicitacaoTrocaPlantaoApp(trocaPlantaoAberta.trocaId)}
             onAprovar={() => void aprovarTrocaPlantaoApp(trocaPlantaoAberta.trocaId)}
