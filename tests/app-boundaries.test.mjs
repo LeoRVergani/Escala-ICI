@@ -1021,3 +1021,17 @@ test('LIDERANCAS-2 — a alternativa "pessoa nova como liderança" é a ÚLTIMA 
   // E ela vem depois da alternativa de staging (a última antiga).
   assert.ok(regras.indexOf('perfilCadastroLivreStagingValido(request.resource.data)\n          )') < regras.indexOf('LIDERANCAS-2 — uma liderança cadastra uma pessoa NOVA'));
 });
+
+test('ADMIN-EQUIPES-1 — Administração abre em Equipes; Organização antiga continua acessível', async () => {
+  const [dashboard, pagina] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('apps/dashboard/src/AdminEquipesPage.tsx'),
+  ]);
+  assert.match(dashboard, /useState<'equipes' \| 'organizacao'>\('equipes'\)/);
+  assert.match(dashboard, /tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'equipes' && usuarioReal && \(\s*<AdminEquipesPage/);
+  assert.match(dashboard, /tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'organizacao' && \(/);
+  // A liderança da equipe é o responsável da Matriz JORNADA (o que o banco já usa).
+  assert.match(dashboard, /responsaveisLogin: \[login\],[\s\S]{0,200}await salvarEscopoOperacional\(escopo\);/);
+  // Sem códigos técnicos à vista: o cartão não mostra id nem código organizacional.
+  assert.doesNotMatch(pagina, /codigoOrganizacional|>\{equipe\.id\}</);
+});

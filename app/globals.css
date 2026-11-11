@@ -9673,3 +9673,43 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 }
 .nova-lideranca-resultados button:hover { border-color: var(--primary-bright); }
 .primary-button.perigo { background: var(--danger); border-color: var(--danger); }
+
+/* =====================================================================
+ * ADMIN-EQUIPES-1 — Administração › Equipes (cartões limpos, sem herança).
+ * ===================================================================== */
+.admin-equipes { display: grid; gap: 16px; }
+.admin-equipes > * { margin: 0; }
+.admin-numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.admin-numeros > div {
+  display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--primary-bright);
+}
+.admin-numeros > div > span { display: grid; gap: 1px; }
+.admin-numeros small { color: var(--muted); font-size: 12px; font-weight: 700; }
+.admin-numeros strong { color: var(--text); font-size: 22px; font-weight: 800; line-height: 1.1; }
+.admin-numeros > div[data-alerta] { border-color: color-mix(in srgb, var(--warning) 55%, var(--border)); color: var(--warning); }
+.admin-equipes-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.admin-equipe-cartao {
+  display: grid; gap: 14px; padding: 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface);
+  transition: border-color 0.15s ease;
+}
+.admin-equipe-cartao:hover { border-color: color-mix(in srgb, var(--primary-bright) 45%, var(--border)); }
+.admin-equipe-cartao[data-inativa] { opacity: 0.65; }
+.admin-equipe-topo { display: flex; align-items: center; gap: 12px; }
+.admin-equipe-icone {
+  display: inline-grid; flex: 0 0 auto; place-items: center; width: 42px; height: 42px; border-radius: 12px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary-bright) 30%, var(--surface)), color-mix(in srgb, #6366f1 25%, var(--surface)));
+  color: var(--text); font-size: 13px; font-weight: 800;
+}
+.admin-equipe-nome { display: grid; flex: 1 1 auto; gap: 2px; min-width: 0; }
+.admin-equipe-nome strong { overflow: hidden; color: var(--text); font-size: 15.5px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.admin-equipe-nome small { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12.5px; }
+.admin-selo { flex: 0 0 auto; padding: 2px 9px; border-radius: 999px; background: var(--surface-muted); color: var(--muted); font-size: 11px; font-weight: 800; }
+.admin-equipe-linhas { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-muted); }
+.admin-equipe-linhas > div { display: grid; gap: 2px; min-width: 0; }
+.admin-equipe-linhas small { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; }
+.admin-equipe-linhas span { color: var(--text); font-size: 13.5px; font-weight: 650; }
+.admin-pessoas { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-alerta { display: inline-flex; align-items: center; gap: 5px; color: var(--warning) !important; font-weight: 800 !important; }
+.admin-equipe-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.admin-equipe-acoes > .icon-button { margin-left: auto; }

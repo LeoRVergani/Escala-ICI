@@ -1,5 +1,6 @@
 'use client';
 
+import { AdminEquipesPage } from './AdminEquipesPage';
 import { CriarEquipeModal } from './CriarEquipeModal';
 import { CriarPlantaoModal } from './CriarPlantaoModal';
 import { ehLideranca } from '@/lib/liderancas';
@@ -2879,12 +2880,21 @@ function AdministracaoSubnav({
   podeAcessarPlantoes,
   onEscolherAba,
 }: {
-  aba: 'organizacao' | 'plantao' | 'responsaveis';
+  aba: 'equipes' | 'organizacao' | 'plantao' | 'responsaveis';
   podeAcessarPlantoes: boolean;
-  onEscolherAba: (aba: 'organizacao' | 'plantao' | 'responsaveis') => void;
+  onEscolherAba: (aba: 'equipes' | 'organizacao' | 'plantao' | 'responsaveis') => void;
 }) {
   return (
     <div className="segmented-control administracao-subnav" aria-label="Áreas de Administração">
+      {/* ADMIN-EQUIPES-1 — Equipes é a primeira aba (e a que abre por padrão). */}
+      <button
+        type="button"
+        aria-current={aba === 'equipes' ? 'page' : undefined}
+        className={aba === 'equipes' ? 'active' : ''}
+        onClick={() => onEscolherAba('equipes')}
+      >
+        Equipes
+      </button>
       <button
         type="button"
         aria-current={aba === 'organizacao' ? 'page' : undefined}
@@ -4025,6 +4035,17 @@ export function DashboardApp() {
   const [processandoExclusaoUsuario, setProcessandoExclusaoUsuario] = useState(false);
   const [erroExclusaoUsuario, setErroExclusaoUsuario] = useState('');
   const [filtroEquipeTelaUsuarios, setFiltroEquipeTelaUsuarios] = useState('');
+  /** ADMIN-EQUIPES-1 — aba interna da tela "administracao": Equipes (padrão) ou a Organização antiga. */
+  const [abaAdministracao, setAbaAdministracao] = useState<'equipes' | 'organizacao'>('equipes');
+  function escolherAbaAdministracao(aba: 'equipes' | 'organizacao' | 'plantao' | 'responsaveis') {
+    if (aba === 'equipes' || aba === 'organizacao') {
+      setAbaAdministracao(aba);
+      setTela('administracao');
+      return;
+    }
+    setAbaAdministracao('equipes');
+    setTela(aba === 'plantao' ? 'plantoes' : 'responsaveisEscala');
+  }
   // --- Minha equipe (FASE1-EQUIPE-SIMPLES) ---
   /** CRIAR-EQUIPE-1 — modal "Criar equipe" aberto. */
   const [criandoEquipe, setCriandoEquipe] = useState(false);
@@ -11861,7 +11882,7 @@ export function DashboardApp() {
           <AdministracaoSubnav
             aba="plantao"
             podeAcessarPlantoes={podeAcessarPlantoes}
-            onEscolherAba={(aba) => setTela(aba === 'organizacao' ? 'administracao' : aba === 'plantao' ? 'plantoes' : 'responsaveisEscala')}
+            onEscolherAba={escolherAbaAdministracao}
           />
           {erroPlantaoAdmin && <div className="alert error" role="alert">{erroPlantaoAdmin}</div>}
           {gruposPlantaoAdmin.length === 0 && !erroPlantaoAdmin && (
@@ -12147,7 +12168,7 @@ export function DashboardApp() {
           <AdministracaoSubnav
             aba="responsaveis"
             podeAcessarPlantoes={podeAcessarPlantoes}
-            onEscolherAba={(aba) => setTela(aba === 'organizacao' ? 'administracao' : aba === 'plantao' ? 'plantoes' : 'responsaveisEscala')}
+            onEscolherAba={escolherAbaAdministracao}
           />
           {erroAdmin && <div className="alert error" role="alert">{erroAdmin}</div>}
           <ResponsaveisEscalaTable
@@ -12165,7 +12186,39 @@ export function DashboardApp() {
         </section>
       )}
 
-      {tela === 'administracao' && podeAcessarAdministracao && (
+      {/* ADMIN-EQUIPES-1 — Administração › Equipes (abre por padrão). */}
+      {tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'equipes' && usuarioReal && (
+        <AdminEquipesPage
+          equipes={equipesAdmin}
+          unidades={unidadesAdmin}
+          escopos={escoposOperacionaisAdmin}
+          usuarios={todosUsuariosAdmin}
+          subnav={<AdministracaoSubnav aba="equipes" podeAcessarPlantoes={podeAcessarPlantoes} onEscolherAba={escolherAbaAdministracao} />}
+          onSalvarEquipe={async (equipe) => {
+            await salvarEquipe(equipe);
+            setEquipesAdmin((atuais) => atuais.map((item) => (item.id === equipe.id ? equipe : item)));
+          }}
+          onDefinirLideranca={async (equipe, login) => {
+            const agora = new Date().toISOString();
+            const existente = escoposOperacionaisAdmin.find((item) => item.tipo === 'JORNADA' && item.alvoId === equipe.id);
+            const escopo = {
+              ...(existente ?? {
+                tipo: 'JORNADA', alvoId: equipe.id, responsaveisEquipe: [], equipesConsulta: [], criadoEm: agora,
+                criadoPorLogin: usuarioReal.login, schemaVersion: 1,
+                ...(equipe.unidadeId ? { unidadeId: equipe.unidadeId, caminhoUnidade: [...(equipe.caminhoUnidade ?? [])] } : {}),
+              }),
+              alvoNome: equipe.nome,
+              responsaveisLogin: [login],
+              ativo: true,
+              atualizadoEm: agora,
+              atualizadoPorLogin: usuarioReal.login,
+            } as EscopoOperacional;
+            await salvarEscopoOperacional(escopo);
+            setEscoposOperacionaisAdmin((atuais) => [...atuais.filter((item) => !(item.tipo === 'JORNADA' && item.alvoId === equipe.id)), escopo]);
+          }}
+        />
+      )}
+      {tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'organizacao' && (
         <section>
           <header className="page-heading">
             <div>
@@ -12190,7 +12243,7 @@ export function DashboardApp() {
           <AdministracaoSubnav
             aba="organizacao"
             podeAcessarPlantoes={podeAcessarPlantoes}
-            onEscolherAba={(aba) => setTela(aba === 'organizacao' ? 'administracao' : aba === 'plantao' ? 'plantoes' : 'responsaveisEscala')}
+            onEscolherAba={escolherAbaAdministracao}
           />
           {erroAdmin && <div className="alert error" role="alert">{erroAdmin}</div>}
 
