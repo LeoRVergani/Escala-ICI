@@ -1013,3 +1013,11 @@ test('LIDERANCAS-2 — Colaboradores em menu próprio (minha equipe em destaque)
   // Regra: pessoa nova só como GESTOR_EQUIPE nível 5, sem equipe, com registro e só os campos previstos.
   assert.match(regras, /LIDERANCAS-2[\s\S]{0,600}request\.resource\.data\.get\('perfil', ''\) == 'GESTOR_EQUIPE'\n\s*&& request\.resource\.data\.get\('nivelHierarquico', -1\) == 5/);
 });
+
+test('LIDERANCAS-2 — a alternativa "pessoa nova como liderança" é a ÚLTIMA do allow create de usuarios', async () => {
+  const regras = await ler('firestore.rules');
+  // Depois dela, o bloco fecha e vem a exclusão de usuário — nenhuma alternativa antiga depois.
+  assert.match(regras, /'ativo', 'perfil', 'promovidoPorLogin', 'promovidoEm', 'criadoEm', 'atualizadoEm',\n\s*\]\)\n\s*\)\n\s*\);\n\n\s*\/\/ EXCLUSAO-USUARIO-2/);
+  // E ela vem depois da alternativa de staging (a última antiga).
+  assert.ok(regras.indexOf('perfilCadastroLivreStagingValido(request.resource.data)\n          )') < regras.indexOf('LIDERANCAS-2 — uma liderança cadastra uma pessoa NOVA'));
+});
