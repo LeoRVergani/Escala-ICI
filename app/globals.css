@@ -9511,3 +9511,69 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
   .coord-cartao-cabecalho { flex-wrap: wrap; }
   .coord-cartao-cabecalho small { font-size: 11.5px; }
 }
+
+/* =====================================================================
+ * MINHA-EQUIPE-PLANTOES-1 — "Plantões que a equipe vê no App" (Dashboard).
+ * Card próprio: margem só a do espaço padrão (nada herdado de .panel + .panel).
+ * ===================================================================== */
+.plantoes-da-equipe { display: grid; gap: 14px; margin: 18px 0 0; padding: 20px 22px; }
+.plantoes-da-equipe > * { margin: 0; }
+.plantoes-da-equipe-cabecalho { display: flex; align-items: flex-start; gap: 12px; }
+.plantoes-da-equipe-cabecalho h2 { margin: 0; color: var(--text); font-size: 17px; font-weight: 750; }
+.plantoes-da-equipe-cabecalho p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+.plantoes-da-equipe-icone {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--primary-bright) 14%, var(--surface));
+  color: var(--primary-bright);
+}
+.plantoes-da-equipe-lista { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.plantoes-da-equipe-lista > li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+.plantoes-da-equipe-lista > li[data-ligado] { border-color: color-mix(in srgb, var(--primary-bright) 45%, var(--border)); }
+.plantoes-da-equipe-nome { display: grid; flex: 1 1 auto; gap: 2px; min-width: 0; }
+.plantoes-da-equipe-nome strong { color: var(--text); font-size: 14.5px; font-weight: 750; }
+.plantoes-da-equipe-nome small { color: var(--muted); font-size: 12px; }
+.plantoes-da-equipe-interruptor {
+  position: relative;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 35%, var(--surface));
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.plantoes-da-equipe-interruptor > span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
+  transition: transform 0.15s ease;
+}
+.plantoes-da-equipe-interruptor[aria-checked="true"] { background: var(--primary-bright); }
+.plantoes-da-equipe-interruptor[aria-checked="true"] > span { transform: translateX(20px); }
+.plantoes-da-equipe-interruptor:disabled { cursor: not-allowed; opacity: 0.6; }
+.plantoes-da-equipe-ok { display: flex; align-items: center; gap: 6px; color: var(--success); font-size: 13px; font-weight: 700; }
+.plantoes-da-equipe-carregando, .plantoes-da-equipe-vazio { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+@media (max-width: 720px) {
+  .plantoes-da-equipe { padding: 16px; }
+  .plantoes-da-equipe-lista > li { padding: 10px 12px; }
+}

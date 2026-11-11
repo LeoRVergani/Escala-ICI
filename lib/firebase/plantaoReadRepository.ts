@@ -48,6 +48,19 @@ export async function listarGruposPlantaoPermitidos(equipeId: string): Promise<G
  * Um Grupo antigo sem o campo nunca aparece aqui — só em
  * `listarGruposPlantaoPermitidos()`/`listarTodosGruposPlantao()`.
  */
+/**
+ * MINHA-EQUIPE-PLANTOES-1 — todos os Plantões ativos, para o chefe de uma
+ * equipe escolher quais a equipe vê no App (interruptor em Minha equipe).
+ */
+export async function listarTodosGruposPlantaoAtivos(): Promise<GrupoPlantao[]> {
+  const { db } = exigirFirebase();
+  const resultado = await getDocs(collection(db, 'gruposPlantao'));
+  return resultado.docs
+    .map((snapshot) => snapshot.data() as GrupoPlantao)
+    .filter((grupo) => grupo.ativo)
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
 export async function listarGruposPlantaoPorUnidadeResponsavel(unidadeId: string): Promise<GrupoPlantao[]> {
   const { db } = exigirFirebase();
   const resultado = await getDocs(query(

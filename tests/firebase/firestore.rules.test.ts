@@ -3079,6 +3079,54 @@ function lembreteAtribuido(ajustes: Record<string, unknown> = {}) {
   };
 }
 
+describe('MINHA-EQUIPE-PLANTOES-1 — o chefe da equipe escolhe os Plantões que a equipe vê', () => {
+  // Ravi é responsável pela escala da NOC SÓ pela Matriz (sem perfil de gestor);
+  // o Plantão de teste pertence a outra equipe (EQ_COSI_SOC).
+  const grupoId = 'PLANTAO_AUTOVINCULO';
+  async function preparar(comMatriz: boolean) {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(doc(db, 'gruposPlantao', grupoId), {
+        grupoId, nome: 'Plantão de Teste', descricao: '', equipeResponsavelId: 'EQ_COSI_SOC',
+        equipesConsulta: ['EQ_COSI_SOC'], timezone: 'America/Sao_Paulo', ativo: true, schemaVersion: 1,
+        criadoPorLogin: usuarios.gestor.login, criadoEm: '2026-08-01T00:00:00.000Z', atualizadoEm: '2026-08-01T00:00:00.000Z',
+      });
+      if (comMatriz) {
+        await setDoc(doc(db, 'escoposOperacionais', 'JORNADA_EQ_CODB_NOC'), {
+          tipo: 'JORNADA', alvoId: 'EQ_CODB_NOC', alvoNome: 'NOC', unidadeId: 'CODB', caminhoUnidade: ['GEDSI', 'CODB'],
+          responsaveisLogin: [usuarios.externo.login], responsaveisEquipe: [], equipesConsulta: [], ativo: true,
+          criadoEm: '2026-08-01T00:00:00.000Z', atualizadoEm: '2026-08-01T00:00:00.000Z',
+          criadoPorLogin: usuarios.admin.login, atualizadoPorLogin: usuarios.admin.login, schemaVersion: 1,
+        });
+      }
+    });
+  }
+  const atualizar = (equipes: string[]) => updateDoc(
+    doc(autenticarComo(usuarios.externo), 'gruposPlantao', grupoId),
+    { equipesConsulta: equipes, atualizadoEm: '2026-11-10T12:00:00.000Z' },
+  );
+
+  it('responsável pela escala da NOC (Matriz) liga o Plantão para a NOC', async () => {
+    await preparar(true);
+    await assertSucceeds(atualizar(['EQ_COSI_SOC', 'EQ_CODB_NOC']));
+  });
+
+  it('não liga o Plantão para OUTRA equipe', async () => {
+    await preparar(true);
+    await assertFails(atualizar(['EQ_COSI_SOC', 'EQ_GEDSI_ADM']));
+  });
+
+  it('não muda duas equipes de uma vez', async () => {
+    await preparar(true);
+    await assertFails(atualizar(['EQ_COSI_SOC', 'EQ_CODB_NOC', 'EQ_GEDSI_ADM']));
+  });
+
+  it('sem ser responsável pela NOC: negado', async () => {
+    await preparar(false);
+    await assertFails(atualizar(['EQ_COSI_SOC', 'EQ_CODB_NOC']));
+  });
+});
+
 describe('LEMBRETE-EQUIPE-APP-1 — quem administra o Plantão avisa plantonista de outra equipe', () => {
   // Ravi (EQ_CODB_NOC) participa do PLANTAO_TESTE; Marina administra o Plantão pela Matriz,
   // mas NÃO opera a equipe do Ravi.
