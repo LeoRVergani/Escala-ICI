@@ -52,7 +52,14 @@ export function LoginPanel({
   });
   const verificandoSessao = deveExibirRestauracao(sessao.estado);
   const [diagnosticoSessao] = useState(() => textoDiagnosticoSessao());
-  const manterConectado = sessao.manterConectado;
+  /**
+   * MANTER-CONECTADO-APP-1 — no App a caixa vem SEMPRE marcada: a escolha de
+   * desmarcar valia para os próximos logins e ficava esquecida (o celular
+   * passava a pedir login a cada abertura). Desmarcar vale só para este login.
+   * O Dashboard segue lembrando a escolha (padrão desmarcado, computador).
+   */
+  const [manterConectadoApp, setManterConectadoApp] = useState(true);
+  const manterConectado = tipo === 'app' ? manterConectadoApp : sessao.manterConectado;
   const erro = erroEnvio || sessao.erro;
   const microsoftDisponivel = firebaseConfigurado && microsoftProviderConfigurado();
   const acaoEmAndamento = metodoCarregando !== null || verificandoSessao;
@@ -182,7 +189,9 @@ export function LoginPanel({
             <input
               type="checkbox"
               checked={manterConectado}
-              onChange={(evento) => sessao.definirManterConectado(evento.target.checked)}
+              onChange={(evento) => (tipo === 'app'
+                ? setManterConectadoApp(evento.target.checked)
+                : sessao.definirManterConectado(evento.target.checked))}
               disabled={!firebaseConfigurado || acaoEmAndamento}
             />
             <span>
@@ -190,6 +199,9 @@ export function LoginPanel({
               <small>Desmarque em computadores compartilhados.</small>
             </span>
           </label>
+          {tipo === 'app' && !manterConectado && (
+            <p className="login-aviso-sair" role="status">Você vai precisar entrar de novo quando fechar o App.</p>
+          )}
           {erro && <div className="alert error" role="alert">{erro}</div>}
           <button
             className="primary-button"

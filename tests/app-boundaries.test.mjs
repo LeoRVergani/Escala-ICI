@@ -1101,3 +1101,10 @@ test('SESSAO-CELULAR-2 — diagnóstico: cada abertura registra o que aconteceu 
   assert.match(restauracao, /registrarEventoSessao\('TEMPO_ESGOTADO'/);
   assert.match(login, /tipo === 'app' && diagnosticoSessao && <p className="login-diagnostico-sessao">/);
 });
+
+test('MANTER-CONECTADO-APP-1 — no App a caixa vem sempre marcada e avisa quando desmarcada', async () => {
+  const login = await ler('components/LoginPanel.tsx');
+  assert.match(login, /const \[manterConectadoApp, setManterConectadoApp\] = useState\(true\);/);
+  assert.match(login, /const manterConectado = tipo === 'app' \? manterConectadoApp : sessao\.manterConectado;/);
+  assert.match(login, /Você vai precisar entrar de novo quando fechar o App\./);
+});
