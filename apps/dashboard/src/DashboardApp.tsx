@@ -1,5 +1,6 @@
 'use client';
 
+import { ConfirmarPublicacaoPlantao } from './ConfirmarPublicacaoPlantao';
 import { EscalaPlantaoPage } from './EscalaPlantaoPage';
 import { QuemVePlantaoPainel } from './QuemVePlantaoPainel';
 import { AdminPlantoesPage } from './AdminPlantoesPage';
@@ -3814,6 +3815,10 @@ export function DashboardApp() {
   const [funcaoSelecionadaPlantao, setFuncaoSelecionadaPlantao] = useState<FiltroFuncaoPlantao>('TODOS');
   /** FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 (§21 da fase) — modal "Revisar publicação", só para Grupo multi-função. */
   const [revisarPublicacaoPlantaoAberta, setRevisarPublicacaoPlantaoAberta] = useState(false);
+  /** ESCALA-PLANTAO-3 — confirmação da publicação (o que muda, quem vê, aviso). */
+  const [confirmarPublicacaoPlantaoAberta, setConfirmarPublicacaoPlantaoAberta] = useState(false);
+  /** ESCALA-PLANTAO-3 — ligado só durante o salvamento automático (sem mensagem verde). */
+  const salvandoPlantaoSozinhoRef = useRef(false);
   /**
    * Fase ESCALAS-UX-2B — confirmação contextual do padrão do Grupo
    * (`QuickAddPlantaoPopover`), aberta por `solicitarNovaAtribuicaoPlantao()`
@@ -4226,6 +4231,21 @@ export function DashboardApp() {
     )
     : ESCOPOS_OPERACIONAIS_VAZIOS,
   [equipesAdmin, escoposOperacionaisAdmin, gruposPlantaoAdmin, unidadesAdmin, usuarioReal]);
+  /**
+   * ESCALA-PLANTAO-3 — rascunho salvo SOZINHO: 1,5 s depois de cada mudança,
+   * com a prévia conferida e algo não salvo (o passo 2 vira indicador). Usa a
+   * mesma salvarRascunhoPlantaoAcao, em modo silencioso.
+   */
+  const deveSalvarPlantaoSozinho = tela === 'importar'
+    && origemPlantaoAtual !== null
+    && grupoRascunhoEscolhido !== ''
+    && previaPlantaoValidadaEfetiva
+    && !rascunhoPlantaoProntoParaPublicar
+    && !salvandoRascunhoPlantao
+    && !publicandoPlantao
+    // mesma regra de contextoPlantaoSomenteConsulta (declarada depois do return antecipado do login)
+    && !(contextoEhPlantao(contextoEscalaAtivo)
+      && escoposOperacionais.plantoesConsultaveis.some((grupo) => grupo.grupoId === contextoEscalaAtivo.alvoId));
   const minhasUnidadesPermitidas = escoposOperacionais.unidadesAdministraveis.map((item) => item.unidadeId);
   /**
    * Gate na identidade REAL — espelha `souGestorDePlantao()` de
@@ -8522,7 +8542,9 @@ export function DashboardApp() {
         return { ...atuais, [grupo.grupoId]: [...outras, competenciaParaSalvar] };
       });
       setRascunhoPlantaoSalvoEm(grupo.grupoId);
-      setMensagem(`Rascunho de Plantão salvo para "${grupo.nome}" (${competencia}). Nenhum dado foi publicado.`);
+      if (!salvandoPlantaoSozinhoRef.current) {
+        setMensagem(`Rascunho de Plantão salvo para "${grupo.nome}" (${competencia}). Nenhum dado foi publicado.`);
+      }
     } catch (falha) {
       setErroRascunhoPlantao(mensagemErroEscritaOperacional(
         falha,
@@ -8533,6 +8555,18 @@ export function DashboardApp() {
       setSalvandoRascunhoPlantao(false);
     }
   }
+
+  // ESCALA-PLANTAO-3 — dispara o salvamento automático (marcador = sem mensagem verde a cada salvamento).
+  useEffect(() => {
+    if (!deveSalvarPlantaoSozinho) return undefined;
+    const temporizador = window.setTimeout(() => {
+      salvandoPlantaoSozinhoRef.current = true;
+      void salvarRascunhoPlantaoAcao().finally(() => { salvandoPlantaoSozinhoRef.current = false; });
+    }, 1_500);
+    return () => window.clearTimeout(temporizador);
+    // salvarRascunhoPlantaoAcao é recriada a cada render; o gatilho são os dados abaixo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deveSalvarPlantaoSozinho, atribuicoesEditaveisPlantao, vinculosPlantao, competenciaRascunho, grupoRascunhoEscolhido]);
 
   async function publicarPlantaoAcao() {
     if (usuarioReal === null || contextoPlantaoSomenteConsulta) {
@@ -10408,8 +10442,9 @@ export function DashboardApp() {
                         onClick={() => void salvarRascunhoPlantaoAcao()}
                         >
                           <span className="plantao-passo-numero" aria-hidden="true">2</span>
-                          {salvandoRascunhoPlantao ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}
-                          Salvar rascunho
+                          {salvandoRascunhoPlantao ? <LoaderCircle className="spin" size={15} /> : rascunhoPlantaoProntoParaPublicar ? <CheckCircle2 size={15} /> : <Save size={15} />}
+                          {/* ESCALA-PLANTAO-3 — o rascunho se salva sozinho; o botão vira indicador (e ainda salva na hora, se clicado). */}
+                          {salvandoRascunhoPlantao ? 'Salvando…' : rascunhoPlantaoProntoParaPublicar ? 'Rascunho salvo' : 'Salvar rascunho'}
                       </button>
                       {saudePlantaoRascunho !== null && (
                         <button
@@ -10431,7 +10466,7 @@ export function DashboardApp() {
                               : undefined
                         }
                         disabled={publicandoPlantao || salvandoRascunhoPlantao || !rascunhoPlantaoProntoParaPublicar || !podePublicarPlantaoPelaSaude}
-                        onClick={() => void publicarPlantaoAcao()}
+                        onClick={() => setConfirmarPublicacaoPlantaoAberta(true)}
                       >
                         <span className="plantao-passo-numero" aria-hidden="true">3</span>
                         {publicandoPlantao ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}
@@ -10687,6 +10722,30 @@ export function DashboardApp() {
             />
           )}
 
+          {confirmarPublicacaoPlantaoAberta && gruposPlantaoAdmin.some((grupo) => grupo.grupoId === grupoRascunhoEscolhido) && (
+            <ConfirmarPublicacaoPlantao
+              grupo={gruposPlantaoAdmin.find((grupo) => grupo.grupoId === grupoRascunhoEscolhido)!}
+              competencia={competenciaRascunho.trim()}
+              atribuicoes={atribuicoesEditaveisPlantao}
+              usuarios={usuarios}
+              equipes={equipesAdmin}
+              publicando={publicandoPlantao}
+              erro={erroRascunhoPlantao}
+              onFechar={() => setConfirmarPublicacaoPlantaoAberta(false)}
+              onPublicar={() => {
+                void publicarPlantaoAcao().then(() => setConfirmarPublicacaoPlantaoAberta(false));
+              }}
+              onAlternarQuemVe={async (grupo, equipeId, ligar) => {
+                await atualizarEquipeConsultaPlantao(grupo.grupoId, equipeId, ligar ? 'ADICIONAR' : 'REMOVER');
+                setGruposPlantaoAdmin((atuais) => atuais.map((item) => (item.grupoId !== grupo.grupoId ? item : {
+                  ...item,
+                  equipesConsulta: ligar
+                    ? [...new Set([...(item.equipesConsulta ?? []), equipeId])]
+                    : (item.equipesConsulta ?? []).filter((id) => id !== equipeId),
+                })));
+              }}
+            />
+          )}
           {revisarPublicacaoPlantaoAberta && saudePlantaoRascunho !== null && (
             <RevisarPublicacaoPlantaoModal
               nomeGrupo={grupoRascunhoPlantaoEmContexto?.nome ?? 'Plantão'}

@@ -1108,3 +1108,15 @@ test('MANTER-CONECTADO-APP-1 — no App a caixa vem sempre marcada e avisa quand
   assert.match(login, /const manterConectado = tipo === 'app' \? manterConectadoApp : sessao\.manterConectado;/);
   assert.match(login, /Você vai precisar entrar de novo quando fechar o App\./);
 });
+
+test('ESCALA-PLANTAO-3 — rascunho salvo sozinho; Publicar abre a confirmação (o que muda, quem vê) e publica pelo mesmo caminho', async () => {
+  const [dashboard, modal] = await Promise.all([ler('apps/dashboard/src/DashboardApp.tsx'), ler('apps/dashboard/src/ConfirmarPublicacaoPlantao.tsx')]);
+  assert.match(dashboard, /salvandoPlantaoSozinhoRef\.current = true;\s*void salvarRascunhoPlantaoAcao\(\)/);
+  assert.match(dashboard, /if \(!salvandoPlantaoSozinhoRef\.current\) \{\s*setMensagem\(/);
+  // O efeito fica ANTES do return antecipado do login (regra dos hooks).
+  assert.ok(dashboard.indexOf('if (!deveSalvarPlantaoSozinho) return undefined;') < dashboard.indexOf('return <LoginPanel tipo="dashboard"'));
+  assert.match(dashboard, /onClick=\{\(\) => setConfirmarPublicacaoPlantaoAberta\(true\)\}/);
+  assert.match(dashboard, /onPublicar=\{\(\) => \{\s*void publicarPlantaoAcao\(\)/);
+  assert.match(modal, /mudancasEntreEscalas\(noAr, atribuicoes\)/);
+  assert.match(modal, /<QuemVePlantaoPainel/);
+});
