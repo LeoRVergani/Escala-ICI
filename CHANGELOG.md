@@ -11,6 +11,12 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.7.3 — "Manter conectado" sempre marcado no App
+- A caixa vem sempre marcada no login do App; desmarcar vale só para aquele
+  login (antes a escolha ficava lembrada e o celular passava a pedir login a
+  cada abertura sem a pessoa perceber). Desmarcada, aparece o aviso
+  "Você vai precisar entrar de novo quando fechar o App".
+
 ## 3.7.2 — diagnóstico do login no celular
 - A tela de login do App mostra, numa linha discreta, por que a última
   abertura pediu login (nenhuma conta guardada no aparelho, conexão lenta,
