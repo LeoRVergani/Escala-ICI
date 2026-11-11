@@ -9744,3 +9744,32 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 .quem-ve-plantao-chip[data-ligado] .quem-ve-plantao-ponto { background: #10b981; box-shadow: 0 0 0 3px color-mix(in srgb, #10b981 22%, transparent); }
 .app-shell .plantoes-da-equipe { margin: 0 0 16px; padding: 14px 18px; }
 .plantao-command-panel .quem-ve-plantao { padding: 10px 0 2px; border-top: 1px dashed var(--border); }
+
+/* =====================================================================
+ * ESCALA-PLANTAO-1 — "Escala do Plantão" (no ar): só conferir, sem abas.
+ * ===================================================================== */
+.escala-plantao { display: grid; gap: 16px; }
+.escala-plantao > * { margin: 0; }
+.escala-plantao-cabecalho { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.escala-plantao-cabecalho h1 { margin: 2px 0 4px; }
+.escala-plantao-mes { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; color: var(--muted); font-size: 14.5px; font-weight: 600; }
+.escala-plantao-status {
+  display: inline-flex; align-items: center; gap: 7px; padding: 3px 11px; border-radius: 999px;
+  background: color-mix(in srgb, #10b981 14%, var(--surface)); color: #10b981; font-size: 12.5px; font-weight: 800;
+}
+.escala-plantao-status > span { width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 0 3px color-mix(in srgb, #10b981 25%, transparent); }
+.escala-plantao-acoes { display: flex; flex-wrap: wrap; gap: 10px; }
+.escala-plantao-resumo {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; padding: 14px 18px;
+  border: 1px solid var(--border); border-radius: 16px; background: var(--surface);
+}
+.escala-plantao-resumo > span { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 14px; }
+.escala-plantao-resumo > span > svg { color: var(--primary-bright); }
+.escala-plantao-resumo strong { color: var(--text); font-size: 18px; font-weight: 800; }
+.escala-plantao-resumo .escala-plantao-quem-ve { flex: 1 1 360px; justify-content: flex-end; }
+.escala-plantao-calendario { padding: 14px; }
+@media (max-width: 720px) {
+  .escala-plantao-acoes { width: 100%; }
+  .escala-plantao-acoes > button { flex: 1 1 0; justify-content: center; }
+  .escala-plantao-resumo .escala-plantao-quem-ve { justify-content: flex-start; }
+}
