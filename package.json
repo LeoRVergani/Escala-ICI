@@ -81,6 +81,7 @@
     "staging:validate": "node scripts/staging/validate-staging.mjs",
     "staging:repair:cosi": "node scripts/staging/auditar-reparar-plantao-cosi.mjs",
     "staging:diagnosticar:plantao": "node scripts/staging/diagnosticar-plantao-usuario.mjs",
+    "staging:normalizar:nomes": "node scripts/staging/normalizar-nomes-usuarios.mjs",
     "lint": "node scripts/run-local-tool.mjs lint",
     "db:generate": "node scripts/run-local-tool.mjs db-generate",
     "seed": "vite-node seed/seed.ts"

@@ -4,6 +4,7 @@ import {
   type ResultadoParse,
   type TurnosMes,
 } from '@escala-ici/contrato';
+import { normalizarNomePessoa } from '../nomePessoa';
 import {
   collection,
   deleteDoc,
@@ -453,6 +454,8 @@ export async function reverterPublicacao(
  * ignorado em vez de sobrescrito com `undefined`, o que o Firestore rejeita.
  */
 export async function salvarUsuario(usuario: Usuario): Promise<void> {
+  // NOME-SEM-ESPACOS-1 — o nome entra no banco sempre limpo.
+  usuario = { ...usuario, nome: normalizarNomePessoa(usuario.nome) };
   exigirEscritaAdministrativaHabilitada();
   if (usuarioGestorUnidadeComEquipeIdInvalido(usuario)) {
     throw new Error(
@@ -476,7 +479,8 @@ export async function salvarUsuarios(usuarios: readonly Usuario[]): Promise<void
   const { db } = exigirFirebase();
   for (const lote of fatiarEmLotes(usuarios, 500)) {
     const batch = writeBatch(db);
-    for (const usuario of lote) {
+    for (const informado of lote) {
+      const usuario: Usuario = { ...informado, nome: normalizarNomePessoa(informado.nome) };
       batch.set(doc(db, 'usuarios', usuario.login), removerUndefined(usuario));
     }
     await batch.commit();
@@ -533,5 +537,5 @@ export async function adicionarMembroRascunho(documento: TurnosMes): Promise<voi
 export async function atualizarNome(login: string, nome: string): Promise<void> {
   exigirEscritaAdministrativaHabilitada();
   const { db } = exigirFirebase();
-  await updateDoc(doc(db, 'usuarios', login), { nome });
+  await updateDoc(doc(db, 'usuarios', login), { nome: normalizarNomePessoa(nome) });
 }
