@@ -11,6 +11,12 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.7.2 — diagnóstico do login no celular
+- A tela de login do App mostra, numa linha discreta, por que a última
+  abertura pediu login (nenhuma conta guardada no aparelho, conexão lenta,
+  busca do cadastro falhou), com o modo (instalado/navegador) e como foi o
+  último login — para corrigir a causa certa.
+
 ## 3.7.1 — o celular continua conectado
 - Uma falha passageira ao abrir o App (rede oscilando, servidor ocupado)
   desconectava a conta e obrigava a entrar de novo toda vez. Agora o App tenta

@@ -17,6 +17,7 @@ import {
   deveExibirRestauracao,
   nivelPermiteDashboard,
 } from '@/lib/sessao';
+import { registrarEventoSessao, textoDiagnosticoSessao } from '@/lib/diagnosticoSessao';
 import { BrandMark } from './BrandMark';
 import { useRestauracaoSessao } from './RestauracaoSessao';
 import { ThemeToggle } from './ThemeProvider';
@@ -50,6 +51,7 @@ export function LoginPanel({
     aoRestaurar: (restaurado) => onEntrar(restaurado, false),
   });
   const verificandoSessao = deveExibirRestauracao(sessao.estado);
+  const [diagnosticoSessao] = useState(() => textoDiagnosticoSessao());
   const manterConectado = sessao.manterConectado;
   const erro = erroEnvio || sessao.erro;
   const microsoftDisponivel = firebaseConfigurado && microsoftProviderConfigurado();
@@ -65,6 +67,7 @@ export function LoginPanel({
     try {
       sessao.gravarPreferencia(manterConectado);
       const usuario = await executar();
+      registrarEventoSessao('LOGIN', `manter=${manterConectado ? 'sim' : 'não'}, ${metodo === 'MICROSOFT' ? 'Microsoft' : 'e-mail'}`);
       if (tipo === 'dashboard' && !nivelPermiteDashboard(usuario.nivelHierarquico)) {
         await sair();
         throw new Error(MENSAGEM_SEM_PERMISSAO_DASHBOARD);
@@ -215,6 +218,8 @@ export function LoginPanel({
             Entrar na demonstração
           </button>
         </form>
+        {/* SESSAO-CELULAR-2 — por que a última abertura pediu login (só no App, só quando terminou mal). */}
+        {tipo === 'app' && diagnosticoSessao && <p className="login-diagnostico-sessao">{diagnosticoSessao}</p>}
       </section>
     </main>
   );

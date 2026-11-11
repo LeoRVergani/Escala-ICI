@@ -20,6 +20,7 @@ import {
   type EstadoSessao,
   type TipoProduto,
 } from '@/lib/sessao';
+import { registrarEventoSessao } from '@/lib/diagnosticoSessao';
 import { BrandMark } from './BrandMark';
 
 export interface RestauracaoSessao {
@@ -108,6 +109,7 @@ export function useRestauracaoSessao({
       // vez de mostrar o login — antes o celular em 4G fraco caía no login.
       const desistir = () => {
         if (!encerrado) {
+          registrarEventoSessao('TEMPO_ESGOTADO', contaRestauradaNoAparelho() ? 'conta no aparelho' : 'sem conta');
           setEstado((atual) => (atual === 'restaurando' ? 'ausente' : atual));
         }
       };
@@ -141,6 +143,7 @@ export function useRestauracaoSessao({
             });
         },
         (falha) => {
+          registrarEventoSessao('ERRO_RESTAURAR', falha.message);
           setErro(mensagemErroAutenticacao(falha));
           finalizar('ausente');
         },

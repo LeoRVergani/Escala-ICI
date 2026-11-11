@@ -10,6 +10,7 @@ import {
   type Auth,
   type Unsubscribe,
 } from 'firebase/auth';
+import { registrarEventoSessao } from '../diagnosticoSessao';
 import { doc, getDoc } from 'firebase/firestore';
 
 import type { Usuario } from '../modelos';
@@ -70,6 +71,11 @@ async function resolverUsuarioAutenticado(email: string | null): Promise<Usuario
  * desconectava a conta (signOut) — no celular, uma oscilação de rede na
  * abertura apagava a sessão e obrigava a entrar de novo toda vez.
  */
+function codigoOuMensagem(falha: unknown): string {
+  const codigo = String((falha as { code?: unknown } | null)?.code ?? '');
+  return codigo || (falha instanceof Error ? falha.message : String(falha));
+}
+
 export function falhaPassageiraAoCarregarUsuario(falha: unknown): boolean {
   const codigo = String((falha as { code?: unknown } | null)?.code ?? '');
   const mensagem = falha instanceof Error ? falha.message : '';
@@ -92,6 +98,7 @@ async function carregarUsuario(email: string | null): Promise<Usuario> {
     return await resolverUsuarioAutenticado(email);
   } catch (primeira) {
     if (!falhaPassageiraAoCarregarUsuario(primeira)) {
+      registrarEventoSessao('CADASTRO_FALHOU', codigoOuMensagem(primeira));
       await signOut(auth);
       throw primeira;
     }
@@ -102,6 +109,7 @@ async function carregarUsuario(email: string | null): Promise<Usuario> {
       return await resolverUsuarioAutenticado(email);
     } catch (segunda) {
       // Rede/servidor: mantém a sessão guardada (a próxima abertura entra direto).
+      registrarEventoSessao('CADASTRO_FALHOU', `2ª tentativa: ${codigoOuMensagem(segunda)}`);
       if (falhaDeRedeAoCarregarUsuario(segunda)) throw segunda;
       await signOut(auth);
       throw segunda;
@@ -203,11 +211,15 @@ export function observarSessao(
     }
     cancelarObservacao = onAuthStateChanged(auth, (conta) => {
       if (conta === null) {
+        registrarEventoSessao('SEM_CONTA_GUARDADA', `manter=${manterConectado ? 'sim' : 'não'}`);
         aoRestaurar(null);
         return;
       }
       void carregarUsuario(conta.email)
-        .then(aoRestaurar)
+        .then((usuario) => {
+          registrarEventoSessao('RESTAURADA');
+          aoRestaurar(usuario);
+        })
         .catch((falha: unknown) =>
           aoFalhar(falha instanceof Error ? falha : new Error('Falha ao restaurar sessão.')));
     }, (falha) => aoFalhar(falha));

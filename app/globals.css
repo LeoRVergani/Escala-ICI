@@ -9783,3 +9783,6 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 @media (max-width: 720px) {
   .plantao-resumo-grid.plantao-resumo-tres { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 }
+
+/* SESSAO-CELULAR-2 — linha de diagnóstico da sessão na tela de login do App. */
+.login-diagnostico-sessao { margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; text-align: center; word-break: break-word; opacity: 0.85; }
