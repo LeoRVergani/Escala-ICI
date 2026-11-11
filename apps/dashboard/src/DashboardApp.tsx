@@ -1,5 +1,6 @@
 'use client';
 
+import { AdminPlantoesPage } from './AdminPlantoesPage';
 import { AdminEquipesPage } from './AdminEquipesPage';
 import { CriarEquipeModal } from './CriarEquipeModal';
 import { CriarPlantaoModal } from './CriarPlantaoModal';
@@ -74,6 +75,7 @@ import {
   UserPlus,
   Users,
   X,
+  ChevronLeft,
 } from 'lucide-react';
 import { ChangeEvent, DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
@@ -2910,7 +2912,7 @@ function AdministracaoSubnav({
           className={aba === 'plantao' ? 'active' : ''}
           onClick={() => onEscolherAba('plantao')}
         >
-          Grupos de Plantão
+          Plantões
         </button>
       )}
       <button
@@ -4037,6 +4039,9 @@ export function DashboardApp() {
   const [filtroEquipeTelaUsuarios, setFiltroEquipeTelaUsuarios] = useState('');
   /** ADMIN-EQUIPES-1 — aba interna da tela "administracao": Equipes (padrão) ou a Organização antiga. */
   const [abaAdministracao, setAbaAdministracao] = useState<'equipes' | 'organizacao'>('equipes');
+  /** ADMIN-PLANTOES-1 — Plantões: cartões (padrão) ou a tela completa (plantonistas, contatos, escala). */
+  const [abaPlantoesAdmin, setAbaPlantoesAdmin] = useState<'resumo' | 'completa'>('resumo');
+  const [criandoPlantaoAdmin, setCriandoPlantaoAdmin] = useState(false);
   function escolherAbaAdministracao(aba: 'equipes' | 'organizacao' | 'plantao' | 'responsaveis') {
     if (aba === 'equipes' || aba === 'organizacao') {
       setAbaAdministracao(aba);
@@ -4044,6 +4049,7 @@ export function DashboardApp() {
       return;
     }
     setAbaAdministracao('equipes');
+    setAbaPlantoesAdmin('resumo');
     setTela(aba === 'plantao' ? 'plantoes' : 'responsaveisEscala');
   }
   // --- Minha equipe (FASE1-EQUIPE-SIMPLES) ---
@@ -11859,8 +11865,60 @@ export function DashboardApp() {
         </section>
       )}
 
-      {tela === 'plantoes' && podeAcessarPlantoes && (
+      {/* ADMIN-PLANTOES-1 — Administração › Plantões em cartões (padrão para o administrador). */}
+      {tela === 'plantoes' && podeAcessarPlantoes && souAdmin && abaPlantoesAdmin === 'resumo' && usuarioReal && (
+        <AdminPlantoesPage
+          grupos={gruposPlantaoAdmin}
+          equipes={equipesAdmin}
+          escopos={escoposOperacionaisAdmin}
+          usuarios={todosUsuariosAdmin}
+          subnav={<AdministracaoSubnav aba="plantao" podeAcessarPlantoes={podeAcessarPlantoes} onEscolherAba={escolherAbaAdministracao} />}
+          onNovoPlantao={() => setCriandoPlantaoAdmin(true)}
+          onAbrirCompleta={() => setAbaPlantoesAdmin('completa')}
+          onSalvarGrupo={async (grupo) => {
+            const atualizado = { ...grupo, atualizadoEm: new Date().toISOString() } as GrupoPlantao;
+            await salvarGrupoPlantao(atualizado);
+            setGruposPlantaoAdmin((atuais) => atuais.map((item) => (item.grupoId === atualizado.grupoId ? atualizado : item)));
+          }}
+          onDefinirResponsavel={async (grupo, login) => {
+            const agora = new Date().toISOString();
+            const existente = escoposOperacionaisAdmin.find((item) => item.tipo === 'PLANTAO' && item.alvoId === grupo.grupoId);
+            const escopo = {
+              ...(existente ?? {
+                tipo: 'PLANTAO', alvoId: grupo.grupoId, responsaveisEquipe: [], equipesConsulta: [], criadoEm: agora,
+                criadoPorLogin: usuarioReal.login, schemaVersion: 1,
+                ...(grupo.unidadeResponsavelId ? { unidadeId: grupo.unidadeResponsavelId, caminhoUnidade: [...(grupo.caminhoUnidadeResponsavel ?? [])] } : {}),
+              }),
+              alvoNome: grupo.nome,
+              responsaveisLogin: [login],
+              ativo: true,
+              atualizadoEm: agora,
+              atualizadoPorLogin: usuarioReal.login,
+            } as EscopoOperacional;
+            await salvarEscopoOperacional(escopo);
+            setEscoposOperacionaisAdmin((atuais) => [...atuais.filter((item) => !(item.tipo === 'PLANTAO' && item.alvoId === grupo.grupoId)), escopo]);
+          }}
+        />
+      )}
+      {criandoPlantaoAdmin && usuarioReal && (
+        <CriarPlantaoModal
+          autor={usuarioReal}
+          equipes={equipesAdmin.filter((equipe) => equipe.ativa !== false)}
+          onFechar={() => setCriandoPlantaoAdmin(false)}
+          onCriado={(grupo, escopo) => {
+            setGruposPlantaoAdmin((atuais) => [...atuais.filter((item) => item.grupoId !== grupo.grupoId), grupo]);
+            setEscoposOperacionaisAdmin((atuais) => [...atuais, escopo]);
+            setCriandoPlantaoAdmin(false);
+          }}
+        />
+      )}
+      {tela === 'plantoes' && podeAcessarPlantoes && (abaPlantoesAdmin === 'completa' || !souAdmin) && (
         <section>
+          {souAdmin && (
+            <button type="button" className="text-button admin-voltar" onClick={() => setAbaPlantoesAdmin('resumo')}>
+              <ChevronLeft size={16} aria-hidden="true" /> Voltar para Plantões
+            </button>
+          )}
           <header className="page-heading">
             <div>
               {/*

@@ -1035,3 +1035,16 @@ test('ADMIN-EQUIPES-1 — Administração abre em Equipes; Organização antiga 
   // Sem códigos técnicos à vista: o cartão não mostra id nem código organizacional.
   assert.doesNotMatch(pagina, /codigoOrganizacional|>\{equipe\.id\}</);
 });
+
+test('ADMIN-PLANTOES-1 — Administração › Plantões em cartões; tela completa (plantonistas e escala) continua acessível', async () => {
+  const [dashboard, pagina] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('apps/dashboard/src/AdminPlantoesPage.tsx'),
+  ]);
+  assert.match(dashboard, /tela === 'plantoes' && podeAcessarPlantoes && souAdmin && abaPlantoesAdmin === 'resumo' && usuarioReal && \(\s*<AdminPlantoesPage/);
+  assert.match(dashboard, /tela === 'plantoes' && podeAcessarPlantoes && \(abaPlantoesAdmin === 'completa' \|\| !souAdmin\) && \(/);
+  assert.match(dashboard, /Voltar para Plantões/);
+  // Quem vê: a equipe do Plantão nunca sai da lista.
+  assert.match(pagina, /equipesConsulta: \[\.\.\.new Set\(\[grupo\.equipeResponsavelId, \.\.\.selecionadas\]\)\]/);
+  assert.doesNotMatch(pagina, />\{grupo\.grupoId\}</);
+});

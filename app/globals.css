@@ -9713,3 +9713,9 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 .admin-alerta { display: inline-flex; align-items: center; gap: 5px; color: var(--warning) !important; font-weight: 800 !important; }
 .admin-equipe-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .admin-equipe-acoes > .icon-button { margin-left: auto; }
+
+/* ADMIN-PLANTOES-1 — Administração › Plantões. */
+.admin-plantao-icone { background: linear-gradient(135deg, color-mix(in srgb, #6366f1 35%, var(--surface)), color-mix(in srgb, #10b981 22%, var(--surface))); }
+.admin-postos { display: flex; flex-wrap: wrap; gap: 6px; min-height: 22px; }
+.admin-quem-ve { max-height: 340px; overflow-y: auto; }
+.admin-voltar { display: inline-flex; align-items: center; gap: 4px; margin-bottom: 8px; color: var(--primary-bright); font-weight: 700; }

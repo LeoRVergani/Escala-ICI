@@ -78,12 +78,12 @@ test('8. "Escalas" oferece apenas Nova escala e Importar escala como ações pri
   assert.doesNotMatch(bloco[1], />\s*(?:<[^>]+>\s*)?Abrir grade\b/u, '"Abrir grade" não pode ser uma ação primária da tela Escalas');
 });
 
-test('9. "Administração" oferece a sub-navegação Equipes (ADMIN-EQUIPES-1)/Organização/Grupos de Plantão/Responsáveis por escala, e as sub-telas referenciam a mesma sub-navegação', async () => {
+test('9. "Administração" oferece a sub-navegação Equipes/Plantões (ADMIN-EQUIPES-1, ADMIN-PLANTOES-1)/Organização/Responsáveis por escala, e as sub-telas referenciam a mesma sub-navegação', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const ocorrencias = dashboard.match(/function AdministracaoSubnav\(/gu) ?? [];
   assert.equal(ocorrencias.length, 1, 'só pode existir UM componente de sub-navegação de Administração — nunca uma segunda sidebar');
   const usos = dashboard.match(/<AdministracaoSubnav\b/gu) ?? [];
-  assert.equal(usos.length, 4, 'a sub-navegação precisa ser usada em Equipes, Organização, Grupos de Plantão e Responsáveis por escala');
+  assert.equal(usos.length, 5, 'a sub-navegação precisa ser usada em Equipes, Plantões (cartões e tela completa), Organização e Responsáveis por escala');
   assert.match(dashboard, /Responsáveis por escala/u, 'a terceira aba administrativa precisa existir');
 });
 
