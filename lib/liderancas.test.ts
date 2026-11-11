@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { camposPromocaoLideranca, ehLideranca } from './liderancas';
+import { camposPromocaoLideranca, documentoNovaLideranca, ehLideranca, podeRemoverLideranca } from './liderancas';
 
 describe('LIDERANCAS-1', () => {
   it('liderança pelos perfis existentes (ou, sem perfil, pelo nível)', () => {
@@ -16,5 +16,21 @@ describe('LIDERANCAS-1', () => {
       perfil: 'GESTOR_EQUIPE', nivelHierarquico: 5, promovidoPorLogin: 'clis', promovidoEm: 'T', atualizadoEm: 'T',
     });
     expect(camposPromocaoLideranca({ nivelHierarquico: 4 }, 'clis', 'T').nivelHierarquico).toBe(4);
+  });
+});
+
+describe('LIDERANCAS-2', () => {
+  it('pessoa nova como liderança: login do e-mail, sem equipe, nível 5, registro de quem cadastrou', () => {
+    const doc = documentoNovaLideranca({ nome: '  Ana   Souza ', email: 'Ana.Souza@Empresa.com ', cargo: 'Coordenadora' }, 'clis', 'T');
+    expect(doc).toMatchObject({
+      login: 'ana.souza', nome: 'Ana Souza', email: 'ana.souza@empresa.com', equipeId: '', nivelHierarquico: 5,
+      perfil: 'GESTOR_EQUIPE', promovidoPorLogin: 'clis', promovidoEm: 'T', ativo: true,
+    });
+  });
+
+  it('remover liderança só de gestor/supervisor de equipe', () => {
+    expect(podeRemoverLideranca({ perfil: 'GESTOR_EQUIPE' })).toBe(true);
+    expect(podeRemoverLideranca({ perfil: 'GESTOR_UNIDADE' })).toBe(false);
+    expect(podeRemoverLideranca({ perfil: 'ADMIN_SISTEMA' })).toBe(false);
   });
 });

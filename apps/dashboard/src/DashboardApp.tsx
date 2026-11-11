@@ -4,6 +4,7 @@ import { CriarEquipeModal } from './CriarEquipeModal';
 import { CriarPlantaoModal } from './CriarPlantaoModal';
 import { ehLideranca } from '@/lib/liderancas';
 import { LiderancasPage } from './LiderancasPage';
+import { ColaboradoresPage } from './ColaboradoresPage';
 import { PlantoesDaEquipe } from './PlantoesDaEquipe';
 import {
   CATALOGO_SOC,
@@ -434,7 +435,7 @@ import type {
   Usuario,
 } from '@/lib/modelos';
 
-type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao' | 'responsaveisEscala' | 'equipe' | 'liderancas';
+type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao' | 'responsaveisEscala' | 'equipe' | 'liderancas' | 'colaboradores';
 
 /**
  * PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — telas cujo conteúdo é o
@@ -1037,6 +1038,7 @@ const NAVEGACAO: ItemNavegacao[] = [
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   { id: 'usuarios', rotulo: 'Usuários', icone: 'users' },
   { id: 'liderancas', rotulo: 'Lideranças', icone: 'user' },
+  { id: 'colaboradores', rotulo: 'Colaboradores', icone: 'users' },
   { id: 'administracao', rotulo: 'Administração', icone: 'admin' },
 ];
 
@@ -1054,6 +1056,8 @@ const NAVEGACAO_COORDENACAO: ItemNavegacao[] = [
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   // LIDERANCAS-1 — toda liderança vê e promove lideranças.
   { id: 'liderancas', rotulo: 'Lideranças', icone: 'user' },
+  // LIDERANCAS-2 — colaboradores em menu próprio, logo abaixo.
+  { id: 'colaboradores', rotulo: 'Colaboradores', icone: 'users' },
 ];
 
 /**
@@ -11270,6 +11274,15 @@ export function DashboardApp() {
       {tela === 'liderancas' && usuarioReal && (
         <LiderancasPage
           autor={usuarioReal}
+          souAdmin={souAdmin}
+          nomeEquipe={(equipeId) => [...equipesAdmin, ...equipesMinhaEquipe].find((equipe) => equipe.id === equipeId)?.nome ?? equipeId}
+        />
+      )}
+      {/* LIDERANCAS-2 — colaboradores, com quem é das minhas equipes em destaque. */}
+      {tela === 'colaboradores' && usuarioReal && (
+        <ColaboradoresPage
+          autor={usuarioReal}
+          minhasEquipes={equipesMinhaEquipe.map((equipe) => equipe.id)}
           nomeEquipe={(equipeId) => [...equipesAdmin, ...equipesMinhaEquipe].find((equipe) => equipe.id === equipeId)?.nome ?? equipeId}
         />
       )}

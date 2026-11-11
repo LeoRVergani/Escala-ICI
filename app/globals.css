@@ -9653,3 +9653,23 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 .criar-plantao-postos > button { min-height: 34px; padding: 0 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
 .criar-plantao-postos > button.active { border-color: var(--primary-bright); background: color-mix(in srgb, var(--primary-bright) 14%, var(--surface)); color: var(--primary-bright); }
 .criar-plantao-dica { color: var(--muted); font-size: 12px; }
+
+/* LIDERANCAS-2 — Colaboradores (minha equipe em destaque) e Nova liderança. */
+.liderancas-total { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13.5px; font-weight: 700; }
+.liderancas-lista > li[data-minha-equipe] {
+  border-color: color-mix(in srgb, var(--primary-bright) 55%, var(--border));
+  background: color-mix(in srgb, var(--primary-bright) 7%, var(--surface));
+}
+.liderancas-lista > li[data-minha-equipe] .liderancas-avatar { background: color-mix(in srgb, var(--primary-bright) 22%, var(--surface)); color: var(--primary-bright); }
+.colaboradores-selo {
+  display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; padding: 1px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-bright) 16%, var(--surface)); color: var(--primary-bright);
+  font-size: 11px; font-weight: 800; vertical-align: middle;
+}
+.nova-lideranca-resultados { display: grid; gap: 6px; max-height: 300px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.nova-lideranca-resultados button {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--surface-muted); color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.nova-lideranca-resultados button:hover { border-color: var(--primary-bright); }
+.primary-button.perigo { background: var(--danger); border-color: var(--danger); }
