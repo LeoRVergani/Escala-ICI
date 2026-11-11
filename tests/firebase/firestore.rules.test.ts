@@ -3170,6 +3170,37 @@ describe('CRIAR-PLANTAO-1 — o chefe da equipe cria o Plantão dela e vira o re
   });
 });
 
+describe('LIDERANCAS-2 — liderança cadastra pessoa nova já como liderança', () => {
+  const agora = '2026-11-11T12:00:00.000Z';
+  function novaLideranca(quem: string, ajustes: Record<string, unknown> = {}) {
+    return {
+      login: 'nova.lideranca', nome: 'Nova Liderança', email: 'nova.lideranca@teste.local', cargo: 'Coordenadora',
+      equipeId: '', gestorUid: null, nivelHierarquico: 5, turnoPadrao: '', ativo: true, perfil: 'GESTOR_EQUIPE',
+      promovidoPorLogin: quem, promovidoEm: agora, criadoEm: agora, atualizadoEm: agora, ...ajustes,
+    };
+  }
+  const criar = (quem: { login: string; email: string }, ajustes: Record<string, unknown> = {}) =>
+    setDoc(doc(autenticarComo(quem), 'usuarios', 'nova.lideranca'), novaLideranca(quem.login, ajustes));
+
+  it('a liderança cadastra a pessoa nova como liderança, registrando quem cadastrou', async () => {
+    await assertSucceeds(criar(usuarios.gestor));
+  });
+
+  it('colaborador não cadastra liderança', async () => {
+    await assertFails(criar(usuarios.colaborador));
+  });
+
+  it('não cadastra como administrador nem com outro nível', async () => {
+    await assertFails(criar(usuarios.gestor, { perfil: 'ADMIN_SISTEMA' }));
+    await assertFails(criar(usuarios.gestor, { nivelHierarquico: 1 }));
+  });
+
+  it('não cadastra sem registrar a própria liderança, nem com campos extras', async () => {
+    await assertFails(criar(usuarios.gestor, { promovidoPorLogin: usuarios.admin.login }));
+    await assertFails(criar(usuarios.gestor, { equipesPermitidas: ['EQ_COSI_SOC'] }));
+  });
+});
+
 describe('LIDERANCAS-1 — uma liderança torna outra pessoa liderança (só promove, com registro)', () => {
   const promover = (quem: { login: string; email: string }, alvo: string, ajustes: Record<string, unknown> = {}) => updateDoc(
     doc(autenticarComo(quem), 'usuarios', alvo),

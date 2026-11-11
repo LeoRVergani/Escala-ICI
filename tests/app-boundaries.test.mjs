@@ -935,7 +935,8 @@ test('LIDERANCAS-1 — liderança promove liderança (só para gestor de equipe,
   ]);
   assert.match(dashboard, /\{ id: 'liderancas', rotulo: 'Lideranças', icone: 'user' \}/);
   assert.match(dashboard, /tela === 'liderancas' && usuarioReal && \(\s*<LiderancasPage/);
-  assert.match(pagina, /tornarLideranca\(confirmando, autor\.login\)/);
+  assert.match(await ler('apps/dashboard/src/pessoasLideranca.tsx'), /tornarLideranca\(pessoa, autorLogin\)/);
+  assert.match(pagina, /<ConfirmarPromocao/);
   assert.match(repositorio, /camposPromocaoLideranca\(alvo, autorLogin, new Date\(\)\.toISOString\(\)\)/);
   // Regra: só promove para GESTOR_EQUIPE, registra quem, nunca a si mesma, nunca rebaixa.
   assert.match(regras, /&& request\.resource\.data\.get\('perfil', ''\) == 'GESTOR_EQUIPE'\n\s*&& request\.resource\.data\.get\('nivelHierarquico', -1\)/);
@@ -993,4 +994,22 @@ test('APROVAR-TROCA-PLANTAO-LIDER-1 — quem lidera Plantão decide as trocas de
   // A decisão abre com o Plantão da própria troca (não exige Plantão selecionado).
   assert.match(app, /\{trocaPlantaoAberta && usuario && grupoDaTrocaPlantaoAberta != null && \(/);
   assert.match(app, /podeDecidirComoGestor=\{trocaPlantaoAbertaDaLideranca !== null \|\| podeAprovarTrocaPlantaoApp\}/);
+});
+
+test('LIDERANCAS-2 — Colaboradores em menu próprio (minha equipe em destaque); nova liderança e remover (admin)', async () => {
+  const [dashboard, colaboradores, liderancas, regras] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('apps/dashboard/src/ColaboradoresPage.tsx'),
+    ler('apps/dashboard/src/LiderancasPage.tsx'),
+    ler('firestore.rules'),
+  ]);
+  // Menu: Colaboradores logo abaixo de Lideranças, para toda liderança.
+  assert.match(dashboard, /\{ id: 'liderancas', rotulo: 'Lideranças', icone: 'user' \},\n\s*\/\/ LIDERANCAS-2[^\n]*\n\s*\{ id: 'colaboradores', rotulo: 'Colaboradores', icone: 'users' \}/);
+  // Minha equipe primeiro e com selo.
+  assert.match(colaboradores, /\.sort\(\(a, b\) => Number\(daMinhaEquipe\(b\)\) - Number\(daMinhaEquipe\(a\)\)/);
+  assert.match(colaboradores, /Sua equipe/);
+  // Remover liderança: só o administrador, nunca a si mesmo.
+  assert.match(liderancas, /souAdmin && podeRemoverLideranca\(pessoa\) && pessoa\.login !== autor\.login/);
+  // Regra: pessoa nova só como GESTOR_EQUIPE nível 5, sem equipe, com registro e só os campos previstos.
+  assert.match(regras, /LIDERANCAS-2[\s\S]{0,600}request\.resource\.data\.get\('perfil', ''\) == 'GESTOR_EQUIPE'\n\s*&& request\.resource\.data\.get\('nivelHierarquico', -1\) == 5/);
 });
