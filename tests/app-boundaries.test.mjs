@@ -925,3 +925,20 @@ test('MINHA-EQUIPE-PLANTOES-1 — o chefe escolhe os Plantões da equipe por int
   // Regra: o chefe pela Matriz também usa o interruptor — mas só para a própria equipe.
   assert.match(regras, /\|\| podeAdministrarJornada\(equipeAlterada\)\n\s*\);/);
 });
+
+test('LIDERANCAS-1 — liderança promove liderança (só para gestor de equipe, com registro); menu para toda liderança', async () => {
+  const [dashboard, pagina, repositorio, regras] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('apps/dashboard/src/LiderancasPage.tsx'),
+    ler('lib/firebase/liderancasRepository.ts'),
+    ler('firestore.rules'),
+  ]);
+  assert.match(dashboard, /\{ id: 'liderancas', rotulo: 'Lideranças', icone: 'user' \}/);
+  assert.match(dashboard, /tela === 'liderancas' && usuarioReal && \(\s*<LiderancasPage/);
+  assert.match(pagina, /tornarLideranca\(confirmando, autor\.login\)/);
+  assert.match(repositorio, /camposPromocaoLideranca\(alvo, autorLogin, new Date\(\)\.toISOString\(\)\)/);
+  // Regra: só promove para GESTOR_EQUIPE, registra quem, nunca a si mesma, nunca rebaixa.
+  assert.match(regras, /&& request\.resource\.data\.perfil == 'GESTOR_EQUIPE'\n\s*&& request\.resource\.data\.nivelHierarquico/);
+  assert.match(regras, /&& request\.resource\.data\.promovidoPorLogin == loginDoAuth\(\)/);
+  assert.match(regras, /&& loginDoAuth\(\) != login\n\s*&& !\(resource\.data\.get\('perfil', ''\) in \['ADMIN_SISTEMA', 'GESTOR_UNIDADE', 'GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'\]\)/);
+});

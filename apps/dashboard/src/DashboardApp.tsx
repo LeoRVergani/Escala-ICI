@@ -1,5 +1,6 @@
 'use client';
 
+import { LiderancasPage } from './LiderancasPage';
 import { PlantoesDaEquipe } from './PlantoesDaEquipe';
 import {
   CATALOGO_SOC,
@@ -430,7 +431,7 @@ import type {
   Usuario,
 } from '@/lib/modelos';
 
-type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao' | 'responsaveisEscala' | 'equipe';
+type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao' | 'responsaveisEscala' | 'equipe' | 'liderancas';
 
 /**
  * PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — telas cujo conteúdo é o
@@ -1032,6 +1033,7 @@ const NAVEGACAO: ItemNavegacao[] = [
   { id: 'escalas', rotulo: 'Escalas', icone: 'calendar' },
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   { id: 'usuarios', rotulo: 'Usuários', icone: 'users' },
+  { id: 'liderancas', rotulo: 'Lideranças', icone: 'user' },
   { id: 'administracao', rotulo: 'Administração', icone: 'admin' },
 ];
 
@@ -1047,6 +1049,8 @@ const NAVEGACAO_COORDENACAO: ItemNavegacao[] = [
   { id: 'equipe', rotulo: 'Minha equipe', icone: 'users' },
   { id: 'escalas', rotulo: 'Escalas', icone: 'calendar' },
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
+  // LIDERANCAS-1 — toda liderança vê e promove lideranças.
+  { id: 'liderancas', rotulo: 'Lideranças', icone: 'user' },
 ];
 
 /**
@@ -11255,6 +11259,13 @@ export function DashboardApp() {
        * precisa para ter pessoas na equipe, numa tela só e com três ações
        * óbvias — buscar quem já existe, cadastrar pessoa nova, ver avisos.
        */}
+      {/* LIDERANCAS-1 — quem cuida de equipe; uma liderança torna outra pessoa liderança. */}
+      {tela === 'liderancas' && usuarioReal && (
+        <LiderancasPage
+          autor={usuarioReal}
+          nomeEquipe={(equipeId) => [...equipesAdmin, ...equipesMinhaEquipe].find((equipe) => equipe.id === equipeId)?.nome ?? equipeId}
+        />
+      )}
       {tela === 'equipe' && (
         <section className="minha-equipe">
           <header className="page-heading">

@@ -32,12 +32,12 @@ test('3. a sidebar principal não contém mais "Plantões" como item de nível p
   assert.doesNotMatch(navegacao[1], /id:\s*'plantoes'/u, '"plantoes" não pode mais ter um item próprio em NAVEGACAO');
 });
 
-test('4. NAVEGACAO tem exatamente 5 áreas: visao, escalas, trocas, usuarios, administracao', async () => {
+test('4. NAVEGACAO tem exatamente 6 áreas: visao, escalas, trocas, usuarios, liderancas (LIDERANCAS-1), administracao', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const navegacao = /const NAVEGACAO: ItemNavegacao\[\] = \[([\s\S]*?)\];/u.exec(dashboard);
   assert.ok(navegacao);
   const ids = [...navegacao[1].matchAll(/id:\s*'([a-z]+)'/gu)].map((m) => m[1]);
-  assert.deepEqual(ids, ['visao', 'escalas', 'trocas', 'usuarios', 'administracao']);
+  assert.deepEqual(ids, ['visao', 'escalas', 'trocas', 'usuarios', 'liderancas', 'administracao']);
 });
 
 test('5. as telas internas importar/grade/plantoes/responsaveisEscala continuam existindo (Tela e os blocos de renderização)', async () => {

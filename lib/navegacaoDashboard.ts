@@ -21,9 +21,10 @@ export type TelaDashboard =
   | 'plantoes'
   | 'responsaveisEscala'
   | 'administracao'
-  | 'equipe';
+  | 'equipe'
+  | 'liderancas';
 
-export type AreaNavegacaoDashboard = 'visao' | 'escalas' | 'trocas' | 'usuarios' | 'administracao' | 'equipe';
+export type AreaNavegacaoDashboard = 'visao' | 'escalas' | 'trocas' | 'usuarios' | 'administracao' | 'equipe' | 'liderancas';
 
 export function areaNavegacaoDaTela(tela: TelaDashboard): AreaNavegacaoDashboard {
   switch (tela) {
