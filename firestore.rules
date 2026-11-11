@@ -1371,6 +1371,21 @@ service cloud.firestore {
         && (
           souAdminSistema()
           /**
+           * CRIAR-PLANTAO-1 — o responsável pela escala de um Plantão que a
+           * própria liderança acabou de criar (getAfter: no mesmo lote), com
+           * SÓ ela como responsável — é o que libera plantonistas e escala.
+           */
+          || (
+            request.resource.data.tipo == 'PLANTAO'
+            && souResponsavelOperacionalElegivel()
+            && existsAfter(/databases/$(database)/documents/gruposPlantao/$(request.resource.data.alvoId))
+            && getAfter(/databases/$(database)/documents/gruposPlantao/$(request.resource.data.alvoId)).data.get('criadoPorLogin', '') == loginDoAuth()
+            && request.resource.data.responsaveisLogin == [loginDoAuth()]
+            && request.resource.data.responsaveisEquipe.size() == 0
+            && request.resource.data.ativo == true
+            && request.resource.data.criadoPorLogin == loginDoAuth()
+          )
+          /**
            * CRIAR-EQUIPE-1 — o responsável pela escala de uma equipe que a
            * própria liderança acabou de criar (getAfter: no mesmo lote),
            * com SÓ ela como responsável.
@@ -2121,6 +2136,9 @@ service cloud.firestore {
         && request.resource.data.equipeResponsavelId in request.resource.data.equipesConsulta
         && (
           (souGestor() && podeOperarNaEquipe(request.resource.data.equipeResponsavelId))
+          // CRIAR-PLANTAO-1 — o chefe da equipe responsável (inclusive pela
+          // Matriz, ex.: liderança que criou a equipe) cria o Plantão dela.
+          || podeAdministrarJornada(request.resource.data.equipeResponsavelId)
           || (
             souGestorUnidade()
             && request.resource.data.get('unidadeResponsavelId', null) != null

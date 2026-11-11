@@ -1,6 +1,7 @@
 'use client';
 
 import { CriarEquipeModal } from './CriarEquipeModal';
+import { CriarPlantaoModal } from './CriarPlantaoModal';
 import { ehLideranca } from '@/lib/liderancas';
 import { LiderancasPage } from './LiderancasPage';
 import { PlantoesDaEquipe } from './PlantoesDaEquipe';
@@ -4023,6 +4024,8 @@ export function DashboardApp() {
   // --- Minha equipe (FASE1-EQUIPE-SIMPLES) ---
   /** CRIAR-EQUIPE-1 — modal "Criar equipe" aberto. */
   const [criandoEquipe, setCriandoEquipe] = useState(false);
+  /** CRIAR-PLANTAO-1 — modal "Criar Plantão" aberto. */
+  const [criandoPlantao, setCriandoPlantao] = useState(false);
   const [equipeSelecionadaMinhaEquipe, setEquipeSelecionadaMinhaEquipe] = useState('');
   const [membrosMinhaEquipe, setMembrosMinhaEquipe] = useState<Usuario[]>([]);
   const [carregandoMembrosMinhaEquipe, setCarregandoMembrosMinhaEquipe] = useState(false);
@@ -4313,12 +4316,10 @@ export function DashboardApp() {
     : usuarioReal?.equipeId ?? null;
   // Fase ESCALAS-UX-2A — 'plantoes' não é mais um id presente em NAVEGACAO
   // (ver comentário acima do array); só 'administracao' precisa de gate.
-  const navegacaoVisivel = souAdmin
-    ? NAVEGACAO
-    : [
-      ...NAVEGACAO_COORDENACAO,
-      ...(souGestorUnidade ? NAVEGACAO.filter((item) => item.id === 'administracao') : []),
-    ];
+  // CRIAR-PLANTAO-1 — toda liderança tem o MESMO menu (Início, Minha equipe,
+  // Escalas, Trocas, Lideranças): equipe e Plantão se criam em Minha equipe.
+  // A Administração (organização, matriz) fica só com o administrador.
+  const navegacaoVisivel = souAdmin ? NAVEGACAO : NAVEGACAO_COORDENACAO;
 
   // --- Derivados da tela Administração (Resumo, árvore, filtros de Usuários) ---
   const arvoreUnidadesAdmin = construirArvoreUnidades(unidadesAdmin);
@@ -11272,6 +11273,20 @@ export function DashboardApp() {
           nomeEquipe={(equipeId) => [...equipesAdmin, ...equipesMinhaEquipe].find((equipe) => equipe.id === equipeId)?.nome ?? equipeId}
         />
       )}
+      {/* CRIAR-PLANTAO-1 — criar o Plantão da equipe e abrir direto nele. */}
+      {criandoPlantao && usuarioReal && (
+        <CriarPlantaoModal
+          autor={usuarioReal}
+          equipes={equipesMinhaEquipe}
+          onFechar={() => setCriandoPlantao(false)}
+          onCriado={(grupo, escopo) => {
+            setGruposPlantaoAdmin((atuais) => [...atuais.filter((item) => item.grupoId !== grupo.grupoId), grupo]);
+            setEscoposOperacionaisAdmin((atuais) => [...atuais, escopo]);
+            setEquipeSelecionadaMinhaEquipe(`PLANTAO:${grupo.grupoId}`);
+            setCriandoPlantao(false);
+          }}
+        />
+      )}
       {/* CRIAR-EQUIPE-1 — criar a própria equipe e abrir direto nela. */}
       {criandoEquipe && usuarioReal && (
         <CriarEquipeModal
@@ -11300,6 +11315,14 @@ export function DashboardApp() {
                 {souLiderancaDashboard && (
                   <button className="secondary-button" type="button" disabled={escritaBloqueada} onClick={() => setCriandoEquipe(true)}>
                     <Plus size={16} /> Criar equipe
+                  </button>
+                )}
+                {/* CRIAR-PLANTAO-1 — o Plantão pertence a uma equipe: precisa de uma antes. */}
+                {souLiderancaDashboard && (
+                  <button className="secondary-button" type="button" disabled={escritaBloqueada || equipesMinhaEquipe.length === 0}
+                    title={equipesMinhaEquipe.length === 0 ? 'Crie sua equipe primeiro — todo Plantão pertence a uma equipe.' : undefined}
+                    onClick={() => setCriandoPlantao(true)}>
+                    <Radio size={16} /> Criar Plantão
                   </button>
                 )}
                 {abaAtivaMinhaEquipe !== null && (
