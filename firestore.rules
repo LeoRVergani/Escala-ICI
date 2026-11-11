@@ -1015,27 +1015,6 @@ service cloud.firestore {
           // organizacional — inclusive um novo ADMIN_SISTEMA.
           souAdminSistema()
 
-          /**
-           * LIDERANCAS-2 — uma liderança cadastra uma pessoa NOVA já como
-           * liderança (Lideranças › Nova liderança): sempre GESTOR_EQUIPE,
-           * nível 5, sem equipe e registrando quem cadastrou — só esses campos.
-           */
-          || (
-            souResponsavelOperacionalElegivel()
-            && request.resource.data.get('perfil', '') == 'GESTOR_EQUIPE'
-            && request.resource.data.get('nivelHierarquico', -1) == 5
-            && request.resource.data.get('equipeId', 'x') == ''
-            && request.resource.data.get('ativo', false) == true
-            && request.resource.data.get('promovidoPorLogin', '') == loginDoAuth()
-            && request.resource.data.get('promovidoEm', null) is string
-            && request.resource.data.get('nome', '') is string
-            && request.resource.data.get('nome', '').size() >= 2
-            && request.resource.data.keys().hasOnly([
-              'login', 'nome', 'email', 'cargo', 'equipeId', 'gestorUid', 'nivelHierarquico', 'turnoPadrao',
-              'ativo', 'perfil', 'promovidoPorLogin', 'promovidoEm', 'criadoEm', 'atualizadoEm',
-            ])
-          )
-
           || (
             !souAdminSistema()
             && (
@@ -1084,6 +1063,30 @@ service cloud.firestore {
             souCoordenadorOperacionalStaging()
             && request.resource.data.get('cadastroOperacional', null) == null
             && perfilCadastroLivreStagingValido(request.resource.data)
+          )
+          /**
+           * LIDERANCAS-2 — uma liderança cadastra uma pessoa NOVA já como
+           * liderança (Lideranças › Nova liderança): sempre GESTOR_EQUIPE,
+           * nível 5, sem equipe e registrando quem cadastrou — só esses campos.
+           * É a ÚLTIMA alternativa de propósito: só é avaliada quando nenhuma
+           * das anteriores autoriza (não interfere em admin, gestor de
+           * unidade, Matriz ou staging — antes, no meio, quebrava a criação
+           * de gestor/supervisor pelo gestor de unidade).
+           */
+          || (
+            souResponsavelOperacionalElegivel()
+            && request.resource.data.get('perfil', '') == 'GESTOR_EQUIPE'
+            && request.resource.data.get('nivelHierarquico', -1) == 5
+            && request.resource.data.get('equipeId', 'x') == ''
+            && request.resource.data.get('ativo', false) == true
+            && request.resource.data.get('promovidoPorLogin', '') == loginDoAuth()
+            && request.resource.data.get('promovidoEm', null) is string
+            && request.resource.data.get('nome', '') is string
+            && request.resource.data.get('nome', '').size() >= 2
+            && request.resource.data.keys().hasOnly([
+              'login', 'nome', 'email', 'cargo', 'equipeId', 'gestorUid', 'nivelHierarquico', 'turnoPadrao',
+              'ativo', 'perfil', 'promovidoPorLogin', 'promovidoEm', 'criadoEm', 'atualizadoEm',
+            ])
           )
         );
 
