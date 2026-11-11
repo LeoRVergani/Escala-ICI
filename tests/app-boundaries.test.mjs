@@ -910,3 +910,18 @@ test('LIDERANCA-PADRAO-1 — uma regra só para as telas de quem lidera (com ou 
   assert.match(app, /souCoordenacaoApp && \(\s*<article className="panel troca-bloco-aprovar">/);
   assert.match(app, /souCoordenacaoApp && \(\s*<article className="panel troca-historico-equipe">/);
 });
+
+test('MINHA-EQUIPE-PLANTOES-1 — o chefe escolhe os Plantões da equipe por interruptor, só para a própria equipe', async () => {
+  const [dashboard, componente, regras] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('apps/dashboard/src/PlantoesDaEquipe.tsx'),
+    ler('firestore.rules'),
+  ]);
+  assert.match(dashboard, /<PlantoesDaEquipe key=\{equipeAtivaMinhaEquipe\.id\} equipe=\{\{ id: equipeAtivaMinhaEquipe\.id, nome: equipeAtivaMinhaEquipe\.nome \}\} \/>/);
+  // Grava pela função existente (só equipesConsulta, uma equipe por vez).
+  assert.match(componente, /atualizarEquipeConsultaPlantao\(grupo\.grupoId, equipe\.id, ligar \? 'ADICIONAR' : 'REMOVER'\)/);
+  // A equipe responsável nunca é desligada do próprio Plantão.
+  assert.match(componente, /disabled=\{daEquipe \|\| salvandoId !== null\}/);
+  // Regra: o chefe pela Matriz também usa o interruptor — mas só para a própria equipe.
+  assert.match(regras, /\|\| podeAdministrarJornada\(equipeAlterada\)\n\s*\);/);
+});

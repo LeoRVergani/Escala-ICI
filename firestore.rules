@@ -309,6 +309,10 @@ service cloud.firestore {
             && exists(/databases/$(database)/documents/equipes/$(equipeAlterada))
             && equipeDentroDoEscopoDeUnidade(equipeAlterada)
           )
+          // MINHA-EQUIPE-PLANTOES-1 — o chefe da equipe (quem administra a
+          // escala 6x1 dela, inclusive pela Matriz) escolhe os Plantões que
+          // a própria equipe vê. Continua: UMA equipe por vez, só a dele.
+          || podeAdministrarJornada(equipeAlterada)
         );
     }
 
@@ -2045,6 +2049,9 @@ service cloud.firestore {
           || matrizConcedeAdministracao('PLANTAO', grupoId)
           || matrizConcedeConsultaPlantao(grupoId)
           || meuPerfil() in ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE']
+          // MINHA-EQUIPE-PLANTOES-1 — todo chefe vê a lista de Plantões para
+          // escolher quais a própria equipe vê (só metadados do grupo).
+          || souResponsavelOperacionalElegivel()
         );
 
       /**

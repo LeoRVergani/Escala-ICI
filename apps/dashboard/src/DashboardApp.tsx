@@ -1,5 +1,6 @@
 'use client';
 
+import { PlantoesDaEquipe } from './PlantoesDaEquipe';
 import {
   CATALOGO_SOC,
   calcularTotais,
@@ -11610,6 +11611,10 @@ export function DashboardApp() {
                 </div>
               </section>
             </div>
+          )}
+          {/* MINHA-EQUIPE-PLANTOES-1 — o chefe escolhe os Plantões que a equipe vê no App. */}
+          {equipeAtivaMinhaEquipe !== null && (
+            <PlantoesDaEquipe key={equipeAtivaMinhaEquipe.id} equipe={{ id: equipeAtivaMinhaEquipe.id, nome: equipeAtivaMinhaEquipe.nome }} />
           )}
         </section>
       )}
