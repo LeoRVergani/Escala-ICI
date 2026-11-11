@@ -920,11 +920,13 @@ service cloud.firestore {
             && souResponsavelOperacionalElegivel()
             && loginDoAuth() != login
             && !(resource.data.get('perfil', '') in ['ADMIN_SISTEMA', 'GESTOR_UNIDADE', 'GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'])
-            && request.resource.data.perfil == 'GESTOR_EQUIPE'
-            && request.resource.data.nivelHierarquico
+            // .get(): num pedido SEM estes campos (ex.: só trocar a equipe) a
+            // alternativa não se aplica — sem erro que contamine as demais.
+            && request.resource.data.get('perfil', '') == 'GESTOR_EQUIPE'
+            && request.resource.data.get('nivelHierarquico', -1)
               == (resource.data.get('nivelHierarquico', 6) <= 5 ? resource.data.get('nivelHierarquico', 6) : 5)
-            && request.resource.data.promovidoPorLogin == loginDoAuth()
-            && request.resource.data.promovidoEm is string
+            && request.resource.data.get('promovidoPorLogin', '') == loginDoAuth()
+            && request.resource.data.get('promovidoEm', null) is string
             && request.resource.data.diff(resource.data)
               .affectedKeys().hasOnly(['perfil', 'nivelHierarquico', 'promovidoPorLogin', 'promovidoEm', 'atualizadoEm'])
           )
