@@ -938,7 +938,14 @@ test('LIDERANCAS-1 — liderança promove liderança (só para gestor de equipe,
   assert.match(pagina, /tornarLideranca\(confirmando, autor\.login\)/);
   assert.match(repositorio, /camposPromocaoLideranca\(alvo, autorLogin, new Date\(\)\.toISOString\(\)\)/);
   // Regra: só promove para GESTOR_EQUIPE, registra quem, nunca a si mesma, nunca rebaixa.
-  assert.match(regras, /&& request\.resource\.data\.perfil == 'GESTOR_EQUIPE'\n\s*&& request\.resource\.data\.nivelHierarquico/);
-  assert.match(regras, /&& request\.resource\.data\.promovidoPorLogin == loginDoAuth\(\)/);
+  assert.match(regras, /&& request\.resource\.data\.get\('perfil', ''\) == 'GESTOR_EQUIPE'\n\s*&& request\.resource\.data\.get\('nivelHierarquico', -1\)/);
+  assert.match(regras, /&& request\.resource\.data\.get\('promovidoPorLogin', ''\) == loginDoAuth\(\)/);
   assert.match(regras, /&& loginDoAuth\(\) != login\n\s*&& !\(resource\.data\.get\('perfil', ''\) in \['ADMIN_SISTEMA', 'GESTOR_UNIDADE', 'GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'\]\)/);
+});
+
+test('LIDERANCAS-1 — a alternativa de promoção usa .get() (pedido sem perfil não pode dar erro e contaminar as outras)', async () => {
+  const regras = await ler('firestore.rules');
+  const inicio = regras.indexOf('LIDERANCAS-1 — uma liderança torna outra pessoa liderança');
+  const trecho = regras.slice(inicio, inicio + 1600);
+  assert.doesNotMatch(trecho, /request\.resource\.data\.(perfil|nivelHierarquico|promovidoPorLogin|promovidoEm) /u);
 });
