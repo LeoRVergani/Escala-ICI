@@ -1249,6 +1249,19 @@ service cloud.firestore {
         || (
           request.resource.data.get('unidadeId', null) != null
           && podeOperarNaUnidadeOuDescendente(request.resource.data.unidadeId, request.resource.data.get('caminhoUnidade', null))
+        )
+        /**
+         * CRIAR-EQUIPE-1 — uma liderança cria a própria equipe (Minha
+         * equipe): registra a si mesma como criadora; equipe ativa e com
+         * nome. Ser chefe dela vem do responsável pela escala (abaixo).
+         */
+        || (
+          souResponsavelOperacionalElegivel()
+          && request.resource.data.get('criadoPorLogin', '') == loginDoAuth()
+          && request.resource.data.get('id', '') == equipeId
+          && request.resource.data.get('ativa', false) == true
+          && request.resource.data.get('nome', '') is string
+          && request.resource.data.get('nome', '').size() >= 2
         );
       /**
        * Fase ESCOPO-GESTOR-UNIDADE-1 — migração de equipe entre unidades:
@@ -1357,6 +1370,21 @@ service cloud.firestore {
         && escopoOperacionalValido(request.resource.data)
         && (
           souAdminSistema()
+          /**
+           * CRIAR-EQUIPE-1 — o responsável pela escala de uma equipe que a
+           * própria liderança acabou de criar (getAfter: no mesmo lote),
+           * com SÓ ela como responsável.
+           */
+          || (
+            request.resource.data.tipo == 'JORNADA'
+            && souResponsavelOperacionalElegivel()
+            && existsAfter(/databases/$(database)/documents/equipes/$(request.resource.data.alvoId))
+            && getAfter(/databases/$(database)/documents/equipes/$(request.resource.data.alvoId)).data.get('criadoPorLogin', '') == loginDoAuth()
+            && request.resource.data.responsaveisLogin == [loginDoAuth()]
+            && request.resource.data.responsaveisEquipe.size() == 0
+            && request.resource.data.ativo == true
+            && request.resource.data.criadoPorLogin == loginDoAuth()
+          )
           || (
             souCoordenadorOperacionalStaging()
             && (
