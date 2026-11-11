@@ -1086,8 +1086,18 @@ test('SESSAO-CELULAR-1 — falha passageira ao buscar o cadastro não desconecta
   const [auth, restauracao] = await Promise.all([ler('lib/firebase/authRepository.ts'), ler('components/RestauracaoSessao.tsx')]);
   const corpo = /async function carregarUsuario\(email: string \| null\): Promise<Usuario> \{([\s\S]*?)\n\}/u.exec(auth)?.[1] ?? '';
   // Antes: catch → signOut sempre. Agora: passageira tenta de novo; rede mantém a sessão.
-  assert.match(corpo, /if \(!falhaPassageiraAoCarregarUsuario\(primeira\)\) \{\s*await signOut\(auth\);/);
+  assert.match(corpo, /if \(!falhaPassageiraAoCarregarUsuario\(primeira\)\) \{\s*(registrarEventoSessao\([^)]*\)\);\s*)?await signOut\(auth\);/);
   assert.match(corpo, /getIdToken\(true\)/);
   assert.match(corpo, /if \(falhaDeRedeAoCarregarUsuario\(segunda\)\) throw segunda;/);
   assert.match(restauracao, /if \(contaRestauradaNoAparelho\(\)\) \{\s*temporizador = window\.setTimeout\(desistir, TEMPO_EXTRA_COM_CONTA_MS\);/);
+});
+
+test('SESSAO-CELULAR-2 — diagnóstico: cada abertura registra o que aconteceu e o login do App mostra quando terminou mal', async () => {
+  const [auth, login, restauracao] = await Promise.all([
+    ler('lib/firebase/authRepository.ts'), ler('components/LoginPanel.tsx'), ler('components/RestauracaoSessao.tsx'),
+  ]);
+  assert.match(auth, /registrarEventoSessao\('SEM_CONTA_GUARDADA'/);
+  assert.match(auth, /registrarEventoSessao\('RESTAURADA'\)/);
+  assert.match(restauracao, /registrarEventoSessao\('TEMPO_ESGOTADO'/);
+  assert.match(login, /tipo === 'app' && diagnosticoSessao && <p className="login-diagnostico-sessao">/);
 });
