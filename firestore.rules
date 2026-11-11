@@ -291,11 +291,13 @@ service cloud.firestore {
     function podeAutoVincularConsultaPlantao(antigo, novo, equipeResponsavelId) {
       let adicionadas = novo.removeAll(antigo);
       let removidas = antigo.removeAll(novo);
-      let equipeAlterada = adicionadas.size() == 1 ? adicionadas[0] : (removidas.size() == 1 ? removidas[0] : null);
+      // '' (e não null) quando nada mudou: a equipe vira texto em podeAdministrarJornada()
+      // e o compilador avisava "Invalid type [null]". Mesmo comportamento: '' nunca passa.
+      let equipeAlterada = adicionadas.size() == 1 ? adicionadas[0] : (removidas.size() == 1 ? removidas[0] : '');
       return autenticado()
         && equipeResponsavelId in novo
         && (adicionadas.size() + removidas.size()) == 1
-        && equipeAlterada != null
+        && equipeAlterada != ''
         && (
           (meuPerfil() in ['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'] && equipeAlterada in minhasEquipesPermitidas())
           // FASE-FINAL-ESTABILIZACAO-ENTREGA-UX-PERMISSOES-1 — GESTOR_UNIDADE
