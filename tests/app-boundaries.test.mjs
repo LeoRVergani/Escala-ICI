@@ -982,3 +982,15 @@ test('CRIAR-PLANTAO-1 — chefe cria o Plantão da equipe (com responsável no m
   assert.match(regras, /\|\| podeAdministrarJornada\(request\.resource\.data\.equipeResponsavelId\)/);
   assert.match(regras, /getAfter\(\/databases\/\$\(database\)\/documents\/gruposPlantao\/\$\(request\.resource\.data\.alvoId\)\)\.data\.get\('criadoPorLogin', ''\) == loginDoAuth\(\)/);
 });
+
+test('APROVAR-TROCA-PLANTAO-LIDER-1 — quem lidera Plantão decide as trocas de todos os Plantões que administra', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  // Carrega as trocas de TODOS os Plantões liderados (atual e próxima competência), não só o selecionado.
+  assert.match(app, /for \(const grupoId of chavePlantoesLideradosApp\.split\('\|'\)\) \{\s*for \(const competencia of \[competenciaAtiva, competenciaSeguinteApp\]\)/);
+  // Aparecem no "Para aprovar" e somam nos números da Hoje.
+  assert.match(app, /pendentesPlantaoLiderancaApp\.length > 0 && \(\s*<div className="troca-lista troca-lista-plantao-lideranca">/);
+  assert.match(app, /trocasParaAprovar=\{totalTrocasParaAprovarApp\}/);
+  // A decisão abre com o Plantão da própria troca (não exige Plantão selecionado).
+  assert.match(app, /\{trocaPlantaoAberta && usuario && grupoDaTrocaPlantaoAberta != null && \(/);
+  assert.match(app, /podeDecidirComoGestor=\{trocaPlantaoAbertaDaLideranca !== null \|\| podeAprovarTrocaPlantaoApp\}/);
+});
