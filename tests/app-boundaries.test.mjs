@@ -1072,3 +1072,12 @@ test('ESCALA-PLANTAO-1 — escala no ar abre a "Escala do Plantão" (conferir); 
   assert.match(pagina, /modo="consulta"/);
   assert.match(pagina, /reidratarRascunhoPlantao\(/);
 });
+
+test('ESCALA-PLANTAO-2 — editor: validação automática, sem aba Contabilidade, "Precisa da sua atenção" só quando há algo', async () => {
+  const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
+  assert.match(dashboard, /const previaPlantaoValidadaEfetiva = previaPlantaoValidada \|\| previaPlantaoPodeValidar;/);
+  // Salvar depende da validação efetiva (automática), não do clique.
+  assert.match(dashboard, /disabled=\{!previaPlantaoValidadaEfetiva \|\| salvandoRascunhoPlantao/);
+  assert.match(dashboard, /\(pendencias > 0 \|\| totalAlertasEditor > 0\) && \(\s*<h3 className="plantao-atencao-titulo">/);
+  assert.doesNotMatch(dashboard, /'Vínculos prontos'|Prévia validada\. Nenhum dado de Plantão foi publicado\./);
+});

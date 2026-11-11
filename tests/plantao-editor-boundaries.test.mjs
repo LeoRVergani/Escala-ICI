@@ -400,7 +400,8 @@ test('33. a revisão abre com Calendário e mantém somente as abas úteis; Resu
   assert.match(dashboard, /type AbaPreviaPlantao = 'calendario' \| 'contabilidade' \| 'vinculos'/u);
   assert.match(dashboard, /useState<AbaPreviaPlantao>\('calendario'\)/u);
   assert.match(preview, />Calendário<\/button>/u);
-  assert.match(preview, />Contabilidade<\/button>/u);
+  // ESCALA-PLANTAO-2 — a aba Contabilidade saiu (os números viraram o resumo de três); não volta.
+  assert.doesNotMatch(preview, />Contabilidade<\/button>/u);
   assert.doesNotMatch(preview, />Resumo<\/button>|>Lista<\/button>/u);
 });
 
