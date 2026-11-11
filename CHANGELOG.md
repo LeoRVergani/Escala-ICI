@@ -11,6 +11,12 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.7.1 — o celular continua conectado
+- Uma falha passageira ao abrir o App (rede oscilando, servidor ocupado)
+  desconectava a conta e obrigava a entrar de novo toda vez. Agora o App tenta
+  de novo e, se for rede, mantém a sessão; e espera mais quando a conta já
+  está restaurada no aparelho, em vez de mostrar o login.
+
 ## 3.7.0 — liderança aprova troca de Plantão pelo App
 - Quem lidera Plantão (inclusive só Plantão) vê em Trocas › "Para aprovar" as
   trocas aceitas pelo colega de TODOS os Plantões que administra (competência

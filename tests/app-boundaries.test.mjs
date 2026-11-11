@@ -1081,3 +1081,13 @@ test('ESCALA-PLANTAO-2 — editor: validação automática, sem aba Contabilidad
   assert.match(dashboard, /\(pendencias > 0 \|\| totalAlertasEditor > 0\) && \(\s*<h3 className="plantao-atencao-titulo">/);
   assert.doesNotMatch(dashboard, /'Vínculos prontos'|Prévia validada\. Nenhum dado de Plantão foi publicado\./);
 });
+
+test('SESSAO-CELULAR-1 — falha passageira ao buscar o cadastro não desconecta a conta; restauração espera quando a conta já está no aparelho', async () => {
+  const [auth, restauracao] = await Promise.all([ler('lib/firebase/authRepository.ts'), ler('components/RestauracaoSessao.tsx')]);
+  const corpo = /async function carregarUsuario\(email: string \| null\): Promise<Usuario> \{([\s\S]*?)\n\}/u.exec(auth)?.[1] ?? '';
+  // Antes: catch → signOut sempre. Agora: passageira tenta de novo; rede mantém a sessão.
+  assert.match(corpo, /if \(!falhaPassageiraAoCarregarUsuario\(primeira\)\) \{\s*await signOut\(auth\);/);
+  assert.match(corpo, /getIdToken\(true\)/);
+  assert.match(corpo, /if \(falhaDeRedeAoCarregarUsuario\(segunda\)\) throw segunda;/);
+  assert.match(restauracao, /if \(contaRestauradaNoAparelho\(\)\) \{\s*temporizador = window\.setTimeout\(desistir, TEMPO_EXTRA_COM_CONTA_MS\);/);
+});

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import {
   mensagemErroAutenticacao,
+  contaRestauradaNoAparelho,
   observarSessao,
   sair,
 } from '@/lib/firebase/authRepository';
@@ -36,6 +37,8 @@ export interface RestauracaoSessao {
  * sessão for resolvida depois, o produto abre sozinho.
  */
 const TEMPO_LIMITE_RESTAURACAO_MS = 8_000;
+/** SESSAO-CELULAR-1 — espera extra quando a conta já está restaurada no aparelho. */
+const TEMPO_EXTRA_COM_CONTA_MS = 22_000;
 
 interface OpcoesRestauracaoSessao {
   tipo: TipoProduto;
@@ -100,10 +103,21 @@ export function useRestauracaoSessao({
         setEstado(proximo);
       };
 
-      temporizador = window.setTimeout(() => {
+      // SESSAO-CELULAR-1 — no limite de tempo, se a conta JÁ foi restaurada no
+      // aparelho (só o cadastro está lento por causa da rede), espera mais em
+      // vez de mostrar o login — antes o celular em 4G fraco caía no login.
+      const desistir = () => {
         if (!encerrado) {
           setEstado((atual) => (atual === 'restaurando' ? 'ausente' : atual));
         }
+      };
+      temporizador = window.setTimeout(() => {
+        if (encerrado) return;
+        if (contaRestauradaNoAparelho()) {
+          temporizador = window.setTimeout(desistir, TEMPO_EXTRA_COM_CONTA_MS);
+          return;
+        }
+        desistir();
       }, TEMPO_LIMITE_RESTAURACAO_MS);
 
       cancelar = observarSessao(
