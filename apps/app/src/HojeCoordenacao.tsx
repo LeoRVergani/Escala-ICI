@@ -230,3 +230,21 @@ export function HojeCoordenacao({ equipes, plantoes, dataHoje, agora, catalogo, 
     </section>
   );
 }
+
+/**
+ * LIDERANCA-PADRAO-1 — os Plantões que a pessoa administra (Posto | Antes |
+ * Agora | Depois), reaproveitados na tela Plantão de quem lidera.
+ */
+export function PlantoesDaCoordenacao({ plantoes, agora, usuarios, onAbrirPlantonista, onAbrirEquipes }: {
+  plantoes: readonly PlantaoVisao[]; agora: Date; usuarios: readonly Usuario[];
+  onAbrirPlantonista: Props['onAbrirPlantonista']; onAbrirEquipes: () => void;
+}) {
+  const agoraIso = agora.toISOString();
+  return (
+    <div className="coord-cartoes">
+      {plantoes.map((plantao) => (
+        <PlantaoNoDia key={plantao.grupo.grupoId} plantao={plantao} agoraIso={agoraIso} usuarios={usuarios} onAbrirPlantonista={onAbrirPlantonista} onAbrirEquipes={onAbrirEquipes} />
+      ))}
+    </div>
+  );
+}

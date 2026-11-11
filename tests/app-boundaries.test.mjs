@@ -796,7 +796,7 @@ test('CONTA-SETOR-1 — conta do setor (sem escala própria) vê a equipe do dia
   assert.match(app, /\(jornadaPublicadaApp \|\| contaSetorApp\) && \(\s*<article className="panel today-team-panel">/);
   // Nada pessoal: sem aviso de jornada e sem avisos do turno.
   assert.match(app, /!jornadaPublicadaApp && plantaoPublicadoApp && !contaSetorApp/);
-  assert.match(app, /!contaSetorApp && Boolean\(usuario\.equipeId\) && \(\s*<AlertasTurnoPerfil/);
+  assert.match(app, /!contaSetorApp && !liderSemEscalaPropriaApp && \(\s*<AlertasTurnoPerfil/);
 });
 
 test('PWA-INSTALAR-1 / PWA-ATUALIZAR-1 / CONTA-SETOR-2 — instalar uma vez, atualização confiável, NOC com Plantões primeiro', async () => {
@@ -827,7 +827,7 @@ test('TROCA-CONTA-1 — ouvintes ignoram o encerramento do Firestore e erros nã
 
 test('HOJE-PLANTONISTA-1 — Hoje do plantonista: o próprio Plantão, passagem com contatos e sem aviso de 6x1', async () => {
   const app = await ler('apps/app/src/EmployeeApp.tsx');
-  assert.match(app, /!jornadaPublicadaApp && plantaoPublicadoApp && !contaSetorApp && !souPlantonistaAtivoApp && \(/, 'plantonista não vê "Nenhuma jornada 6x1"');
+  assert.match(app, /!jornadaPublicadaApp && plantaoPublicadoApp && !contaSetorApp && !souPlantonistaAtivoApp && !souCoordenacaoApp && \(/, 'plantonista (e líder) não vê "Nenhuma jornada 6x1"');
   // O grupo é o do PRÓPRIO plantonista (participante ativo), não o aberto na aba Plantão.
   assert.match(app, /const meuGrupo = gruposPlantaoApp\.find\(\(item\) => \(detalhesPlantaoPorGrupoApp\[item\.grupoId\]\?\.participantes \?\? \[\]\)\s*\.some\(\(participante\) => participante\.login === usuario\.login && participante\.ativo\)\)/);
   // Tocar na pessoa abre o mesmo modal de contatos dos "Plantões agora".
@@ -892,4 +892,21 @@ test('NOME-SEM-ESPACOS-1 — nome gravado sempre limpo, e o script usa a MESMA r
   const script = (await ler('scripts/staging/normalizar-nomes-usuarios.mjs')).match(/\/\[\\s\\u00a0[^/]+\]\+\/gu/u)?.[0];
   assert.ok(regra && script, 'regra encontrada nos dois arquivos');
   assert.equal(script, regra, 'o script de correção usa a mesma regra do repositório');
+});
+
+test('LIDERANCA-PADRAO-1 — uma regra só para as telas de quem lidera (com ou sem equipe fixa)', async () => {
+  const app = await ler('apps/app/src/EmployeeApp.tsx');
+  // A regra: lidera e não tem escala própria (nem jornada, nem plantão próprio).
+  assert.match(app, /const liderSemEscalaPropriaApp = souCoordenacaoApp && !jornadaPublicadaApp && !souPlantonistaAtivoApp;/);
+  // A regra antiga (só "sem equipe fixa") não volta.
+  assert.doesNotMatch(app, /souCoordenacaoApp && !usuario\.equipeId/);
+  // A declaração vem DEPOIS das variáveis que ela usa (senão a tela quebra ao abrir).
+  const declaracao = app.indexOf('const liderSemEscalaPropriaApp');
+  assert.ok(declaracao > app.indexOf('const souPlantonistaAtivoApp') && declaracao > app.indexOf('const jornadaPublicadaApp'));
+  // Telas: Agenda (lembretes), Plantão (do líder), Equipe (sem seções de colaborador), Perfil, Trocas.
+  assert.match(app, /\{tela === 'minha' && liderSemEscalaPropriaApp && \(/);
+  assert.match(app, /\{tela === 'plantao' && usuario && \(liderSemEscalaPropriaApp \? \(/);
+  assert.match(app, /<PlantoesDaCoordenacao/);
+  assert.match(app, /souCoordenacaoApp && \(\s*<article className="panel troca-bloco-aprovar">/);
+  assert.match(app, /souCoordenacaoApp && \(\s*<article className="panel troca-historico-equipe">/);
 });
