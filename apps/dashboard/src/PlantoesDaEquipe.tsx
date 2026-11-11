@@ -53,53 +53,39 @@ export function PlantoesDaEquipe({ equipe }: { equipe: { id: string; nome: strin
 
   return (
     <article className="panel plantoes-da-equipe">
-      <header className="plantoes-da-equipe-cabecalho">
-        <span className="plantoes-da-equipe-icone"><Radio size={18} aria-hidden="true" /></span>
-        <div>
-          <h2>Plantões que a equipe {equipe.nome} vê no App</h2>
-          <p>Ligue os Plantões que a equipe deve acompanhar: quem está de plantão agora, os telefones e o calendário.</p>
-        </div>
-      </header>
-
-      {grupos === null && !erro && (
-        <p className="plantoes-da-equipe-carregando"><LoaderCircle className="spin" size={16} aria-hidden="true" /> Carregando Plantões…</p>
-      )}
-      {erro && <div className="alert error" role="alert">{erro}</div>}
-      {confirmacao && <p className="plantoes-da-equipe-ok" role="status"><CheckCircle2 size={15} aria-hidden="true" /> {confirmacao}</p>}
-
-      {grupos !== null && grupos.length === 0 && (
-        <p className="plantoes-da-equipe-vazio">Nenhum Plantão cadastrado ainda.</p>
-      )}
-      {grupos !== null && grupos.length > 0 && (
-        <ul className="plantoes-da-equipe-lista">
-          {grupos.map((grupo) => {
-            const daEquipe = grupo.equipeResponsavelId === equipe.id;
-            const ligado = daEquipe || (grupo.equipesConsulta ?? []).includes(equipe.id);
-            const quantas = (grupo.equipesConsulta ?? []).length;
-            return (
-              <li key={grupo.grupoId} data-ligado={ligado ? '' : undefined}>
-                <span className="plantoes-da-equipe-nome">
-                  <strong>{grupo.nome}</strong>
-                  <small>{daEquipe ? 'Plantão desta equipe' : `${quantas} ${quantas === 1 ? 'equipe vê' : 'equipes veem'} no App`}</small>
-                </span>
-                {salvandoId === grupo.grupoId && <LoaderCircle className="spin" size={16} aria-hidden="true" />}
+      {/* PLANTAO-EDITOR-SIMPLES-1 — compacto e no topo da Minha equipe (antes ficava no fim da página). */}
+      <div className="quem-ve-plantao">
+        <span className="quem-ve-plantao-titulo"><Radio size={15} aria-hidden="true" /> Plantões que a equipe {equipe.nome} vê no App</span>
+        {grupos === null && !erro && <span className="plantoes-da-equipe-carregando"><LoaderCircle className="spin" size={14} aria-hidden="true" /> Carregando…</span>}
+        {grupos !== null && grupos.length === 0 && <span className="plantoes-da-equipe-vazio">Nenhum Plantão cadastrado ainda.</span>}
+        {grupos !== null && grupos.length > 0 && (
+          <div className="quem-ve-plantao-chips">
+            {grupos.map((grupo) => {
+              const daEquipe = grupo.equipeResponsavelId === equipe.id;
+              const ligado = daEquipe || (grupo.equipesConsulta ?? []).includes(equipe.id);
+              return (
                 <button
+                  key={grupo.grupoId}
                   type="button"
                   role="switch"
                   aria-checked={ligado}
                   aria-label={`${ligado ? 'Desligar' : 'Ligar'} ${grupo.nome} para a equipe ${equipe.nome}`}
-                  className="plantoes-da-equipe-interruptor"
+                  className="quem-ve-plantao-chip"
+                  data-ligado={ligado ? '' : undefined}
                   disabled={daEquipe || salvandoId !== null}
-                  title={daEquipe ? 'A equipe responsável sempre vê o próprio Plantão.' : undefined}
+                  title={daEquipe ? 'Plantão desta equipe — sempre visível.' : ligado ? 'Toque para a equipe deixar de ver' : 'Toque para a equipe passar a ver'}
                   onClick={() => void alternar(grupo, !ligado)}
                 >
-                  <span />
+                  {salvandoId === grupo.grupoId ? <LoaderCircle className="spin" size={13} aria-hidden="true" /> : <span className="quem-ve-plantao-ponto" aria-hidden="true" />}
+                  {grupo.nome}
                 </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+              );
+            })}
+          </div>
+        )}
+      </div>
+      {erro && <div className="alert error" role="alert">{erro}</div>}
+      {confirmacao && <p className="plantoes-da-equipe-ok" role="status"><CheckCircle2 size={15} aria-hidden="true" /> {confirmacao}</p>}
     </article>
   );
 }
