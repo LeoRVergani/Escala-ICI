@@ -2243,6 +2243,18 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['equipesConsulta', 'atualizadoEm'])
             && request.resource.data.equipesConsulta is list
           )
+          /**
+           * PLANTAO-EDITOR-SIMPLES-1 — quem administra a escala deste Plantão
+           * (inclusive só pela Matriz) escolhe quem vê no App: muda SÓ
+           * `equipesConsulta`, e a equipe do Plantão nunca sai. Última
+           * alternativa: só avaliada quando nenhuma anterior autoriza.
+           */
+          || (
+            podeAdministrarEscalaPlantao(grupoId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['equipesConsulta', 'atualizadoEm'])
+            && request.resource.data.equipesConsulta is list
+            && resource.data.equipeResponsavelId in request.resource.data.equipesConsulta
+          )
         );
 
       /**

@@ -1,5 +1,6 @@
 'use client';
 
+import { QuemVePlantaoPainel } from './QuemVePlantaoPainel';
 import { AdminPlantoesPage } from './AdminPlantoesPage';
 import { AdminEquipesPage } from './AdminEquipesPage';
 import { CriarEquipeModal } from './CriarEquipeModal';
@@ -3172,6 +3173,8 @@ function PreviewPlantao({
 
   return (
     <div className="plantao-preview-fluxo">
+      {/* PLANTAO-EDITOR-SIMPLES-1 — sem planilha de origem, o quadro só dizia isso: some. */}
+      {resultado !== null && (
       <article className="panel plantao-resumo-panel plantao-preview-fonte">
         <div className="panel-title">
           <div>
@@ -3222,6 +3225,7 @@ function PreviewPlantao({
           <p>Não há planilha de origem para conferir aqui — ver &ldquo;Escala atual&rdquo; na aba Contabilidade.</p>
         )}
       </article>
+      )}
 
       {conferencia !== null && conferencia.divergencias.length > 0 && (
         conferencia.divergencias.some((divergencia) => divergencia.divergente) ? (
@@ -8323,7 +8327,7 @@ export function DashboardApp() {
       setContextoEscalaAtivo(criarContextoEscala('PLANTAO', grupo.grupoId, grupo.nome, reidratado.competencia.competencia));
       setContextoSemEscala(false);
       setMensagem(abrindoPublicada
-        ? `Competência publicada aberta para conferência — "${grupo.nome}" (${reidratado.competencia.competencia}), revisão ${reidratado.competencia.revisao}. Qualquer alteração cria um novo rascunho, nunca sobrescreve a publicação atual.`
+        ? `${grupo.nome} · escala no ar aberta. O que você mudar vira um rascunho — a equipe só vê depois de publicar.`
         : `Rascunho de Plantão reaberto — "${grupo.nome}" (${reidratado.competencia.competencia}). Nenhum dado foi publicado.`);
       setAbrirRascunhoPlantaoStatus(null);
       setTela('importar');
@@ -10376,18 +10380,14 @@ export function DashboardApp() {
                     {processando ? <LoaderCircle className="spin" size={15} /> : <UploadCloud size={15} />}
                     {origemPlantaoAtual === 'IMPORTADO' ? 'Importar outra planilha' : 'Importar planilha'}
                   </button>
-                  <span className={`status-badge ${previaPlantaoValidada ? 'success' : pendenciasVinculoPlantao > 0 ? 'warning' : 'neutral'}`}>
-                    {/* PLANTAO-TELA-SIMPLES-1 — o selo diz o PRÓXIMO passo, não só o estado. */}
-                    {pendenciasVinculoPlantao > 0
-                      ? `${pendenciasVinculoPlantao} vínculo(s) pendente(s)`
-                      : !previaPlantaoValidada
-                        ? 'Próximo: 1. Validar prévia'
-                        : !rascunhoPlantaoProntoParaPublicar
-                          ? 'Próximo: 2. Salvar rascunho'
-                          : !podePublicarPlantaoPelaSaude
-                            ? 'Corrija os pontos em "Revisar publicação"'
-                            : 'Pronto: 3. Publicar'}
-                  </span>
+                  {/* PLANTAO-EDITOR-SIMPLES-1 — os passos 1-2-3 já guiam; o selo só aparece quando há algo a resolver. */}
+                  {(pendenciasVinculoPlantao > 0 || (rascunhoPlantaoProntoParaPublicar && !podePublicarPlantaoPelaSaude)) && (
+                    <span className="status-badge warning">
+                      {pendenciasVinculoPlantao > 0
+                        ? `${pendenciasVinculoPlantao} vínculo(s) pendente(s)`
+                        : 'Corrija os pontos em "Revisar publicação"'}
+                    </span>
+                  )}
                   {!contextoPlantaoSomenteConsulta && podeAcessarPlantoes && (
                     <>
                       <button
@@ -10519,10 +10519,23 @@ export function DashboardApp() {
                         }}
                       />
                     </label>
-                    <button className="secondary-button compact-button" type="button" onClick={abrirNovoGrupoPlantao}>
-                      <Plus size={15} /> Novo grupo
-                    </button>
                   </div>
+                  {/* PLANTAO-EDITOR-SIMPLES-1 — quem vê este Plantão no App, configurável aqui mesmo. */}
+                  {gruposPlantaoAdmin.some((grupo) => grupo.grupoId === grupoRascunhoEscolhido) && !contextoPlantaoSomenteConsulta && (
+                    <QuemVePlantaoPainel
+                      grupo={gruposPlantaoAdmin.find((grupo) => grupo.grupoId === grupoRascunhoEscolhido)!}
+                      equipes={equipesAdmin}
+                      onAlternar={async (grupo, equipeId, ligar) => {
+                        await atualizarEquipeConsultaPlantao(grupo.grupoId, equipeId, ligar ? 'ADICIONAR' : 'REMOVER');
+                        setGruposPlantaoAdmin((atuais) => atuais.map((item) => (item.grupoId !== grupo.grupoId ? item : {
+                          ...item,
+                          equipesConsulta: ligar
+                            ? [...new Set([...(item.equipesConsulta ?? []), equipeId])]
+                            : (item.equipesConsulta ?? []).filter((id) => id !== equipeId),
+                        })));
+                      }}
+                    />
+                  )}
                   <div className="plantao-command-feedback">
                     <span>
                       {new Set(vinculosPlantao.map((vinculo) => vinculo.login).filter((login) => login !== null)).size}
@@ -11427,6 +11440,10 @@ export function DashboardApp() {
                 </div>
               ))}
 
+              {/* MINHA-EQUIPE-PLANTOES-1 — o chefe escolhe os Plantões que a equipe vê no App (no topo). */}
+              {equipeAtivaMinhaEquipe !== null && (
+                <PlantoesDaEquipe key={equipeAtivaMinhaEquipe.id} equipe={{ id: equipeAtivaMinhaEquipe.id, nome: equipeAtivaMinhaEquipe.nome }} />
+              )}
               {grupoAtivoMinhaEquipe !== null ? (
                 <article className="panel grid-panel">
                   <div className="toolbar">
@@ -11724,10 +11741,6 @@ export function DashboardApp() {
                 </div>
               </section>
             </div>
-          )}
-          {/* MINHA-EQUIPE-PLANTOES-1 — o chefe escolhe os Plantões que a equipe vê no App. */}
-          {equipeAtivaMinhaEquipe !== null && (
-            <PlantoesDaEquipe key={equipeAtivaMinhaEquipe.id} equipe={{ id: equipeAtivaMinhaEquipe.id, nome: equipeAtivaMinhaEquipe.nome }} />
           )}
         </section>
       )}

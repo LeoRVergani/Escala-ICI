@@ -3120,6 +3120,51 @@ describe('CRIAR-EQUIPE-1 — liderança cria a própria equipe e vira a respons�
   });
 });
 
+describe('PLANTAO-EDITOR-SIMPLES-1 — o responsável pelo Plantão (Matriz) escolhe quem vê no App', () => {
+  const agora = '2026-11-11T12:00:00.000Z';
+  const grupoId = 'PLANTAO_QUEM_VE';
+  async function preparar(comResponsavel: boolean) {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(doc(db, 'gruposPlantao', grupoId), {
+        grupoId, nome: 'Plantão Quem Vê', equipeResponsavelId: 'EQ_CODB_NOC', equipesConsulta: ['EQ_CODB_NOC'],
+        timezone: 'America/Sao_Paulo', ativo: true, schemaVersion: 1, criadoPorLogin: usuarios.admin.login, criadoEm: agora, atualizadoEm: agora,
+      });
+      if (comResponsavel) {
+        await setDoc(doc(db, 'escoposOperacionais', `PLANTAO_${grupoId}`), {
+          tipo: 'PLANTAO', alvoId: grupoId, alvoNome: 'Plantão Quem Vê', responsaveisLogin: [usuarios.externo.login], responsaveisEquipe: [],
+          equipesConsulta: [], ativo: true, criadoEm: agora, atualizadoEm: agora, criadoPorLogin: usuarios.admin.login,
+          atualizadoPorLogin: usuarios.admin.login, schemaVersion: 1,
+        });
+      }
+    });
+  }
+  const mudar = (equipes: string[], extra: Record<string, unknown> = {}) => updateDoc(
+    doc(autenticarComo(usuarios.externo), 'gruposPlantao', grupoId),
+    { equipesConsulta: equipes, atualizadoEm: agora, ...extra },
+  );
+
+  it('o responsável pela Matriz liga outra equipe', async () => {
+    await preparar(true);
+    await assertSucceeds(mudar(['EQ_CODB_NOC', 'EQ_COSI_SOC']));
+  });
+
+  it('não tira a equipe do Plantão da lista', async () => {
+    await preparar(true);
+    await assertFails(mudar(['EQ_COSI_SOC']));
+  });
+
+  it('não muda outros campos junto (ex.: o nome)', async () => {
+    await preparar(true);
+    await assertFails(mudar(['EQ_CODB_NOC', 'EQ_COSI_SOC'], { nome: 'Outro nome' }));
+  });
+
+  it('sem ser responsável: negado', async () => {
+    await preparar(false);
+    await assertFails(mudar(['EQ_CODB_NOC', 'EQ_COSI_SOC']));
+  });
+});
+
 describe('CRIAR-PLANTAO-1 — o chefe da equipe cria o Plantão dela e vira o responsável', () => {
   const agora = '2026-11-10T12:00:00.000Z';
   // Ravi é chefe da NOC SÓ pela Matriz (sem perfil de gestor de equipe) — como uma liderança que criou a equipe.

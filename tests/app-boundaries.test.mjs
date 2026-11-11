@@ -1048,3 +1048,16 @@ test('ADMIN-PLANTOES-1 — Administração › Plantões em cartões; tela compl
   assert.match(pagina, /equipesConsulta: \[\.\.\.new Set\(\[grupo\.equipeResponsavelId, \.\.\.selecionadas\]\)\]/);
   assert.doesNotMatch(pagina, />\{grupo\.grupoId\}</);
 });
+
+test('PLANTAO-EDITOR-SIMPLES-1 — editor de Plantão mais limpo, com "Quem vê"; Plantões da equipe no topo da Minha equipe', async () => {
+  const [dashboard, regras] = await Promise.all([ler('apps/dashboard/src/DashboardApp.tsx'), ler('firestore.rules')]);
+  // Editor: sem o selo "Próximo: …" duplicado, sem "Novo grupo" nos campos, com "Quem vê".
+  assert.doesNotMatch(dashboard, /'Próximo: 1\. Validar prévia'|'Próximo: 2\. Salvar rascunho'/);
+  assert.match(dashboard, /<QuemVePlantaoPainel/);
+  // O quadro "sem planilha de origem" só aparece quando há planilha.
+  assert.match(dashboard, /\{resultado !== null && \(\n\s*<article className="panel plantao-resumo-panel plantao-preview-fonte">/);
+  // Minha equipe: o card dos Plantões vem ANTES da escala da equipe.
+  assert.ok(dashboard.indexOf('<PlantoesDaEquipe key=') < dashboard.indexOf('{grupoAtivoMinhaEquipe !== null ? ('));
+  // Regra: responsável pela escala do Plantão muda só quem vê, sem tirar a equipe do Plantão — última alternativa.
+  assert.match(regras, /podeAdministrarEscalaPlantao\(grupoId\)\n\s*&& request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\.hasOnly\(\['equipesConsulta', 'atualizadoEm'\]\)\n\s*&& request\.resource\.data\.equipesConsulta is list\n\s*&& resource\.data\.equipeResponsavelId in request\.resource\.data\.equipesConsulta\n\s*\)\n\s*\);/);
+});
