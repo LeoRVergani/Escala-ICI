@@ -9812,3 +9812,14 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
   .publicar-plantao-mudancas > li { grid-template-columns: auto 1fr; }
   .publicar-plantao-mudancas > li > small, .publicar-plantao-mudancas > li > span:last-child { grid-column: 2; text-align: left; }
 }
+
+/* ESCALA-PLANTAO-4 — dica do modo "Ajustar plantões" e detalhes da versão ("⋯"). */
+.plantao-dica-ajuste { margin: 6px 0 0; color: var(--primary-bright); font-size: 12.5px; font-weight: 700; }
+.plantao-seletor-visualizacao > button { display: inline-flex; align-items: center; gap: 5px; }
+.escala-plantao-detalhes {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  border: 1px dashed var(--border); border-radius: 12px; background: var(--surface-muted);
+  color: var(--muted); font-size: 13px;
+}
+.escala-plantao-detalhes > svg { flex: 0 0 auto; color: var(--primary-bright); }
+.escala-plantao-detalhes strong { color: var(--text); }

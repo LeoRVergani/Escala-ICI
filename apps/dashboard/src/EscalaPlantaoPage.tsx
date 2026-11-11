@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, CalendarDays, Clock3, LoaderCircle, Pencil, Upload, Users } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Clock3, History, LoaderCircle, MoreHorizontal, Pencil, Upload, Users } from 'lucide-react';
 import type { CompetenciaPlantao, GrupoPlantao } from '@escala-ici/contrato';
 
 import { PlantaoCalendario } from '@/components/plantao/PlantaoCalendario';
@@ -30,6 +30,19 @@ function dataCurta(iso: string): string {
 
 const NADA = () => {};
 
+/** ESCALA-PLANTAO-4 — de onde veio a escala, em linguagem de gente. */
+const ORIGEM: Record<string, string> = {
+  IMPORTADO: 'planilha importada',
+  MANUAL: 'montada à mão',
+  GERADO: 'gerada pelo padrão de horários',
+  COPIADO: 'copiada de outro mês',
+};
+
+function dataHora(iso: string): string {
+  const data = new Date(iso);
+  return Number.isNaN(data.getTime()) ? iso : data.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
 export function EscalaPlantaoPage({
   grupo, competencia, equipes, usuarios, dataHoje, somenteConsulta, onVoltar, onAjustar, onArquivo, onAlternarQuemVe,
 }: {
@@ -47,6 +60,7 @@ export function EscalaPlantaoPage({
   const entrada = useRef<HTMLInputElement>(null);
   const [atribuicoes, setAtribuicoes] = useState<AtribuicaoPlantaoEditavel[] | null>(null);
   const [erro, setErro] = useState('');
+  const [detalhesAbertos, setDetalhesAbertos] = useState(false);
 
   useEffect(() => {
     let cancelado = false;
@@ -77,8 +91,13 @@ export function EscalaPlantaoPage({
             <span className="escala-plantao-status" data-status="no-ar"><span aria-hidden="true" /> No ar{competencia.revisao > 1 ? ` · versão ${competencia.revisao}` : ''}</span>
           </p>
         </div>
+        <div className="escala-plantao-acoes">
+          <button type="button" className="icon-button" aria-expanded={detalhesAbertos} aria-label="Detalhes da versão"
+            title="Detalhes da versão" onClick={() => setDetalhesAbertos((aberto) => !aberto)}>
+            <MoreHorizontal size={18} />
+          </button>
         {!somenteConsulta && (
-          <div className="escala-plantao-acoes">
+          <>
             <button type="button" className="secondary-button" onClick={() => entrada.current?.click()}>
               <Upload size={16} aria-hidden="true" /> Importar nova planilha
             </button>
@@ -91,9 +110,22 @@ export function EscalaPlantaoPage({
                 evento.target.value = '';
                 if (arquivo) onArquivo(arquivo);
               }} />
-          </div>
+          </>
         )}
+        </div>
       </header>
+
+      {/* ESCALA-PLANTAO-4 — "⋯": a versão no ar (o Plantão guarda só a atual; o histórico completo é uma entrega própria). */}
+      {detalhesAbertos && (
+        <div className="escala-plantao-detalhes" role="region" aria-label="Detalhes da versão">
+          <History size={16} aria-hidden="true" />
+          <span>
+            <strong>Versão {competencia.revisao}</strong> · no ar desde {dataHora(competencia.atualizadoEm)}
+            {' '}· {ORIGEM[competencia.origem] ?? competencia.origem}
+            {' '}· criada por {usuarios.find((usuario) => usuario.login === competencia.criadoPorLogin)?.nome ?? competencia.criadoPorLogin}
+          </span>
+        </div>
+      )}
 
       <div className="escala-plantao-resumo">
         <span><Users size={16} aria-hidden="true" /><strong>{atribuicoes === null ? '–' : plantonistas}</strong> plantonistas</span>
