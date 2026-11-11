@@ -3045,7 +3045,6 @@ function PreviewPlantao({
   onDesfazerVinculo,
   conferencia,
   pendencias,
-  validada,
   onCriarUsuarioParaVinculo,
   atribuicoesEditaveis,
   competencia,
@@ -3322,37 +3321,25 @@ function PreviewPlantao({
       <article className="panel plantao-preview-principal">
         <div className="plantao-preview-toolbar">
           <div className="segmented-control" aria-label="Seções da prévia de Plantão">
-          <button type="button" className={aba === 'calendario' ? 'active' : ''} aria-pressed={aba === 'calendario'} onClick={() => onMudarAba('calendario')}>Calendário</button>
-          <button type="button" className={aba === 'contabilidade' ? 'active' : ''} aria-pressed={aba === 'contabilidade'} onClick={() => onMudarAba('contabilidade')}>Contabilidade</button>
+          {/* ESCALA-PLANTAO-2 — duas visões: a escala e as pessoas da planilha (a "Contabilidade" virou o resumo). */}
+          <button type="button" className={aba !== 'vinculos' ? 'active' : ''} aria-pressed={aba !== 'vinculos'} onClick={() => onMudarAba('calendario')}>Calendário</button>
           <button type="button" className={aba === 'vinculos' ? 'active' : ''} aria-pressed={aba === 'vinculos'} onClick={() => onMudarAba('vinculos')}>
-            Vínculos{pendencias > 0 ? ` (${pendencias})` : ''}
+            Pessoas da planilha{pendencias > 0 ? ` (${pendencias} a resolver)` : ''}
           </button>
           </div>
-          <div className="plantao-preview-validacao">
-            <span className={`status-badge ${pendencias === 0 ? 'success' : 'warning'}`}>
-              {pendencias === 0 ? 'Vínculos prontos' : `${pendencias} vínculo(s) pendente(s)`}
-            </span>
-          </div>
         </div>
-        {validada && (
-          <p className="plantao-validado-nota">
-            <ShieldCheck size={15} /> Prévia validada. Nenhum dado de Plantão foi publicado.
-          </p>
-        )}
 
-        {aba === 'calendario' && (
+        {aba !== 'vinculos' && (
           <div className="plantao-editor-calendario">
-            <div className="import-summary plantao-resumo-grid">
+            <div className="import-summary plantao-resumo-grid plantao-resumo-tres">
               <div><span>Plantonistas</span><strong>{conferenciaEscalaAtual.quantidadePessoas}</strong></div>
               <div><span>Plantões</span><strong>{atribuicoesFiltradas.length}</strong></div>
-              <div><span>Horas atuais</span><strong>{formatarMinutos(conferenciaEscalaAtual.bruto.minutos)}</strong></div>
-              <div><span>Alertas</span><strong>{totalAlertasEditor}</strong></div>
+              <div><span>Horas</span><strong>{formatarMinutos(conferenciaEscalaAtual.bruto.minutos)}</strong></div>
             </div>
-            <p className={`plantao-estado-edicao ${editadoDesdeImportacao ? 'sujo' : 'limpo'}`}>
-              {editadoDesdeImportacao
-                ? 'Alterações não salvas'
-                : (resultado === null ? 'Nenhuma alteração desde a criação' : 'Nenhuma alteração desde a importação')}
-            </p>
+            {editadoDesdeImportacao && <p className="plantao-estado-edicao sujo">Alterações não salvas</p>}
+            {(pendencias > 0 || totalAlertasEditor > 0) && (
+              <h3 className="plantao-atencao-titulo"><AlertTriangle size={16} aria-hidden="true" /> Precisa da sua atenção</h3>
+            )}
             {pendencias > 0 && (
               <div className="import-actions plantao-vinculo-pendente-banner">
                 <span className="status-badge warning">{pendencias} usuário(s) precisam ser vinculados</span>
@@ -4157,6 +4144,12 @@ export function DashboardApp() {
   );
   const pendenciasVinculoPlantao = contarPendenciasVinculoPlantao(vinculosPlantao);
   const previaPlantaoPodeValidar = previaPlantaoValidavel(vinculosPlantao);
+  /**
+   * ESCALA-PLANTAO-2 — validação AUTOMÁTICA: "validar" só confirmava que
+   * todos os nomes da planilha estão ligados a pessoas. Com isso pronto, a
+   * prévia conta como validada sem clique (o botão vira indicador).
+   */
+  const previaPlantaoValidadaEfetiva = previaPlantaoValidada || previaPlantaoPodeValidar;
   /**
    * FASE-PLANTAO-MULTIPOSTO-FECHAMENTO-UX-1 — lookup único do Grupo em
    * contexto no rascunho, reaproveitado por `PreviewPlantao`, pelo Modal de
@@ -5669,7 +5662,7 @@ export function DashboardApp() {
       return;
     }
     setPreviaPlantaoValidada(true);
-    setMensagem('Prévia validada. Nenhum dado de Plantão foi publicado.');
+    setMensagem('Nomes conferidos.');
   }
 
   // --- "+ Nova escala" (Fase ESCALAS-UX-1B) ---
@@ -10400,17 +10393,18 @@ export function DashboardApp() {
                       <button
                         className="secondary-button compact-button"
                         type="button"
-                        disabled={!previaPlantaoPodeValidar || previaPlantaoValidada}
+                        disabled={!previaPlantaoPodeValidar || previaPlantaoValidadaEfetiva}
                         onClick={validarPreviaPlantao}
+                        title="Validar prévia é automático: acontece quando todos os nomes da planilha estão reconhecidos."
                       >
                         <span className="plantao-passo-numero" aria-hidden="true">1</span>
-                        <CheckCircle2 size={15} /> {previaPlantaoValidada ? 'Validada' : 'Validar prévia'}
+                        <CheckCircle2 size={15} /> {previaPlantaoValidadaEfetiva ? 'Nomes conferidos' : `${pendenciasVinculoPlantao} nome(s) a resolver`}
                       </button>
                       <button
                         className="secondary-button compact-button"
                         type="button"
-                        title={!previaPlantaoValidada ? 'Valide a prévia antes de salvar.' : undefined}
-                        disabled={!previaPlantaoValidada || salvandoRascunhoPlantao || grupoRascunhoEscolhido === ''}
+                        title={!previaPlantaoValidadaEfetiva ? 'Resolva os nomes da planilha antes de salvar.' : undefined}
+                        disabled={!previaPlantaoValidadaEfetiva || salvandoRascunhoPlantao || grupoRascunhoEscolhido === ''}
                         onClick={() => void salvarRascunhoPlantaoAcao()}
                         >
                           <span className="plantao-passo-numero" aria-hidden="true">2</span>
@@ -10659,7 +10653,7 @@ export function DashboardApp() {
               onDesfazerVinculo={desfazerVinculoPlantaoAcao}
               conferencia={resultadoPlantao === null ? null : conferirContabilidadePlantao(resultadoPlantao)}
               pendencias={pendenciasVinculoPlantao}
-              validada={previaPlantaoValidada}
+              validada={previaPlantaoValidadaEfetiva}
               onCriarUsuarioParaVinculo={abrirCadastroUsuarioParaVinculo}
               atribuicoesEditaveis={atribuicoesEditaveisPlantao}
               competencia={competenciaRascunho}

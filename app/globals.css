@@ -9773,3 +9773,13 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
   .escala-plantao-acoes > button { flex: 1 1 0; justify-content: center; }
   .escala-plantao-resumo .escala-plantao-quem-ve { justify-content: flex-start; }
 }
+
+/* ESCALA-PLANTAO-2 — passo Conferir do editor: resumo de três números e "Precisa da sua atenção". */
+.plantao-resumo-grid.plantao-resumo-tres { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.plantao-atencao-titulo {
+  display: flex; align-items: center; gap: 7px; margin: 14px 0 6px;
+  color: var(--warning); font-size: 14.5px; font-weight: 800;
+}
+@media (max-width: 720px) {
+  .plantao-resumo-grid.plantao-resumo-tres { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+}
