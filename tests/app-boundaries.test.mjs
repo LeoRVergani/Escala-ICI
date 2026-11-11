@@ -949,3 +949,21 @@ test('LIDERANCAS-1 — a alternativa de promoção usa .get() (pedido sem perfil
   const trecho = regras.slice(inicio, inicio + 1600);
   assert.doesNotMatch(trecho, /request\.resource\.data\.(perfil|nivelHierarquico|promovidoPorLogin|promovidoEm) /u);
 });
+
+test('CRIAR-EQUIPE-1 — liderança cria a própria equipe e vira a responsável, num lote só', async () => {
+  const [dashboard, modal, modulo, regras] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('apps/dashboard/src/CriarEquipeModal.tsx'),
+    ler('lib/firebase/criarEquipeLideranca.ts'),
+    ler('firestore.rules'),
+  ]);
+  assert.match(dashboard, /souLiderancaDashboard && \(\s*<button className="secondary-button" type="button" disabled=\{escritaBloqueada\} onClick=\{\(\) => setCriandoEquipe\(true\)\}>/);
+  assert.match(dashboard, /setEquipeSelecionadaMinhaEquipe\(`JORNADA:\$\{equipe\.id\}`\)/);
+  assert.match(modal, /criarEquipeComoLideranca\(\{ nome, unidade \}, autor\)/);
+  // Equipe e responsável juntos (writeBatch) — nunca equipe sem chefe.
+  assert.match(modulo, /const lote = writeBatch\(db\);[\s\S]*lote\.set\(doc\(db, 'equipes', id\)[\s\S]*lote\.set\(doc\(db, 'escoposOperacionais'[\s\S]*await lote\.commit\(\);/);
+  assert.match(modulo, /responsaveisLogin: \[autor\.login\]/);
+  // Regras: a criadora é quem pede; o responsável só ela, só de equipe que ela criou (no mesmo lote).
+  assert.match(regras, /request\.resource\.data\.get\('criadoPorLogin', ''\) == loginDoAuth\(\)\n\s*&& request\.resource\.data\.get\('id', ''\) == equipeId/);
+  assert.match(regras, /getAfter\(\/databases\/\$\(database\)\/documents\/equipes\/\$\(request\.resource\.data\.alvoId\)\)\.data\.get\('criadoPorLogin', ''\) == loginDoAuth\(\)\n\s*&& request\.resource\.data\.responsaveisLogin == \[loginDoAuth\(\)\]/);
+});

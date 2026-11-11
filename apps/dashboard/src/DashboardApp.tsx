@@ -1,5 +1,7 @@
 'use client';
 
+import { CriarEquipeModal } from './CriarEquipeModal';
+import { ehLideranca } from '@/lib/liderancas';
 import { LiderancasPage } from './LiderancasPage';
 import { PlantoesDaEquipe } from './PlantoesDaEquipe';
 import {
@@ -4019,6 +4021,8 @@ export function DashboardApp() {
   const [erroExclusaoUsuario, setErroExclusaoUsuario] = useState('');
   const [filtroEquipeTelaUsuarios, setFiltroEquipeTelaUsuarios] = useState('');
   // --- Minha equipe (FASE1-EQUIPE-SIMPLES) ---
+  /** CRIAR-EQUIPE-1 — modal "Criar equipe" aberto. */
+  const [criandoEquipe, setCriandoEquipe] = useState(false);
   const [equipeSelecionadaMinhaEquipe, setEquipeSelecionadaMinhaEquipe] = useState('');
   const [membrosMinhaEquipe, setMembrosMinhaEquipe] = useState<Usuario[]>([]);
   const [carregandoMembrosMinhaEquipe, setCarregandoMembrosMinhaEquipe] = useState(false);
@@ -8864,6 +8868,8 @@ export function DashboardApp() {
    * selecionada em "Minha equipe"; membros recarregados a cada mudança.
    */
   const equipesMinhaEquipe = escoposOperacionais.jornadasAdministraveis;
+  /** CRIAR-EQUIPE-1 — quem é liderança cria equipe em Minha equipe. */
+  const souLiderancaDashboard = usuarioReal !== null && ehLideranca(usuarioReal);
   /**
    * MINHA-EQUIPE-PLANTAO — uma aba por equipe de 6x1 E uma por Grupo de
    * Plantão que o usuário organiza. No Plantão os membros são os
@@ -11266,6 +11272,20 @@ export function DashboardApp() {
           nomeEquipe={(equipeId) => [...equipesAdmin, ...equipesMinhaEquipe].find((equipe) => equipe.id === equipeId)?.nome ?? equipeId}
         />
       )}
+      {/* CRIAR-EQUIPE-1 — criar a própria equipe e abrir direto nela. */}
+      {criandoEquipe && usuarioReal && (
+        <CriarEquipeModal
+          autor={usuarioReal}
+          unidades={unidadesAdmin}
+          onFechar={() => setCriandoEquipe(false)}
+          onCriada={(equipe, escopo) => {
+            setEquipesAdmin((atuais) => [...atuais.filter((item) => item.id !== equipe.id), equipe]);
+            setEscoposOperacionaisAdmin((atuais) => [...atuais, escopo]);
+            setEquipeSelecionadaMinhaEquipe(`JORNADA:${equipe.id}`);
+            setCriandoEquipe(false);
+          }}
+        />
+      )}
       {tela === 'equipe' && (
         <section className="minha-equipe">
           <header className="page-heading">
@@ -11274,14 +11294,24 @@ export function DashboardApp() {
               <h1>Minha equipe</h1>
               <p>Cada equipe de 6x1 e cada Plantão que você organiza tem a sua aba. Traga quem já está cadastrado ou cadastre uma pessoa nova.</p>
             </div>
-            {abaAtivaMinhaEquipe !== null && (
+            {(abaAtivaMinhaEquipe !== null || souLiderancaDashboard) && (
               <div className="grade-header-actions">
-                <button className="secondary-button" type="button" disabled={escritaBloqueada} onClick={abrirBuscaPessoa}>
-                  <Search size={16} /> Buscar pessoa cadastrada
-                </button>
-                <button className="primary-button" type="button" disabled={escritaBloqueada} onClick={abrirCadastroNaMinhaEquipe}>
-                  <UserPlus size={16} /> Cadastrar pessoa nova
-                </button>
+                {/* CRIAR-EQUIPE-1 — toda liderança cria a própria equipe. */}
+                {souLiderancaDashboard && (
+                  <button className="secondary-button" type="button" disabled={escritaBloqueada} onClick={() => setCriandoEquipe(true)}>
+                    <Plus size={16} /> Criar equipe
+                  </button>
+                )}
+                {abaAtivaMinhaEquipe !== null && (
+                  <>
+                    <button className="secondary-button" type="button" disabled={escritaBloqueada} onClick={abrirBuscaPessoa}>
+                      <Search size={16} /> Buscar pessoa cadastrada
+                    </button>
+                    <button className="primary-button" type="button" disabled={escritaBloqueada} onClick={abrirCadastroNaMinhaEquipe}>
+                      <UserPlus size={16} /> Cadastrar pessoa nova
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </header>
@@ -11290,7 +11320,16 @@ export function DashboardApp() {
             <article className="panel organization-empty-state">
               <Users size={28} aria-hidden="true" />
               <h2>Você ainda não organiza nenhuma equipe nem Plantão</h2>
-              <p>Peça ao administrador do sistema para criar a sua equipe e colocar você como responsável.</p>
+              {souLiderancaDashboard ? (
+                <>
+                  <p>Crie a sua equipe: depois é só cadastrar as pessoas, importar a escala e escolher os Plantões que ela vê no App.</p>
+                  <button className="primary-button" type="button" disabled={escritaBloqueada} onClick={() => setCriandoEquipe(true)}>
+                    <Plus size={16} /> Criar equipe
+                  </button>
+                </>
+              ) : (
+                <p>Peça a uma liderança para criar a sua equipe — ou para tornar você liderança.</p>
+              )}
             </article>
           ) : (
             <>

@@ -16,6 +16,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import { readFile } from 'node:fs/promises';
 import {
@@ -3078,6 +3079,46 @@ function lembreteAtribuido(ajustes: Record<string, unknown> = {}) {
     ...ajustes,
   };
 }
+
+describe('CRIAR-EQUIPE-1 — liderança cria a própria equipe e vira a responsável pela escala', () => {
+  const agora = '2026-11-10T12:00:00.000Z';
+  function equipeNova(id: string, criadoPorLogin: string) {
+    return { id, nome: 'Equipe Nova', sigla: 'EN', ativa: true, criadoPorLogin, criadoEm: agora };
+  }
+  function responsavel(alvoId: string, responsaveis: string[], criadoPorLogin: string) {
+    return {
+      tipo: 'JORNADA', alvoId, alvoNome: 'Equipe Nova', responsaveisLogin: responsaveis, responsaveisEquipe: [], equipesConsulta: [],
+      ativo: true, criadoEm: agora, atualizadoEm: agora, criadoPorLogin, atualizadoPorLogin: criadoPorLogin, schemaVersion: 1,
+    };
+  }
+  function criarEmLote(quem: { login: string; email: string }, id: string, responsaveis: string[]) {
+    const db = autenticarComo(quem);
+    const lote = writeBatch(db);
+    lote.set(doc(db, 'equipes', id), equipeNova(id, quem.login));
+    lote.set(doc(db, 'escoposOperacionais', `JORNADA_${id}`), responsavel(id, responsaveis, quem.login));
+    return lote.commit();
+  }
+
+  it('a liderança cria a equipe e o responsável (ela mesma) no mesmo lote', async () => {
+    await assertSucceeds(criarEmLote(usuarios.gestor, 'EQ_NOVA_A1', [usuarios.gestor.login]));
+  });
+
+  it('colaborador não cria equipe', async () => {
+    await assertFails(criarEmLote(usuarios.colaborador, 'EQ_NOVA_B2', [usuarios.colaborador.login]));
+  });
+
+  it('não vira responsável de equipe que não criou', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'equipes', 'EQ_DE_OUTRO'), equipeNova('EQ_DE_OUTRO', usuarios.admin.login));
+    });
+    const db = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(doc(db, 'escoposOperacionais', 'JORNADA_EQ_DE_OUTRO'), responsavel('EQ_DE_OUTRO', [usuarios.gestor.login], usuarios.gestor.login)));
+  });
+
+  it('não põe outra pessoa como responsável da equipe que criou', async () => {
+    await assertFails(criarEmLote(usuarios.gestor, 'EQ_NOVA_C3', [usuarios.colega.login]));
+  });
+});
 
 describe('LIDERANCAS-1 — uma liderança torna outra pessoa liderança (só promove, com registro)', () => {
   const promover = (quem: { login: string; email: string }, alvo: string, ajustes: Record<string, unknown> = {}) => updateDoc(
