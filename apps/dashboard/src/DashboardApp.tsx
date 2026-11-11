@@ -1,5 +1,6 @@
 'use client';
 
+import { EscalaPlantaoPage } from './EscalaPlantaoPage';
 import { QuemVePlantaoPainel } from './QuemVePlantaoPainel';
 import { AdminPlantoesPage } from './AdminPlantoesPage';
 import { AdminEquipesPage } from './AdminEquipesPage';
@@ -439,7 +440,7 @@ import type {
   Usuario,
 } from '@/lib/modelos';
 
-type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao' | 'responsaveisEscala' | 'equipe' | 'liderancas' | 'colaboradores';
+type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao' | 'responsaveisEscala' | 'equipe' | 'liderancas' | 'colaboradores' | 'escalaPlantao';
 
 /**
  * PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — telas cujo conteúdo é o
@@ -5754,6 +5755,12 @@ export function DashboardApp() {
     }
     if (competenciaPlantaoExibidaDashboard === null) {
       setTela('importar');
+      return;
+    }
+    // ESCALA-PLANTAO-1 — escala no ar abre a "Escala do Plantão" (conferir); o editor
+    // só por "Ajustar". Rascunho em andamento segue direto para o editor, como antes.
+    if (competenciaPlantaoExibidaDashboard.status === 'PUBLICADA') {
+      setTela('escalaPlantao');
       return;
     }
     void abrirRascunhoNoEditorAcao(grupoPlantaoDashboard, competenciaPlantaoExibidaDashboard);
@@ -11325,6 +11332,38 @@ export function DashboardApp() {
           minhasEquipes={equipesMinhaEquipe.map((equipe) => equipe.id)}
           nomeEquipe={(equipeId) => [...equipesAdmin, ...equipesMinhaEquipe].find((equipe) => equipe.id === equipeId)?.nome ?? equipeId}
         />
+      )}
+      {/* ESCALA-PLANTAO-1 — a escala do Plantão no ar (parte 1 da reformulação do editor). */}
+      {tela === 'escalaPlantao' && grupoPlantaoDashboard !== null && competenciaPlantaoExibidaDashboard !== null
+        && competenciaPlantaoExibidaDashboard.status === 'PUBLICADA' && (
+        <EscalaPlantaoPage
+          grupo={gruposPlantaoAdmin.find((grupo) => grupo.grupoId === grupoPlantaoDashboard.grupoId) ?? grupoPlantaoDashboard}
+          competencia={competenciaPlantaoExibidaDashboard}
+          equipes={equipesAdmin}
+          usuarios={usuarios}
+          dataHoje={dataIsoLocal(new Date())}
+          somenteConsulta={contextoPlantaoSomenteConsulta}
+          onVoltar={() => setTela('escalas')}
+          onAjustar={() => void abrirRascunhoNoEditorAcao(grupoPlantaoDashboard, competenciaPlantaoExibidaDashboard)}
+          onArquivo={(arquivo) => { setTela('importar'); void receberArquivo(arquivo); }}
+          onAlternarQuemVe={async (grupo, equipeId, ligar) => {
+            await atualizarEquipeConsultaPlantao(grupo.grupoId, equipeId, ligar ? 'ADICIONAR' : 'REMOVER');
+            setGruposPlantaoAdmin((atuais) => atuais.map((item) => (item.grupoId !== grupo.grupoId ? item : {
+              ...item,
+              equipesConsulta: ligar
+                ? [...new Set([...(item.equipesConsulta ?? []), equipeId])]
+                : (item.equipesConsulta ?? []).filter((id) => id !== equipeId),
+            })));
+          }}
+        />
+      )}
+      {tela === 'escalaPlantao' && (grupoPlantaoDashboard === null || competenciaPlantaoExibidaDashboard?.status !== 'PUBLICADA') && (
+        <article className="panel organization-empty-state">
+          <CalendarDays size={28} aria-hidden="true" />
+          <h2>Nenhuma escala no ar para este Plantão e mês</h2>
+          <p>Escolha o Plantão e o mês no topo, ou importe a planilha em Escalas.</p>
+          <button type="button" className="primary-button" onClick={() => setTela('escalas')}>Ir para Escalas</button>
+        </article>
       )}
       {/* CRIAR-PLANTAO-1 — criar o Plantão da equipe e abrir direto nele. */}
       {criandoPlantao && usuarioReal && (

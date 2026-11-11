@@ -1061,3 +1061,14 @@ test('PLANTAO-EDITOR-SIMPLES-1 — editor de Plantão mais limpo, com "Quem vê"
   // Regra: responsável pela escala do Plantão muda só quem vê, sem tirar a equipe do Plantão — última alternativa.
   assert.match(regras, /podeAdministrarEscalaPlantao\(grupoId\)\n\s*&& request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\.hasOnly\(\['equipesConsulta', 'atualizadoEm'\]\)\n\s*&& request\.resource\.data\.equipesConsulta is list\n\s*&& resource\.data\.equipeResponsavelId in request\.resource\.data\.equipesConsulta\n\s*\)\n\s*\);/);
 });
+
+test('ESCALA-PLANTAO-1 — escala no ar abre a "Escala do Plantão" (conferir); editor só por Ajustar; rascunho segue no editor', async () => {
+  const [dashboard, pagina] = await Promise.all([ler('apps/dashboard/src/DashboardApp.tsx'), ler('apps/dashboard/src/EscalaPlantaoPage.tsx')]);
+  const corpo = /function abrirEditorPlantaoDashboard\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(corpo);
+  assert.match(corpo[1], /if \(competenciaPlantaoExibidaDashboard\.status === 'PUBLICADA'\) \{\s*setTela\('escalaPlantao'\);\s*return;\s*\}\s*void abrirRascunhoNoEditorAcao/);
+  assert.match(dashboard, /onAjustar=\{\(\) => void abrirRascunhoNoEditorAcao\(grupoPlantaoDashboard, competenciaPlantaoExibidaDashboard\)\}/);
+  // A tela só confere: calendário em modo consulta, mesma reidratação do editor.
+  assert.match(pagina, /modo="consulta"/);
+  assert.match(pagina, /reidratarRascunhoPlantao\(/);
+});
