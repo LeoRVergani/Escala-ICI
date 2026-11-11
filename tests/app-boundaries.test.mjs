@@ -967,3 +967,18 @@ test('CRIAR-EQUIPE-1 — liderança cria a própria equipe e vira a responsável
   assert.match(regras, /request\.resource\.data\.get\('criadoPorLogin', ''\) == loginDoAuth\(\)\n\s*&& request\.resource\.data\.get\('id', ''\) == equipeId/);
   assert.match(regras, /getAfter\(\/databases\/\$\(database\)\/documents\/equipes\/\$\(request\.resource\.data\.alvoId\)\)\.data\.get\('criadoPorLogin', ''\) == loginDoAuth\(\)\n\s*&& request\.resource\.data\.responsaveisLogin == \[loginDoAuth\(\)\]/);
 });
+
+test('CRIAR-PLANTAO-1 — chefe cria o Plantão da equipe (com responsável no mesmo lote); menu único para lideranças', async () => {
+  const [dashboard, modulo, regras] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'),
+    ler('lib/firebase/criarPlantaoLideranca.ts'),
+    ler('firestore.rules'),
+  ]);
+  assert.match(dashboard, /onClick=\{\(\) => setCriandoPlantao\(true\)\}>/);
+  assert.match(dashboard, /setEquipeSelecionadaMinhaEquipe\(`PLANTAO:\$\{grupo\.grupoId\}`\)/);
+  // Toda liderança tem o mesmo menu; Administração só para o administrador.
+  assert.match(dashboard, /const navegacaoVisivel = souAdmin \? NAVEGACAO : NAVEGACAO_COORDENACAO;/);
+  assert.match(modulo, /const lote = writeBatch\(db\);[\s\S]*lote\.set\(doc\(db, 'gruposPlantao', grupoId\)[\s\S]*lote\.set\(doc\(db, 'escoposOperacionais'[\s\S]*await lote\.commit\(\);/);
+  assert.match(regras, /\|\| podeAdministrarJornada\(request\.resource\.data\.equipeResponsavelId\)/);
+  assert.match(regras, /getAfter\(\/databases\/\$\(database\)\/documents\/gruposPlantao\/\$\(request\.resource\.data\.alvoId\)\)\.data\.get\('criadoPorLogin', ''\) == loginDoAuth\(\)/);
+});

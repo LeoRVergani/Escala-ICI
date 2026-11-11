@@ -3120,6 +3120,56 @@ describe('CRIAR-EQUIPE-1 — liderança cria a própria equipe e vira a respons�
   });
 });
 
+describe('CRIAR-PLANTAO-1 — o chefe da equipe cria o Plantão dela e vira o responsável', () => {
+  const agora = '2026-11-10T12:00:00.000Z';
+  // Ravi é chefe da NOC SÓ pela Matriz (sem perfil de gestor de equipe) — como uma liderança que criou a equipe.
+  async function prepararChefe() {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(doc(db, 'usuarios', usuarios.externo.login), { ...usuarios.externo, perfil: 'GESTOR_EQUIPE', ativo: true }, { merge: true });
+      await setDoc(doc(db, 'escoposOperacionais', 'JORNADA_EQ_CODB_NOC'), {
+        tipo: 'JORNADA', alvoId: 'EQ_CODB_NOC', alvoNome: 'NOC', responsaveisLogin: [usuarios.externo.login], responsaveisEquipe: [],
+        equipesConsulta: [], ativo: true, criadoEm: agora, atualizadoEm: agora, criadoPorLogin: usuarios.admin.login,
+        atualizadoPorLogin: usuarios.admin.login, schemaVersion: 1,
+      });
+    });
+  }
+  function grupo(grupoId: string, equipe: string, quem: string) {
+    return {
+      grupoId, nome: 'Plantão Novo', equipeResponsavelId: equipe, equipesConsulta: [equipe], timezone: 'America/Sao_Paulo',
+      ativo: true, schemaVersion: 1, criadoPorLogin: quem, criadoEm: agora, atualizadoEm: agora, funcoesEsperadas: ['DBA', 'LINUX'],
+    };
+  }
+  function responsavel(grupoId: string, responsaveis: string[], quem: string) {
+    return {
+      tipo: 'PLANTAO', alvoId: grupoId, alvoNome: 'Plantão Novo', responsaveisLogin: responsaveis, responsaveisEquipe: [],
+      equipesConsulta: [], ativo: true, criadoEm: agora, atualizadoEm: agora, criadoPorLogin: quem, atualizadoPorLogin: quem, schemaVersion: 1,
+    };
+  }
+  function criarEmLote(equipe: string, responsaveis: string[]) {
+    const db = autenticarComo(usuarios.externo);
+    const lote = writeBatch(db);
+    lote.set(doc(db, 'gruposPlantao', 'PLANTAO_NOVO_X1'), grupo('PLANTAO_NOVO_X1', equipe, usuarios.externo.login));
+    lote.set(doc(db, 'escoposOperacionais', 'PLANTAO_PLANTAO_NOVO_X1'), responsavel('PLANTAO_NOVO_X1', responsaveis, usuarios.externo.login));
+    return lote.commit();
+  }
+
+  it('o chefe da NOC cria o Plantão da NOC e vira o responsável', async () => {
+    await prepararChefe();
+    await assertSucceeds(criarEmLote('EQ_CODB_NOC', [usuarios.externo.login]));
+  });
+
+  it('não cria Plantão para equipe que não chefia', async () => {
+    await prepararChefe();
+    await assertFails(criarEmLote('EQ_COSI_SOC', [usuarios.externo.login]));
+  });
+
+  it('não põe outra pessoa como responsável do Plantão que criou', async () => {
+    await prepararChefe();
+    await assertFails(criarEmLote('EQ_CODB_NOC', [usuarios.colega.login]));
+  });
+});
+
 describe('LIDERANCAS-1 — uma liderança torna outra pessoa liderança (só promove, com registro)', () => {
   const promover = (quem: { login: string; email: string }, alvo: string, ajustes: Record<string, unknown> = {}) => updateDoc(
     doc(autenticarComo(quem), 'usuarios', alvo),

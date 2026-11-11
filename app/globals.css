@@ -9644,3 +9644,12 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 .criar-equipe-campo input:focus, .criar-equipe-campo select:focus { border-color: var(--primary-bright); outline: none; box-shadow: var(--focus-ring); }
 .criar-equipe-acoes { display: flex; justify-content: flex-end; gap: 10px; }
 .criar-equipe-acoes .primary-button { display: inline-flex; align-items: center; gap: 6px; }
+
+/* CRIAR-PLANTAO-1 — "Posto único | Vários postos" e os postos do Plantão. */
+.criar-plantao-segmento { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
+.criar-plantao-segmento > button { min-height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 13.5px; font-weight: 700; cursor: pointer; }
+.criar-plantao-segmento > button.active { background: var(--surface); color: var(--primary-bright); box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12); }
+.criar-plantao-postos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.criar-plantao-postos > button { min-height: 34px; padding: 0 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.criar-plantao-postos > button.active { border-color: var(--primary-bright); background: color-mix(in srgb, var(--primary-bright) 14%, var(--surface)); color: var(--primary-bright); }
+.criar-plantao-dica { color: var(--muted); font-size: 12px; }
