@@ -9789,3 +9789,26 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 
 /* MANTER-CONECTADO-APP-1 — aviso quando "Manter conectado" está desmarcado no App. */
 .login-aviso-sair { margin: -4px 0 0; color: var(--warning); font-size: 12.5px; font-weight: 700; }
+
+/* ESCALA-PLANTAO-3 — confirmação da publicação: o que muda, quem vê, aviso. */
+.publicar-plantao-modal { width: min(560px, calc(100vw - 32px)); }
+.publicar-plantao-secao { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-muted); }
+.publicar-plantao-secao h3 { margin: 0; color: var(--text); font-size: 14px; font-weight: 800; }
+.publicar-plantao-nota { margin: 0; color: var(--muted); font-size: 13.5px; }
+.publicar-plantao-mudancas { display: grid; gap: 6px; max-height: 260px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.publicar-plantao-mudancas > li {
+  display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: 10px; background: var(--surface); font-size: 13px;
+}
+.publicar-plantao-mudancas > li > strong { color: var(--text); }
+.publicar-plantao-mudancas > li > small { color: var(--muted); }
+.publicar-plantao-mudancas > li > span:last-child { color: var(--text); text-align: right; }
+.publicar-plantao-icone { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: color-mix(in srgb, var(--primary-bright) 16%, var(--surface)); color: var(--primary-bright); }
+.publicar-plantao-mudancas > li[data-tipo="NOVO"] .publicar-plantao-icone { background: color-mix(in srgb, #10b981 18%, var(--surface)); color: #10b981; }
+.publicar-plantao-mudancas > li[data-tipo="RETIRADO"] .publicar-plantao-icone { background: color-mix(in srgb, var(--danger) 16%, var(--surface)); color: var(--danger); }
+.publicar-plantao-mais { justify-content: center; color: var(--muted); font-size: 12.5px; }
+.publicar-plantao-aviso { display: flex; align-items: center; gap: 7px; margin: 0; color: var(--muted); font-size: 13px; }
+@media (max-width: 720px) {
+  .publicar-plantao-mudancas > li { grid-template-columns: auto 1fr; }
+  .publicar-plantao-mudancas > li > small, .publicar-plantao-mudancas > li > span:last-child { grid-column: 2; text-align: left; }
+}
