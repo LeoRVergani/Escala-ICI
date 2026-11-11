@@ -63,13 +63,58 @@ async function resolverUsuarioAutenticado(email: string | null): Promise<Usuario
   return usuario;
 }
 
+/**
+ * SESSAO-CELULAR-1 — falha que passa sozinha (rede oscilando, servidor
+ * ocupado, ou o "sem permissão" momentâneo da abertura, antes de o token da
+ * conta chegar ao Firestore). Antes, QUALQUER falha ao buscar o cadastro
+ * desconectava a conta (signOut) — no celular, uma oscilação de rede na
+ * abertura apagava a sessão e obrigava a entrar de novo toda vez.
+ */
+export function falhaPassageiraAoCarregarUsuario(falha: unknown): boolean {
+  const codigo = String((falha as { code?: unknown } | null)?.code ?? '');
+  const mensagem = falha instanceof Error ? falha.message : '';
+  if (mensagem === MENSAGEM_SEM_PERFIL_FIRESTORE || mensagem === MENSAGEM_PERFIL_INATIVO) return false;
+  return /(unavailable|deadline-exceeded|permission-denied|resource-exhausted|aborted|internal|network-request-failed)$/u.test(codigo)
+    || /offline|network|timeout|failed to get document|insufficient permissions/iu.test(mensagem);
+}
+
+/** Falha de rede/servidor (não de permissão): a sessão fica guardada para a próxima abertura. */
+export function falhaDeRedeAoCarregarUsuario(falha: unknown): boolean {
+  const codigo = String((falha as { code?: unknown } | null)?.code ?? '');
+  const mensagem = falha instanceof Error ? falha.message : '';
+  if (/permission-denied$/u.test(codigo) || /insufficient permissions/iu.test(mensagem)) return false;
+  return falhaPassageiraAoCarregarUsuario(falha);
+}
+
 async function carregarUsuario(email: string | null): Promise<Usuario> {
   const { auth } = exigirFirebase();
   try {
     return await resolverUsuarioAutenticado(email);
-  } catch (falha) {
-    await signOut(auth);
-    throw falha;
+  } catch (primeira) {
+    if (!falhaPassageiraAoCarregarUsuario(primeira)) {
+      await signOut(auth);
+      throw primeira;
+    }
+    // Renova a identificação da conta, espera um instante e tenta de novo uma vez.
+    try {
+      await auth.currentUser?.getIdToken(true).catch(() => undefined);
+      await new Promise((resolver) => { setTimeout(resolver, 1_200); });
+      return await resolverUsuarioAutenticado(email);
+    } catch (segunda) {
+      // Rede/servidor: mantém a sessão guardada (a próxima abertura entra direto).
+      if (falhaDeRedeAoCarregarUsuario(segunda)) throw segunda;
+      await signOut(auth);
+      throw segunda;
+    }
+  }
+}
+
+/** SESSAO-CELULAR-1 — já existe conta restaurada neste aparelho (só o cadastro está demorando). */
+export function contaRestauradaNoAparelho(): boolean {
+  try {
+    return exigirFirebase().auth.currentUser !== null;
+  } catch {
+    return false;
   }
 }
 
