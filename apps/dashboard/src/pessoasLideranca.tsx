@@ -18,17 +18,19 @@ export function mensagemErro(falha: unknown, padrao: string): string {
 }
 
 /** Todas as pessoas ativas (lista recarregável). */
-export function usePessoas() {
-  const [pessoas, setPessoas] = useState<Pessoa[] | null>(null);
+export function usePessoas(pessoasDemo?: readonly Usuario[]) {
+  // DASHBOARD-LOTE3 — no modo demonstração usa as pessoas de exemplo (sem banco, sem erro vermelho).
+  const [pessoas, setPessoas] = useState<Pessoa[] | null>(pessoasDemo ? [...pessoasDemo] as Pessoa[] : null);
   const [erro, setErro] = useState('');
   const [versao, setVersao] = useState(0);
   useEffect(() => {
+    if (pessoasDemo) return undefined;
     let cancelado = false;
     void listarTodosUsuarios()
       .then((lista) => { if (!cancelado) setPessoas((lista as Pessoa[]).filter((pessoa) => pessoa.ativo !== false)); })
       .catch(() => { if (!cancelado) setErro('Não foi possível carregar as pessoas agora.'); });
     return () => { cancelado = true; };
-  }, [versao]);
+  }, [versao, pessoasDemo]);
   return { pessoas, erro, recarregar: () => setVersao((valor) => valor + 1) };
 }
 

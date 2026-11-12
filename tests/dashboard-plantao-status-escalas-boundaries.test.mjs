@@ -96,8 +96,8 @@ test('9. o card "Plantão COSI" da Visão geral, quando o contexto já está ati
 
 test('10. a aba Escalas gateia o histórico Jornada-only por contextoEhJornada, e mostra um bloco de revisão real (não inventado) para Plantão', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  assert.match(dashboard, /\{contextoEhJornada\(contextoEscalaAtivo\) && \(\s*<article className="panel publication-history-panel">\s*<div className="panel-title">\s*<div>\s*<p className="eyebrow">Rastreabilidade local<\/p>\s*<h2>Histórico de publicações<\/h2>/u);
-  assert.match(dashboard, /\{contextoEhPlantao\(contextoEscalaAtivo\) && \(\s*<article className="panel publication-history-panel">\s*<div className="panel-title">\s*<div>\s*<p className="eyebrow">Rastreabilidade local<\/p>\s*<h2>Revisão publicada<\/h2>/u);
+  assert.match(dashboard, /\{contextoEhJornada\(contextoEscalaAtivo\) && \(\s*<article className="panel publication-history-panel">\s*<div className="panel-title">\s*<div>\s*<p className="eyebrow">Versões<\/p>\s*<h2>Versões publicadas<\/h2>/u);
+  assert.match(dashboard, /\{contextoEhPlantao\(contextoEscalaAtivo\) && \(\s*<article className="panel publication-history-panel">\s*<div className="panel-title">\s*<div>\s*<p className="eyebrow">Versões<\/p>\s*<h2>Versão no ar<\/h2>/u);
   // O bloco de Plantão usa dados reais já persistidos (revisao/atualizadoEm/criadoPorLogin) — nunca uma lista de revisões inventada.
   assert.match(dashboard, /resumoPlantaoDashboard\.competenciaPublicada\.revisao/u);
   assert.match(dashboard, /resumoPlantaoDashboard\.competenciaPublicada\.criadoPorLogin/u);

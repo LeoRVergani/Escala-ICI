@@ -11,27 +11,29 @@ import { atualizarEquipeConsultaPlantao } from '@/lib/firebase/plantaoWriteRepos
  * calendário). Grava só `equipesConsulta` do grupo, UMA equipe por vez — a
  * regra "autovínculo de consulta" garante que ele só mexe na própria equipe.
  */
-export function PlantoesDaEquipe({ equipe }: { equipe: { id: string; nome: string } }) {
-  const [grupos, setGrupos] = useState<GrupoPlantao[] | null>(null);
+export function PlantoesDaEquipe({ equipe, gruposDemo }: { equipe: { id: string; nome: string }; gruposDemo?: readonly GrupoPlantao[] }) {
+  // DASHBOARD-LOTE3 — no modo demonstração usa os Plantões de exemplo e liga/desliga só na tela.
+  const [grupos, setGrupos] = useState<GrupoPlantao[] | null>(gruposDemo ? gruposDemo.filter((grupo) => grupo.ativo) : null);
   const [erro, setErro] = useState('');
   const [salvandoId, setSalvandoId] = useState<string | null>(null);
   const [confirmacao, setConfirmacao] = useState('');
 
   useEffect(() => {
     // A tela recria o componente por equipe (key), então não é preciso zerar o estado aqui.
+    if (gruposDemo) return undefined;
     let cancelado = false;
     void listarTodosGruposPlantaoAtivos()
       .then((lista) => { if (!cancelado) setGrupos(lista); })
       .catch(() => { if (!cancelado) setErro('Não foi possível carregar os Plantões agora.'); });
     return () => { cancelado = true; };
-  }, [equipe.id]);
+  }, [equipe.id, gruposDemo]);
 
   async function alternar(grupo: GrupoPlantao, ligar: boolean) {
     setErro('');
     setConfirmacao('');
     setSalvandoId(grupo.grupoId);
     try {
-      await atualizarEquipeConsultaPlantao(grupo.grupoId, equipe.id, ligar ? 'ADICIONAR' : 'REMOVER');
+      if (!gruposDemo) await atualizarEquipeConsultaPlantao(grupo.grupoId, equipe.id, ligar ? 'ADICIONAR' : 'REMOVER');
       setGrupos((atuais) => (atuais ?? []).map((item) => (item.grupoId !== grupo.grupoId ? item : {
         ...item,
         equipesConsulta: ligar

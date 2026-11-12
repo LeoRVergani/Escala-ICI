@@ -6555,7 +6555,7 @@ export function DashboardApp() {
 
   async function cadastrarFaltantes() {
     if (escritaBloqueada) {
-      setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
+      setMensagem('Este ambiente está só para consulta: não é possível salvar aqui.');
       return;
     }
     if (usuarioEfetivo === null) {
@@ -6619,7 +6619,7 @@ export function DashboardApp() {
       return;
     }
     if (escritaBloqueada) {
-      setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
+      setMensagem('Este ambiente está só para consulta: não é possível salvar aqui.');
       return;
     }
     if (conciliacaoBloqueiaPublicacao) {
@@ -6673,7 +6673,7 @@ export function DashboardApp() {
       return;
     }
     if (escritaBloqueada) {
-      setErroPublicacao('A publicação está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
+      setErroPublicacao('Este ambiente está só para consulta: não é possível publicar aqui.');
       return;
     }
     if (conciliacaoBloqueiaPublicacao) {
@@ -6845,7 +6845,7 @@ export function DashboardApp() {
       return;
     }
     if (escritaBloqueada) {
-      setMensagem('O rollback está bloqueado fora do laboratório local.');
+      setMensagem('Voltar para uma versão anterior não está disponível neste ambiente.');
       setRevisaoParaRestaurar(null);
       return;
     }
@@ -7333,7 +7333,7 @@ export function DashboardApp() {
       return;
     }
     if (escritaBloqueada) {
-      const aviso = 'A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.';
+      const aviso = 'Este ambiente está só para consulta: não é possível salvar aqui.';
       if (participanteVinculoCadastro !== null || linhaConciliacaoVinculoCadastro !== null) {
         setErrosFormularioUsuario([aviso]);
       } else {
@@ -7719,7 +7719,7 @@ export function DashboardApp() {
 
   async function alternarAtivoUsuario(item: Usuario) {
     if (escritaBloqueada) {
-      setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
+      setMensagem('Este ambiente está só para consulta: não é possível salvar aqui.');
       return;
     }
     const atualizado: Usuario = { ...item, ativo: !item.ativo, atualizadoEm: new Date().toISOString() };
@@ -7746,7 +7746,7 @@ export function DashboardApp() {
    */
   async function salvarAtribuicaoCoordenador(usuario: Usuario) {
     if (escritaBloqueada) {
-      setErroAtribuicaoCoordenador('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
+      setErroAtribuicaoCoordenador('Este ambiente está só para consulta: não é possível salvar aqui.');
       return;
     }
     setProcessandoAtribuicaoCoordenador(true);
@@ -7782,7 +7782,7 @@ export function DashboardApp() {
       return;
     }
     if (escritaBloqueada) {
-      setMensagem('A escrita está bloqueada. Use o laboratório local ou um ambiente administrativo aprovado.');
+      setMensagem('Este ambiente está só para consulta: não é possível salvar aqui.');
       return;
     }
     if (equipeIdDaGradeAtiva === null) {
@@ -10130,9 +10130,9 @@ export function DashboardApp() {
           )}
           <header className="page-heading overview-page-heading">
             <div>
-              <p className="eyebrow">Operação integrada</p>
+              <p className="eyebrow">Visão geral</p>
               <h1>{souAdmin ? 'Visão geral' : 'Início'}</h1>
-              <p className="overview-subtitle">Acompanhe as duas operações em um só lugar.</p>
+              <p className="overview-subtitle">Suas equipes e escalas num só lugar.</p>
             </div>
               {estadoCarregamentoOperacoes.fase === 'sucesso' && <div className="overview-header-actions">
                 <button className="secondary-button" type="button" onClick={abrirNovaEscala}>
@@ -10245,7 +10245,7 @@ export function DashboardApp() {
                 <span><Users size={16} /><small>Pessoas</small><strong>{colaboradoresJornadaDashboard}</strong><em>{colaboradoresJornadaDashboard === 0 ? 'Nenhum colaborador ativo encontrado para esta equipe.' : 'colaboradores'}</em></span>
                 <span><AlertTriangle size={16} /><small>Alertas</small><strong>{alertasJornadaDashboard}</strong><em>{alertasJornadaDashboard > 0 ? 'necessitam atenção' : 'nenhum pendente'}</em></span>
               </span>
-              <span className="overview-operation-action"><Pencil size={15} /> Abrir operação {nomeJornadaDashboard} <ArrowUpRight size={16} /></span>
+              <span className="overview-operation-action"><Pencil size={15} /> Abrir {nomeJornadaDashboard} <ArrowUpRight size={16} /></span>
             </button>
 
             {/*
@@ -10273,7 +10273,7 @@ export function DashboardApp() {
                 <span><Users size={16} /><small>Pessoas</small><strong>{participantesPlantaoDashboard}</strong><em>participantes</em></span>
                 <span><AlertTriangle size={16} /><small>Alertas</small><strong>{plantaoAlertasDashboard ?? '—'}</strong><em>{plantaoAlertasDashboard === null ? 'abra a operação para conferir' : plantaoPossuiEscalaDashboard ? 'na operação' : 'nenhuma escala criada'}</em></span>
               </span>
-              <span className="overview-operation-action"><Radio size={15} /> Abrir operação {nomePlantaoDashboard} <ArrowUpRight size={16} /></span>
+              <span className="overview-operation-action"><Radio size={15} /> Abrir {nomePlantaoDashboard} <ArrowUpRight size={16} /></span>
             </button>
             )}
           </div>
@@ -10927,7 +10927,7 @@ export function DashboardApp() {
                 <span className={`status-badge ${estadoEscalaAtiva === 'publicada' ? 'success' : 'warning'}`}>
                   {rotuloEstadoEscalaOperacional(estadoEscalaAtiva)}
                 </span>
-                {revisaoAtual > 0 && <span className="revision-label">Revisão ativa {revisaoAtual}</span>}
+                {revisaoAtual > 0 && <span className="revision-label">Versão {revisaoAtual} no ar</span>}
               </div>
               <div className="scale-actions">
                 <button
@@ -10937,16 +10937,6 @@ export function DashboardApp() {
                 >
                   {contextoPlantaoSomenteConsulta ? 'Abrir consulta' : 'Abrir editor'}
                 </button>
-                {contextoEhJornada(contextoEscalaAtivo) && documentos.length > 0 && publicados.length !== documentos.length && (
-                  <button
-                    className="secondary-button danger-button"
-                    type="button"
-                    disabled={processando || escritaBloqueada}
-                    onClick={() => setDescarteRascunhoPendente(true)}
-                  >
-                    <Trash2 size={16} /> Descartar rascunho
-                  </button>
-                )}
                 {contextoEhJornada(contextoEscalaAtivo) && <button
                   className="primary-button"
                   type="button"
@@ -10958,6 +10948,20 @@ export function DashboardApp() {
                 >
                   <Send size={16} /> Publicar
                 </button>}
+                {/* DASHBOARD-LOTE3 — "Descartar rascunho" no "⋯", longe do "Publicar" (antes ficava colado, em vermelho). */}
+                {contextoEhJornada(contextoEscalaAtivo) && documentos.length > 0 && publicados.length !== documentos.length && (
+                  <MenuAcoes
+                    rotulo="Mais ações da escala"
+                    conteudoBotao={<MoreHorizontal size={18} />}
+                    itens={[{
+                      rotulo: 'Descartar rascunho',
+                      icone: <Trash2 size={15} aria-hidden="true" />,
+                      perigo: true,
+                      desabilitado: processando || escritaBloqueada,
+                      executar: () => setDescarteRascunhoPendente(true),
+                    }]}
+                  />
+                )}
               </div>
             </article>
           )}
@@ -10980,16 +10984,16 @@ export function DashboardApp() {
           <article className="panel publication-history-panel">
             <div className="panel-title">
               <div>
-                <p className="eyebrow">Rastreabilidade local</p>
-                <h2>Histórico de publicações</h2>
-                <p>Cada publicação é imutável; um rollback sempre cria uma nova revisão.</p>
+                <p className="eyebrow">Versões</p>
+                <h2>Versões publicadas</h2>
+                <p>Cada publicação fica guardada. Dá para voltar a uma versão anterior — a volta vira uma versão nova.</p>
               </div>
               <ShieldCheck />
             </div>
             {historico.length === 0 ? (
               <div className="history-empty">
                 <RotateCcw size={22} />
-                <span>{modoDemo ? 'Entre no laboratório local para testar o histórico e o rollback.' : 'Nenhuma revisão encontrada.'}</span>
+                <span>{modoDemo ? 'No modo demonstração as versões não ficam guardadas.' : 'Nenhuma versão publicada ainda.'}</span>
               </div>
             ) : (
               <div className="publication-history-list">
@@ -11002,12 +11006,12 @@ export function DashboardApp() {
                         <span className={`revision-dot ${publicacao.tipo.toLowerCase()}`} />
                         <div>
                           <strong>
-                            Revisão {publicacao.revisao}
-                            {publicacao.revisao === revisaoAtual ? ' — ativa' : ''}
+                            Versão {publicacao.revisao}
+                            {publicacao.revisao === revisaoAtual ? ' — no ar' : ''}
                           </strong>
                           <span>{publicacao.motivo ?? (
                             publicacao.tipo === 'ROLLBACK'
-                              ? `Rollback da revisão ${publicacao.revisaoOrigem}`
+                              ? `Volta para a versão ${publicacao.revisaoOrigem}`
                               : publicacao.tipo === 'SEED' ? 'Carga inicial do laboratório' : 'Publicação da escala'
                           )}</span>
                           <small>
@@ -11093,9 +11097,9 @@ export function DashboardApp() {
           <article className="panel publication-history-panel">
             <div className="panel-title">
               <div>
-                <p className="eyebrow">Rastreabilidade local</p>
-                <h2>Revisão publicada</h2>
-                <p>Plantão ainda não tem histórico de múltiplas revisões nesta fase — mostra a publicação atual.</p>
+                <p className="eyebrow">Versões</p>
+                <h2>Versão no ar</h2>
+                <p>O Plantão guarda a versão atual da escala.</p>
               </div>
               <ShieldCheck />
             </div>
@@ -11356,6 +11360,7 @@ export function DashboardApp() {
       {/* LIDERANCAS-1 — quem cuida de equipe; uma liderança torna outra pessoa liderança. */}
       {tela === 'liderancas' && usuarioReal && (
         <LiderancasPage
+          pessoasDemo={modoDemo ? [usuarioReal, ...usuarios.filter((pessoa) => pessoa.login !== usuarioReal.login)] : undefined}
           autor={usuarioReal}
           souAdmin={souAdmin}
           nomeEquipe={(equipeId) => [...equipesAdmin, ...equipesMinhaEquipe].find((equipe) => equipe.id === equipeId)?.nome ?? equipeId}
@@ -11364,6 +11369,7 @@ export function DashboardApp() {
       {/* LIDERANCAS-2 — colaboradores, com quem é das minhas equipes em destaque. */}
       {tela === 'colaboradores' && usuarioReal && (
         <ColaboradoresPage
+          pessoasDemo={modoDemo ? [usuarioReal, ...usuarios.filter((pessoa) => pessoa.login !== usuarioReal.login)] : undefined}
           autor={usuarioReal}
           minhasEquipes={equipesMinhaEquipe.map((equipe) => equipe.id)}
           nomeEquipe={(equipeId) => [...equipesAdmin, ...equipesMinhaEquipe].find((equipe) => equipe.id === equipeId)?.nome ?? equipeId}
@@ -11525,7 +11531,7 @@ export function DashboardApp() {
 
               {/* MINHA-EQUIPE-PLANTOES-1 — o chefe escolhe os Plantões que a equipe vê no App (no topo). */}
               {equipeAtivaMinhaEquipe !== null && (
-                <PlantoesDaEquipe key={equipeAtivaMinhaEquipe.id} equipe={{ id: equipeAtivaMinhaEquipe.id, nome: equipeAtivaMinhaEquipe.nome }} />
+                <PlantoesDaEquipe key={equipeAtivaMinhaEquipe.id} equipe={{ id: equipeAtivaMinhaEquipe.id, nome: equipeAtivaMinhaEquipe.nome }} gruposDemo={modoDemo ? gruposPlantaoAdmin : undefined} />
               )}
               {grupoAtivoMinhaEquipe !== null ? (
                 <article className="panel grid-panel">
@@ -13349,15 +13355,15 @@ export function DashboardApp() {
             <div className="panel-title">
               <div>
                 <p className="eyebrow">Rollback seguro</p>
-                <h2 id="rollback-title">Restaurar revisão {revisaoParaRestaurar.revisao}?</h2>
-                <p>A revisão atual não será apagada. Uma nova revisão de rollback será registrada.</p>
+                <h2 id="rollback-title">Voltar para a versão {revisaoParaRestaurar.revisao}?</h2>
+                <p>A versão atual continua guardada. A volta é registrada como uma versão nova, e a equipe passa a ver a escala da versão {revisaoParaRestaurar.revisao}.</p>
               </div>
               <button className="icon-button" type="button" onClick={() => setRevisaoParaRestaurar(null)} aria-label="Fechar"><X size={18} /></button>
             </div>
             <div className="rollback-actions">
               <button className="secondary-button" type="button" onClick={() => setRevisaoParaRestaurar(null)}>Cancelar</button>
               <button className="primary-button" type="button" disabled={processando} onClick={() => void restaurar()}>
-                <RotateCcw size={16} /> Criar rollback
+                <RotateCcw size={16} /> Voltar para esta versão
               </button>
             </div>
           </section>
