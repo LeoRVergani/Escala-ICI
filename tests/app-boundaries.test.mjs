@@ -1129,3 +1129,9 @@ test('ESCALA-PLANTAO-4 — calendário com "Ver" / "Ajustar plantões" e dica; "
   assert.match(pagina, /aria-label="Detalhes da versão"/);
   assert.match(pagina, /Versão \{competencia\.revisao\}/);
 });
+
+test('COORD-PREVISAO-DIREITA-1 — no celular a previsão do turno fica à direita das pessoas, na mesma linha', async () => {
+  const css = await ler('app/globals.css');
+  assert.match(css, /grid-template-areas:\s*"chip nome nome"\s*"pessoas pessoas tempo";/);
+  assert.match(css, /\.coord-turnos \.coord-turno > \.tempo-dia \{ grid-area: tempo;/);
+});

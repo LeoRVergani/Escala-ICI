@@ -9823,3 +9823,22 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 }
 .escala-plantao-detalhes > svg { flex: 0 0 auto; color: var(--primary-bright); }
 .escala-plantao-detalhes strong { color: var(--text); }
+
+/* =====================================================================
+ * COORD-PREVISAO-DIREITA-1 — celular: pessoas à esquerda e a previsão do
+ * tempo à DIREITA, na mesma linha (antes a previsão descia para baixo dos
+ * nomes). Em cima, o chip e o nome/horário do turno.
+ * ===================================================================== */
+@media (max-width: 720px) {
+  .coord-turnos .coord-turno {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "chip nome nome"
+      "pessoas pessoas tempo";
+    row-gap: 8px;
+  }
+  .coord-turnos .coord-turno > .shift-chip { grid-area: chip; }
+  .coord-turnos .coord-turno > .coord-turno-nome { grid-area: nome; }
+  .coord-turnos .coord-turno > .coord-turno-pessoas { grid-area: pessoas; grid-column: auto; }
+  .coord-turnos .coord-turno > .tempo-dia { grid-area: tempo; align-self: center; justify-self: end; }
+}

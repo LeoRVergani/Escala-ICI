@@ -11,6 +11,10 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.7.4 — previsão do tempo ao lado das pessoas
+- Hoje da coordenação, no celular: a previsão de cada turno fica à direita,
+  na mesma linha das pessoas (antes descia para baixo dos nomes).
+
 ## 3.7.3 — "Manter conectado" sempre marcado no App
 - A caixa vem sempre marcada no login do App; desmarcar vale só para aquele
   login (antes a escolha ficava lembrada e o celular passava a pedir login a
