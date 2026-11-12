@@ -194,21 +194,11 @@ test('29. Visão geral carrega Jornada pelo alvo da matriz operacional, não pel
  * `lib/operacoesDashboard.test.ts`).
  */
 test('30. Visão geral distingue Jornada sem escala, rascunho, publicada e publicada-com-rascunho-pendente, via a função única de status', async () => {
-  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  const estado = /function estadoJornadaDashboard\(resumo: ResumoJornadaDashboard \| null\): EstadoEscalaOperacionalDashboard \{([\s\S]*?)\n\}/u.exec(dashboard);
-  assert.ok(estado, 'estadoJornadaDashboard precisa existir');
-  assert.match(estado[1], /statusJornadaResumo\(resumo\)/u, 'precisa converter o resumo para {temRascunho, temPublicada} — nunca uma fórmula inline própria');
-  assert.match(estado[1], /derivarStatusOperacaoDashboard\(temRascunho, temPublicada\)/u, 'precisa delegar para a função única de derivação de status');
-  /**
-   * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — `resumoPublicacaoJornada`
-   * virou `resumoPublicacaoOperacao(estado)`, compartilhada com Plantão
-   * ("SOC e Plantão devem seguir a mesma lógica de status agregada") —
-   * nunca mais uma função exclusiva de Jornada.
-   */
-  assert.match(dashboard, /const resumoPublicacaoDashboard = resumoPublicacaoOperacao\(estadoJornadaOperacionalDashboard\);/u, 'card de Publicação da Jornada precisa usar a função única de resumo, compartilhada com Plantão');
-  assert.match(dashboard, /const resumoPublicacaoPlantaoDashboard = resumoPublicacaoOperacao\(estadoPlantaoOperacionalDashboard\);/u, 'Plantão precisa usar a MESMA função de resumo que a Jornada');
-  assert.match(dashboard, /Rascunho não publicado/u, 'ausência de publicação não pode ser exibida como ausência total quando há rascunho');
-  assert.match(dashboard, /Publicada, com rascunho pendente/u, 'publicada com rascunho pendente precisa de mensagem própria, nunca mascarada como só "Rascunho"');
+  // DASHBOARD-LOTE1 — os 4 estados seguem distintos, agora no selo de estado (rótulo + cor da MESMA função).
+  const dashboard = await readFile(new URL('../apps/dashboard/src/DashboardApp.tsx', import.meta.url), 'utf8');
+  const operacoes = await readFile(new URL('../lib/operacoesDashboard.ts', import.meta.url), 'utf8');
+  assert.match(dashboard, /data-status=\{tomStatusOperacaoDashboard\(estadoJornadaOperacionalDashboard\)\}>\{rotuloCurtoStatusOperacaoDashboard\(estadoJornadaOperacionalDashboard\)\}/u);
+  for (const rotulo of ["'No ar'", "'No ar · mudanças não publicadas'", "'Rascunho'", "'Sem escala'"]) assert.ok(operacoes.includes(rotulo), rotulo);
 });
 
 test('31. Visão geral carrega Plantão pelo grupoId do alvo operacional, sem misturar equipeResponsavelId', async () => {
@@ -712,18 +702,8 @@ test('55. plantaoAlertasDashboard nunca colapsa para 0 fabricado fora de context
 });
 
 test('56. nenhum consumidor de plantaoAlertasDashboard trata null como zero — nem a cor de severidade, nem a soma de pendências, nem os textos', async () => {
-  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  // Severidade: null nunca pode virar 'stable'/'attention' via classeSaudeOperacional (que coagiria null a false em `alertas > 0`).
-  assert.match(
-    dashboard,
-    /const plantaoStatusDashboard: 'stable' \| 'attention' \| 'empty' \| 'desconhecido' = plantaoAlertasDashboard === null\s*\?\s*'desconhecido'\s*:\s*classeSaudeOperacional\(estadoPlantaoOperacionalDashboard, plantaoAlertasDashboard\);/u,
-  );
-  // Soma de pendências: null tratado como 0 só na SOMA aritmética (não pode ser exibido cru), mas a UI precisa saber que existe uma pendência desconhecida separadamente.
-  assert.match(dashboard, /const pendenciasDashboard = alertasJornadaDashboard \+ \(plantaoAlertasDashboard \?\? 0\) \+ trocasPendentesGestor\.length;/u);
-  assert.match(dashboard, /const existePendenciaDesconhecida = plantaoAlertasDashboard === null;/u);
-  // O painel Pendências nunca declara "tudo limpo" quando há uma pendência desconhecida.
-  assert.match(dashboard, /\{pendenciasDashboard === 0 && !existePendenciaDesconhecida && \(/u);
-  // Texto do card e do painel Pendências: nunca "0"/"Nenhum alerta pendente" quando o dado é null.
-  assert.match(dashboard, /plantaoAlertasDashboard === null \? 'Alertas não disponíveis fora do editor — abra a operação para conferir'/u);
-  assert.match(dashboard, /<strong>\{plantaoAlertasDashboard \?\? '—'\}<\/strong><em>\{plantaoAlertasDashboard === null \? 'abra a operação para conferir'/u);
+  // DASHBOARD-LOTE1 — no "Precisa da sua atenção", alerta de Plantão desconhecido (null) nunca vira zero nem item.
+  const dashboard = await readFile(new URL('../apps/dashboard/src/DashboardApp.tsx', import.meta.url), 'utf8');
+  assert.match(dashboard, /possuiOperacaoPlantaoDashboard && plantaoAlertasDashboard !== null && plantaoAlertasDashboard > 0/u);
+  assert.doesNotMatch(dashboard, /plantaoAlertasDashboard \?\? 0/u);
 });

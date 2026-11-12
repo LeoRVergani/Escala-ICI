@@ -1,5 +1,6 @@
 'use client';
 
+import { rotuloCurtoStatusOperacaoDashboard, tomStatusOperacaoDashboard } from '@/lib/operacoesDashboard';
 import { ConfirmarPublicacaoPlantao } from './ConfirmarPublicacaoPlantao';
 import { EscalaPlantaoPage } from './EscalaPlantaoPage';
 import { QuemVePlantaoPainel } from './QuemVePlantaoPainel';
@@ -603,7 +604,6 @@ function formatarHorasDescanso(horas: number): string {
   return minutos === 0 ? `${inteiras}h` : `${inteiras}h${String(minutos).padStart(2, '0')}`;
 }
 
-type EstadoPublicacaoVisual = 'completo' | 'parcial' | 'vazio';
 /**
  * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — alias local só para não repetir o
  * import em todo call site; o TIPO e a DERIVAÇÃO de status são únicos e
@@ -613,11 +613,6 @@ type EstadoPublicacaoVisual = 'completo' | 'parcial' | 'vazio';
  */
 type EstadoEscalaOperacionalDashboard = StatusOperacaoDashboard;
 
-interface ResumoPublicacao {
-  estado: EstadoPublicacaoVisual;
-  titulo: string;
-  descricao: string;
-}
 
 interface ResumoJornadaDashboard {
   equipeId: string;
@@ -667,6 +662,8 @@ function estadoPlantaoDashboard(resumo: ResumoPlantaoDashboard | null): EstadoEs
 }
 
 const classeSaudeOperacional = classeSaudeOperacaoDashboard;
+/** DASHBOARD-LOTE1 — telas em que o seletor "equipe · mês · status" do topo faz sentido. */
+const TELAS_COM_SELETOR_ESCALA: ReadonlySet<string> = new Set(['visao', 'equipe', 'escalas', 'importar', 'grade', 'trocas', 'escalaPlantao']);
 const rotuloEstadoEscalaOperacional = rotuloStatusOperacaoDashboard;
 
 /**
@@ -678,34 +675,6 @@ const rotuloEstadoEscalaOperacional = rotuloStatusOperacaoDashboard;
  * `derivarStatusOperacaoDashboard`, nunca recalcula nada por conta
  * própria.
  */
-function resumoPublicacaoOperacao(estado: EstadoEscalaOperacionalDashboard): ResumoPublicacao {
-  if (estado === 'sem-escala') {
-    return {
-      estado: 'vazio',
-      titulo: 'Nenhuma escala criada',
-      descricao: 'Não há rascunho nem publicação para esta competência.',
-    };
-  }
-  if (estado === 'rascunho') {
-    return {
-      estado: 'parcial',
-      titulo: 'Rascunho não publicado',
-      descricao: 'Existe rascunho para a competência, mas ele ainda não foi publicado.',
-    };
-  }
-  if (estado === 'publicada-com-rascunho-pendente') {
-    return {
-      estado: 'parcial',
-      titulo: 'Publicada, com rascunho pendente',
-      descricao: 'Já existe uma publicação disponível, mas um rascunho mais recente ainda não foi publicado.',
-    };
-  }
-  return {
-    estado: 'completo',
-    titulo: 'Publicada',
-    descricao: 'A escala publicada está disponível para os colaboradores.',
-  };
-}
 
 interface AlertaVisivel {
   id: string;
@@ -4657,9 +4626,7 @@ export function DashboardApp() {
    * nunca como número exibido — `pendenciasDashboard` (com o Plantão
    * conhecido tratado como 0 só para fins de soma) seria enganoso ali.
    */
-  const pendenciasDashboard = alertasJornadaDashboard + (plantaoAlertasDashboard ?? 0) + trocasPendentesGestor.length;
   /** `plantaoAlertasDashboard === null` só ocorre quando há um Grupo real com escala fora de contexto (ver comentário acima) — não precisa checar `possuiOperacaoPlantaoDashboard` de novo. */
-  const existePendenciaDesconhecida = plantaoAlertasDashboard === null;
   /**
    * PATCH-DASHBOARD-OPERACOES-SIMPLES-1 — causa raiz do card genérico
    * "Plantão": `grupoPlantaoDashboard` é `null` sempre que o usuário não
@@ -4679,7 +4646,6 @@ export function DashboardApp() {
   const periodoPlantaoDashboard = competenciaPlantaoExibidaDashboard === null
     ? 'Sem competência criada'
     : `${formatarData(competenciaPlantaoExibidaDashboard?.periodoInicio, opcoesDataResumoDashboard)} — ${formatarData(competenciaPlantaoExibidaDashboard?.periodoFim, opcoesDataResumoDashboard)}`;
-  const resumoPublicacaoDashboard = resumoPublicacaoOperacao(estadoJornadaOperacionalDashboard);
   /**
    * FASE-PLANTAO-POS-PUBLICACAO-APP-VISUALIZACAO-1 — causa raiz do
    * "Publicação da escala" mostrar Plantão publicado como "Rascunho
@@ -4689,7 +4655,6 @@ export function DashboardApp() {
    * o mesmo texto. Agora usa a MESMA função que a Jornada já usa, com o
    * status de Plantão.
    */
-  const resumoPublicacaoPlantaoDashboard = resumoPublicacaoOperacao(estadoPlantaoOperacionalDashboard);
   const chaveJornadasDashboard = escoposOperacionais.jornadasAdministraveis.map((equipe) => equipe.id).join('|');
   const chavePlantoesDashboard = escoposOperacionais.plantoesAdministraveis.map((grupo) => grupo.grupoId).join('|');
 
@@ -10084,7 +10049,8 @@ export function DashboardApp() {
       onNavegar={(id) => setTela(id as Tela)}
       onSair={encerrarSessao}
       produtoHref={import.meta.env.VITE_EMPLOYEE_APP_URL ?? '/app'}
-      contextoEscala={(
+      // DASHBOARD-LOTE1 — o seletor de equipe/mês só nas telas ligadas à escala (vazio nas demais).
+      contextoEscala={(TELAS_COM_SELETOR_ESCALA.has(tela) ? (
         <div className="schedule-context-cluster">
           {/*
            * Fase DASH-SIMPLES-1A — a Visão geral já mostra as duas operações
@@ -10115,7 +10081,7 @@ export function DashboardApp() {
             </>
           )}
         </div>
-      )}
+      ) : <></>)}
       acoesTopo={(
         <AlertasOperacionaisBell
           alertas={alertasOperacionais}
@@ -10220,16 +10186,23 @@ export function DashboardApp() {
               },
             ];
             const proximo = passos.findIndex((passo) => !passo.feito);
+            // DASHBOARD-LOTE1 — os concluídos viram uma linha só; a lista mostra só o que falta.
+            const concluidos = passos.filter((passo) => passo.feito);
             return (
               <article className="panel primeiros-passos" aria-label="Primeiros passos">
                 <div className="panel-title">
                   <div>
                     <p className="eyebrow">Primeiros passos</p>
-                    <h2>Deixe sua equipe pronta em 4 passos</h2>
+                    <h2>{concluidos.length === 0 ? 'Deixe sua equipe pronta em 4 passos' : `${concluidos.length} de 4 prontos — falta pouco`}</h2>
                   </div>
                 </div>
+                {concluidos.length > 0 && (
+                  <p className="primeiros-passos-feitos">
+                    <CheckCircle2 size={15} aria-hidden="true" /> {concluidos.map((passo) => passo.titulo).join(' · ')}
+                  </p>
+                )}
                 <ol className="primeiros-passos-lista">
-                  {passos.map((passo, indice) => (
+                  {passos.map((passo, indice) => passo.feito ? null : (
                     <li key={passo.titulo} data-estado={passo.feito ? 'feito' : indice === proximo ? 'atual' : 'pendente'}>
                       <span className="primeiros-passos-numero" aria-hidden="true">
                         {passo.feito ? <CheckCircle2 size={18} /> : indice + 1}
@@ -10262,7 +10235,7 @@ export function DashboardApp() {
             >
               <span className="overview-operation-card-heading">
                 <span className="overview-operation-icon"><ShieldCheck size={22} /></span>
-                <span className="overview-operation-title"><strong>{nomeJornadaDashboard}</strong><small>{rotuloEstadoEscalaOperacional(estadoJornadaOperacionalDashboard)}</small></span>
+                <span className="overview-operation-title"><strong>{nomeJornadaDashboard}</strong><small className="status-escala" data-status={tomStatusOperacaoDashboard(estadoJornadaOperacionalDashboard)}>{rotuloCurtoStatusOperacaoDashboard(estadoJornadaOperacionalDashboard)}</small></span>
                 <ChevronRight size={19} />
               </span>
               <span className="overview-operation-meta">
@@ -10290,7 +10263,7 @@ export function DashboardApp() {
             >
               <span className="overview-operation-card-heading">
                 <span className="overview-operation-icon plantao"><Radio size={22} /></span>
-                <span className="overview-operation-title"><strong>{nomePlantaoDashboard}</strong><small>{rotuloEstadoEscalaOperacional(estadoPlantaoOperacionalDashboard)}</small></span>
+                <span className="overview-operation-title"><strong>{nomePlantaoDashboard}</strong><small className="status-escala" data-status={tomStatusOperacaoDashboard(estadoPlantaoOperacionalDashboard)}>{rotuloCurtoStatusOperacaoDashboard(estadoPlantaoOperacionalDashboard)}</small></span>
                 <ChevronRight size={19} />
               </span>
               <span className="overview-operation-meta">
@@ -10317,51 +10290,52 @@ export function DashboardApp() {
            * substitui "Alertas por operação" + "Trocas pendentes", em
            * linguagem humana, sem duplicar o que já está nos cards.
            */}
-          <div className="overview-grid overview-secondary-grid">
-            <article className="panel overview-span-4 overview-publication-card">
-              <div className="panel-title"><div><h2>Publicação da escala</h2><p>Disponibilidade no aplicativo</p></div><ShieldCheck /></div>
-              <div className="overview-operation-list">
-                <button type="button" onClick={() => abrirOperacaoDoDashboard('JORNADA')}><ShieldCheck size={18} /><span><strong>{nomeJornadaDashboard}</strong><small>{resumoPublicacaoDashboard.titulo}</small></span><em className={resumoPublicacaoDashboard.estado}>{rotuloEstadoEscalaOperacional(estadoJornadaOperacionalDashboard)}</em><ChevronRight size={15} /></button>
-                {possuiOperacaoPlantaoDashboard && (
-                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}><Radio size={18} /><span><strong>{nomePlantaoDashboard}</strong><small>{resumoPublicacaoPlantaoDashboard.titulo}</small></span><em className={resumoPublicacaoPlantaoDashboard.estado}>{rotuloEstadoEscalaOperacional(estadoPlantaoOperacionalDashboard)}</em><ChevronRight size={15} /></button>
-                )}
-              </div>
-              <button className="overview-card-link" type="button" onClick={() => setTela('escalas')}>Ver escalas e histórico <ChevronRight size={16} /></button>
-            </article>
-
-            <article className="panel overview-span-8 overview-pendencias-card">
-              <div className="panel-title"><div><h2>Pendências</h2><p>O que precisa da sua atenção agora</p></div><Bell size={18} /></div>
-              <div className="overview-operation-list">
-                <button type="button" onClick={() => setAlertaSelecionado(alertasVisiveis[0] ?? null)}>
-                  <AlertTriangle size={18} />
-                  <span><strong>{nomeJornadaDashboard}</strong><small>{alertasJornadaDashboard > 0 ? `${alertasJornadaDashboard} ${alertasJornadaDashboard === 1 ? 'alerta requer' : 'alertas requerem'} atenção` : 'Nenhum alerta pendente'}</small></span>
-                  <ChevronRight size={15} />
-                </button>
-                {possuiOperacaoPlantaoDashboard && (
-                <button type="button" onClick={() => abrirOperacaoDoDashboard('PLANTAO')}>
-                  <AlertTriangle size={18} />
-                  <span><strong>{nomePlantaoDashboard}</strong><small>{plantaoAlertasDashboard === null ? 'Alertas não disponíveis fora do editor — abra a operação para conferir' : plantaoAlertasDashboard > 0 ? `${plantaoAlertasDashboard} ${plantaoAlertasDashboard === 1 ? 'alerta requer' : 'alertas requerem'} atenção` : 'Nenhum alerta pendente'}</small></span>
-                  <ChevronRight size={15} />
-                </button>
-                )}
-                <button type="button" onClick={abrirTrocasDoDashboard}>
-                  <ArrowLeftRight size={18} />
-                  <span><strong>Trocas</strong><small>{trocasPendentesGestor.length === 0 ? 'Nenhuma troca aguardando aprovação' : `${trocasPendentesGestor.length} ${trocasPendentesGestor.length === 1 ? 'troca aguardando' : 'trocas aguardando'} aprovação`}</small></span>
-                  <ChevronRight size={15} />
-                </button>
-              </div>
-              {trocasPendentesGestor.length > 0 && (
-              <div className="overview-swap-preview">
-                {trocasPendentesGestor.slice(0, 2).map((troca) => (
-                  <button key={troca.trocaId} type="button" onClick={() => { setTela('trocas'); setTrocaSelecionadaId(troca.trocaId); }}><ArrowLeftRight size={15} /><span><strong>{troca.tipo === 'FOLGA' ? `${troca.solicitanteNome} · troca de folga` : `${troca.solicitanteNome} ⇄ ${troca.destinatarioNome}`}</strong><small>{formatarDataCurta(troca.data)}{troca.tipo === 'FOLGA' && troca.dataTroca ? ` ⇄ ${formatarDataCurta(troca.dataTroca)}` : ''} · {troca.turnoSolicitanteAntes} ⇄ {troca.turnoDestinatarioAntes}</small></span><ChevronRight size={14} /></button>
-                ))}
-              </div>
-              )}
-              {pendenciasDashboard === 0 && !existePendenciaDesconhecida && (
-                <small className="overview-health-note">Nenhuma pendência operacional no momento.</small>
-              )}
-            </article>
-          </div>
+          {/* DASHBOARD-LOTE1 — um só "Precisa da sua atenção", só com o que pede ação (antes: "Publicação da escala"
+              + "Pendências" repetindo o que os cards já mostram, inclusive "nenhum alerta" duas vezes). */}
+          {(() => {
+            const itens: Array<{ chave: string; icone: ReactNode; titulo: string; texto: string; abrir: () => void }> = [];
+            const pendeDePublicar = (estado: string) => estado === 'rascunho' || estado === 'publicada-com-rascunho-pendente';
+            if (pendeDePublicar(estadoJornadaOperacionalDashboard)) {
+              itens.push({ chave: 'pub-jornada', icone: <ShieldCheck size={18} />, titulo: nomeJornadaDashboard,
+                texto: estadoJornadaOperacionalDashboard === 'rascunho' ? 'Rascunho ainda não publicado para a equipe' : 'Há mudanças ainda não publicadas',
+                abrir: () => abrirOperacaoDoDashboard('JORNADA') });
+            }
+            if (alertasJornadaDashboard > 0) {
+              itens.push({ chave: 'alerta-jornada', icone: <AlertTriangle size={18} />, titulo: nomeJornadaDashboard,
+                texto: `${alertasJornadaDashboard} ${alertasJornadaDashboard === 1 ? 'alerta precisa' : 'alertas precisam'} de atenção`,
+                abrir: () => setAlertaSelecionado(alertasVisiveis[0] ?? null) });
+            }
+            if (possuiOperacaoPlantaoDashboard && pendeDePublicar(estadoPlantaoOperacionalDashboard)) {
+              itens.push({ chave: 'pub-plantao', icone: <Radio size={18} />, titulo: nomePlantaoDashboard,
+                texto: estadoPlantaoOperacionalDashboard === 'rascunho' ? 'Rascunho ainda não publicado para a equipe' : 'Há mudanças ainda não publicadas',
+                abrir: () => abrirOperacaoDoDashboard('PLANTAO') });
+            }
+            if (possuiOperacaoPlantaoDashboard && plantaoAlertasDashboard !== null && plantaoAlertasDashboard > 0) {
+              itens.push({ chave: 'alerta-plantao', icone: <AlertTriangle size={18} />, titulo: nomePlantaoDashboard,
+                texto: `${plantaoAlertasDashboard} ${plantaoAlertasDashboard === 1 ? 'alerta precisa' : 'alertas precisam'} de atenção`,
+                abrir: () => abrirOperacaoDoDashboard('PLANTAO') });
+            }
+            if (trocasPendentesGestor.length > 0) {
+              itens.push({ chave: 'trocas', icone: <ArrowLeftRight size={18} />, titulo: 'Trocas',
+                texto: `${trocasPendentesGestor.length} ${trocasPendentesGestor.length === 1 ? 'troca aguardando' : 'trocas aguardando'} a sua aprovação`,
+                abrir: abrirTrocasDoDashboard });
+            }
+            if (itens.length === 0) return null;
+            return (
+              <article className="panel overview-atencao-card">
+                <div className="panel-title"><div><h2>Precisa da sua atenção</h2><p>{itens.length === 1 ? '1 item' : `${itens.length} itens`}</p></div><Bell size={18} /></div>
+                <div className="overview-operation-list">
+                  {itens.map((item) => (
+                    <button key={item.chave} type="button" onClick={item.abrir}>
+                      {item.icone}
+                      <span><strong>{item.titulo}</strong><small>{item.texto}</small></span>
+                      <ChevronRight size={15} />
+                    </button>
+                  ))}
+                </div>
+              </article>
+            );
+          })()}
           </>}
         </section>
       )}

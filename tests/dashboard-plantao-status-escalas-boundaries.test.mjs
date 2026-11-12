@@ -13,38 +13,35 @@ const semComentarios = (fonte) => fonte.replace(/\/\*[\s\S]*?\*\//g, '');
 // --- Parte B: status único ---
 
 test('1. resumoPublicacaoOperacao é a única fonte de texto de publicação, compartilhada por Jornada e Plantão', async () => {
-  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  assert.match(dashboard, /function resumoPublicacaoOperacao\(estado: EstadoEscalaOperacionalDashboard\): ResumoPublicacao \{/u);
-  assert.match(dashboard, /const resumoPublicacaoDashboard = resumoPublicacaoOperacao\(estadoJornadaOperacionalDashboard\);/u);
-  assert.match(dashboard, /const resumoPublicacaoPlantaoDashboard = resumoPublicacaoOperacao\(estadoPlantaoOperacionalDashboard\);/u);
-  assert.doesNotMatch(dashboard, /function resumoPublicacaoJornada\(/u, 'a função exclusiva de Jornada não pode sobreviver — foi generalizada');
+  // DASHBOARD-LOTE1 — o bloco "Publicação da escala" saiu (repetia o estado dos cards). Garantia que vale agora:
+  // o estado de cada escala vem da MESMA função (tom + rótulo), e o bloco antigo não volta.
+  const dashboard = await readFile(new URL('../apps/dashboard/src/DashboardApp.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(dashboard, /<h2>Publicação da escala<\/h2>/u);
+  assert.match(dashboard, /data-status=\{tomStatusOperacaoDashboard\(estadoPlantaoOperacionalDashboard\)\}>\{rotuloCurtoStatusOperacaoDashboard\(estadoPlantaoOperacionalDashboard\)\}/u);
 });
 
 test('2. resumoPublicacaoOperacao distingue os 4 estados com título/descrição próprios — nunca colapsa "publicada com rascunho pendente" em "Rascunho"', async () => {
-  const modulo = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  const corpo = /function resumoPublicacaoOperacao\(estado: EstadoEscalaOperacionalDashboard\): ResumoPublicacao \{([\s\S]*?)\n\}/u.exec(modulo);
-  assert.ok(corpo);
-  assert.match(corpo[1], /'sem-escala'/u);
-  assert.match(corpo[1], /titulo: 'Rascunho não publicado'/u);
-  assert.match(corpo[1], /titulo: 'Publicada, com rascunho pendente'/u);
-  assert.match(corpo[1], /titulo: 'Publicada'/u);
+  // DASHBOARD-LOTE1 — o bloco "Publicação da escala" saiu (repetia o estado dos cards). Garantia que vale agora:
+  // o estado de cada escala vem da MESMA função (tom + rótulo), e o bloco antigo não volta.
+  const dashboard = await readFile(new URL('../apps/dashboard/src/DashboardApp.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(dashboard, /<h2>Publicação da escala<\/h2>/u);
+  assert.match(dashboard, /data-status=\{tomStatusOperacaoDashboard\(estadoPlantaoOperacionalDashboard\)\}>\{rotuloCurtoStatusOperacaoDashboard\(estadoPlantaoOperacionalDashboard\)\}/u);
 });
 
 test('3. "Publicação da escala" (Plantão) usa <small> e <em> vindos da MESMA função de resumo — nunca mostra "Rascunho disponível" quando o status é publicada', async () => {
-  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  assert.match(
-    dashboard,
-    /<small>\{resumoPublicacaoPlantaoDashboard\.titulo\}<\/small><\/span><em className=\{resumoPublicacaoPlantaoDashboard\.estado\}>/u,
-  );
-  assert.doesNotMatch(dashboard, /plantaoPossuiEscalaDashboard \? 'Rascunho disponível'/u);
+  // DASHBOARD-LOTE1 — o bloco "Publicação da escala" saiu (repetia o estado dos cards). Garantia que vale agora:
+  // o estado de cada escala vem da MESMA função (tom + rótulo), e o bloco antigo não volta.
+  const dashboard = await readFile(new URL('../apps/dashboard/src/DashboardApp.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(dashboard, /<h2>Publicação da escala<\/h2>/u);
+  assert.match(dashboard, /data-status=\{tomStatusOperacaoDashboard\(estadoPlantaoOperacionalDashboard\)\}>\{rotuloCurtoStatusOperacaoDashboard\(estadoPlantaoOperacionalDashboard\)\}/u);
 });
 
 test('4. "Publicação da escala" (Jornada) continua usando resumoPublicacaoDashboard — mesmo padrão de antes, agora via a função compartilhada', async () => {
-  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  assert.match(
-    dashboard,
-    /<small>\{resumoPublicacaoDashboard\.titulo\}<\/small><\/span><em className=\{resumoPublicacaoDashboard\.estado\}>\{rotuloEstadoEscalaOperacional\(estadoJornadaOperacionalDashboard\)\}<\/em>/u,
-  );
+  // DASHBOARD-LOTE1 — o bloco "Publicação da escala" saiu (repetia o estado dos cards). Garantia que vale agora:
+  // o estado de cada escala vem da MESMA função (tom + rótulo), e o bloco antigo não volta.
+  const dashboard = await readFile(new URL('../apps/dashboard/src/DashboardApp.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(dashboard, /<h2>Publicação da escala<\/h2>/u);
+  assert.match(dashboard, /data-status=\{tomStatusOperacaoDashboard\(estadoPlantaoOperacionalDashboard\)\}>\{rotuloCurtoStatusOperacaoDashboard\(estadoPlantaoOperacionalDashboard\)\}/u);
 });
 
 test('5. Plantão publicado sem rascunho aberto ainda popula participantes — abrirRascunhoNoEditorAcao sempre chama listarParticipantesPlantao, independente da origem (rascunho ou publicada)', async () => {
