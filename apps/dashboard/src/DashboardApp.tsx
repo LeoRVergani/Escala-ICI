@@ -1,5 +1,6 @@
 'use client';
 
+import { MenuAcoes } from './MenuAcoes';
 import { rotuloCurtoStatusOperacaoDashboard, tomStatusOperacaoDashboard } from '@/lib/operacoesDashboard';
 import { ConfirmarPublicacaoPlantao } from './ConfirmarPublicacaoPlantao';
 import { EscalaPlantaoPage } from './EscalaPlantaoPage';
@@ -80,6 +81,7 @@ import {
   Users,
   X,
   ChevronLeft,
+  MoreHorizontal,
 } from 'lucide-react';
 import { ChangeEvent, DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
@@ -11261,12 +11263,7 @@ export function DashboardApp() {
             </div>
           </header>
           {erroTroca && <div className="alert error" role="alert">{erroTroca}</div>}
-          <div className="metric-grid">
-            <article><span>Aguardando você</span><strong>{trocasPendentesGestor.length}</strong><small>precisam de decisão</small></article>
-            <article><span>Aprovadas</span><strong>{trocasAprovadas.length}</strong><small>aprovadas ou publicadas</small></article>
-            <article><span>Recusadas</span><strong>{trocasRecusadas.length}</strong><small>pelo colega ou pelo gestor</small></article>
-            <article><span>Total no histórico</span><strong>{trocas.length}</strong><small>desde o início</small></article>
-          </div>
+          {/* DASHBOARD-LOTE2 — os números ficam nas abas (os 4 cards repetiam as mesmas contagens). */}
           <article className="panel grid-panel">
             <div className="toolbar">
               <div className="segmented-control">
@@ -11287,6 +11284,13 @@ export function DashboardApp() {
                 ))}
               </div>
             </div>
+            {trocasListaFiltrada.length === 0 ? (
+              <div className="trocas-vazio">
+                <CheckCircle2 size={26} aria-hidden="true" />
+                <strong>{filtroTrocas === 'pendentes' ? 'Nenhuma troca aguardando você' : 'Nada por aqui ainda'}</strong>
+                <small>{filtroTrocas === 'pendentes' ? 'Quando alguém da equipe pedir uma troca e o colega aceitar, ela aparece aqui para você decidir.' : 'As trocas decididas aparecem nesta lista.'}</small>
+              </div>
+            ) : (
             <div className="table-scroll">
               <table className="data-table trocas-table">
                 <thead>
@@ -11338,8 +11342,9 @@ export function DashboardApp() {
                 </tbody>
               </table>
             </div>
+            )}
           </article>
-          <ScheduleLegend catalogo={catalogo} />
+          {trocas.length > 0 && <ScheduleLegend catalogo={catalogo} />}
         </section>
       )}
 
@@ -11430,24 +11435,11 @@ export function DashboardApp() {
             <div>
               <p className="eyebrow">Pessoas</p>
               <h1>Minha equipe</h1>
-              <p>Cada equipe de 6x1 e cada Plantão que você organiza tem a sua aba. Traga quem já está cadastrado ou cadastre uma pessoa nova.</p>
+              <p>As pessoas de cada equipe e Plantão que você organiza.</p>
             </div>
-            {(abaAtivaMinhaEquipe !== null || souLiderancaDashboard) && (
+            {/* DASHBOARD-LOTE2 — o topo fica só com as ações de pessoas; "+ Nova" (equipe/Plantão) foi para junto das abas. */}
+            {abaAtivaMinhaEquipe !== null && (
               <div className="grade-header-actions">
-                {/* CRIAR-EQUIPE-1 — toda liderança cria a própria equipe. */}
-                {souLiderancaDashboard && (
-                  <button className="secondary-button" type="button" disabled={escritaBloqueada} onClick={() => setCriandoEquipe(true)}>
-                    <Plus size={16} /> Criar equipe
-                  </button>
-                )}
-                {/* CRIAR-PLANTAO-1 — o Plantão pertence a uma equipe: precisa de uma antes. */}
-                {souLiderancaDashboard && (
-                  <button className="secondary-button" type="button" disabled={escritaBloqueada || equipesMinhaEquipe.length === 0}
-                    title={equipesMinhaEquipe.length === 0 ? 'Crie sua equipe primeiro — todo Plantão pertence a uma equipe.' : undefined}
-                    onClick={() => setCriandoPlantao(true)}>
-                    <Radio size={16} /> Criar Plantão
-                  </button>
-                )}
                 {abaAtivaMinhaEquipe !== null && (
                   <>
                     <button className="secondary-button" type="button" disabled={escritaBloqueada} onClick={abrirBuscaPessoa}>
@@ -11479,6 +11471,8 @@ export function DashboardApp() {
             </article>
           ) : (
             <>
+              {(abasMinhaEquipe.length > 1 || souLiderancaDashboard) && (
+              <div className="minha-equipe-abas-linha">
               {abasMinhaEquipe.length > 1 && (
                 <div className="minha-equipe-abas" role="tablist" aria-label="Equipes e Plantões">
                   {abasMinhaEquipe.map((aba) => {
@@ -11499,6 +11493,25 @@ export function DashboardApp() {
                     );
                   })}
                 </div>
+              )}
+              {/* CRIAR-EQUIPE-1 / CRIAR-PLANTAO-1 — toda liderança cria equipe; o Plantão precisa de uma equipe antes. */}
+              {souLiderancaDashboard && (
+                <MenuAcoes
+                  rotulo="Criar equipe ou Plantão"
+                  classeBotao="secondary-button compact-button"
+                  conteudoBotao={<><Plus size={15} aria-hidden="true" /> Nova</>}
+                  itens={[
+                    { rotulo: 'Equipe 6x1', icone: <CalendarDays size={15} aria-hidden="true" />, desabilitado: escritaBloqueada, executar: () => setCriandoEquipe(true) },
+                    {
+                      rotulo: 'Plantão', icone: <Radio size={15} aria-hidden="true" />,
+                      desabilitado: escritaBloqueada || equipesMinhaEquipe.length === 0,
+                      dica: equipesMinhaEquipe.length === 0 ? 'Crie sua equipe primeiro — todo Plantão pertence a uma equipe.' : undefined,
+                      executar: () => setCriandoPlantao(true),
+                    },
+                  ]}
+                />
+              )}
+              </div>
               )}
 
               {avisosGestao.filter((aviso) => aviso.equipeAvisadaId === equipeAtivaMinhaEquipeId).map((aviso) => (
@@ -11631,47 +11644,52 @@ export function DashboardApp() {
                 ) : (
                   <div className="table-scroll">
                     <table className="data-table users-table">
-                      <thead><tr><th>Pessoa</th><th>Login</th><th>Turno</th><th>Status</th><th>Ações</th></tr></thead>
+                      <thead><tr><th>Pessoa</th><th>Login</th><th>Turno</th><th aria-label="Ações" /></tr></thead>
                       <tbody>
                         {membrosMinhaEquipe.map((item) => {
                           const bloqueioExclusao = motivoBloqueioExclusaoUsuario(item);
                           return (
                             <tr key={item.login}>
-                              <td><strong>{item.nome}</strong><small>{item.email}</small></td>
+                              <td>
+                                <strong>{item.nome}{!item.ativo && <span className="pessoa-inativa">Inativo</span>}</strong>
+                                <small>{item.email}</small>
+                              </td>
                               <td><code className="login-code">{item.login}</code></td>
                               <td>{catalogo[item.turnoPadrao]?.descricao ?? (item.turnoPadrao || '—')}</td>
-                              <td><span className={`status-badge ${item.ativo ? 'success' : 'neutral'}`}>{item.ativo ? 'Ativo' : 'Inativo'}</span></td>
                               <td>
+                                {/* DASHBOARD-LOTE2 — as ações do dia a dia com texto; as raras/perigosas no "⋯". */}
                                 <div className="user-row-actions">
-                                  <button className="icon-button" type="button" title="Ver escala do mês" onClick={() => setPessoaEscalaAberta(item)}>
-                                    <CalendarDays size={15} />
+                                  <button className="secondary-button compact-button" type="button" onClick={() => setPessoaEscalaAberta(item)}>
+                                    <CalendarDays size={14} aria-hidden="true" /> Ver mês
                                   </button>
-                                  <button className="icon-button" type="button" title="Editar" disabled={escritaBloqueada} onClick={() => abrirEdicaoUsuario(item)}>
-                                    <Pencil size={15} />
+                                  <button className="secondary-button compact-button" type="button" disabled={escritaBloqueada} onClick={() => abrirEdicaoUsuario(item)}>
+                                    <Pencil size={14} aria-hidden="true" /> Editar
                                   </button>
-                                  <button
-                                    className="icon-button"
-                                    type="button"
-                                    title={item.ativo ? 'Desativar' : 'Ativar'}
-                                    disabled={escritaBloqueada}
-                                    onClick={() => {
-                                      void alternarAtivoUsuario(item);
-                                      setMembrosMinhaEquipe((atuais) => atuais.map((membro) => (
-                                        membro.login === item.login ? { ...membro, ativo: !membro.ativo } : membro
-                                      )));
-                                    }}
-                                  >
-                                    <Power size={15} />
-                                  </button>
-                                  <button
-                                    className="icon-button danger-button"
-                                    type="button"
-                                    title={bloqueioExclusao ?? 'Excluir'}
-                                    disabled={escritaBloqueada || bloqueioExclusao !== null}
-                                    onClick={() => { setErroExclusaoUsuario(''); setUsuarioParaExcluir(item); }}
-                                  >
-                                    <Trash2 size={15} />
-                                  </button>
+                                  <MenuAcoes
+                                    rotulo={`Mais ações para ${item.nome}`}
+                                    conteudoBotao={<MoreHorizontal size={16} />}
+                                    itens={[
+                                      {
+                                        rotulo: item.ativo ? 'Desativar' : 'Ativar',
+                                        icone: <Power size={15} aria-hidden="true" />,
+                                        desabilitado: escritaBloqueada,
+                                        executar: () => {
+                                          void alternarAtivoUsuario(item);
+                                          setMembrosMinhaEquipe((atuais) => atuais.map((membro) => (
+                                            membro.login === item.login ? { ...membro, ativo: !membro.ativo } : membro
+                                          )));
+                                        },
+                                      },
+                                      {
+                                        rotulo: 'Excluir',
+                                        icone: <Trash2 size={15} aria-hidden="true" />,
+                                        perigo: true,
+                                        desabilitado: escritaBloqueada || bloqueioExclusao !== null,
+                                        dica: bloqueioExclusao ?? undefined,
+                                        executar: () => { setErroExclusaoUsuario(''); setUsuarioParaExcluir(item); },
+                                      },
+                                    ]}
+                                  />
                                 </div>
                               </td>
                             </tr>

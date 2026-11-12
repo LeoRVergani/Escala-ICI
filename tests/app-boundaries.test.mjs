@@ -958,7 +958,8 @@ test('CRIAR-EQUIPE-1 — liderança cria a própria equipe e vira a responsável
     ler('lib/firebase/criarEquipeLideranca.ts'),
     ler('firestore.rules'),
   ]);
-  assert.match(dashboard, /souLiderancaDashboard && \(\s*<button className="secondary-button" type="button" disabled=\{escritaBloqueada\} onClick=\{\(\) => setCriandoEquipe\(true\)\}>/);
+  // DASHBOARD-LOTE2 — "Criar equipe" foi para o "+ Nova" junto das abas (só liderança).
+  assert.match(dashboard, /souLiderancaDashboard && \(\s*<MenuAcoes[\s\S]{0,400}executar: \(\) => setCriandoEquipe\(true\)/);
   assert.match(dashboard, /setEquipeSelecionadaMinhaEquipe\(`JORNADA:\$\{equipe\.id\}`\)/);
   assert.match(modal, /criarEquipeComoLideranca\(\{ nome, unidade \}, autor\)/);
   // Equipe e responsável juntos (writeBatch) — nunca equipe sem chefe.
@@ -975,7 +976,7 @@ test('CRIAR-PLANTAO-1 — chefe cria o Plantão da equipe (com responsável no m
     ler('lib/firebase/criarPlantaoLideranca.ts'),
     ler('firestore.rules'),
   ]);
-  assert.match(dashboard, /onClick=\{\(\) => setCriandoPlantao\(true\)\}>/);
+  assert.match(dashboard, /desabilitado: escritaBloqueada \|\| equipesMinhaEquipe\.length === 0,[\s\S]{0,200}executar: \(\) => setCriandoPlantao\(true\)/);
   assert.match(dashboard, /setEquipeSelecionadaMinhaEquipe\(`PLANTAO:\$\{grupo\.grupoId\}`\)/);
   // Toda liderança tem o mesmo menu; Administração só para o administrador.
   assert.match(dashboard, /const navegacaoVisivel = souAdmin \? NAVEGACAO : NAVEGACAO_COORDENACAO;/);
@@ -1144,4 +1145,15 @@ test('DASHBOARD-LOTE1 — seletor do topo só nas telas da escala; passos conclu
   assert.match(dashboard, /passos\.map\(\(passo, indice\) => passo\.feito \? null : \(/);
   assert.match(dashboard, /if \(itens\.length === 0\) return null;/);
   assert.doesNotMatch(dashboard, /<h2>Pendências<\/h2>/);
+});
+
+test('DASHBOARD-LOTE2 — Minha equipe: ações com texto e "⋯"; Trocas: números nas abas e estado vazio simples', async () => {
+  const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
+  assert.match(dashboard, /<CalendarDays size=\{14\} aria-hidden="true" \/> Ver mês/);
+  assert.match(dashboard, /<Pencil size=\{14\} aria-hidden="true" \/> Editar/);
+  assert.match(dashboard, /rotulo: 'Excluir',[\s\S]{0,240}perigo: true,/);
+  // Minha equipe sem a coluna Status (o selo "Inativo" vai junto do nome).
+  assert.match(dashboard, /<thead><tr><th>Pessoa<\/th><th>Login<\/th><th>Turno<\/th><th aria-label="Ações" \/><\/tr><\/thead>/);
+  assert.doesNotMatch(dashboard, /<span>Aguardando você<\/span>/);
+  assert.match(dashboard, /\{trocas\.length > 0 && <ScheduleLegend catalogo=\{catalogo\} \/>\}/);
 });

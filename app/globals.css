@@ -9964,3 +9964,63 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 /* DASHBOARD-LOTE1 — as ações do topo (sino, tema, usuário) ficam SEMPRE à direita,
  * com ou sem o seletor de equipe/mês (que antes as empurrava para lá). */
 .topbar-actions { margin-left: auto; }
+
+/* =====================================================================
+ * DASHBOARD-LOTE2 — Minha equipe ("+ Nova" junto das abas, ações com texto
+ * e "⋯", selo Inativo) e Trocas (estado vazio simples).
+ * ===================================================================== */
+.menu-acoes { position: relative; display: inline-flex; }
+.menu-acoes-lista {
+  position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; display: grid; min-width: 190px; padding: 6px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
+}
+.menu-acoes-lista > button {
+  display: flex; align-items: center; gap: 9px; min-height: 36px; padding: 0 10px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--text); font: inherit; font-size: 13.5px; font-weight: 600; text-align: left; cursor: pointer;
+}
+.menu-acoes-lista > button:hover:not(:disabled) { background: var(--surface-muted); }
+.menu-acoes-lista > button:disabled { cursor: not-allowed; opacity: 0.5; }
+.menu-acoes-lista > button[data-perigo] { color: var(--danger); }
+.minha-equipe-abas-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+.minha-equipe-abas-linha > .minha-equipe-abas { margin: 0; }
+.minha-equipe-abas-linha > .menu-acoes:only-child { margin-left: auto; }
+.users-table .user-row-actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.users-table .user-row-actions .compact-button { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.pessoa-inativa {
+  display: inline-flex; margin-left: 8px; padding: 1px 8px; border-radius: 999px; vertical-align: middle;
+  background: color-mix(in srgb, var(--muted) 18%, var(--surface)); color: var(--muted); font-size: 11px; font-weight: 800;
+}
+.trocas-vazio { display: grid; justify-items: center; gap: 6px; padding: 36px 16px; text-align: center; }
+.trocas-vazio > svg { color: #10b981; }
+.trocas-vazio > strong { color: var(--text); font-size: 15px; }
+.trocas-vazio > small { max-width: 440px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+/* DASHBOARD-LOTE2 — no computador, os botões do topo da Minha equipe ficam lado a lado. */
+@media (min-width: 721px) {
+  .minha-equipe > .page-heading .grade-header-actions { flex-wrap: nowrap; flex-shrink: 0; }
+}
+
+/* DASHBOARD-LOTE2 — celular:
+ *  - seletor do topo: cada item mantém o próprio tamanho; se não couber, a linha rola (antes "SOC" ficava atrás do mês);
+ *  - Minha equipe: cada pessoa vira um cartão (nome + turno em cima, ações embaixo); o login sai. */
+@media (max-width: 720px) {
+  .product-dashboard .schedule-context-cluster { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .product-dashboard .schedule-context-cluster::-webkit-scrollbar { display: none; }
+  .product-dashboard .schedule-context-cluster > .escala-context-switcher,
+  .product-dashboard .schedule-context-cluster > .escala-competencia-control,
+  .product-dashboard .schedule-context-cluster > * { flex: 0 0 auto; }
+
+  .minha-equipe .users-table,
+  .minha-equipe .users-table tbody,
+  .minha-equipe .users-table tr,
+  .minha-equipe .users-table td { display: block; width: 100%; }
+  .minha-equipe .users-table thead { display: none; }
+  .minha-equipe .users-table tr { padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .minha-equipe .users-table tr:last-child { border-bottom: 0; }
+  .minha-equipe .users-table td { padding: 0; border: 0; }
+  .minha-equipe .users-table td:nth-child(2) { display: none; }
+  .minha-equipe .users-table td:nth-child(3) { margin-top: 2px; color: var(--muted); font-size: 12.5px; }
+  .minha-equipe .users-table td:nth-child(4) { margin-top: 10px; }
+  .minha-equipe .users-table .user-row-actions { justify-content: flex-start; }
+}
