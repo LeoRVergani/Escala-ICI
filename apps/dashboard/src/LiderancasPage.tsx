@@ -11,10 +11,11 @@ import { ConfirmarPromocao, iniciais, mensagemErro, usePessoas, type Pessoa } fr
  * promove um colaborador ou cadastra uma pessoa nova já como liderança; o
  * administrador pode remover alguém da liderança.
  */
-export function LiderancasPage({ autor, souAdmin, nomeEquipe }: {
+export function LiderancasPage({ pessoasDemo, autor, souAdmin, nomeEquipe }: {
+  pessoasDemo?: readonly Usuario[];
   autor: Usuario; souAdmin: boolean; nomeEquipe: (equipeId: string) => string;
 }) {
-  const { pessoas, erro: erroCarga, recarregar } = usePessoas();
+  const { pessoas, erro: erroCarga, recarregar } = usePessoas(pessoasDemo);
   const [busca, setBusca] = useState('');
   const [mensagem, setMensagem] = useState('');
   const [novaAberta, setNovaAberta] = useState(false);
@@ -39,7 +40,7 @@ export function LiderancasPage({ autor, souAdmin, nomeEquipe }: {
       </header>
 
       <div className="liderancas-barra">
-        <span className="liderancas-total"><Crown size={15} aria-hidden="true" /> {(pessoas ?? []).filter(ehLideranca).length} lideranças</span>
+        <span className="liderancas-total"><Crown size={15} aria-hidden="true" /> {(() => { const total = (pessoas ?? []).filter(ehLideranca).length; return `${total} ${total === 1 ? 'liderança' : 'lideranças'}`; })()}</span>
         <label className="liderancas-busca">
           <Search size={16} aria-hidden="true" />
           <input type="search" placeholder="Buscar por nome, login ou cargo" value={busca} onChange={(evento) => setBusca(evento.target.value)} />

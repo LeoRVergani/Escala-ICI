@@ -10,10 +10,11 @@ import { ConfirmarPromocao, iniciais, usePessoas, type Pessoa } from './pessoasL
  * liderança, com quem é das MINHAS equipes em destaque (primeiro e com a
  * etiqueta "Sua equipe"). "Tornar liderança" em cada uma.
  */
-export function ColaboradoresPage({ autor, minhasEquipes, nomeEquipe }: {
+export function ColaboradoresPage({ pessoasDemo, autor, minhasEquipes, nomeEquipe }: {
+  pessoasDemo?: readonly Usuario[];
   autor: Usuario; minhasEquipes: readonly string[]; nomeEquipe: (equipeId: string) => string;
 }) {
-  const { pessoas, erro, recarregar } = usePessoas();
+  const { pessoas, erro, recarregar } = usePessoas(pessoasDemo);
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState<'todos' | 'minha'>('todos');
   const [promovendo, setPromovendo] = useState<Pessoa | null>(null);

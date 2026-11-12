@@ -256,8 +256,9 @@ test('a fase 3J-B mantém rascunho, publicação e rollback fora do App', async 
   ]);
 
   assert.doesNotMatch(app, /reverterPublicacao|historicoPublicacoes|rascunhosTurnosMes/);
-  assert.match(dashboard, /Histórico de publicações/);
-  assert.match(dashboard, /Criar rollback/);
+  // DASHBOARD-LOTE3 — mesmo recurso, linguagem simples: "Versões publicadas" e "Voltar para esta versão".
+  assert.match(dashboard, /Versões publicadas/);
+  assert.match(dashboard, /Voltar para esta versão/);
   assert.match(leitura, /listarHistoricoPublicacoes/);
   assert.match(escrita, /rascunhosTurnosMes/);
   assert.match(escrita, /reverterPublicacao/);
@@ -917,7 +918,7 @@ test('MINHA-EQUIPE-PLANTOES-1 — o chefe escolhe os Plantões da equipe por int
     ler('apps/dashboard/src/PlantoesDaEquipe.tsx'),
     ler('firestore.rules'),
   ]);
-  assert.match(dashboard, /<PlantoesDaEquipe key=\{equipeAtivaMinhaEquipe\.id\} equipe=\{\{ id: equipeAtivaMinhaEquipe\.id, nome: equipeAtivaMinhaEquipe\.nome \}\} \/>/);
+  assert.match(dashboard, /<PlantoesDaEquipe key=\{equipeAtivaMinhaEquipe\.id\} equipe=\{\{ id: equipeAtivaMinhaEquipe\.id, nome: equipeAtivaMinhaEquipe\.nome \}\}( gruposDemo=\{[^}]*\})? \/>/);
   // Grava pela função existente (só equipesConsulta, uma equipe por vez).
   assert.match(componente, /atualizarEquipeConsultaPlantao\(grupo\.grupoId, equipe\.id, ligar \? 'ADICIONAR' : 'REMOVER'\)/);
   // A equipe responsável nunca é desligada do próprio Plantão.
@@ -1156,4 +1157,16 @@ test('DASHBOARD-LOTE2 — Minha equipe: ações com texto e "⋯"; Trocas: núme
   assert.match(dashboard, /<thead><tr><th>Pessoa<\/th><th>Login<\/th><th>Turno<\/th><th aria-label="Ações" \/><\/tr><\/thead>/);
   assert.doesNotMatch(dashboard, /<span>Aguardando você<\/span>/);
   assert.match(dashboard, /\{trocas\.length > 0 && <ScheduleLegend catalogo=\{catalogo\} \/>\}/);
+});
+
+test('DASHBOARD-LOTE3 — linguagem simples, "Descartar rascunho" no "⋯" e demonstração sem erros', async () => {
+  const [dashboard, pessoas, plantoes] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'), ler('apps/dashboard/src/pessoasLideranca.tsx'), ler('apps/dashboard/src/PlantoesDaEquipe.tsx'),
+  ]);
+  for (const termo of [/Rastreabilidade local/, /laboratório local/, /Operação integrada/, /Abrir operação /, /um rollback sempre cria/]) {
+    assert.doesNotMatch(dashboard, termo, String(termo));
+  }
+  assert.match(dashboard, /rotulo: 'Descartar rascunho',[\s\S]{0,160}perigo: true,/);
+  assert.match(pessoas, /if \(pessoasDemo\) return undefined;/);
+  assert.match(plantoes, /if \(gruposDemo\) return undefined;/);
 });
