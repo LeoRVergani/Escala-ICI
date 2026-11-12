@@ -46,10 +46,12 @@ test('3. Visão geral e seletor superior nunca podem divergir — os 3 filtros d
  * cards superiores, "Publicação da escala", "Pendências".
  */
 test('4. o card/linha de Plantão da Visão geral só existe quando há um Grupo real no escopo (possuiOperacaoPlantaoDashboard) — nas 3 seções: cards superiores, Publicação da escala, Pendências', async () => {
-  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
+  // DASHBOARD-LOTE1 — card e itens de atenção do Plantão só com Grupo real no escopo.
+  const dashboard = await readFile(new URL('../apps/dashboard/src/DashboardApp.tsx', import.meta.url), 'utf8');
   assert.match(dashboard, /const possuiOperacaoPlantaoDashboard = grupoPlantaoDashboard !== null;/u);
-  const ocorrenciasGate = dashboard.match(/\{possuiOperacaoPlantaoDashboard(?: &&|\s*\?)/gu) ?? [];
-  assert.ok(ocorrenciasGate.length >= 3, `esperado o gate em pelo menos 3 pontos da Visão geral (encontrado ${ocorrenciasGate.length})`);
+  assert.match(dashboard, /if \(possuiOperacaoPlantaoDashboard && pendeDePublicar\(estadoPlantaoOperacionalDashboard\)\)/u);
+  assert.match(dashboard, /if \(possuiOperacaoPlantaoDashboard && plantaoAlertasDashboard !== null/u);
+  assert.doesNotMatch(dashboard, /<strong>Plantão<\/strong>/u, 'rótulo genérico "Plantão" sem interpolação não pode existir');
 });
 
 test('5. nenhum "<strong>Plantão</strong>" genérico sobrevive na Visão geral — sempre {nomePlantaoDashboard}, o nome real do Grupo', async () => {
@@ -94,21 +96,11 @@ test('8. o badge de status do contexto ativo (aba Escalas / topo) reaproveita o 
  * divergir entre si.
  */
 test('9. "Publicação da escala" (Plantão) mostra o mesmo rótulo de status em <small> e <em> — nunca mais um booleano ad-hoc que ignora competenciaPublicada', async () => {
-  const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
-  assert.match(
-    dashboard,
-    /<small>\{resumoPublicacaoPlantaoDashboard\.titulo\}<\/small><\/span><em className=\{resumoPublicacaoPlantaoDashboard\.estado\}>\{rotuloEstadoEscalaOperacional\(estadoPlantaoOperacionalDashboard\)\}<\/em>/u,
-  );
-  assert.doesNotMatch(
-    dashboard,
-    /plantaoPossuiEscalaDashboard \? 'Rascunho disponível' : 'Nenhuma escala criada'/u,
-    'a fórmula antiga do <small> (nunca reconhecia "Publicada") não pode sobreviver',
-  );
-  assert.doesNotMatch(
-    dashboard,
-    /<em className=\{estadoPlantaoOperacionalDashboard === 'sem-escala' \? 'vazio' : estadoPlantaoOperacionalDashboard === 'publicada' \? 'completo' : 'parcial'\}>/u,
-    'o <em> não pode mais ter sua própria fórmula de classe — precisa vir de resumoPublicacaoPlantaoDashboard.estado, igual ao <small>',
-  );
+  // DASHBOARD-LOTE1 — o bloco "Publicação da escala" saiu (repetia o estado dos cards). Garantia que vale agora:
+  // o estado de cada escala vem da MESMA função (tom + rótulo), e o bloco antigo não volta.
+  const dashboard = await readFile(new URL('../apps/dashboard/src/DashboardApp.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(dashboard, /<h2>Publicação da escala<\/h2>/u);
+  assert.match(dashboard, /data-status=\{tomStatusOperacaoDashboard\(estadoPlantaoOperacionalDashboard\)\}>\{rotuloCurtoStatusOperacaoDashboard\(estadoPlantaoOperacionalDashboard\)\}/u);
 });
 
 test('10. StatusOperacaoDashboard tem 4 estados — Sem escala/Rascunho/Publicada/Publicada com rascunho pendente — e o badge externo (ScheduleStatusBadge) conhece os 4', async () => {

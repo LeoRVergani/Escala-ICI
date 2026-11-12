@@ -175,3 +175,37 @@ export function documentosParaAlertasJornada(
 ): readonly TurnosMes[] {
   return emContexto ? documentosEmContexto : (documentosPersistidos ?? []);
 }
+
+/**
+ * DASHBOARD-LOTE1 — UMA cor por estado em todo o Dashboard (antes "Rascunho"
+ * aparecia verde no card — a cor vinha da saúde/alertas — e âmbar em outro
+ * lugar). A cor vem só do estado: no ar (verde), rascunho (âmbar), no ar com
+ * mudanças não publicadas (azul), sem escala (cinza).
+ */
+export type TomStatusEscala = 'no-ar' | 'rascunho' | 'pendente' | 'sem-escala';
+
+export function tomStatusOperacaoDashboard(status: StatusOperacaoDashboard): TomStatusEscala {
+  switch (status) {
+    case 'publicada':
+      return 'no-ar';
+    case 'publicada-com-rascunho-pendente':
+      return 'pendente';
+    case 'rascunho':
+      return 'rascunho';
+    default:
+      return 'sem-escala';
+  }
+}
+
+export function rotuloCurtoStatusOperacaoDashboard(status: StatusOperacaoDashboard): string {
+  switch (status) {
+    case 'publicada':
+      return 'No ar';
+    case 'publicada-com-rascunho-pendente':
+      return 'No ar · mudanças não publicadas';
+    case 'rascunho':
+      return 'Rascunho';
+    default:
+      return 'Sem escala';
+  }
+}

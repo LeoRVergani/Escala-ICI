@@ -1136,3 +1136,12 @@ test('COORD-PREVISAO-DIREITA-1 — no celular a previsão do turno fica à direi
   assert.match(css, /grid-template-columns: 42px minmax\(0, 1fr\) auto;\s*grid-template-areas:\s*"chip nome tempo"\s*"chip pessoas pessoas";/);
   assert.match(css, /\.coord-turnos \.coord-turno > \.tempo-dia \{\s*grid-area: tempo;/);
 });
+
+test('DASHBOARD-LOTE1 — seletor do topo só nas telas da escala; passos concluídos recolhidos; "Precisa da sua atenção" só com itens', async () => {
+  const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
+  assert.match(dashboard, /const TELAS_COM_SELETOR_ESCALA: ReadonlySet<string> = new Set\(\['visao', 'equipe', 'escalas', 'importar', 'grade', 'trocas', 'escalaPlantao'\]\);/);
+  assert.match(dashboard, /contextoEscala=\{\(TELAS_COM_SELETOR_ESCALA\.has\(tela\) \? \(/);
+  assert.match(dashboard, /passos\.map\(\(passo, indice\) => passo\.feito \? null : \(/);
+  assert.match(dashboard, /if \(itens\.length === 0\) return null;/);
+  assert.doesNotMatch(dashboard, /<h2>Pendências<\/h2>/);
+});
