@@ -3408,20 +3408,24 @@ function PreviewPlantao({
                   className={modoVisualizacaoPlantao === 'compacta' ? 'active' : ''}
                   aria-pressed={modoVisualizacaoPlantao === 'compacta'}
                   onClick={() => selecionarModoVisualizacaoPlantao('compacta')}
-                  title="Foco em leitura e conferência, com legenda lateral — sem arrastar-e-soltar"
+                  title="Só ver a escala, com a legenda ao lado"
                 >
-                  Compacta
+                  {/* ESCALA-PLANTAO-4 — nomes claros: "Ver" e "Ajustar plantões" (substituem os rótulos técnicos antigos). */}
+                  Ver
                 </button>
                 <button
                   type="button"
                   className={modoVisualizacaoPlantao === 'edicao' ? 'active' : ''}
                   aria-pressed={modoVisualizacaoPlantao === 'edicao'}
                   onClick={() => selecionarModoVisualizacaoPlantao('edicao')}
-                  title="Foco em ajuste manual, com roster lateral e arrastar-e-soltar"
+                  title="Arrastar plantões para outro dia ou para outra pessoa"
                 >
-                  Edição (arrastar)
+                  <Pencil size={13} aria-hidden="true" /> Ajustar plantões
                 </button>
               </div>
+            )}
+            {modoVisualizacaoPlantao === 'edicao' && (
+              <p className="plantao-dica-ajuste">Arraste um plantão para outro dia ou para outra pessoa — o rascunho é salvo sozinho.</p>
             )}
             {/*
              * Fase ESCALAS-UX-2B — roster lateral substitui o antigo bloco

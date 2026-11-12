@@ -1120,3 +1120,12 @@ test('ESCALA-PLANTAO-3 — rascunho salvo sozinho; Publicar abre a confirmação
   assert.match(modal, /mudancasEntreEscalas\(noAr, atribuicoes\)/);
   assert.match(modal, /<QuemVePlantaoPainel/);
 });
+
+test('ESCALA-PLANTAO-4 — calendário com "Ver" / "Ajustar plantões" e dica; "⋯" mostra a versão no ar', async () => {
+  const [dashboard, pagina] = await Promise.all([ler('apps/dashboard/src/DashboardApp.tsx'), ler('apps/dashboard/src/EscalaPlantaoPage.tsx')]);
+  assert.doesNotMatch(dashboard, /Edição \(arrastar\)/);
+  assert.match(dashboard, /Ajustar plantões/);
+  assert.match(dashboard, /o rascunho é salvo sozinho/);
+  assert.match(pagina, /aria-label="Detalhes da versão"/);
+  assert.match(pagina, /Versão \{competencia\.revisao\}/);
+});
