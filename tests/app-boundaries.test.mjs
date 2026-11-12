@@ -1132,6 +1132,7 @@ test('ESCALA-PLANTAO-4 — calendário com "Ver" / "Ajustar plantões" e dica; "
 
 test('COORD-PREVISAO-DIREITA-1 — no celular a previsão do turno fica à direita das pessoas, na mesma linha', async () => {
   const css = await ler('app/globals.css');
-  assert.match(css, /grid-template-areas:\s*"chip nome nome"\s*"pessoas pessoas tempo";/);
-  assert.match(css, /\.coord-turnos \.coord-turno > \.tempo-dia \{ grid-area: tempo;/);
+  // COORD-TURNO-CARD-2 — chip em coluna fixa; previsão no canto direito, na altura do nome; pessoas alinhadas com o nome.
+  assert.match(css, /grid-template-columns: 42px minmax\(0, 1fr\) auto;\s*grid-template-areas:\s*"chip nome tempo"\s*"chip pessoas pessoas";/);
+  assert.match(css, /\.coord-turnos \.coord-turno > \.tempo-dia \{\s*grid-area: tempo;/);
 });
