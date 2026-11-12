@@ -11,6 +11,11 @@ Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.7.5 — cards dos turnos organizados no celular
+- Hoje da coordenação, no celular: todos os cards de turno com o mesmo
+  desenho — chip de tamanho fixo à esquerda, nome e horário ao lado, pessoas
+  logo abaixo alinhadas com o nome e a previsão no canto direito.
+
 ## 3.7.4 — previsão do tempo ao lado das pessoas
 - Hoje da coordenação, no celular: a previsão de cada turno fica à direita,
   na mesma linha das pessoas (antes descia para baixo dos nomes).

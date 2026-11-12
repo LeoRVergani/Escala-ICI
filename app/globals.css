@@ -9842,3 +9842,47 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
   .coord-turnos .coord-turno > .coord-turno-pessoas { grid-area: pessoas; grid-column: auto; }
   .coord-turnos .coord-turno > .tempo-dia { grid-area: tempo; align-self: center; justify-self: end; }
 }
+
+/* =====================================================================
+ * COORD-TURNO-CARD-2 — celular: card do turno organizado e igual em todos.
+ *   [chip fixo]  Nome do turno            ☁ 16° 💧65%
+ *                01:00 - 07:00
+ *                (IC) Ivan  (AL) Aleister
+ * O chip tinha largura variável (dividia a coluna com a linha de pessoas);
+ * agora a coluna é fixa e as pessoas alinham com o nome.
+ * ===================================================================== */
+@media (max-width: 720px) {
+  .coord-turnos .coord-turno {
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "chip nome tempo"
+      "chip pessoas pessoas";
+    align-items: start;
+    column-gap: 10px;
+    row-gap: 8px;
+    padding: 12px;
+  }
+  .coord-turnos .coord-turno > .shift-chip {
+    grid-area: chip;
+    justify-self: start;
+    display: inline-grid;
+    place-items: center;
+    width: 42px;
+    min-width: 0;
+    height: 30px;
+    padding: 0;
+    font-size: 11px;
+  }
+  .coord-turnos .coord-turno > .coord-turno-nome { grid-area: nome; align-self: center; }
+  .coord-turnos .coord-turno > .coord-turno-nome strong { font-size: 14.5px; }
+  .coord-turnos .coord-turno > .coord-turno-pessoas { grid-area: pessoas; grid-column: auto; }
+  .coord-turnos .coord-turno > .tempo-dia {
+    grid-area: tempo;
+    align-self: start;
+    justify-self: end;
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: var(--surface);
+    white-space: nowrap;
+  }
+}
