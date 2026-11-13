@@ -83,7 +83,7 @@ test('9. "Administração" oferece a sub-navegação Equipes/Plantões (ADMIN-EQ
   const ocorrencias = dashboard.match(/function AdministracaoSubnav\(/gu) ?? [];
   assert.equal(ocorrencias.length, 1, 'só pode existir UM componente de sub-navegação de Administração — nunca uma segunda sidebar');
   const usos = dashboard.match(/<AdministracaoSubnav\b/gu) ?? [];
-  assert.equal(usos.length, 5, 'a sub-navegação precisa ser usada em Equipes, Plantões (cartões e tela completa), Organização e Responsáveis por escala');
+  assert.equal(usos.length, 7, 'a sub-navegação precisa ser usada em Equipes, Plantões (cartões e tela completa), Coordenações, Conferência (ADMIN-LOTE4), Organização e Responsáveis por escala');
   assert.match(dashboard, /Responsáveis por escala/u, 'a terceira aba administrativa precisa existir');
 });
 
