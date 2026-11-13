@@ -1,5 +1,8 @@
 'use client';
 
+import { AdminCoordenacoesPage } from './AdminCoordenacoesPage';
+import { AdminConferenciaPage } from './AdminConferenciaPage';
+import { conferirAdministracao } from '@/lib/conferenciaAdministracao';
 import { MenuAcoes } from './MenuAcoes';
 import { rotuloCurtoStatusOperacaoDashboard, tomStatusOperacaoDashboard } from '@/lib/operacoesDashboard';
 import { ConfirmarPublicacaoPlantao } from './ConfirmarPublicacaoPlantao';
@@ -82,6 +85,7 @@ import {
   X,
   ChevronLeft,
   MoreHorizontal,
+  ChevronDown,
 } from 'lucide-react';
 import { ChangeEvent, DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
@@ -2851,52 +2855,53 @@ function ModalLembretesAtribuidos({
  * dentro da sidebar. A aba "Grupos de Plantão" só aparece para quem já
  * podia acessar a antiga tela "Plantões" (`podeAcessarPlantoes`).
  */
+type AbaAdministracao = 'equipes' | 'plantao' | 'coordenacoes' | 'conferencia' | 'organizacao' | 'responsaveis';
+
+/**
+ * ADMIN-LOTE4 — abas da Administração: Equipes, Plantões, Coordenações e
+ * Conferência à vista; as telas antigas (Organização, Responsáveis por
+ * escala) ficam em "Avançado", até não fazerem mais falta.
+ */
 function AdministracaoSubnav({
   aba,
   podeAcessarPlantoes,
   onEscolherAba,
 }: {
-  aba: 'equipes' | 'organizacao' | 'plantao' | 'responsaveis';
+  aba: AbaAdministracao;
   podeAcessarPlantoes: boolean;
-  onEscolherAba: (aba: 'equipes' | 'organizacao' | 'plantao' | 'responsaveis') => void;
+  onEscolherAba: (aba: AbaAdministracao) => void;
 }) {
+  const principais: Array<[AbaAdministracao, string]> = [
+    ['equipes', 'Equipes'],
+    ...(podeAcessarPlantoes ? [['plantao', 'Plantões'] as [AbaAdministracao, string]] : []),
+    ['coordenacoes', 'Coordenações'],
+    ['conferencia', 'Conferência'],
+  ];
+  const avancadaAtiva = aba === 'organizacao' || aba === 'responsaveis';
   return (
-    <div className="segmented-control administracao-subnav" aria-label="Áreas de Administração">
-      {/* ADMIN-EQUIPES-1 — Equipes é a primeira aba (e a que abre por padrão). */}
-      <button
-        type="button"
-        aria-current={aba === 'equipes' ? 'page' : undefined}
-        className={aba === 'equipes' ? 'active' : ''}
-        onClick={() => onEscolherAba('equipes')}
-      >
-        Equipes
-      </button>
-      <button
-        type="button"
-        aria-current={aba === 'organizacao' ? 'page' : undefined}
-        className={aba === 'organizacao' ? 'active' : ''}
-        onClick={() => onEscolherAba('organizacao')}
-      >
-        Organização
-      </button>
-      {podeAcessarPlantoes && (
-        <button
-          type="button"
-          aria-current={aba === 'plantao' ? 'page' : undefined}
-          className={aba === 'plantao' ? 'active' : ''}
-          onClick={() => onEscolherAba('plantao')}
-        >
-          Plantões
-        </button>
-      )}
-      <button
-        type="button"
-        aria-current={aba === 'responsaveis' ? 'page' : undefined}
-        className={aba === 'responsaveis' ? 'active' : ''}
-        onClick={() => onEscolherAba('responsaveis')}
-      >
-        Responsáveis por escala
-      </button>
+    <div className="administracao-subnav-linha">
+      <div className="segmented-control administracao-subnav" aria-label="Áreas de Administração">
+        {principais.map(([valor, rotulo]) => (
+          <button key={valor} type="button" aria-current={aba === valor ? 'page' : undefined} className={aba === valor ? 'active' : ''}
+            onClick={() => onEscolherAba(valor)}>
+            {rotulo}
+          </button>
+        ))}
+        {avancadaAtiva && (
+          <button type="button" aria-current="page" className="active">
+            {aba === 'organizacao' ? 'Organização' : 'Responsáveis por escala'}
+          </button>
+        )}
+      </div>
+      <MenuAcoes
+        rotulo="Telas avançadas"
+        classeBotao="text-button administracao-avancado"
+        conteudoBotao={<>Avançado <ChevronDown size={14} aria-hidden="true" /></>}
+        itens={[
+          { rotulo: 'Organização (árvore)', executar: () => onEscolherAba('organizacao') },
+          { rotulo: 'Responsáveis por escala', executar: () => onEscolherAba('responsaveis') },
+        ]}
+      />
     </div>
   );
 }
@@ -4010,12 +4015,12 @@ export function DashboardApp() {
   const [erroExclusaoUsuario, setErroExclusaoUsuario] = useState('');
   const [filtroEquipeTelaUsuarios, setFiltroEquipeTelaUsuarios] = useState('');
   /** ADMIN-EQUIPES-1 — aba interna da tela "administracao": Equipes (padrão) ou a Organização antiga. */
-  const [abaAdministracao, setAbaAdministracao] = useState<'equipes' | 'organizacao'>('equipes');
+  const [abaAdministracao, setAbaAdministracao] = useState<'equipes' | 'organizacao' | 'coordenacoes' | 'conferencia'>('equipes');
   /** ADMIN-PLANTOES-1 — Plantões: cartões (padrão) ou a tela completa (plantonistas, contatos, escala). */
   const [abaPlantoesAdmin, setAbaPlantoesAdmin] = useState<'resumo' | 'completa'>('resumo');
   const [criandoPlantaoAdmin, setCriandoPlantaoAdmin] = useState(false);
-  function escolherAbaAdministracao(aba: 'equipes' | 'organizacao' | 'plantao' | 'responsaveis') {
-    if (aba === 'equipes' || aba === 'organizacao') {
+  function escolherAbaAdministracao(aba: AbaAdministracao) {
+    if (aba === 'equipes' || aba === 'organizacao' || aba === 'coordenacoes' || aba === 'conferencia') {
       setAbaAdministracao(aba);
       setTela('administracao');
       return;
@@ -12380,6 +12385,45 @@ export function DashboardApp() {
             } as EscopoOperacional;
             await salvarEscopoOperacional(escopo);
             setEscoposOperacionaisAdmin((atuais) => [...atuais.filter((item) => !(item.tipo === 'JORNADA' && item.alvoId === equipe.id)), escopo]);
+          }}
+        />
+      )}
+      {/* ADMIN-COORDENACOES-1 — a organização em lista. */}
+      {tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'coordenacoes' && usuarioReal && (
+        <AdminCoordenacoesPage
+          unidades={unidadesAdmin}
+          equipes={equipesAdmin}
+          grupos={gruposPlantaoAdmin}
+          autorLogin={usuarioReal.login}
+          subnav={<AdministracaoSubnav aba="coordenacoes" podeAcessarPlantoes={podeAcessarPlantoes} onEscolherAba={escolherAbaAdministracao} />}
+          onSalvar={async (unidade) => {
+            await salvarUnidadeOrganizacional(unidade);
+            setUnidadesAdmin((atuais) => [...atuais.filter((item) => item.unidadeId !== unidade.unidadeId), unidade]);
+          }}
+        />
+      )}
+      {/* ADMIN-CONFERENCIA-1 — o que está inconsistente, com a correção ao lado. */}
+      {tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'conferencia' && usuarioReal && (
+        <AdminConferenciaPage
+          problemas={conferirAdministracao({ equipes: equipesAdmin, grupos: gruposPlantaoAdmin, escopos: escoposOperacionaisAdmin, usuarios: todosUsuariosAdmin })}
+          subnav={<AdministracaoSubnav aba="conferencia" podeAcessarPlantoes={podeAcessarPlantoes} onEscolherAba={escolherAbaAdministracao} />}
+          onAcao={async (acao) => {
+            if (acao.tipo === 'IR') {
+              if (acao.destino === 'colaboradores') setTela('colaboradores');
+              else escolherAbaAdministracao(acao.destino === 'plantoes' ? 'plantao' : 'equipes');
+              return;
+            }
+            const agora = new Date().toISOString();
+            const atualizado = {
+              ...acao.escopo,
+              ...(acao.tipo === 'DESATIVAR_VINCULO'
+                ? { ativo: false }
+                : { responsaveisLogin: acao.escopo.responsaveisLogin.filter((login) => login !== acao.login) }),
+              atualizadoEm: agora,
+              atualizadoPorLogin: usuarioReal.login,
+            } as EscopoOperacional;
+            await salvarEscopoOperacional(atualizado);
+            setEscoposOperacionaisAdmin((atuais) => atuais.map((item) => (item.tipo === atualizado.tipo && item.alvoId === atualizado.alvoId ? atualizado : item)));
           }}
         />
       )}

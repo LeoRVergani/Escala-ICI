@@ -1029,7 +1029,7 @@ test('ADMIN-EQUIPES-1 — Administração abre em Equipes; Organização antiga 
     ler('apps/dashboard/src/DashboardApp.tsx'),
     ler('apps/dashboard/src/AdminEquipesPage.tsx'),
   ]);
-  assert.match(dashboard, /useState<'equipes' \| 'organizacao'>\('equipes'\)/);
+  assert.match(dashboard, /useState<'equipes' \| 'organizacao' \| 'coordenacoes' \| 'conferencia'>\('equipes'\)/);
   assert.match(dashboard, /tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'equipes' && usuarioReal && \(\s*<AdminEquipesPage/);
   assert.match(dashboard, /tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'organizacao' && \(/);
   // A liderança da equipe é o responsável da Matriz JORNADA (o que o banco já usa).
@@ -1169,4 +1169,16 @@ test('DASHBOARD-LOTE3 — linguagem simples, "Descartar rascunho" no "⋯" e dem
   assert.match(dashboard, /rotulo: 'Descartar rascunho',[\s\S]{0,160}perigo: true,/);
   assert.match(pessoas, /if \(pessoasDemo\) return undefined;/);
   assert.match(plantoes, /if \(gruposDemo\) return undefined;/);
+});
+
+test('ADMIN-LOTE4 — Coordenações em lista, Conferência com correção, e as telas antigas em "Avançado"', async () => {
+  const [dashboard, conferencia] = await Promise.all([ler('apps/dashboard/src/DashboardApp.tsx'), ler('lib/conferenciaAdministracao.ts')]);
+  assert.match(dashboard, /abaAdministracao === 'coordenacoes' && usuarioReal && \(\s*<AdminCoordenacoesPage/);
+  assert.match(dashboard, /abaAdministracao === 'conferencia' && usuarioReal && \(\s*<AdminConferenciaPage/);
+  // As telas antigas continuam acessíveis (em "Avançado"), não foram removidas.
+  assert.match(dashboard, /rotulo: 'Organização \(árvore\)', executar: \(\) => onEscolherAba\('organizacao'\)/);
+  assert.match(dashboard, /rotulo: 'Responsáveis por escala', executar: \(\) => onEscolherAba\('responsaveis'\)/);
+  // Conferência é função pura (sem banco) e as correções de um clique só mexem no vínculo de responsável.
+  assert.doesNotMatch(conferencia, /firebase/);
+  assert.match(dashboard, /acao\.tipo === 'DESATIVAR_VINCULO'\s*\? \{ ativo: false \}/);
 });
