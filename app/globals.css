@@ -10175,3 +10175,75 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 
 /* REGRAS-ESCALA-1 — listas do detalhe com marcadores. */
 .regra-explicacoes { list-style: disc; }
+
+/* =====================================================================
+ * REGRAS-ESCALA-2 — "Problemas desta escala", célula marcada e a prévia
+ * antes de confirmar uma mudança.
+ * ===================================================================== */
+.problemas-escala {
+  display: grid; gap: 12px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
+  border-radius: 18px; background: color-mix(in srgb, var(--warning) 5%, var(--surface));
+}
+.problemas-escala > * { margin: 0; }
+.problemas-escala-ok { display: flex; align-items: center; gap: 10px; border-color: color-mix(in srgb, #10b981 40%, var(--border)); background: color-mix(in srgb, #10b981 6%, var(--surface)); color: var(--muted); font-size: 13.5px; }
+.problemas-escala-ok > svg { flex: 0 0 auto; color: #10b981; }
+.problemas-escala-ok strong { color: var(--text); }
+.problemas-escala-cabecalho { display: flex; align-items: center; gap: 12px; }
+.problemas-escala-cabecalho > div { flex: 1 1 auto; min-width: 0; }
+.problemas-escala-cabecalho h2 { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text); font-size: 16px; font-weight: 800; }
+.problemas-escala-cabecalho p { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 0; }
+.problemas-escala-icone { display: inline-grid; flex: 0 0 auto; place-items: center; width: 38px; height: 38px; border-radius: 11px; background: color-mix(in srgb, var(--warning) 18%, var(--surface)); color: var(--warning); }
+.problemas-escala-total { padding: 1px 9px; border-radius: 999px; background: var(--warning); color: #fff; font-size: 12px; font-weight: 800; }
+.problemas-escala-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; background: var(--surface-muted); color: var(--muted); font-size: 11.5px; font-weight: 800; }
+.problemas-escala-chip[data-gravidade="CRITICO"], .problemas-escala-chip[data-gravidade="BLOQUEIA"] { background: color-mix(in srgb, var(--danger) 15%, var(--surface)); color: var(--danger); }
+.problemas-escala-chip[data-gravidade="AVISO"] { background: color-mix(in srgb, #f59e0b 18%, var(--surface)); color: #b45309; }
+[data-theme="dark"] .problemas-escala-chip[data-gravidade="AVISO"] { color: #fbbf24; }
+.problemas-escala-corpo { display: grid; gap: 12px; max-height: 360px; overflow-y: auto; }
+.problemas-escala-pessoa { display: grid; gap: 6px; }
+.problemas-escala-pessoa-titulo { display: flex; align-items: center; gap: 9px; }
+.problemas-escala-pessoa-titulo strong { color: var(--text); font-size: 14px; }
+.problemas-escala-pessoa-titulo small { color: var(--muted); font-size: 12px; }
+.problemas-escala-avatar { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: color-mix(in srgb, var(--primary-bright) 18%, var(--surface)); color: var(--primary-bright); font-size: 10.5px; font-weight: 800; }
+.problemas-escala-pessoa > ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.problemas-escala-pessoa li {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-left-width: 4px; border-radius: 12px; background: var(--surface);
+}
+.problemas-escala-pessoa li[data-gravidade="AVISO"] { border-left-color: var(--warning); }
+.problemas-escala-pessoa li[data-gravidade="CRITICO"] { border-left-color: var(--danger); }
+.problemas-escala-pessoa li[data-gravidade="INFO"] { border-left-color: var(--primary-bright); }
+.problemas-escala-dia { flex: 0 0 auto; padding: 3px 9px; border-radius: 8px; background: var(--surface-muted); color: var(--text); font-size: 12px; font-weight: 800; }
+.problemas-escala-texto { display: grid; flex: 1 1 auto; gap: 2px; min-width: 0; }
+.problemas-escala-texto strong { color: var(--text); font-size: 13px; font-weight: 700; line-height: 1.4; }
+.problemas-escala-texto small { color: var(--muted); font-size: 11.5px; }
+.problemas-escala-pessoa li > button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; white-space: nowrap; }
+
+/* célula da grade que as regras apontam (cor pela gravidade) */
+.soc-import-review-cell.com-problema { outline: 2px solid var(--warning); outline-offset: -2px; }
+.soc-import-review-cell.com-problema[data-problema="CRITICO"] { outline-color: var(--danger); }
+.soc-import-review-cell.com-problema[data-problema="INFO"] { outline-color: var(--primary-bright); }
+
+/* prévia: a mudança escolhida cria problemas */
+.alteracao-problemas { display: grid; gap: 12px; width: min(520px, calc(100vw - 32px)); }
+.alteracao-problemas > * { margin: 0; }
+.alteracao-problemas-icone { background: color-mix(in srgb, var(--warning) 18%, var(--surface)) !important; color: var(--warning) !important; }
+.alteracao-problemas-lista { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.alteracao-problemas-lista > li { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-left: 4px solid var(--warning); border-radius: 12px; background: var(--surface-muted); }
+.alteracao-problemas-lista > li[data-gravidade="CRITICO"] { border-left-color: var(--danger); }
+.alteracao-problemas-lista strong { color: var(--text); font-size: 13.5px; line-height: 1.4; }
+.alteracao-problemas-lista small { color: var(--muted); font-size: 12px; }
+.alteracao-problemas-resolve, .alteracao-problemas-bloqueia { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; }
+.alteracao-problemas-resolve { color: #059669; }
+.alteracao-problemas-bloqueia { color: var(--danger); }
+@media (max-width: 720px) {
+  .problemas-escala-pessoa li { flex-wrap: wrap; }
+  .problemas-escala-pessoa li > button { width: 100%; justify-content: center; }
+}
+
+/* REGRAS-ESCALA-2 — ScheduleGrid: célula que as regras apontam e "Ver na escala" (pulsa e some sozinho). */
+.shift-chip.com-problema { outline: 2px solid var(--warning); outline-offset: 1px; }
+.shift-chip.com-problema[data-problema="CRITICO"] { outline-color: var(--danger); }
+.shift-chip.com-problema[data-problema="INFO"] { outline-color: var(--primary-bright); }
+.shift-chip.em-foco-problema { animation: foco-problema 1.2s ease-in-out 4; box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-bright) 45%, transparent); }
+@keyframes foco-problema { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+@media (prefers-reduced-motion: reduce) { .shift-chip.em-foco-problema { animation: none; } }
+.modal-backdrop.modal-backdrop-alto { z-index: 220; } /* acima do .modal-backdrop (200) da edição de célula */

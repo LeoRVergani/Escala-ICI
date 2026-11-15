@@ -10,6 +10,7 @@ import {
   type TurnosMes,
 } from '@escala-ici/contrato';
 import { AlertTriangle, UserMinus } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 import {
   LIMITE_DIAS_CONSECUTIVOS_TRABALHO,
@@ -18,6 +19,7 @@ import {
 } from '@/lib/alertasEscala';
 import { agruparGradePorPeriodo } from '@/lib/gradeMembros';
 import type { Usuario } from '@/lib/modelos';
+import type { ProblemaCelula } from '@/lib/regrasEscala';
 
 interface ScheduleGridProps {
   documentos: TurnosMes[];
@@ -28,6 +30,10 @@ interface ScheduleGridProps {
   onRemover?: (documento: TurnosMes) => void;
   agruparPorPeriodo?: boolean;
   indiceAlertas?: Map<string, IndicadorCelulaAlerta>;
+  /** REGRAS-ESCALA-2 — mensagem da regra por célula; quando informada, substitui os avisos com número fixo. */
+  problemasPorCelula?: Map<string, ProblemaCelula>;
+  /** REGRAS-ESCALA-2 — célula a destacar e rolar até ela ("Ver na escala"); `nonce` repete o mesmo pedido. */
+  focoProblema?: { chave: string; nonce: number } | null;
   compacta?: boolean;
   avisoDivergencia?: boolean;
 }
@@ -80,9 +86,19 @@ export function ScheduleGrid({
   onRemover,
   agruparPorPeriodo = false,
   indiceAlertas,
+  problemasPorCelula,
+  focoProblema,
   compacta = false,
   avisoDivergencia = true,
 }: ScheduleGridProps) {
+  const celulasRef = useRef<Record<string, HTMLButtonElement | null>>({});
+  // REGRAS-ESCALA-2 — "Ver na escala": só rola até a célula e a foca (o destaque vem da propriedade).
+  useEffect(() => {
+    if (!focoProblema) return;
+    const celula = celulasRef.current[focoProblema.chave];
+    celula?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    celula?.focus({ preventScroll: true });
+  }, [focoProblema]);
   const documentosFiltrados = documentos.filter(
     (documento) => filtroTurno === 'TODOS' || documento.turnoPadrao === filtroTurno,
   );
@@ -130,7 +146,12 @@ export function ScheduleGrid({
             && indicador.sequencia > LIMITE_DIAS_CONSECUTIVOS_TRABALHO
             ? indicador.sequencia
             : null;
-          const avisos = [
+          const chaveCelula = chaveIndicadorCelula(documento.usuarioUid, data);
+          const problemaRegra = problemasPorCelula?.get(chaveCelula);
+          const emFocoProblema = focoProblema?.chave === chaveCelula;
+          const avisos = problemasPorCelula !== undefined
+            ? (problemaRegra?.mensagens ?? [])
+            : [
             sequenciaCritica !== null
               ? `${sequenciaCritica}º dia consecutivo de trabalho`
               : null,
@@ -148,7 +169,9 @@ export function ScheduleGrid({
             <td key={data}>
               <button
                 type="button"
-                className={`shift-chip ${dia ? '' : 'shift-chip-vazio'}`}
+                ref={(elemento) => { celulasRef.current[chaveCelula] = elemento; }}
+                className={`shift-chip ${dia ? '' : 'shift-chip-vazio'}${problemaRegra ? ' com-problema' : ''}${emFocoProblema ? ' em-foco-problema' : ''}`}
+                data-problema={problemaRegra?.gravidade}
                 data-code={codigoPeriodoDia(dia)}
                 data-hora-extra={dia?.t !== undefined ? '' : undefined}
                 title={dia

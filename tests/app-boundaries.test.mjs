@@ -1200,7 +1200,7 @@ test('REGRAS-ESCALA-1 — painel de regras usa o motor novo; regras padrão sem 
   const [dashboard, painel, motor, padrao] = await Promise.all([
     ler('apps/dashboard/src/DashboardApp.tsx'), ler('apps/dashboard/src/AdminRegrasPage.tsx'), ler('lib/regrasEscala.ts'), ler('lib/regrasPadrao.ts'),
   ]);
-  assert.match(dashboard, /abaAdministracao === 'regras' && usuarioReal && \(\s*<AdminRegrasPage\s*regras=\{REGRAS_PADRAO\}/);
+  assert.match(dashboard, /abaAdministracao === 'regras' && usuarioReal && \(\s*<AdminRegrasPage\s*regras=\{REGRAS_EM_VIGOR\}/);
   assert.match(painel, /avaliarRegras\(documentos, catalogo, regras, \{ nomePorLogin \}\)/);
   // O motor é puro: nada de Firebase nem React; o interpretador nunca executa código (sem eval/Function).
   assert.doesNotMatch(motor, /firebase|from 'react'|\beval\(|new Function/u);
@@ -1209,4 +1209,28 @@ test('REGRAS-ESCALA-1 — painel de regras usa o motor novo; regras padrão sem 
   // Os valores vêm das MESMAS constantes do motor antigo (a equivalência é testada em lib/regrasEscala.test.ts).
   assert.match(padrao, /LIMITE_DIAS_CONSECUTIVOS_TRABALHO/);
   assert.match(padrao, /MINIMO_DESCANSO_APOS_FOLGA_HORAS/);
+});
+
+test('REGRAS-ESCALA-2 — problemas da escala: painel por pessoa, célula marcada, "Ver na escala" e prévia antes de confirmar', async () => {
+  const [dashboard, revisao, grade, painel] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'), ler('components/ScheduleImportReview.tsx'), ler('components/ScheduleGrid.tsx'), ler('apps/dashboard/src/PainelProblemasEscala.tsx'),
+  ]);
+  // Um único ponto para trocar as regras em vigor; o motor novo alimenta painel, células e prévia.
+  assert.match(dashboard, /const REGRAS_EM_VIGOR = REGRAS_PADRAO;/);
+  assert.match(dashboard, /avaliarRegras\(documentos, catalogo, REGRAS_EM_VIGOR, \{ nomePorLogin: nomePorLoginRegras \}\)/);
+  // As TRÊS telas de grade recebem as mensagens das regras (nenhuma ficou com texto de limite fixo).
+  assert.equal((dashboard.match(/problemasPorCelula=\{problemasPorCelula\}/g) ?? []).length, 3);
+  assert.equal((dashboard.match(/<PainelProblemasEscala alertas=\{problemasDaEscala\}/g) ?? []).length, 3, 'painel nas duas revisões e na Grade da equipe (ScheduleGrid)');
+  // Prévia: o modal de escolha chama solicitarEdicaoCelula; só "Aplicar mesmo assim" chama editarCelula depois do aviso.
+  assert.match(dashboard, /onClick=\{\(\) => solicitarEdicaoCelula\(tipo\.codigo, turno\.codigo\)\}/);
+  assert.match(dashboard, /const \{ novos, resolvidos \} = diferencaDeProblemas\(antes, depois\);/);
+  assert.match(dashboard, /Aplicar mesmo assim/);
+  // editarCelula e a prévia usam o MESMO cálculo (o que se mostra é o que será aplicado).
+  assert.equal((dashboard.match(/montarEdicaoCelula\(codigo, turnoHoraExtra\)/g) ?? []).length, 2);
+  // O texto de limite fixo só sobrevive como reserva quando as regras não foram informadas.
+  assert.match(revisao, /sequenciaCritica && problemasPorCelula === undefined/);
+  assert.match(grade, /const avisos = problemasPorCelula !== undefined/);
+  // Foco por propriedade (sem setState em efeito): o efeito só rola até a célula.
+  assert.match(revisao, /celula\?\.scrollIntoView\(\{ behavior: 'smooth', block: 'center', inline: 'center' \}\);/);
+  assert.match(painel, /onVerNaEscala\(alerta\)/);
 });
