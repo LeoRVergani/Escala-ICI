@@ -1182,3 +1182,16 @@ test('ADMIN-LOTE4 — Coordenações em lista, Conferência com correção, e as
   assert.doesNotMatch(conferencia, /firebase/);
   assert.match(dashboard, /acao\.tipo === 'DESATIVAR_VINCULO'\s*\? \{ ativo: false \}/);
 });
+
+test('EQUIPE-DE-PLANTAO-1 — equipe de Plantão não é equipe 6x1: sem "Definir liderança", Conferência só com critério seguro, script só toca quem nunca teve 6x1', async () => {
+  const [equipes, dashboard, script] = await Promise.all([
+    ler('apps/dashboard/src/AdminEquipesPage.tsx'), ler('apps/dashboard/src/DashboardApp.tsx'), ler('scripts/staging/corrigir-equipe-de-plantao.mjs'),
+  ]);
+  assert.match(equipes, /const semLideranca = \(equipe: Equipe\) => daPlantao\(equipe\) === null && /);
+  assert.match(equipes, /\{plantao \? \(\s*<span className="admin-equipe-plantao-nota"/);
+  assert.match(dashboard, /resumo !== undefined && resumo\.rascunhos\.length === 0 && resumo\.publicadas\.length === 0/);
+  // O script desativa (nunca apaga) e só quando não há escala 6x1 nenhuma.
+  assert.match(script, /const corrigiveis = candidatos\.filter\(\(item\) => !item\.temEscala6x1\);/);
+  assert.match(script, /lote\.update\(item\.ref, \{ ativo: false,/);
+  assert.doesNotMatch(script, /\.delete\(/);
+});

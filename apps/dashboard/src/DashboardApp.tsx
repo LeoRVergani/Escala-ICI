@@ -12360,6 +12360,7 @@ export function DashboardApp() {
       {tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'equipes' && usuarioReal && (
         <AdminEquipesPage
           equipes={equipesAdmin}
+          grupos={gruposPlantaoAdmin}
           unidades={unidadesAdmin}
           escopos={escoposOperacionaisAdmin}
           usuarios={todosUsuariosAdmin}
@@ -12405,7 +12406,14 @@ export function DashboardApp() {
       {/* ADMIN-CONFERENCIA-1 — o que está inconsistente, com a correção ao lado. */}
       {tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'conferencia' && usuarioReal && (
         <AdminConferenciaPage
-          problemas={conferirAdministracao({ equipes: equipesAdmin, grupos: gruposPlantaoAdmin, escopos: escoposOperacionaisAdmin, usuarios: todosUsuariosAdmin })}
+          problemas={conferirAdministracao({
+            equipes: equipesAdmin, grupos: gruposPlantaoAdmin, escopos: escoposOperacionaisAdmin, usuarios: todosUsuariosAdmin,
+            // só equipes cujo resumo do mês JÁ carregou e veio vazio (resumo ausente = não sabemos = não aponta)
+            equipesSemEscala6x1: new Set(equipesAdmin.filter((equipe) => {
+              const resumo = resumosJornadaDashboard[`${equipe.id}:${competenciaDashboard}`];
+              return resumo !== undefined && resumo.rascunhos.length === 0 && resumo.publicadas.length === 0;
+            }).map((equipe) => equipe.id)),
+          })}
           subnav={<AdministracaoSubnav aba="conferencia" podeAcessarPlantoes={podeAcessarPlantoes} onEscolherAba={escolherAbaAdministracao} />}
           onAcao={async (acao) => {
             if (acao.tipo === 'IR') {

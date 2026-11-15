@@ -21,6 +21,15 @@ export interface ProblemaConferencia {
   acao: AcaoConferencia;
 }
 
+/**
+ * EQUIPE-DE-PLANTAO-1 — a equipe que é a responsável de um Plantão ativo é a
+ * "equipe do Plantão" (guarda os plantonistas), não uma equipe 6x1 — mesma
+ * regra da tela antiga de Organização ("Plantão · X" x "Jornada 6x1").
+ */
+export function plantaoDaEquipe(equipeId: string, grupos: readonly GrupoPlantao[]): GrupoPlantao | null {
+  return grupos.find((grupo) => grupo.ativo && grupo.equipeResponsavelId === equipeId) ?? null;
+}
+
 function escopoAtivo(escopos: readonly EscopoOperacional[], tipo: 'JORNADA' | 'PLANTAO', alvoId: string) {
   return escopos.find((escopo) => escopo.tipo === tipo && escopo.alvoId === alvoId && escopo.ativo !== false) ?? null;
 }
@@ -30,6 +39,12 @@ export function conferirAdministracao(dados: {
   grupos: readonly GrupoPlantao[];
   escopos: readonly EscopoOperacional[];
   usuarios: readonly Usuario[];
+  /**
+   * Equipes que o Dashboard SABE que não têm escala 6x1 no mês. Só para elas a
+   * conferência aponta "equipe de Plantão com 6x1 configurada" — uma equipe 6x1 de
+   * verdade que também tem um Plantão (caso legítimo) nunca recebe essa sugestão.
+   */
+  equipesSemEscala6x1?: ReadonlySet<string>;
 }): ProblemaConferencia[] {
   const problemas: ProblemaConferencia[] = [];
   const equipePorId = new Map(dados.equipes.map((equipe) => [equipe.id, equipe]));
@@ -41,6 +56,18 @@ export function conferirAdministracao(dados: {
 
   for (const equipe of dados.equipes.filter((item) => item.ativa !== false)) {
     const escopo = escopoAtivo(dados.escopos, 'JORNADA', equipe.id);
+    const plantao = plantaoDaEquipe(equipe.id, dados.grupos);
+    if (plantao) {
+      // Equipe de Plantão não precisa de liderança 6x1 (o responsável é o do Plantão). Se TEM
+      // escala 6x1 configurada, ela aparece duplicada (como equipe 6x1 e como Plantão): oferece desfazer.
+      if (escopo && dados.equipesSemEscala6x1?.has(equipe.id)) {
+        problemas.push({ chave: `plantao-com-6x1-${equipe.id}`, gravidade: 'media',
+          titulo: `${equipe.nome} é a equipe de um Plantão e também tem escala 6x1 configurada`,
+          detalhe: `Ela não tem nenhuma escala 6x1 neste mês, mas aparece duas vezes (como equipe 6x1 e como ${plantao.nome}). Se ela só faz Plantão, desative a escala 6x1 dela.`,
+          rotuloAcao: 'Desativar escala 6x1', acao: { tipo: 'DESATIVAR_VINCULO', escopo } });
+      }
+      continue;
+    }
     if (!escopo || escopo.responsaveisLogin.length === 0) {
       problemas.push({ chave: `sem-lideranca-${equipe.id}`, gravidade: 'alta', titulo: `${equipe.nome} está sem liderança`,
         detalhe: 'Ninguém cuida da escala desta equipe: não dá para publicar nem aprovar trocas.',

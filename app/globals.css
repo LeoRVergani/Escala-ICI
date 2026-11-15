@@ -10063,3 +10063,12 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
   .conferencia-lista > li { flex-wrap: wrap; }
   .conferencia-lista > li > button { width: 100%; justify-content: center; }
 }
+
+/* EQUIPE-DE-PLANTAO-1 — nota no lugar do botão de liderança, na equipe de um Plantão. */
+.admin-equipe-plantao-nota { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.admin-equipe-plantao-nota > svg { color: #818cf8; }
+
+/* EQUIPE-DE-PLANTAO-1 — cartões de equipe: conteúdo sempre no topo (não se espalha ao igualar a altura do vizinho). */
+.admin-equipe-cartao { align-content: start; }
+.admin-equipe-acoes { flex-wrap: nowrap; }
+.admin-equipe-acoes > .admin-equipe-plantao-nota { flex: 1 1 auto; min-width: 0; }
