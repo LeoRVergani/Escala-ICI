@@ -1,6 +1,9 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, Building2, CheckCircle2, Crown, Pencil, Power, Search, Users, X } from 'lucide-react';
+import { AlertTriangle, Building2, CheckCircle2, Crown, Pencil, Power, Radio, Search, Users, X } from 'lucide-react';
 
+import type { GrupoPlantao } from '@escala-ici/contrato';
+
+import { plantaoDaEquipe } from '@/lib/conferenciaAdministracao';
 import { ehLideranca } from '@/lib/liderancas';
 import type { Equipe, EscopoOperacional, UnidadeOrganizacional, Usuario } from '@/lib/modelos';
 
@@ -22,9 +25,11 @@ export function responsaveisDaEquipe(equipeId: string, escopos: readonly EscopoO
 }
 
 export function AdminEquipesPage({
-  equipes, unidades, escopos, usuarios, subnav, onSalvarEquipe, onDefinirLideranca,
+  equipes, grupos, unidades, escopos, usuarios, subnav, onSalvarEquipe, onDefinirLideranca,
 }: {
   equipes: readonly Equipe[];
+  /** EQUIPE-DE-PLANTAO-1 — a equipe de um Plantão não é equipe 6x1: não tem "liderança", tem o responsável do Plantão. */
+  grupos: readonly GrupoPlantao[];
   unidades: readonly UnidadeOrganizacional[];
   escopos: readonly EscopoOperacional[];
   usuarios: readonly Usuario[];
@@ -46,7 +51,8 @@ export function AdminEquipesPage({
     for (const usuario of usuarios) if (usuario.ativo !== false && usuario.equipeId) mapa.set(usuario.equipeId, (mapa.get(usuario.equipeId) ?? 0) + 1);
     return mapa;
   }, [usuarios]);
-  const semLideranca = (equipe: Equipe) => responsaveisDaEquipe(equipe.id, escopos).length === 0;
+  const daPlantao = (equipe: Equipe) => plantaoDaEquipe(equipe.id, grupos);
+  const semLideranca = (equipe: Equipe) => daPlantao(equipe) === null && responsaveisDaEquipe(equipe.id, escopos).length === 0;
   const ativas = equipes.filter((equipe) => equipe.ativa !== false);
   const termo = busca.trim().toLowerCase();
   const lista = equipes
@@ -90,7 +96,10 @@ export function AdminEquipesPage({
       ) : (
         <ul className="admin-equipes-grade">
           {lista.map((equipe) => {
-            const responsaveis = responsaveisDaEquipe(equipe.id, escopos);
+            const plantao = daPlantao(equipe);
+            const responsaveis = plantao
+              ? (escopos.find((item) => item.tipo === 'PLANTAO' && item.alvoId === plantao.grupoId && item.ativo !== false)?.responsaveisLogin ?? [])
+              : responsaveisDaEquipe(equipe.id, escopos);
             return (
               <li key={equipe.id} className="admin-equipe-cartao" data-inativa={equipe.ativa === false ? '' : undefined}>
                 <div className="admin-equipe-topo">
@@ -103,7 +112,7 @@ export function AdminEquipesPage({
                 </div>
                 <div className="admin-equipe-linhas">
                   <div>
-                    <small>Liderança</small>
+                    <small>{plantao ? `Responsável pelo ${plantao.nome}` : 'Liderança'}</small>
                     {responsaveis.length === 0 ? (
                       <span className="admin-alerta"><AlertTriangle size={13} aria-hidden="true" /> Sem liderança</span>
                     ) : (
@@ -117,7 +126,11 @@ export function AdminEquipesPage({
                 </div>
                 <div className="admin-equipe-acoes">
                   <button type="button" className="secondary-button compact-button" onClick={() => { setMensagem(''); setEditando(equipe); }}><Pencil size={14} /> Editar</button>
-                  <button type="button" className="secondary-button compact-button" onClick={() => { setMensagem(''); setTrocandoLideranca(equipe); }}><Crown size={14} /> {responsaveis.length === 0 ? 'Definir liderança' : 'Trocar liderança'}</button>
+                  {plantao ? (
+                    <span className="admin-equipe-plantao-nota" title="O responsável se define na aba Plantões."><Radio size={13} aria-hidden="true" /> Equipe do Plantão</span>
+                  ) : (
+                    <button type="button" className="secondary-button compact-button" onClick={() => { setMensagem(''); setTrocandoLideranca(equipe); }}><Crown size={14} /> {responsaveis.length === 0 ? 'Definir liderança' : 'Trocar liderança'}</button>
+                  )}
                   <button type="button" className="icon-button" title={equipe.ativa === false ? 'Reativar' : 'Desativar'} aria-label={equipe.ativa === false ? `Reativar ${equipe.nome}` : `Desativar ${equipe.nome}`}
                     onClick={() => { setMensagem(''); setAlternando(equipe); }}><Power size={16} /></button>
                 </div>

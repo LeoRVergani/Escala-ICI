@@ -17,7 +17,8 @@ describe('ADMIN-CONFERENCIA-1', () => {
   });
 
   it('equipe sem liderança e Plantão sem responsável vêm primeiro (gravidade alta)', () => {
-    const problemas = conferirAdministracao({ equipes: [equipe('SOC')], grupos: [grupo('PL', 'SOC')], escopos: [], usuarios: [] });
+    // SOC é equipe 6x1; EQ_PL é a equipe do Plantão (não é cobrada por liderança 6x1).
+    const problemas = conferirAdministracao({ equipes: [equipe('SOC'), equipe('EQ_PL')], grupos: [grupo('PL', 'EQ_PL')], escopos: [], usuarios: [] });
     expect(problemas.map((item) => item.chave)).toEqual(['sem-responsavel-PL', 'sem-lideranca-SOC']);
   });
 
@@ -44,5 +45,35 @@ describe('ADMIN-CONFERENCIA-1', () => {
       equipes: [equipe('SOC')], grupos: [], escopos: [escopo('JORNADA', 'SOC', ['chefe'])], usuarios: [],
     });
     expect(problemas).toEqual([]);
+  });
+
+  it('EQUIPE-DE-PLANTAO-1 — equipe de um Plantão não é cobrada por liderança 6x1', () => {
+    const problemas = conferirAdministracao({
+      equipes: [equipe('EQ_PLANTAO')], grupos: [grupo('PL', 'EQ_PLANTAO')], escopos: [escopo('PLANTAO', 'PL', ['chefe'])],
+      usuarios: [pessoa('chefe', { perfil: 'GESTOR_EQUIPE' })],
+    });
+    expect(problemas).toEqual([]);
+  });
+
+  it('EQUIPE-DE-PLANTAO-1 — equipe de Plantão com escala 6x1 configurada (duplicada): oferece desativar a 6x1', () => {
+    const problemas = conferirAdministracao({
+      equipes: [equipe('EQ_PLANTAO')], grupos: [grupo('PL', 'EQ_PLANTAO')],
+      escopos: [escopo('PLANTAO', 'PL', ['chefe']), escopo('JORNADA', 'EQ_PLANTAO', ['chefe'])],
+      usuarios: [pessoa('chefe', { perfil: 'GESTOR_EQUIPE' })],
+      equipesSemEscala6x1: new Set(['EQ_PLANTAO']),
+    });
+    expect(problemas).toHaveLength(1);
+    expect(problemas[0]).toMatchObject({ chave: 'plantao-com-6x1-EQ_PLANTAO', rotuloAcao: 'Desativar escala 6x1' });
+    expect(problemas[0]?.acao).toMatchObject({ tipo: 'DESATIVAR_VINCULO' });
+  });
+
+  it('EQUIPE-DE-PLANTAO-1 — equipe 6x1 de verdade que também tem um Plantão (com escala, ou sem informação) nunca é apontada', () => {
+    const dados = {
+      equipes: [equipe('SOC')], grupos: [grupo('PL', 'SOC')],
+      escopos: [escopo('PLANTAO', 'PL', ['chefe']), escopo('JORNADA', 'SOC', ['chefe'])],
+      usuarios: [pessoa('chefe', { perfil: 'GESTOR_EQUIPE' })],
+    };
+    expect(conferirAdministracao(dados)).toEqual([]);
+    expect(conferirAdministracao({ ...dados, equipesSemEscala6x1: new Set(['OUTRA']) })).toEqual([]);
   });
 });
