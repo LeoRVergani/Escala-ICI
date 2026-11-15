@@ -10072,3 +10072,106 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 .admin-equipe-cartao { align-content: start; }
 .admin-equipe-acoes { flex-wrap: nowrap; }
 .admin-equipe-acoes > .admin-equipe-plantao-nota { flex: 1 1 auto; min-width: 0; }
+
+/* =====================================================================
+ * REGRAS-ESCALA-1 — Administração › Regras da escala: frases SE … ENTÃO …
+ * em cartões (estilo construtor de automações), no tema do projeto.
+ * ===================================================================== */
+.regras-pagina > * { margin: 0; }
+.regras-dica { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.regras-dica > svg { flex: 0 0 auto; color: var(--primary-bright); }
+.regras-dica strong { color: var(--text); }
+.regras-grupo { display: grid; gap: 10px; }
+.regras-grupo > * { margin: 0; }
+.regras-grupo h2 { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 16px; font-weight: 800; }
+.regras-grupo h2 > svg { color: var(--primary-bright); }
+.regras-grupo > p { color: var(--muted); font-size: 13px; }
+.regras-lista { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+
+.regra-cartao {
+  display: grid; gap: 14px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface);
+  transition: border-color 0.15s ease;
+}
+.regra-cartao:hover { border-color: color-mix(in srgb, var(--primary-bright) 45%, var(--border)); }
+.regra-cartao[data-legal] { border-left: 4px solid var(--primary-bright); }
+.regra-cartao[data-inativa] { opacity: 0.6; }
+.regra-cartao-topo { display: flex; align-items: flex-start; gap: 12px; }
+.regra-icone {
+  display: inline-grid; flex: 0 0 auto; place-items: center; width: 42px; height: 42px; border-radius: 12px;
+  background: color-mix(in srgb, var(--primary-bright) 14%, var(--surface)); color: var(--primary-bright);
+}
+.regra-titulo { display: grid; flex: 1 1 auto; gap: 2px; min-width: 0; }
+.regra-titulo strong { color: var(--text); font-size: 15.5px; font-weight: 800; }
+.regra-titulo small { color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.regra-estado { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 6px; padding: 3px 11px; border-radius: 999px; background: var(--surface-muted); color: var(--muted); font-size: 12px; font-weight: 800; }
+.regra-estado > span { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.regra-estado[data-ativa] { background: color-mix(in srgb, #10b981 15%, var(--surface)); color: #059669; }
+[data-theme="dark"] .regra-estado[data-ativa] { color: #34d399; }
+
+.regra-frase { display: grid; gap: 10px; padding: 12px 14px; border-radius: 14px; background: var(--surface-muted); }
+.regra-linha { display: flex; align-items: flex-start; gap: 12px; }
+.regra-palavra {
+  display: inline-grid; flex: 0 0 auto; place-items: center; min-width: 62px; padding: 5px 0; border-radius: 8px;
+  font-size: 11.5px; font-weight: 900; letter-spacing: 0.06em;
+}
+.regra-palavra-se { background: color-mix(in srgb, var(--primary-bright) 18%, var(--surface)); color: var(--primary-bright); }
+.regra-palavra-entao { background: color-mix(in srgb, #f59e0b 20%, var(--surface)); color: #b45309; }
+[data-theme="dark"] .regra-palavra-entao { color: #fbbf24; }
+.regra-linha-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; padding-top: 1px; }
+.regra-condicao-bloco { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.regra-conector { color: var(--muted); font-size: 11px; font-weight: 900; letter-spacing: 0.05em; }
+.regra-condicao { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.regra-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12.5px; font-weight: 700;
+}
+.regra-chip-variavel { border-color: color-mix(in srgb, var(--primary-bright) 35%, var(--border)); background: color-mix(in srgb, var(--primary-bright) 8%, var(--surface)); }
+.regra-chip-op { min-width: 30px; justify-content: center; color: var(--muted); font-family: var(--font-mono, ui-monospace, monospace); font-weight: 800; }
+.regra-chip-valor { font-weight: 850; }
+.regra-chip-acao[data-gravidade="INFO"] { border-color: color-mix(in srgb, #3b82f6 40%, var(--border)); color: #2563eb; }
+.regra-chip-acao[data-gravidade="AVISO"] { border-color: color-mix(in srgb, #f59e0b 50%, var(--border)); color: #b45309; }
+.regra-chip-acao[data-gravidade="CRITICO"] { border-color: color-mix(in srgb, var(--danger) 50%, var(--border)); color: var(--danger); }
+[data-theme="dark"] .regra-chip-acao[data-gravidade="AVISO"] { color: #fbbf24; }
+[data-theme="dark"] .regra-chip-acao[data-gravidade="INFO"] { color: #60a5fa; }
+.regra-chip-bloqueia { border-color: color-mix(in srgb, var(--danger) 50%, var(--border)); color: var(--danger); }
+
+.regra-cartao-rodape { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.regra-selos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.regra-selo { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; background: var(--surface-muted); color: var(--muted); font-size: 11.5px; font-weight: 800; }
+.regra-selo-legal { background: color-mix(in srgb, var(--primary-bright) 13%, var(--surface)); color: var(--primary-bright); }
+.regra-selo-casos[data-casos] { background: color-mix(in srgb, #f59e0b 18%, var(--surface)); color: #b45309; }
+[data-theme="dark"] .regra-selo-casos[data-casos] { color: #fbbf24; }
+
+.regras-vazio { display: grid; justify-items: center; gap: 6px; padding: 28px 18px; border: 1px dashed var(--border); border-radius: 18px; text-align: center; }
+.regras-vazio > svg { color: var(--primary-bright); }
+.regras-vazio > strong { color: var(--text); font-size: 15px; }
+.regras-vazio > small { max-width: 520px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+.regra-detalhe { display: grid; gap: 14px; width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; }
+.regra-detalhe > * { margin: 0; }
+.regra-bloco { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.regra-bloco > * { margin: 0; }
+.regra-bloco h3 { color: var(--text); font-size: 13.5px; font-weight: 800; }
+.regra-explicacoes { display: grid; gap: 5px; margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.regra-explicacoes strong { color: var(--text); }
+.regra-mensagem { padding: 10px 12px; border-radius: 10px; background: var(--surface-muted); color: var(--text); font-size: 13.5px; line-height: 1.7; }
+.regra-variavel-msg { padding: 1px 6px; border-radius: 6px; background: color-mix(in srgb, var(--primary-bright) 16%, var(--surface)); color: var(--primary-bright); font-size: 12.5px; font-weight: 800; }
+.regra-exemplo { color: var(--text); font-size: 13px; }
+.regra-exemplo small { color: var(--muted); font-weight: 800; }
+.regra-ok { display: flex; align-items: center; gap: 7px; color: #059669; font-weight: 700; }
+.regra-casos { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.regra-casos > li { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: 10px; background: var(--surface-muted); color: var(--text); font-size: 13px; line-height: 1.45; }
+.regra-casos > li > svg { flex: 0 0 auto; margin-top: 2px; color: var(--warning); }
+.regra-casos-mais { justify-content: center; color: var(--muted) !important; }
+.regra-nota-legal { display: flex; align-items: flex-start; gap: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.regra-nota-legal > svg { flex: 0 0 auto; margin-top: 2px; color: var(--primary-bright); }
+
+@media (max-width: 720px) {
+  .regra-cartao { padding: 14px; }
+  .regra-linha { flex-direction: column; gap: 6px; }
+  .regra-palavra { min-width: 0; padding: 3px 10px; }
+  .regra-cartao-rodape > .secondary-button { width: 100%; justify-content: center; }
+}
+
+/* REGRAS-ESCALA-1 — listas do detalhe com marcadores. */
+.regra-explicacoes { list-style: disc; }

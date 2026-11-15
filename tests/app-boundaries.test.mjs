@@ -1029,7 +1029,7 @@ test('ADMIN-EQUIPES-1 — Administração abre em Equipes; Organização antiga 
     ler('apps/dashboard/src/DashboardApp.tsx'),
     ler('apps/dashboard/src/AdminEquipesPage.tsx'),
   ]);
-  assert.match(dashboard, /useState<'equipes' \| 'organizacao' \| 'coordenacoes' \| 'conferencia'>\('equipes'\)/);
+  assert.match(dashboard, /useState<'equipes' \| 'organizacao' \| 'coordenacoes' \| 'regras' \| 'conferencia'>\('equipes'\)/);
   assert.match(dashboard, /tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'equipes' && usuarioReal && \(\s*<AdminEquipesPage/);
   assert.match(dashboard, /tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'organizacao' && \(/);
   // A liderança da equipe é o responsável da Matriz JORNADA (o que o banco já usa).
@@ -1194,4 +1194,19 @@ test('EQUIPE-DE-PLANTAO-1 — equipe de Plantão não é equipe 6x1: sem "Defini
   assert.match(script, /const corrigiveis = candidatos\.filter\(\(item\) => !item\.temEscala6x1\);/);
   assert.match(script, /lote\.update\(item\.ref, \{ ativo: false,/);
   assert.doesNotMatch(script, /\.delete\(/);
+});
+
+test('REGRAS-ESCALA-1 — painel de regras usa o motor novo; regras padrão sem "6x1" escrito; motor puro (sem Firebase/React)', async () => {
+  const [dashboard, painel, motor, padrao] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'), ler('apps/dashboard/src/AdminRegrasPage.tsx'), ler('lib/regrasEscala.ts'), ler('lib/regrasPadrao.ts'),
+  ]);
+  assert.match(dashboard, /abaAdministracao === 'regras' && usuarioReal && \(\s*<AdminRegrasPage\s*regras=\{REGRAS_PADRAO\}/);
+  assert.match(painel, /avaliarRegras\(documentos, catalogo, regras, \{ nomePorLogin \}\)/);
+  // O motor é puro: nada de Firebase nem React; o interpretador nunca executa código (sem eval/Function).
+  assert.doesNotMatch(motor, /firebase|from 'react'|\beval\(|new Function/u);
+  // O texto das regras não prende o sistema a um modelo de escala: o limite é só um valor.
+  assert.doesNotMatch(padrao, /6x1|6X1/u);
+  // Os valores vêm das MESMAS constantes do motor antigo (a equivalência é testada em lib/regrasEscala.test.ts).
+  assert.match(padrao, /LIMITE_DIAS_CONSECUTIVOS_TRABALHO/);
+  assert.match(padrao, /MINIMO_DESCANSO_APOS_FOLGA_HORAS/);
 });
