@@ -62,7 +62,7 @@ export interface AlertaDescansoInsuficiente {
 
 export type AlertaEscala = AlertaSequencia6x1 | AlertaDescansoInsuficiente;
 
-function intervaloDatas(inicio: string, fim: string): string[] {
+export function intervaloDatas(inicio: string, fim: string): string[] {
   const datas: string[] = [];
   for (let atual = inicio; atual <= fim; atual = adicionarDias(atual, 1)) {
     datas.push(atual);
@@ -166,7 +166,7 @@ export function temDescansoInsuficiente(
   return calcularIntervaloDescansoHoras(anterior, atual) < minimoHoras;
 }
 
-function ehDiaDeFolga(
+export function ehDiaDeFolga(
   documento: TurnosMes,
   catalogo: Record<string, TipoTurno>,
   data: string,

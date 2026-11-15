@@ -1,5 +1,7 @@
 'use client';
 
+import { AdminRegrasPage } from './AdminRegrasPage';
+import { REGRAS_PADRAO } from '@/lib/regrasPadrao';
 import { AdminCoordenacoesPage } from './AdminCoordenacoesPage';
 import { AdminConferenciaPage } from './AdminConferenciaPage';
 import { conferirAdministracao } from '@/lib/conferenciaAdministracao';
@@ -2855,7 +2857,7 @@ function ModalLembretesAtribuidos({
  * dentro da sidebar. A aba "Grupos de Plantão" só aparece para quem já
  * podia acessar a antiga tela "Plantões" (`podeAcessarPlantoes`).
  */
-type AbaAdministracao = 'equipes' | 'plantao' | 'coordenacoes' | 'conferencia' | 'organizacao' | 'responsaveis';
+type AbaAdministracao = 'equipes' | 'plantao' | 'coordenacoes' | 'regras' | 'conferencia' | 'organizacao' | 'responsaveis';
 
 /**
  * ADMIN-LOTE4 — abas da Administração: Equipes, Plantões, Coordenações e
@@ -2875,6 +2877,7 @@ function AdministracaoSubnav({
     ['equipes', 'Equipes'],
     ...(podeAcessarPlantoes ? [['plantao', 'Plantões'] as [AbaAdministracao, string]] : []),
     ['coordenacoes', 'Coordenações'],
+    ['regras', 'Regras'],
     ['conferencia', 'Conferência'],
   ];
   const avancadaAtiva = aba === 'organizacao' || aba === 'responsaveis';
@@ -4015,12 +4018,12 @@ export function DashboardApp() {
   const [erroExclusaoUsuario, setErroExclusaoUsuario] = useState('');
   const [filtroEquipeTelaUsuarios, setFiltroEquipeTelaUsuarios] = useState('');
   /** ADMIN-EQUIPES-1 — aba interna da tela "administracao": Equipes (padrão) ou a Organização antiga. */
-  const [abaAdministracao, setAbaAdministracao] = useState<'equipes' | 'organizacao' | 'coordenacoes' | 'conferencia'>('equipes');
+  const [abaAdministracao, setAbaAdministracao] = useState<'equipes' | 'organizacao' | 'coordenacoes' | 'regras' | 'conferencia'>('equipes');
   /** ADMIN-PLANTOES-1 — Plantões: cartões (padrão) ou a tela completa (plantonistas, contatos, escala). */
   const [abaPlantoesAdmin, setAbaPlantoesAdmin] = useState<'resumo' | 'completa'>('resumo');
   const [criandoPlantaoAdmin, setCriandoPlantaoAdmin] = useState(false);
   function escolherAbaAdministracao(aba: AbaAdministracao) {
-    if (aba === 'equipes' || aba === 'organizacao' || aba === 'coordenacoes' || aba === 'conferencia') {
+    if (aba === 'equipes' || aba === 'organizacao' || aba === 'coordenacoes' || aba === 'regras' || aba === 'conferencia') {
       setAbaAdministracao(aba);
       setTela('administracao');
       return;
@@ -12401,6 +12404,17 @@ export function DashboardApp() {
             await salvarUnidadeOrganizacional(unidade);
             setUnidadesAdmin((atuais) => [...atuais.filter((item) => item.unidadeId !== unidade.unidadeId), unidade]);
           }}
+        />
+      )}
+      {/* REGRAS-ESCALA-1 — as regras da escala como frases SE … ENTÃO …, com os casos da escala aberta. */}
+      {tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'regras' && usuarioReal && (
+        <AdminRegrasPage
+          regras={REGRAS_PADRAO}
+          documentos={contextoEhJornada(contextoEscalaAtivo) ? documentos : []}
+          catalogo={catalogo}
+          escalaAberta={contextoEhJornada(contextoEscalaAtivo) ? `${contextoEscalaAtivo.label} · ${formatarCompetencia(contextoEscalaAtivo.competencia)}` : null}
+          nomePorLogin={Object.fromEntries(todosUsuariosAdmin.map((pessoa) => [pessoa.login, pessoa.nome]))}
+          subnav={<AdministracaoSubnav aba="regras" podeAcessarPlantoes={podeAcessarPlantoes} onEscolherAba={escolherAbaAdministracao} />}
         />
       )}
       {/* ADMIN-CONFERENCIA-1 — o que está inconsistente, com a correção ao lado. */}
