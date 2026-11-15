@@ -1,6 +1,8 @@
 'use client';
 
 import { AdminRegrasPage } from './AdminRegrasPage';
+import { PainelProblemasEscala } from './PainelProblemasEscala';
+import { avaliarRegras, diferencaDeProblemas, indexarProblemasPorCelula, type AlertaRegra } from '@/lib/regrasEscala';
 import { REGRAS_PADRAO } from '@/lib/regrasPadrao';
 import { AdminCoordenacoesPage } from './AdminCoordenacoesPage';
 import { AdminConferenciaPage } from './AdminConferenciaPage';
@@ -88,6 +90,7 @@ import {
   ChevronLeft,
   MoreHorizontal,
   ChevronDown,
+  ShieldAlert,
 } from 'lucide-react';
 import { ChangeEvent, DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
@@ -671,6 +674,9 @@ function estadoPlantaoDashboard(resumo: ResumoPlantaoDashboard | null): EstadoEs
 
 const classeSaudeOperacional = classeSaudeOperacaoDashboard;
 /** DASHBOARD-LOTE1 — telas em que o seletor "equipe · mês · status" do topo faz sentido. */
+/** REGRAS-ESCALA-2 — as regras que valem hoje (futuramente: as salvas no banco). */
+const REGRAS_EM_VIGOR = REGRAS_PADRAO;
+
 const TELAS_COM_SELETOR_ESCALA: ReadonlySet<string> = new Set(['visao', 'equipe', 'escalas', 'importar', 'grade', 'trocas', 'escalaPlantao']);
 const rotuloEstadoEscalaOperacional = rotuloStatusOperacaoDashboard;
 
@@ -3723,6 +3729,13 @@ export function DashboardApp() {
    */
   const [filtroSetorUsuario, setFiltroSetorUsuario] = useState<string>(FILTRO_SETOR_TODOS);
   const [celulaEditando, setCelulaEditando] = useState<CelulaEditando | null>(null);
+  /** REGRAS-ESCALA-2 — mudança de célula à espera de confirmação porque cria problemas nas regras. */
+  const [alteracaoComProblemas, setAlteracaoComProblemas] = useState<{
+    codigo: string; turnoHoraExtra?: string; novos: AlertaRegra[]; resolvidos: AlertaRegra[]; pessoa: string; data: string;
+  } | null>(null);
+  /** REGRAS-ESCALA-2 — célula destacada por "Ver na escala" (some sozinha). */
+  const [focoProblema, setFocoProblema] = useState<{ chave: string; nonce: number } | null>(null);
+  const temporizadorFocoProblemaRef = useRef<number | null>(null);
   const [cicloInicial6x1Ativo, setCicloInicial6x1Ativo] = useState(false);
   const [historico, setHistorico] = useState<PublicacaoEscala[]>([]);
   const [revisaoAtual, setRevisaoAtual] = useState(0);
@@ -4484,6 +4497,20 @@ export function DashboardApp() {
     () => montarAlertasVisiveis(alertasOperacionais, usuarios, documentos, publicados),
     [alertasOperacionais, usuarios, documentos, publicados],
   );
+  /**
+   * REGRAS-ESCALA-2 — problemas da escala pelo motor de regras. `REGRAS_EM_VIGOR` é o único ponto
+   * a trocar quando as regras passarem a vir do banco. Hoje são as 3 regras padrão, que geram
+   * exatamente os mesmos alertas do motor anterior (equivalência testada).
+   */
+  const nomePorLoginRegras = useMemo(
+    () => Object.fromEntries(usuarios.map((pessoa) => [pessoa.login, pessoa.nome])) as Record<string, string>,
+    [usuarios],
+  );
+  const problemasDaEscala = useMemo(
+    () => avaliarRegras(documentos, catalogo, REGRAS_EM_VIGOR, { nomePorLogin: nomePorLoginRegras }),
+    [documentos, catalogo, nomePorLoginRegras],
+  );
+  const problemasPorCelula = useMemo(() => indexarProblemasPorCelula(problemasDaEscala), [problemasDaEscala]);
   /**
    * HOTFIX-DSR-35H-1 — publicar com violação de 6x1, interjornada (11h) ou
    * descanso após folga (35h) pede justificativa, como já acontecia com o
@@ -6897,13 +6924,18 @@ export function DashboardApp() {
     setCelulaEditando({ documento, data, dia });
   }
 
-  function editarCelula(codigo: string, turnoHoraExtra?: string) {
+  /**
+   * REGRAS-ESCALA-2 — o documento da pessoa COMO FICARIA depois de escolher `codigo` na célula
+   * aberta, sem gravar nada. `editarCelula` (que grava no rascunho) e a prévia de problemas usam
+   * este mesmo cálculo — assim o que se mostra antes é exatamente o que será aplicado.
+   */
+  function montarEdicaoCelula(codigo: string, turnoHoraExtra?: string) {
     if (celulaEditando === null || resultado === null) {
-      return;
+      return null;
     }
     const tipo = catalogo[codigo];
     if (tipo === undefined) {
-      return;
+      return null;
     }
     const turnoExtra = turnoHoraExtra !== undefined ? catalogo[turnoHoraExtra] : undefined;
     // HOTFIX-HE-TURNO-1 — HE escolhida com turno grava `t` + horário do turno.
@@ -6924,7 +6956,7 @@ export function DashboardApp() {
       (documento) => documento.usuarioUid === celulaEditando.documento.usuarioUid,
     );
     if (documentoAlvo === undefined) {
-      return;
+      return null;
     }
     const ciclo = cicloInicial6x1Ativo && tipo.categoria === 'TRABALHO'
       ? calcularCicloInicialJornada6x1({
@@ -6940,7 +6972,50 @@ export function DashboardApp() {
         dias[data] = { ...novoDia, seq: 1 };
       }
     }
+    return { tipo, ciclo, documentoAlvo, dias };
+  }
 
+  /** REGRAS-ESCALA-2 — escolher o código na célula: avisa antes se a mudança cria problemas nas regras. */
+  function solicitarEdicaoCelula(codigo: string, turnoHoraExtra?: string) {
+    const edicao = montarEdicaoCelula(codigo, turnoHoraExtra);
+    if (edicao === null || celulaEditando === null) {
+      return;
+    }
+    const antes = avaliarRegras([edicao.documentoAlvo], catalogo, REGRAS_EM_VIGOR, { nomePorLogin: nomePorLoginRegras });
+    const depois = avaliarRegras([{ ...edicao.documentoAlvo, dias: edicao.dias }], catalogo, REGRAS_EM_VIGOR, { nomePorLogin: nomePorLoginRegras });
+    const { novos, resolvidos } = diferencaDeProblemas(antes, depois);
+    if (novos.length === 0) {
+      editarCelula(codigo, turnoHoraExtra);
+      if (resolvidos.length > 0) {
+        setMensagem(`Célula atualizada. Esta mudança resolve ${resolvidos.length === 1 ? '1 problema' : `${resolvidos.length} problemas`} da escala — salve para persistir.`);
+      }
+      return;
+    }
+    setAlteracaoComProblemas({
+      codigo, turnoHoraExtra, novos, resolvidos,
+      pessoa: nomePorLoginRegras[celulaEditando.documento.login] ?? celulaEditando.documento.login,
+      data: celulaEditando.data,
+    });
+  }
+
+  /** REGRAS-ESCALA-2 — "Ver na escala": destaca o dia do problema na grade por alguns segundos. */
+  function focarProblemaNaGrade(alerta: AlertaRegra) {
+    if (temporizadorFocoProblemaRef.current !== null) {
+      window.clearTimeout(temporizadorFocoProblemaRef.current);
+    }
+    setFocoProblema({ chave: `${alerta.usuarioUid}_${alerta.data}`, nonce: Date.now() });
+    temporizadorFocoProblemaRef.current = window.setTimeout(() => {
+      setFocoProblema(null);
+      temporizadorFocoProblemaRef.current = null;
+    }, 6000);
+  }
+
+  function editarCelula(codigo: string, turnoHoraExtra?: string) {
+    const edicao = montarEdicaoCelula(codigo, turnoHoraExtra);
+    if (edicao === null || celulaEditando === null || resultado === null) {
+      return;
+    }
+    const { tipo, ciclo, dias } = edicao;
     const atualizados = resultado.documentos.map((documento) => {
       if (documento.usuarioUid !== celulaEditando.documento.usuarioUid) {
         return documento;
@@ -10857,6 +10932,9 @@ export function DashboardApp() {
                 usuarios={usuarios}
                 catalogo={catalogo}
                 indiceAlertas={indiceAlertasGrade}
+                problemasPorCelula={problemasPorCelula}
+                focoProblema={focoProblema}
+                painelProblemas={<PainelProblemasEscala alertas={problemasDaEscala} nomePorLogin={nomePorLoginRegras} onVerNaEscala={focarProblemaNaGrade} />}
                 linhasConciliacao={linhasConciliacao}
                 escritaBloqueada={escritaBloqueada}
                 onSelecionarVinculo={selecionarVinculoConciliacao}
@@ -11182,6 +11260,9 @@ export function DashboardApp() {
               usuarios={usuarios}
               catalogo={catalogo}
               indiceAlertas={indiceAlertasGrade}
+              problemasPorCelula={problemasPorCelula}
+              focoProblema={focoProblema}
+              painelProblemas={<PainelProblemasEscala alertas={problemasDaEscala} nomePorLogin={nomePorLoginRegras} onVerNaEscala={focarProblemaNaGrade} />}
               linhasConciliacao={linhasConciliacao}
               escritaBloqueada={escritaBloqueada}
               onSelecionarVinculo={selecionarVinculoConciliacao}
@@ -11239,6 +11320,7 @@ export function DashboardApp() {
                   </button>
                 </div>
               </header>
+              <PainelProblemasEscala alertas={problemasDaEscala} nomePorLogin={nomePorLoginRegras} onVerNaEscala={focarProblemaNaGrade} />
               <article className="panel grid-panel">
                 <div className="toolbar">
                   <label><Filter size={16} /><select value={filtroTurno} onChange={(evento) => setFiltroTurno(evento.target.value)}>
@@ -11255,6 +11337,8 @@ export function DashboardApp() {
                   filtroTurno={filtroTurno}
                   agruparPorPeriodo
                   indiceAlertas={indiceAlertasGrade}
+                  problemasPorCelula={problemasPorCelula}
+                  focoProblema={focoProblema}
                   onEditar={abrirCelulaParaEdicao}
                   onRemover={(documento) => setRemoverMembroPendente(documento)}
                 />
@@ -12409,7 +12493,7 @@ export function DashboardApp() {
       {/* REGRAS-ESCALA-1 — as regras da escala como frases SE … ENTÃO …, com os casos da escala aberta. */}
       {tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'regras' && usuarioReal && (
         <AdminRegrasPage
-          regras={REGRAS_PADRAO}
+          regras={REGRAS_EM_VIGOR}
           documentos={contextoEhJornada(contextoEscalaAtivo) ? documentos : []}
           catalogo={catalogo}
           escalaAberta={contextoEhJornada(contextoEscalaAtivo) ? `${contextoEscalaAtivo.label} · ${formatarCompetencia(contextoEscalaAtivo.competencia)}` : null}
@@ -13352,6 +13436,7 @@ export function DashboardApp() {
         </div>
       )}
 
+
       {celulaEditando && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setCelulaEditando(null)}>
           <section className="edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-title" onMouseDown={(evento) => evento.stopPropagation()}>
@@ -13387,7 +13472,7 @@ export function DashboardApp() {
                         key={`${tipo.codigo}-${turno.codigo}`}
                         type="button"
                         data-code={turno.codigo}
-                        onClick={() => editarCelula(tipo.codigo, turno.codigo)}
+                        onClick={() => solicitarEdicaoCelula(tipo.codigo, turno.codigo)}
                       >
                         <span className="shift-chip" data-code={turno.codigo} data-hora-extra="">
                           {turno.codigo}
@@ -13398,12 +13483,53 @@ export function DashboardApp() {
                     ));
                 }
                 return [(
-                  <button key={tipo.codigo} type="button" data-code={tipo.codigo} onClick={() => editarCelula(tipo.codigo)}>
+                  <button key={tipo.codigo} type="button" data-code={tipo.codigo} onClick={() => solicitarEdicaoCelula(tipo.codigo)}>
                     <span className="shift-chip" data-code={tipo.codigo}>{tipo.codigo}</span>
                     <strong>{tipo.descricao}</strong>
                   </button>
                 )];
               })}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* REGRAS-ESCALA-2 — a mudança escolhida cria problemas nas regras: mostra quais e pede confirmação. */}
+      {alteracaoComProblemas && (
+        <div className="modal-backdrop modal-backdrop-alto" role="presentation" onMouseDown={() => setAlteracaoComProblemas(null)}>
+          <section className="edit-modal alteracao-problemas" role="alertdialog" aria-modal="true" aria-labelledby="alteracao-problemas-titulo"
+            onMouseDown={(evento) => evento.stopPropagation()}>
+            <header className="criar-equipe-cabecalho">
+              <span className="criar-equipe-icone alteracao-problemas-icone"><AlertTriangle size={18} aria-hidden="true" /></span>
+              <div>
+                <h2 id="alteracao-problemas-titulo">
+                  {alteracaoComProblemas.novos.length === 1 ? 'Esta mudança cria 1 problema' : `Esta mudança cria ${alteracaoComProblemas.novos.length} problemas`}
+                </h2>
+                <p>{alteracaoComProblemas.pessoa} · {formatarDataCurta(alteracaoComProblemas.data)} → {alteracaoComProblemas.codigo}</p>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setAlteracaoComProblemas(null)} aria-label="Fechar"><X size={18} /></button>
+            </header>
+            <ul className="alteracao-problemas-lista">
+              {alteracaoComProblemas.novos.map((alerta) => (
+                <li key={alerta.chave} data-gravidade={alerta.gravidade}>
+                  <strong>{alerta.mensagem}</strong>
+                  <small>{alerta.regraNome} · dia {formatarDataCurta(alerta.data)}</small>
+                </li>
+              ))}
+            </ul>
+            {alteracaoComProblemas.resolvidos.length > 0 && (
+              <p className="alteracao-problemas-resolve"><CheckCircle2 size={15} aria-hidden="true" /> Também resolve {alteracaoComProblemas.resolvidos.length === 1 ? '1 problema' : `${alteracaoComProblemas.resolvidos.length} problemas`} que já existiam.</p>
+            )}
+            {alteracaoComProblemas.novos.some((alerta) => alerta.bloqueiaPublicacao) && (
+              <p className="alteracao-problemas-bloqueia"><ShieldAlert size={15} aria-hidden="true" /> Pelo menos uma destas regras impede a publicação enquanto não for corrigida.</p>
+            )}
+            <div className="criar-equipe-acoes">
+              <button type="button" className="secondary-button" onClick={() => setAlteracaoComProblemas(null)}>Escolher outro turno</button>
+              <button type="button" className="primary-button" onClick={() => {
+                const pendente = alteracaoComProblemas;
+                setAlteracaoComProblemas(null);
+                editarCelula(pendente.codigo, pendente.turnoHoraExtra);
+              }}>Aplicar mesmo assim</button>
             </div>
           </section>
         </div>

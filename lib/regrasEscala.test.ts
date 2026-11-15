@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { adicionarDias } from '@escala-ici/contrato';
 import { detectarDescansoInsuficiente, detectarSequencias6x1 } from './alertasEscala';
 import {
-  avaliarRegras, bloqueiaPublicacaoPorRegra, construirContextoDias, fraseDaRegra, renderizarMensagem, validarRegra,
+  agruparProblemasPorPessoa, avaliarRegras, bloqueiaPublicacaoPorRegra, construirContextoDias, diferencaDeProblemas, fraseDaRegra, indexarProblemasPorCelula, renderizarMensagem, validarRegra,
   type RegraEscala,
 } from './regrasEscala';
 import { REGRAS_PADRAO } from './regrasPadrao';
@@ -180,5 +180,46 @@ describe('REGRAS-ESCALA-1 — validação e texto', () => {
 
   it('mensagem troca {pessoa}, {dia}, {limite} e variáveis; deixa intacto o que não conhece', () => {
     expect(renderizarMensagem('{pessoa} {dia} {limite} {horasNoDia} {x}', { pessoa: 'Ana', data: '2026-08-12', limite: 11, valores: { horasNoDia: 9.5 } })).toBe('Ana 12/08 11 9,5 {x}');
+  });
+});
+
+describe('REGRAS-ESCALA-2 — problemas na grade e prévia de mudança', () => {
+  // N (19h–01h) seguida de M (07h–13h) no dia seguinte: só 6 h de descanso — viola a interjornada.
+  const comProblema = () => documento(sequenciaDeDias(['N', 'M', 'DF']));
+  // com folga entre os turnos: o descanso passa de 24 h e deixa de violar a interjornada
+  const semProblema = () => documento(sequenciaDeDias(['N', 'DF', 'DF']));
+
+  it('a célula marcada é o DIA do turno que veio cedo demais, com a mensagem escrita pela regra', () => {
+    const alertas = avaliarRegras([comProblema()], CATALOGO_SOC, REGRAS_PADRAO);
+    const indice = indexarProblemasPorCelula(alertas);
+    const celula = indice.get('uid-ana_2026-08-04');
+    expect(celula?.gravidade).toBe('AVISO');
+    expect(celula?.mensagens[0]).toContain('6 h de descanso');
+    expect(celula?.mensagens[0]).toContain('o mínimo é 11 h');
+    expect(indice.size).toBe(1);
+  });
+
+  it('a prévia de uma mudança separa o que ela CRIA do que ela RESOLVE', () => {
+    const antes = avaliarRegras([semProblema()], CATALOGO_SOC, REGRAS_PADRAO);
+    const depois = avaliarRegras([comProblema()], CATALOGO_SOC, REGRAS_PADRAO);
+    expect(antes).toHaveLength(0);
+    const criando = diferencaDeProblemas(antes, depois);
+    expect(criando.novos).toHaveLength(1);
+    expect(criando.resolvidos).toHaveLength(0);
+    const resolvendo = diferencaDeProblemas(depois, antes);
+    expect(resolvendo.novos).toHaveLength(0);
+    expect(resolvendo.resolvidos).toHaveLength(1);
+  });
+
+  it('mudança que não mexe nos problemas existentes não cria nem resolve nada', () => {
+    const alertas = avaliarRegras([comProblema()], CATALOGO_SOC, REGRAS_PADRAO);
+    expect(diferencaDeProblemas(alertas, alertas)).toEqual({ novos: [], resolvidos: [] });
+  });
+
+  it('agrupa por pessoa, a que tem mais problemas primeiro', () => {
+    const a = documento(sequenciaDeDias(['N', 'M', 'N', 'M']), 'ana');
+    const b = documento(sequenciaDeDias(['N', 'M']), 'bia');
+    const grupos = agruparProblemasPorPessoa(avaliarRegras([b, a], CATALOGO_SOC, REGRAS_PADRAO));
+    expect(grupos.map((grupo) => [grupo.login, grupo.alertas.length])).toEqual([['ana', 2], ['bia', 1]]);
   });
 });

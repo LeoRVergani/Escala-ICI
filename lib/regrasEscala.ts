@@ -1,6 +1,6 @@
 import { resolverJornadaDia, type JornadaDia, type TipoTurno, type TurnosMes } from '@escala-ici/contrato';
 
-import { calcularIntervaloDescansoHoras, ehDiaDeFolga, intervaloDatas } from './alertasEscala';
+import { calcularIntervaloDescansoHoras, chaveIndicadorCelula, ehDiaDeFolga, intervaloDatas } from './alertasEscala';
 
 /**
  * REGRAS-ESCALA-1 — motor de regras "SE … ENTÃO …" da escala.
@@ -345,4 +345,57 @@ export function descreverEntao(entao: RegraEscala['entao']): string {
 
 export function fraseDaRegra(regra: RegraEscala): string {
   return `SE ${descreverQuando(regra.quando)} ENTÃO ${descreverEntao(regra.entao)}`;
+}
+
+// ------------------------------------------------- problemas na grade (fase 2)
+
+export interface ProblemaCelula {
+  mensagens: string[];
+  /** A mais grave entre as regras que apontam este dia. */
+  gravidade: GravidadeRegra;
+  regras: string[];
+}
+
+const PESO_GRAVIDADE: Readonly<Record<GravidadeRegra, number>> = { INFO: 1, AVISO: 2, CRITICO: 3 };
+
+/**
+ * REGRAS-ESCALA-2 — o que a grade marca em cada célula: o DIA em que a regra
+ * deixou de ser cumprida (primeiro dia, nas regras agrupadas), com a mensagem
+ * escrita pela própria regra — nenhum número fixo no código da tela.
+ */
+export function indexarProblemasPorCelula(alertas: readonly AlertaRegra[]): Map<string, ProblemaCelula> {
+  const indice = new Map<string, ProblemaCelula>();
+  for (const alerta of alertas) {
+    const chave = chaveIndicadorCelula(alerta.usuarioUid, alerta.data);
+    const atual = indice.get(chave);
+    if (!atual) {
+      indice.set(chave, { mensagens: [alerta.mensagem], gravidade: alerta.gravidade, regras: [alerta.regraNome] });
+    } else {
+      atual.mensagens.push(alerta.mensagem);
+      atual.regras.push(alerta.regraNome);
+      if (PESO_GRAVIDADE[alerta.gravidade] > PESO_GRAVIDADE[atual.gravidade]) atual.gravidade = alerta.gravidade;
+    }
+  }
+  return indice;
+}
+
+/** Compara os problemas de antes e de depois de uma mudança: o que ela CRIA e o que ela RESOLVE. */
+export function diferencaDeProblemas(
+  antes: readonly AlertaRegra[],
+  depois: readonly AlertaRegra[],
+): { novos: AlertaRegra[]; resolvidos: AlertaRegra[] } {
+  const chavesAntes = new Set(antes.map((alerta) => alerta.chave));
+  const chavesDepois = new Set(depois.map((alerta) => alerta.chave));
+  return {
+    novos: depois.filter((alerta) => !chavesAntes.has(alerta.chave)),
+    resolvidos: antes.filter((alerta) => !chavesDepois.has(alerta.chave)),
+  };
+}
+
+export function agruparProblemasPorPessoa(alertas: readonly AlertaRegra[]): Array<{ login: string; alertas: AlertaRegra[] }> {
+  const mapa = new Map<string, AlertaRegra[]>();
+  for (const alerta of alertas) mapa.set(alerta.login, [...(mapa.get(alerta.login) ?? []), alerta]);
+  return [...mapa.entries()]
+    .map(([login, lista]) => ({ login, alertas: lista.sort((a, b) => a.data.localeCompare(b.data)) }))
+    .sort((a, b) => b.alertas.length - a.alertas.length || a.login.localeCompare(b.login));
 }

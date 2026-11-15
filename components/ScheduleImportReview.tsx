@@ -34,6 +34,7 @@ import {
 } from '@/lib/alertasEscala';
 import { contarPendenciasConciliacao } from '@/lib/conciliacaoUsuarios';
 import type { LinhaConciliacao, Usuario } from '@/lib/modelos';
+import type { ProblemaCelula } from '@/lib/regrasEscala';
 
 interface ScheduleImportReviewProps {
   resultado: ResultadoParse;
@@ -41,6 +42,16 @@ interface ScheduleImportReviewProps {
   usuarios: Usuario[];
   catalogo: Record<string, TipoTurno>;
   indiceAlertas?: Map<string, IndicadorCelulaAlerta>;
+  /**
+   * REGRAS-ESCALA-2 — problemas apontados pelas regras, por célula (mensagem escrita pela
+   * própria regra). Quando informado, o tooltip usa a mensagem da regra — nenhum limite
+   * ("7º dia", "regra 6x1") fica escrito aqui.
+   */
+  problemasPorCelula?: Map<string, ProblemaCelula>;
+  /** REGRAS-ESCALA-2 — célula a destacar e rolar até ela ("Ver na escala"); `nonce` repete o mesmo pedido. */
+  focoProblema?: { chave: string; nonce: number } | null;
+  /** REGRAS-ESCALA-2 — painel "Problemas desta escala", entre a grade e as pendências da fonte. */
+  painelProblemas?: ReactNode;
   linhasConciliacao?: LinhaConciliacao[];
   escritaBloqueada?: boolean;
   onSelecionarVinculo?: (linha: LinhaConciliacao, login: string) => void;
@@ -140,6 +151,9 @@ export function ScheduleImportReview({
   usuarios,
   catalogo,
   indiceAlertas,
+  problemasPorCelula,
+  focoProblema,
+  painelProblemas,
   linhasConciliacao = [],
   escritaBloqueada = false,
   onSelecionarVinculo,
@@ -189,6 +203,14 @@ export function ScheduleImportReview({
   const celulaGradeRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [celulaFocoErro, setCelulaFocoErro] = useState<{ chave: string; erro: ErroImportacao } | null>(null);
   const celulaFocoTimeoutRef = useRef<number | null>(null);
+
+  // REGRAS-ESCALA-2 — "Ver na escala": rola até a célula do problema e a foca (o destaque vem da própria propriedade).
+  useEffect(() => {
+    if (!focoProblema) return;
+    const celula = celulaGradeRefs.current[focoProblema.chave];
+    celula?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    celula?.focus({ preventScroll: true });
+  }, [focoProblema]);
 
   useEffect(() => () => {
     if (celulaFocoTimeoutRef.current !== null) {
@@ -553,15 +575,18 @@ export function ScheduleImportReview({
                         const indicador = indiceAlertas?.get(chaveCelula);
                         const erroFonte = errosFontePorCelula.get(chaveCelula);
                         const sequenciaCritica = (indicador?.sequencia ?? 0) >= 7;
-                        const emFoco = celulaFocoErro?.chave === chaveCelula;
+                        const emFoco = celulaFocoErro?.chave === chaveCelula || focoProblema?.chave === chaveCelula;
+                        const problema = problemasPorCelula?.get(chaveCelula);
                         const tituloBase = `${documento.login} · ${formatarDataCompleta(data)} · ${descreverDiaGrade(dia, catalogo)}`;
                         const periodoDia = codigoPeriodoDia(dia);
                         const horaExtraComTurno = dia?.t !== undefined;
                         const titulo = erroFonte
                           ? `${tituloBase} · ${erroFonte.coluna}${erroFonte.linha} · Valor encontrado: ${erroFonte.valorEncontrado}`
-                          : sequenciaCritica
-                            ? `${tituloBase} · 7º dia consecutivo de trabalho — regra 6x1 requer revisão.`
-                            : tituloBase;
+                          : problema
+                            ? `${tituloBase} · ${problema.mensagens.join(' · ')}`
+                            : sequenciaCritica && problemasPorCelula === undefined
+                              ? `${tituloBase} · 7º dia consecutivo de trabalho — regra 6x1 requer revisão.`
+                              : tituloBase;
                         return <td key={data} className={`${data === dataSelecionada ? 'selected' : ''} ${ehFimDeSemana(data) ? 'weekend' : ''}`}>
                           <button
                             ref={(elemento) => { celulaGradeRefs.current[chaveCelula] = elemento; }}
@@ -570,11 +595,13 @@ export function ScheduleImportReview({
                               'soc-import-review-cell',
                               !dia ? 'empty' : '',
                               sequenciaCritica ? 'seq-critica' : '',
+                              problema ? 'com-problema' : '',
                               erroFonte ? 'erro-fonte' : '',
                               emFoco ? 'em-foco' : '',
                             ].filter(Boolean).join(' ')}
                             data-code={periodoDia}
                             data-hora-extra={horaExtraComTurno ? '' : undefined}
+                            data-problema={problema?.gravidade}
                             title={titulo}
                             onClick={() => { setDataSelecionadaEstado(data); onEditar?.(documento, data, dia ?? { c: '' }); }}
                           >
@@ -743,6 +770,8 @@ export function ScheduleImportReview({
           </div>
         )}
       </section>
+
+      {painelProblemas}
 
       <section className="soc-import-review-alerts">
         <div className="soc-import-review-alerts-heading"><div><strong>Pendências da fonte</strong><span>{alertasOperacionais.length}</span></div><small>Validações preservadas da importação local</small></div>
