@@ -15,6 +15,15 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.8.1 — correção de segurança na impressão da escala + auditoria (patch 0098)
+- Corrige um XSS: a janela "Imprimir escala" montava HTML com login, equipe e competência sem escapar; agora tudo
+  é escapado e o documento impresso proíbe script (CSP).
+- Remove `app/chatgpt-auth.ts` (código morto que confiava em cabeçalhos da requisição).
+- Novo `npm run staging:auditar:contas-auth` (somente leitura): lista contas do Firebase Auth de outro domínio, com
+  e-mail não verificado ou sem cadastro.
+- Relatório em `docs/seguranca/AUDITORIA-SEGURANCA-2026-11.md` (achados, como confirmar e ordem de correção).
+- Só Dashboard (App continua na 3.8.1).
+
 ## 1.8.0 — Informações marcadas na grade da escala (patch 0097)
 - Na Grade da equipe, a célula do dia que tem informação (atestado, afastamento por horário, curso, anotação)
   ganha um pontinho colorido embaixo; o tooltip mostra o que é, e uma legenda explica as cores.

@@ -1384,3 +1384,19 @@ test('INFORMACOES-DIA-1 (grade) — os marcadores são só da liderança: o App 
   assert.match(dashboard, /Esta pessoa tem \{doDiaDaPessoa\.length === 1/);
   assert.match(dashboard, /\{marcadoresGrade\.size > 0 && \(\s*<p className="legenda-informacoes">/);
 });
+
+test('SEGURANCA-1 — impressão sem HTML cru, sem código morto que confia em cabeçalhos, e auditoria de contas somente leitura', async () => {
+  const [dashboard, escapar, auditoria] = await Promise.all([ler('apps/dashboard/src/DashboardApp.tsx'), ler('lib/escaparHtml.ts'), ler('scripts/staging/auditar-contas-auth.mjs')]);
+  // Nenhum document.write com texto interpolado: só o HTML já montado (e escapado) por montarHtmlImpressaoEscala.
+  assert.doesNotMatch(dashboard, /document\.write\(`/u);
+  assert.match(dashboard, /janela\.document\.write\(html\);/u);
+  assert.match(dashboard, /montarHtmlImpressaoEscala\(\{/u);
+  assert.match(escapar, /Content-Security-Policy" content="default-src 'none'/u);
+  // O modelo inicial confiava em cabeçalhos "oai-authenticated-user-*": o arquivo não volta.
+  await assert.rejects(ler('app/chatgpt-auth.ts'), /ENOENT/u);
+  // A auditoria só LÊ: nada de criar, alterar, apagar conta ou escrever no Firestore.
+  // (Map.set em memória é permitido: o que se proíbe são as escritas do Firestore e do Auth.)
+  assert.doesNotMatch(auditoria, /\.(update|delete|create|add)\(|\.doc\([^)]*\)\.set\(|deleteUser|updateUser|createUser|setCustomUserClaims|revokeRefreshTokens|batch\(|runTransaction/u);
+  assert.match(auditoria, /\.get\(\)/u, 'a auditoria lê o cadastro (somente leitura)');
+  assert.match(auditoria, /listUsers\(1000, token\)/u);
+});
