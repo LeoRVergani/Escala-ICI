@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { EXEMPLOS_REGRA } from './regrasExemplos';
+import { estadoInicialDaSituacao, montarRegraDoAssistente, type SituacaoChave } from './regrasAssistente';
 import { errosParaSalvar, idParaSalvar, lerRegraSalva, montarDocumentoRegra } from './regrasPersistencia';
 import { novaRegraEmBranco, type RegraEscala } from './regrasEscala';
 
-const exemplo = (chave: string): RegraEscala => ({ ...EXEMPLOS_REGRA.find((item) => item.chave === chave)!.modelo, id: 'teste-abc-1234' });
+const SITUACAO: Record<string, SituacaoChave> = { 'cinco-dias': 'DIAS_SEGUIDOS', 'turno-longo': 'TURNO_LONGO', 'descanso-12': 'POUCO_DESCANSO', domingo: 'DIA_DA_SEMANA' };
+const exemplo = (chave: string): RegraEscala => montarRegraDoAssistente(estadoInicialDaSituacao(SITUACAO[chave]!), 'teste-abc-1234');
 const AGORA = '2026-11-16T12:00:00.000Z';
 
 describe('REGRAS-ESCALA-4 — persistência', () => {
@@ -24,7 +25,9 @@ describe('REGRAS-ESCALA-4 — persistência', () => {
     const doc = montarDocumentoRegra(exemplo('domingo'), 'paula.ferraz', AGORA);
     expect(Object.keys(doc).sort()).toEqual(['ativa', 'atualizadoEm', 'atualizadoPorLogin', 'categoria', 'criadoEm', 'criadoPorLogin', 'descricao', 'entao', 'id', 'nome', 'origem', 'quando', 'schemaVersion', 'vale']);
     expect(doc.vale).toEqual({ tipo: 'TODAS' });
+    // 'domingo' (dia da semana) não tem sugestão; as demais situações têm
     expect(Object.keys(doc.entao).sort()).toEqual(['agrupar', 'bloqueiaPublicacao', 'gravidade', 'mensagem']);
+    expect(Object.keys(montarDocumentoRegra(exemplo('turno-longo'), 'paula.ferraz', AGORA).entao).sort()).toEqual(['agrupar', 'bloqueiaPublicacao', 'gravidade', 'mensagem', 'sugestao']);
     const porEquipe = montarDocumentoRegra({ ...exemplo('domingo'), vale: { tipo: 'EQUIPE', ids: ['EQ_SOC', 'EQ_SOC', 'EQ_NOC'] } }, 'paula.ferraz', AGORA);
     expect(porEquipe.vale).toEqual({ tipo: 'EQUIPE', ids: ['EQ_SOC', 'EQ_NOC'] });
   });

@@ -1,18 +1,18 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, CalendarClock, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, Eye, FlaskConical, Info, Lock, Moon, Pencil, Plus, Repeat, Scale,
+  AlertTriangle, CalendarClock, CheckCircle2, ChevronRight, Clock3, Copy, Eye, FlaskConical, Info, Lock, Moon, Pencil, Plus, Repeat, Scale,
   ShieldAlert, Sparkles, Trash2, X,
 } from 'lucide-react';
 import type { TipoTurno, TurnosMes } from '@escala-ici/contrato';
 
 import {
-  avaliarRegras, copiarComoRascunho, formatarValorRegra, gerarIdRegraEmTeste, NOMES_DIA_SEMANA, novaRegraEmBranco, OPERADORES_REGRA, renderizarMensagem, ROTULO_GRAVIDADE, rotuloUnidade, VARIAVEIS_REGRA,
-  type AlertaRegra, type CategoriaVariavel, type CondicaoRegra, type RegraEscala, type ValoresDia,
+  avaliarRegras, copiarComoRascunho, formatarValorRegra, gerarIdRegraEmTeste, NOMES_DIA_SEMANA, OPERADORES_REGRA, renderizarMensagem, ROTULO_GRAVIDADE, rotuloUnidade, VARIAVEIS_REGRA,
+  valoresDeExemplo, type AlertaRegra, type CategoriaVariavel, type CondicaoRegra, type RegraEscala,
 } from '@/lib/regrasEscala';
-import { EXEMPLOS_REGRA } from '@/lib/regrasExemplos';
+import { lerEstadoDaRegra, type EstadoAssistente } from '@/lib/regrasAssistente';
 import { idParaSalvar, type RegraEscalaSalva } from '@/lib/regrasPersistencia';
+import { AssistenteRegra } from './AssistenteRegra';
 import { ConstrutorRegra } from './ConstrutorRegra';
-import { MenuAcoes } from './MenuAcoes';
 
 /**
  * REGRAS-ESCALA-1 — Administração › Regras: as regras da escala como frases
@@ -32,15 +32,6 @@ function iconeDaRegra(regra: RegraEscala): ReactNode {
   return variavel ? ICONE_CATEGORIA[VARIAVEIS_REGRA[variavel].categoria] : <Sparkles size={18} />;
 }
 
-/** Valores de exemplo que fazem a regra disparar — para mostrar como a mensagem fica. */
-export function valoresDeExemplo(regra: RegraEscala): ValoresDia {
-  const valores: ValoresDia = {};
-  for (const condicao of regra.quando.condicoes) {
-    const { valor, op } = condicao;
-    valores[condicao.variavel] = op === '>' || op === '!=' ? valor + 1 : op === '<' ? (valor >= 2 ? valor - 2 : valor - 1) : valor;
-  }
-  return valores;
-}
 
 /** Símbolos de leitura comum no lugar da notação de programador (== >= <= !=). */
 const SIMBOLO_OPERADOR: Record<CondicaoRegra['op'], string> = { '>': '>', '>=': '≥', '<': '<', '<=': '≤', '==': '=', '!=': '≠' };
@@ -116,6 +107,8 @@ export function AdminRegrasPage({
   /** REGRAS-ESCALA-3 — regras em teste: só nesta tela, nada é salvo (salvar vem na etapa seguinte). */
   const [emTeste, setEmTeste] = useState<RegraEscala[]>([]);
   const [construtor, setConstrutor] = useState<{ regra: RegraEscala; emEdicao: boolean; jaSalva: boolean } | null>(null);
+  /** ASSISTENTE-REGRAS-1 — criar/editar pelo passo a passo (a regra de desenho livre cai no modo avançado). */
+  const [assistente, setAssistente] = useState<{ id: string; estado: EstadoAssistente | null; jaSalva: boolean } | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [erroAcao, setErroAcao] = useState('');
   const [excluindo, setExcluindo] = useState<RegraEscalaSalva | null>(null);
@@ -135,6 +128,25 @@ export function AdminRegrasPage({
   }, [alertas, alertasEmTeste]);
   const legais = regras.filter((regra) => regra.categoria === 'LEGAL');
   const daEmpresa = regrasSalvas;
+
+  /** Abre a regra no passo a passo se ela tem o desenho de uma das situações; senão, no modo avançado. */
+  function abrirParaEditar(regra: RegraEscala, jaSalva: boolean, emEdicao: boolean) {
+    const estado = lerEstadoDaRegra(regra);
+    if (estado !== null) setAssistente({ id: regra.id, estado, jaSalva });
+    else setConstrutor({ regra, emEdicao, jaSalva });
+  }
+  async function salvarDaTela(regra: RegraEscala) {
+    const existente = regrasSalvas.find((item) => item.id === idParaSalvar(regra)) ?? null;
+    await onSalvar(regra, existente);
+    setEmTeste((atuais) => atuais.filter((item) => item.id !== regra.id));
+    setConstrutor(null);
+    setAssistente(null);
+  }
+  function manterEmTesteDaTela(regra: RegraEscala) {
+    setEmTeste((atuais) => (atuais.some((item) => item.id === regra.id) ? atuais.map((item) => (item.id === regra.id ? regra : item)) : [...atuais, regra]));
+    setConstrutor(null);
+    setAssistente(null);
+  }
 
   function textoErro(falha: unknown): string {
     const texto = falha instanceof Error ? falha.message : '';
@@ -200,12 +212,12 @@ export function AdminRegrasPage({
           </span>
           {salva ? (
             <span className="regra-acoes-teste">
-              <button type="button" className="secondary-button compact-button" onClick={() => setConstrutor({ regra: salva, emEdicao: true, jaSalva: true })}><Pencil size={14} aria-hidden="true" /> Editar</button>
+              <button type="button" className="secondary-button compact-button" onClick={() => abrirParaEditar(salva, true, true)}><Pencil size={14} aria-hidden="true" /> Editar</button>
               <button type="button" className="icon-button" aria-label={`Excluir ${salva.nome}`} title="Excluir" onClick={() => { setErroAcao(''); setExcluindo(salva); }}><Trash2 size={15} /></button>
             </span>
           ) : emModoTeste ? (
             <span className="regra-acoes-teste">
-              <button type="button" className="secondary-button compact-button" onClick={() => setConstrutor({ regra, emEdicao: true, jaSalva: false })}><Pencil size={14} aria-hidden="true" /> Editar</button>
+              <button type="button" className="secondary-button compact-button" onClick={() => abrirParaEditar(regra, false, true)}><Pencil size={14} aria-hidden="true" /> Editar</button>
               <button type="button" className="icon-button" aria-label={`Descartar ${regra.nome}`} title="Descartar" onClick={() => setEmTeste((atuais) => atuais.filter((item) => item.id !== regra.id))}><Trash2 size={15} /></button>
             </span>
           ) : (
@@ -227,17 +239,7 @@ export function AdminRegrasPage({
           <p>Quando o sistema deve avisar a liderança. Cada regra é uma frase: <strong>SE</strong> acontece algo, <strong>ENTÃO</strong> gera um alerta.</p>
         </div>
         <div className="grade-header-actions">
-          <MenuAcoes
-            rotulo="Começar de um exemplo"
-            classeBotao="secondary-button"
-            conteudoBotao={<><Sparkles size={15} aria-hidden="true" /> Começar de um exemplo <ChevronDown size={14} aria-hidden="true" /></>}
-            itens={EXEMPLOS_REGRA.map((exemplo) => ({
-              rotulo: exemplo.titulo,
-              dica: exemplo.descricao,
-              executar: () => setConstrutor({ regra: { ...structuredClone(exemplo.modelo), id: gerarIdRegraEmTeste() }, emEdicao: false, jaSalva: false }),
-            }))}
-          />
-          <button type="button" className="primary-button" onClick={() => setConstrutor({ regra: novaRegraEmBranco(gerarIdRegraEmTeste()), emEdicao: false, jaSalva: false })}><Plus size={16} /> Nova regra</button>
+          <button type="button" className="primary-button" onClick={() => setAssistente({ id: gerarIdRegraEmTeste(), estado: null, jaSalva: false })}><Plus size={16} /> Nova regra</button>
         </div>
       </header>
       {subnav}
@@ -290,7 +292,7 @@ export function AdminRegrasPage({
           casos={casosPorRegra.get(aberta.id) ?? []}
           escalaAberta={escalaAberta}
           onFechar={() => setAberta(null)}
-          onCriarVersao={() => { setConstrutor({ regra: copiarComoRascunho(aberta, gerarIdRegraEmTeste()), emEdicao: false, jaSalva: false }); setAberta(null); }}
+          onCriarVersao={() => { abrirParaEditar(copiarComoRascunho(aberta, gerarIdRegraEmTeste()), false, false); setAberta(null); }}
         />
       )}
       {excluindo && (
@@ -310,6 +312,22 @@ export function AdminRegrasPage({
           </section>
         </div>
       )}
+      {assistente && (
+        <AssistenteRegra
+          idRegra={assistente.id}
+          inicial={assistente.estado}
+          jaSalva={assistente.jaSalva}
+          equipes={equipes}
+          documentos={documentos}
+          catalogo={catalogo}
+          escalaAberta={escalaAberta}
+          nomePorLogin={nomePorLogin}
+          onFechar={() => setAssistente(null)}
+          onAvancado={(regra) => { setAssistente(null); setConstrutor({ regra, emEdicao: false, jaSalva: assistente.jaSalva }); }}
+          onManterEmTeste={manterEmTesteDaTela}
+          onSalvar={salvarDaTela}
+        />
+      )}
       {construtor && (
         <ConstrutorRegra
           inicial={construtor.regra}
@@ -321,16 +339,8 @@ export function AdminRegrasPage({
           emEdicao={construtor.emEdicao}
           jaSalva={construtor.jaSalva}
           onFechar={() => setConstrutor(null)}
-          onSalvar={async (regra) => {
-            const existente = regrasSalvas.find((item) => item.id === idParaSalvar(regra)) ?? null;
-            await onSalvar(regra, existente);
-            setEmTeste((atuais) => atuais.filter((item) => item.id !== regra.id));
-            setConstrutor(null);
-          }}
-          onManterEmTeste={(regra) => {
-            setEmTeste((atuais) => (atuais.some((item) => item.id === regra.id) ? atuais.map((item) => (item.id === regra.id ? regra : item)) : [...atuais, regra]));
-            setConstrutor(null);
-          }}
+          onSalvar={salvarDaTela}
+          onManterEmTeste={manterEmTesteDaTela}
         />
       )}
     </section>
