@@ -2,7 +2,9 @@
 
 import { AdminRegrasPage } from './AdminRegrasPage';
 import { PainelProblemasEscala } from './PainelProblemasEscala';
-import { avaliarRegras, diferencaDeProblemas, indexarProblemasPorCelula, type AlertaRegra } from '@/lib/regrasEscala';
+import { avaliarRegras, bloqueiaPublicacaoPorRegra, diferencaDeProblemas, indexarProblemasPorCelula, type AlertaRegra, type RegraEscala } from '@/lib/regrasEscala';
+import { montarDocumentoRegra, type RegraEscalaSalva } from '@/lib/regrasPersistencia';
+import { alternarRegraEscala, excluirRegraEscala, observarRegrasEscala, salvarRegraEscala } from '@/lib/firebase/regrasEscalaRepository';
 import { REGRAS_PADRAO } from '@/lib/regrasPadrao';
 import { AdminCoordenacoesPage } from './AdminCoordenacoesPage';
 import { AdminConferenciaPage } from './AdminConferenciaPage';
@@ -349,9 +351,7 @@ import {
   construirIndiceAlertasGrade,
   detectarDescansoInsuficiente,
   detectarSequencias6x1,
-  gerarAlertasEscala,
   regraAlertaDescanso,
-  tituloAlertaDescanso,
   type AlertaEscala,
 } from '@/lib/alertasEscala';
 import {
@@ -674,9 +674,6 @@ function estadoPlantaoDashboard(resumo: ResumoPlantaoDashboard | null): EstadoEs
 
 const classeSaudeOperacional = classeSaudeOperacaoDashboard;
 /** DASHBOARD-LOTE1 — telas em que o seletor "equipe · mês · status" do topo faz sentido. */
-/** REGRAS-ESCALA-2 — as regras que valem hoje (futuramente: as salvas no banco). */
-const REGRAS_EM_VIGOR = REGRAS_PADRAO;
-
 const TELAS_COM_SELETOR_ESCALA: ReadonlySet<string> = new Set(['visao', 'equipe', 'escalas', 'importar', 'grade', 'trocas', 'escalaPlantao']);
 const rotuloEstadoEscalaOperacional = rotuloStatusOperacaoDashboard;
 
@@ -699,6 +696,8 @@ interface AlertaVisivel {
   descricao: string;
   sugestao: string;
   severidade: 'critico' | 'aviso';
+  /** REGRAS-ESCALA-4 — a regra que gerou este alerta impede a publicação. */
+  bloqueia?: boolean;
 }
 
 function nomeColaboradorPorLogin(usuarios: Usuario[], login: string): string {
@@ -706,44 +705,30 @@ function nomeColaboradorPorLogin(usuarios: Usuario[], login: string): string {
 }
 
 /**
- * Junta os alertas já calculados por `gerarAlertasEscala` (6x1 e descanso
- * mínimo) com um alerta simples derivado do que a tela já mostra
- * (publicação incompleta) — sem inventar nenhuma detecção nova.
+ * Junta os problemas apontados pelas regras em vigor (REGRAS-ESCALA-4: as legais mais as
+ * salvas pelo administrador) com um alerta simples derivado do que a tela já mostra
+ * (publicação incompleta).
  */
 function montarAlertasVisiveis(
-  alertasOperacionais: AlertaEscala[],
+  problemas: readonly AlertaRegra[],
   usuarios: Usuario[],
   documentos: TurnosMes[],
   publicados: TurnosMes[],
 ): AlertaVisivel[] {
   const documentosLen = documentos.length;
   const publicadosLen = publicados.length;
-  const doMonitoramento = alertasOperacionais.map((alerta, indice): AlertaVisivel => {
+  const doMonitoramento = problemas.map((alerta): AlertaVisivel => {
     const nome = nomeColaboradorPorLogin(usuarios, alerta.login);
-    if (alerta.tipo === 'SEQUENCIA_6X1') {
-      return {
-        id: `seq-${alerta.usuarioUid}-${indice}`,
-        titulo: '7 dias consecutivos de trabalho',
-        colaborador: nome,
-        data: alerta.diaCritico,
-        tipo: 'Sequência acima do limite',
-        descricao: `${nome} completa 7 dias consecutivos de trabalho em ${formatarDataCurta(alerta.diaCritico)}, dentro do período de ${formatarDataCurta(alerta.periodoInicio)} a ${formatarDataCurta(alerta.periodoFim)}.`,
-        sugestao: 'Revise a escala desse colaborador para garantir um dia de descanso antes do 7º dia consecutivo de trabalho.',
-        severidade: 'critico',
-      };
-    }
-    const aposFolga = alerta.regra === 'DSR';
     return {
-      id: `desc-${alerta.usuarioUid}-${indice}`,
-      titulo: tituloAlertaDescanso(alerta),
+      id: `regra-${alerta.chave}`,
+      titulo: alerta.regraNome,
       colaborador: nome,
-      data: alerta.dataAtual,
-      tipo: aposFolga ? 'Descanso após folga (DSR)' : 'Descanso insuficiente',
-      descricao: `${nome} tem apenas ${formatarHorasDescanso(alerta.descansoHoras)} de descanso entre o turno de ${formatarDataCurta(alerta.dataAnterior)} (${alerta.horarioAnterior}) e o de ${formatarDataCurta(alerta.dataAtual)} (${alerta.horarioAtual})${aposFolga ? `, com folga em ${alerta.datasFolga.map(formatarDataCurta).join(', ')}` : ''}. Mínimo: ${regraAlertaDescanso(alerta)}.`,
-      sugestao: aposFolga
-        ? `Ajuste o turno anterior ou o de retorno (ex.: retorno à tarde em vez de manhã) para fechar pelo menos ${alerta.minimoHoras} horas de descanso.`
-        : `Ajuste um dos turnos para garantir pelo menos ${alerta.minimoHoras} horas de descanso entre eles.`,
-      severidade: aposFolga ? 'critico' : 'aviso',
+      data: alerta.data,
+      tipo: alerta.regraNome,
+      descricao: `${alerta.mensagem}${alerta.ateData !== alerta.data ? ` (de ${formatarDataCurta(alerta.data)} a ${formatarDataCurta(alerta.ateData)})` : ''}.`,
+      sugestao: alerta.sugestao !== '' ? alerta.sugestao : `Ajuste a escala de ${nome} para cumprir a regra “${alerta.regraNome}”.`,
+      severidade: alerta.gravidade === 'CRITICO' ? 'critico' : 'aviso',
+      bloqueia: alerta.bloqueiaPublicacao,
     };
   });
 
@@ -791,8 +776,8 @@ function pessoasDaJornada(resumo: { documentos: readonly unknown[]; colaboradore
 }
 
 interface AlertasOperacionaisBellProps {
-  alertas: AlertaEscala[];
-  usuarios: Usuario[];
+  /** REGRAS-ESCALA-4 — problemas das regras em vigor (a mensagem vem escrita pela própria regra). */
+  alertas: AlertaRegra[];
   aberta: boolean;
   onAlternar: () => void;
   onFocarGrade: () => void;
@@ -804,7 +789,6 @@ interface AlertasOperacionaisBellProps {
 
 function AlertasOperacionaisBell({
   alertas,
-  usuarios,
   aberta,
   onAlternar,
   onFocarGrade,
@@ -813,10 +797,6 @@ function AlertasOperacionaisBell({
   onMarcarAvisoLido,
 }: AlertasOperacionaisBellProps) {
   const total = alertas.length + avisos.length;
-  function nomeColaborador(usuarioUid: string, login: string): string {
-    return usuarios.find((item) => item.login === usuarioUid)?.nome ?? login;
-  }
-
   return (
     <div className="notification-center">
       <button
@@ -856,31 +836,14 @@ function AlertasOperacionaisBell({
               </article>
             ))}
             {alertas.length === 0 ? (
-              <div className="notification-empty"><ShieldCheck size={22} /><span>6x1, interjornada (11h) e descanso após folga (35h) dentro da regra.</span></div>
-            ) : alertas.map((alerta, indice) => (
-              <article key={`${alerta.tipo}-${alerta.usuarioUid}-${indice}`} className="alert-item">
-                <AlertTriangle
-                  size={15}
-                  className={alerta.tipo === 'SEQUENCIA_6X1' || alerta.regra === 'DSR' ? 'alert-icon-critico' : 'alert-icon-aviso'}
-                />
-                {alerta.tipo === 'SEQUENCIA_6X1' ? (
-                  <div>
-                    <strong>{nomeColaborador(alerta.usuarioUid, alerta.login)} — 7 dias consecutivos de trabalho</strong>
-                    <small>
-                      Dia crítico: {formatarDataCurta(alerta.diaCritico)} · Período:{' '}
-                      {formatarDataCurta(alerta.periodoInicio)} a {formatarDataCurta(alerta.periodoFim)}
-                    </small>
-                  </div>
-                ) : (
-                  <div>
-                    <strong>{nomeColaborador(alerta.usuarioUid, alerta.login)} — {tituloAlertaDescanso(alerta).toLowerCase()}</strong>
-                    <small>
-                      Anterior: {formatarDataCurta(alerta.dataAnterior)} {alerta.horarioAnterior} · Seguinte:{' '}
-                      {formatarDataCurta(alerta.dataAtual)} {alerta.horarioAtual} · Descanso calculado:{' '}
-                      {formatarHorasDescanso(alerta.descansoHoras)}
-                    </small>
-                  </div>
-                )}
+              <div className="notification-empty"><ShieldCheck size={22} /><span>Nenhuma regra da escala foi descumprida.</span></div>
+            ) : alertas.map((alerta) => (
+              <article key={alerta.chave} className="alert-item">
+                <AlertTriangle size={15} className={alerta.gravidade === 'CRITICO' ? 'alert-icon-critico' : 'alert-icon-aviso'} />
+                <div>
+                  <strong>{alerta.mensagem}</strong>
+                  <small>{alerta.regraNome} · {formatarDataCurta(alerta.data)}{alerta.bloqueiaPublicacao ? ' · impede a publicação' : ''}</small>
+                </div>
               </article>
             ))}
           </div>
@@ -3684,6 +3647,30 @@ export function DashboardApp() {
    */
   const [competenciaOperacionalHoje] = useState(() => competenciaOperacionalAtual());
   const [modoDemo, setModoDemo] = useState(true);
+  /** REGRAS-ESCALA-4 — regras da empresa salvas pelo administrador (as legais ficam no código). */
+  const [regrasSalvas, setRegrasSalvas] = useState<RegraEscalaSalva[]>([]);
+  const [erroRegrasSalvas, setErroRegrasSalvas] = useState('');
+  const [regrasSalvasIgnoradas, setRegrasSalvasIgnoradas] = useState(0);
+  /**
+   * As regras que valem: as legais (código) + as salvas que estão ligadas. Único ponto que alimenta
+   * o sino, os alertas, as células da grade, a prévia de mudança e o bloqueio de publicação.
+   */
+  const regrasEmVigor = useMemo<readonly RegraEscala[]>(
+    () => [...REGRAS_PADRAO, ...regrasSalvas.filter((regra) => regra.ativa)],
+    [regrasSalvas],
+  );
+  // REGRAS-ESCALA-4 — qualquer liderança LÊ as regras salvas (as Rules só deixam o administrador gravar).
+  useEffect(() => {
+    if (usuarioReal === null || modoDemo) return undefined;
+    return observarRegrasEscala(
+      (regras, ignoradas) => {
+        setRegrasSalvas(regras);
+        setRegrasSalvasIgnoradas(ignoradas);
+        setErroRegrasSalvas('');
+      },
+      () => setErroRegrasSalvas('Não foi possível carregar as regras da empresa agora. Valem só as regras legais.'),
+    );
+  }, [usuarioReal, modoDemo]);
   // PATCH-PLANTAO-PUBLICACAO-UX-VIEWS-1 — tela inicial padrão é "Visão
   // geral" (nunca "Escalas"), quando não há estado salvo intencionalmente
   // para restaurar. O único código que navega para 'escalas' automaticamente
@@ -4485,40 +4472,37 @@ export function DashboardApp() {
     () => documentos.filter(({ status }) => status === 'PUBLICADA'),
     [documentos],
   );
-  const alertasOperacionais = useMemo(
-    () => gerarAlertasEscala(documentos, catalogo),
-    [documentos, catalogo],
-  );
   const indiceAlertasGrade = useMemo(
     () => construirIndiceAlertasGrade(documentos, catalogo),
     [documentos, catalogo],
   );
-  const alertasVisiveis = useMemo(
-    () => montarAlertasVisiveis(alertasOperacionais, usuarios, documentos, publicados),
-    [alertasOperacionais, usuarios, documentos, publicados],
-  );
   /**
-   * REGRAS-ESCALA-2 — problemas da escala pelo motor de regras. `REGRAS_EM_VIGOR` é o único ponto
-   * a trocar quando as regras passarem a vir do banco. Hoje são as 3 regras padrão, que geram
-   * exatamente os mesmos alertas do motor anterior (equivalência testada).
+   * REGRAS-ESCALA-4 — UM motor para tudo: sino, lista de alertas, células, prévia de mudança e
+   * publicação usam as mesmas regras em vigor (legais + salvas). Com só as legais, os resultados
+   * são exatamente os do motor anterior (equivalência testada em lib/regrasEscala.test.ts).
    */
   const nomePorLoginRegras = useMemo(
     () => Object.fromEntries(usuarios.map((pessoa) => [pessoa.login, pessoa.nome])) as Record<string, string>,
     [usuarios],
   );
   const problemasDaEscala = useMemo(
-    () => avaliarRegras(documentos, catalogo, REGRAS_EM_VIGOR, { nomePorLogin: nomePorLoginRegras }),
-    [documentos, catalogo, nomePorLoginRegras],
+    () => avaliarRegras(documentos, catalogo, regrasEmVigor, { nomePorLogin: nomePorLoginRegras }),
+    [documentos, catalogo, regrasEmVigor, nomePorLoginRegras],
   );
   const problemasPorCelula = useMemo(() => indexarProblemasPorCelula(problemasDaEscala), [problemasDaEscala]);
+  const alertasVisiveis = useMemo(
+    () => montarAlertasVisiveis(problemasDaEscala, usuarios, documentos, publicados),
+    [problemasDaEscala, usuarios, documentos, publicados],
+  );
+  /** Alguma regra violada nesta escala impede a publicação (só a regra que o administrador marcou assim). */
+  const publicacaoBloqueadaPorRegra = bloqueiaPublicacaoPorRegra(problemasDaEscala);
   /**
-   * HOTFIX-DSR-35H-1 — publicar com violação de 6x1, interjornada (11h) ou
-   * descanso após folga (35h) pede justificativa, como já acontecia com o
-   * ALERTA da importação. Não bloqueia: o gestor decide (pode ser exceção).
+   * HOTFIX-DSR-35H-1 — publicar com qualquer regra violada pede justificativa, como já acontecia com
+   * o ALERTA da importação. Só bloqueia a regra marcada "bloquear a publicação".
    */
-  const publicacaoExigeJustificativa = resultadoTemErros || alertasOperacionais.length > 0;
+  const publicacaoExigeJustificativa = resultadoTemErros || problemasDaEscala.length > 0;
   const totalAlertasPublicacao = (resultadoTemErros ? resultado?.erros.length ?? 0 : 0)
-    + alertasOperacionais.length;
+    + problemasDaEscala.length;
   const trocasPendentesGestor = trocas.filter((item) => item.status === 'PENDENTE_GESTOR');
   const trocasAprovadas = trocas.filter((item) => item.status === 'APROVADA_PUBLICADA');
   const trocasRecusadas = trocas.filter((item) => item.status === 'RECUSADA_GESTOR' || item.status === 'RECUSADA_USUARIO');
@@ -4637,9 +4621,9 @@ export function DashboardApp() {
       return [];
     }
     const publicadasParaAlertas = resumoJornadaDashboard?.publicadas ?? [];
-    const alertasOperacionaisFora = gerarAlertasEscala([...documentosParaAlertas], catalogo);
-    return montarAlertasVisiveis(alertasOperacionaisFora, usuarios, [...documentosParaAlertas], publicadasParaAlertas);
-  }, [resumoJornadaDashboard, jornadaEmContextoDashboard, alertasVisiveis, catalogo, usuarios]);
+    const problemasFora = avaliarRegras([...documentosParaAlertas], catalogo, regrasEmVigor, { nomePorLogin: nomePorLoginRegras });
+    return montarAlertasVisiveis(problemasFora, usuarios, [...documentosParaAlertas], publicadasParaAlertas);
+  }, [resumoJornadaDashboard, jornadaEmContextoDashboard, alertasVisiveis, catalogo, usuarios, regrasEmVigor, nomePorLoginRegras]);
   const alertasJornadaDashboard = contarAlertasDeRegra(alertasJornadaCalculados);
   /**
    * `classeSaudeOperacaoDashboard` só aceita `number` (`alertas > 0`
@@ -6717,7 +6701,12 @@ export function DashboardApp() {
     }
     // HOTFIX-DSR-35H-1 — violação de 6x1/interjornada/DSR também exige
     // justificativa para publicar, junto com as pendências da importação.
-    const publicandoComErro = resultado.erros.length > 0 || alertasOperacionais.length > 0;
+    // REGRAS-ESCALA-4 — regra marcada "bloquear a publicação" impede (justificativa não resolve).
+    if (publicacaoBloqueadaPorRegra) {
+      setErroPublicacao('Esta escala tem problemas que impedem a publicação. Corrija os itens marcados como "impede a publicação".');
+      return;
+    }
+    const publicandoComErro = resultado.erros.length > 0 || problemasDaEscala.length > 0;
     if ((revisaoAtual > 0 || publicandoComErro) && motivoPublicacao.trim().length < 3) {
       setErroPublicacao(publicandoComErro
         ? 'Explique por que a escala será publicada ciente das pendências.'
@@ -6981,8 +6970,8 @@ export function DashboardApp() {
     if (edicao === null || celulaEditando === null) {
       return;
     }
-    const antes = avaliarRegras([edicao.documentoAlvo], catalogo, REGRAS_EM_VIGOR, { nomePorLogin: nomePorLoginRegras });
-    const depois = avaliarRegras([{ ...edicao.documentoAlvo, dias: edicao.dias }], catalogo, REGRAS_EM_VIGOR, { nomePorLogin: nomePorLoginRegras });
+    const antes = avaliarRegras([edicao.documentoAlvo], catalogo, regrasEmVigor, { nomePorLogin: nomePorLoginRegras });
+    const depois = avaliarRegras([{ ...edicao.documentoAlvo, dias: edicao.dias }], catalogo, regrasEmVigor, { nomePorLogin: nomePorLoginRegras });
     const { novos, resolvidos } = diferencaDeProblemas(antes, depois);
     if (novos.length === 0) {
       editarCelula(codigo, turnoHoraExtra);
@@ -6996,6 +6985,32 @@ export function DashboardApp() {
       pessoa: nomePorLoginRegras[celulaEditando.documento.login] ?? celulaEditando.documento.login,
       data: celulaEditando.data,
     });
+  }
+
+  /** REGRAS-ESCALA-4 — salvar, ligar/desligar e excluir regras da empresa (só o administrador; as Rules conferem). */
+  async function salvarRegraDaEmpresa(regra: RegraEscala, existente: RegraEscalaSalva | null) {
+    if (usuarioReal === null) return;
+    if (modoDemo) {
+      const documento = montarDocumentoRegra(regra, usuarioReal.login, new Date().toISOString(), existente);
+      setRegrasSalvas((atuais) => [...atuais.filter((item) => item.id !== documento.id), documento].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')));
+      return;
+    }
+    await salvarRegraEscala(regra, usuarioReal.login, existente);
+  }
+  async function alternarRegraDaEmpresa(regra: RegraEscalaSalva, ativa: boolean) {
+    if (usuarioReal === null) return;
+    if (modoDemo) {
+      setRegrasSalvas((atuais) => atuais.map((item) => (item.id === regra.id ? { ...item, ativa } : item)));
+      return;
+    }
+    await alternarRegraEscala(regra, ativa, usuarioReal.login);
+  }
+  async function excluirRegraDaEmpresa(regra: RegraEscalaSalva) {
+    if (modoDemo) {
+      setRegrasSalvas((atuais) => atuais.filter((item) => item.id !== regra.id));
+      return;
+    }
+    await excluirRegraEscala(regra.id);
   }
 
   /** REGRAS-ESCALA-2 — "Ver na escala": destaca o dia do problema na grade por alguns segundos. */
@@ -10023,8 +10038,8 @@ export function DashboardApp() {
       if (resumo === null) {
         return null;
       }
-      const alertasOperacionaisFora = gerarAlertasEscala(resumo.documentos, catalogo);
-      return contarAlertasDeRegra(montarAlertasVisiveis(alertasOperacionaisFora, usuarios, resumo.documentos, resumo.publicadas));
+      const problemasFora = avaliarRegras(resumo.documentos, catalogo, regrasEmVigor, { nomePorLogin: nomePorLoginRegras });
+      return contarAlertasDeRegra(montarAlertasVisiveis(problemasFora, usuarios, resumo.documentos, resumo.publicadas));
     }
     if (operacao.status === 'sem-escala') {
       return 0;
@@ -10169,8 +10184,7 @@ export function DashboardApp() {
       ) : <></>)}
       acoesTopo={(
         <AlertasOperacionaisBell
-          alertas={alertasOperacionais}
-          usuarios={usuarios}
+          alertas={problemasDaEscala}
           aberta={alertasAbertos}
           onAlternar={() => setAlertasAbertos((atual) => !atual)}
           onFocarGrade={() => {
@@ -12493,7 +12507,13 @@ export function DashboardApp() {
       {/* REGRAS-ESCALA-1 — as regras da escala como frases SE … ENTÃO …, com os casos da escala aberta. */}
       {tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'regras' && usuarioReal && (
         <AdminRegrasPage
-          regras={REGRAS_EM_VIGOR}
+          regras={REGRAS_PADRAO}
+          regrasSalvas={regrasSalvas}
+          erroCarregar={erroRegrasSalvas}
+          ignoradas={regrasSalvasIgnoradas}
+          onSalvar={salvarRegraDaEmpresa}
+          onAlternar={alternarRegraDaEmpresa}
+          onExcluir={excluirRegraDaEmpresa}
           equipes={equipesAdmin.filter((equipe) => equipe.ativa !== false && plantaoDaEquipe(equipe.id, gruposPlantaoAdmin) === null).map((equipe) => ({ id: equipe.id, nome: equipe.nome }))}
           documentos={contextoEhJornada(contextoEscalaAtivo) ? documentos : []}
           catalogo={catalogo}
@@ -13310,7 +13330,9 @@ export function DashboardApp() {
                 <p className="eyebrow">Comunicação da mudança</p>
                 <h2 id="publication-title">
                   {publicacaoExigeJustificativa
-                    ? `Esta escala possui ${totalAlertasPublicacao} pendência(s). Deseja publicar mesmo assim?`
+                    ? (publicacaoBloqueadaPorRegra
+                      ? `Esta escala tem ${totalAlertasPublicacao} pendência(s) e há problemas que impedem a publicação.`
+                      : `Esta escala possui ${totalAlertasPublicacao} pendência(s). Deseja publicar mesmo assim?`)
                     : 'Publicar nova versão da escala?'}
                 </h2>
                 <p>Os colaboradores afetados receberão esta informação no sino do App.</p>
@@ -13332,9 +13354,15 @@ export function DashboardApp() {
                 {alertasVisiveis
                   .filter((alerta) => alerta.id !== 'publicacao-incompleta')
                   .map((alerta) => (
-                    <li key={alerta.id}>{alerta.titulo}: {alerta.descricao}</li>
+                    <li key={alerta.id}>{alerta.bloqueia ? <strong>Impede a publicação — </strong> : null}{alerta.titulo}: {alerta.descricao}</li>
                   ))}
               </ul>
+            )}
+            {publicacaoBloqueadaPorRegra && (
+              <div className="alert error publicacao-bloqueada" role="alert">
+                <ShieldAlert size={16} aria-hidden="true" />
+                <span>Há problemas que <strong>impedem a publicação</strong>. Corrija os itens marcados e tente de novo — a justificativa não libera.</span>
+              </div>
             )}
             <label className="publication-reason">
               {publicacaoExigeJustificativa ? 'Justificativa para publicar com pendências' : 'Motivo da publicação'}
@@ -13357,7 +13385,7 @@ export function DashboardApp() {
               <button
                 className="primary-button"
                 type="button"
-                disabled={processando || ((revisaoAtual > 0 || publicacaoExigeJustificativa) && motivoPublicacao.trim().length < 3)}
+                disabled={processando || publicacaoBloqueadaPorRegra || ((revisaoAtual > 0 || publicacaoExigeJustificativa) && motivoPublicacao.trim().length < 3)}
                 onClick={() => void publicar()}
               >
                 {processando ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}

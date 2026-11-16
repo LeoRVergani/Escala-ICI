@@ -86,6 +86,8 @@ export interface RegraEscala {
     mensagem: string;
     /** PRIMEIRO_DIA_DA_SEQUENCIA: dias seguidos em que a regra vale geram UM alerta (no primeiro). */
     agrupar: AgruparAlerta;
+    /** O que a liderança deve fazer para corrigir (opcional; aceita os mesmos campos da mensagem). */
+    sugestao?: string;
   };
   /** Alcance: todas as escalas ou só as de certas equipes. */
   vale: { tipo: 'TODAS' | 'EQUIPE'; ids?: string[] };
@@ -203,6 +205,8 @@ export interface AlertaRegra {
   limite: number | null;
   valores: ValoresDia;
   mensagem: string;
+  /** Sugestão de correção já com os campos preenchidos ('' quando a regra não tem). */
+  sugestao: string;
   turnoAnterior: JornadaDia | null;
 }
 
@@ -258,6 +262,7 @@ export function avaliarRegras(
             usuarioUid: documento.usuarioUid, login: documento.login, equipeId: documento.equipeId,
             data: primeiro.data, ateData: ultimo.data, limite, valores: primeiro.valores,
             mensagem: renderizarMensagem(regra.entao.mensagem, { pessoa, data: primeiro.data, limite, valores: primeiro.valores }),
+            sugestao: regra.entao.sugestao ? renderizarMensagem(regra.entao.sugestao, { pessoa, data: primeiro.data, limite, valores: primeiro.valores }) : '',
             turnoAnterior: primeiro.turnoAnterior,
           });
         }
@@ -319,6 +324,15 @@ export function validarRegra(regra: RegraEscala): string[] {
     if (mensagem.length > 200) erros.push('A mensagem passa de 200 caracteres.');
     for (const [, nome] of mensagem.matchAll(/\{([a-zA-Z]+)\}/gu)) {
       if (nome !== undefined && !['pessoa', 'dia', 'limite'].includes(nome) && !(nome in VARIAVEIS_REGRA)) erros.push(`A mensagem usa {${nome}}, que não existe.`);
+    }
+  }
+  const sugestao = regra.entao?.sugestao;
+  if (sugestao !== undefined) {
+    if (typeof sugestao !== 'string' || sugestao.length > 200) erros.push('A sugestão passa de 200 caracteres.');
+    else {
+      for (const [, nome] of sugestao.matchAll(/\{([a-zA-Z]+)\}/gu)) {
+        if (nome !== undefined && !['pessoa', 'dia', 'limite'].includes(nome) && !(nome in VARIAVEIS_REGRA)) erros.push(`A sugestão usa {${nome}}, que não existe.`);
+      }
     }
   }
   if (regra.vale?.tipo === 'EQUIPE' && (regra.vale.ids ?? []).length === 0) erros.push('Escolha pelo menos uma equipe.');
@@ -433,7 +447,7 @@ export function novaRegraEmBranco(id: string): RegraEscala {
   return {
     id, nome: '', descricao: '', categoria: 'EMPRESA', ativa: true,
     quando: { logica: 'E', condicoes: [{ variavel: 'diasSeguidosTrabalho', op: '>', valor: 5 }] },
-    entao: { gravidade: 'AVISO', bloqueiaPublicacao: false, mensagem: '{pessoa} trabalha {diasSeguidosTrabalho} dias seguidos — o máximo é {limite}', agrupar: 'PRIMEIRO_DIA_DA_SEQUENCIA' },
+    entao: { gravidade: 'AVISO', bloqueiaPublicacao: false, mensagem: '{pessoa} trabalha {diasSeguidosTrabalho} dias seguidos — o máximo é {limite}', agrupar: 'PRIMEIRO_DIA_DA_SEQUENCIA', sugestao: '' },
     vale: { tipo: 'TODAS' }, origem: 'ADMIN', schemaVersion: 1,
   };
 }

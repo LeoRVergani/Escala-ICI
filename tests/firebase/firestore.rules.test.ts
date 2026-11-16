@@ -7371,3 +7371,132 @@ describe('TROCA-FOLGA-1 — troca de folga sem colega', () => {
     await assertSucceeds(updateDoc(doc(gestor, 'trocasEscala', 'folga-1'), { status: 'APROVADA_PUBLICADA', historico }));
   });
 });
+
+/**
+ * REGRAS-ESCALA-4 — `regrasEscala/{id}`: regras da escala criadas pelo administrador.
+ * Leitura para qualquer autenticado; escrita só ADMIN_SISTEMA, com o formato conferido.
+ * As regras LEGAIS ficam no código e nunca são gravadas aqui (categoria só 'EMPRESA').
+ */
+describe('REGRAS-ESCALA-4 — regrasEscala', () => {
+  const ID = 'regra-turno-longo';
+  const regra = (ajustes: Record<string, unknown> = {}) => ({
+    id: ID,
+    nome: 'Turno longo demais',
+    descricao: 'Avisa quando o turno passa do limite de horas.',
+    categoria: 'EMPRESA',
+    ativa: true,
+    quando: { logica: 'E', condicoes: [{ variavel: 'horasNoDia', op: '>', valor: 12 }] },
+    entao: { gravidade: 'AVISO', bloqueiaPublicacao: false, mensagem: '{pessoa} tem turno de {horasNoDia} h no dia {dia}', agrupar: 'CADA_DIA' },
+    vale: { tipo: 'TODAS' },
+    origem: 'ADMIN',
+    schemaVersion: 1,
+    criadoPorLogin: usuarios.admin.login,
+    criadoEm: '2026-11-16T12:00:00.000Z',
+    atualizadoPorLogin: usuarios.admin.login,
+    atualizadoEm: '2026-11-16T12:00:00.000Z',
+    ...ajustes,
+  });
+  async function semear(dados: Record<string, unknown> = regra()) {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'regrasEscala', ID), dados);
+    });
+  }
+
+  it('qualquer autenticado lê as regras; sem login não lê', async () => {
+    await semear();
+    await assertSucceeds(getDoc(doc(autenticarComo(usuarios.colaborador), 'regrasEscala', ID)));
+    await assertSucceeds(getDoc(doc(autenticarComo(usuarios.gestor), 'regrasEscala', ID)));
+    await assertFails(getDoc(doc(ambiente.unauthenticatedContext().firestore(), 'regrasEscala', ID)));
+  });
+
+  it('ADMIN_SISTEMA cria regra válida, inclusive com sugestão e alcance por equipe', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    await assertSucceeds(setDoc(doc(admin, 'regrasEscala', ID), regra()));
+    await assertSucceeds(setDoc(doc(admin, 'regrasEscala', 'regra-por-equipe'), regra({
+      id: 'regra-por-equipe',
+      vale: { tipo: 'EQUIPE', ids: ['EQ_COSI_SOC'] },
+      entao: { gravidade: 'CRITICO', bloqueiaPublicacao: true, mensagem: 'Turno longo', agrupar: 'PRIMEIRO_DIA_DA_SEQUENCIA', sugestao: 'Divida o turno.' },
+    })));
+  });
+
+  it('gestor de equipe, gestor de unidade e colaborador não criam nem editam regras', async () => {
+    await semear();
+    for (const usuario of [usuarios.gestor, usuarios.gestorUnidade, usuarios.colaborador]) {
+      const contexto = autenticarComo(usuario);
+      await assertFails(setDoc(doc(contexto, 'regrasEscala', 'regra-nova'), regra({ id: 'regra-nova', criadoPorLogin: usuario.login, atualizadoPorLogin: usuario.login })));
+      await assertFails(updateDoc(doc(contexto, 'regrasEscala', ID), { ativa: false, atualizadoPorLogin: usuario.login }));
+      await assertFails(deleteDoc(doc(contexto, 'regrasEscala', ID)));
+    }
+  });
+
+  it('regra LEGAL nunca é gravada (categoria só EMPRESA)', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ categoria: 'LEGAL' })));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ origem: 'PADRAO' })));
+  });
+
+  it('gravidade, lógica, agrupamento e alcance fora do conjunto são recusados', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    const base = regra();
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ entao: { ...base.entao, gravidade: 'GRAVISSIMO' } })));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ entao: { ...base.entao, agrupar: 'SEMPRE' } })));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ quando: { ...base.quando, logica: 'XOR' } })));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ vale: { tipo: 'EMPRESA_TODA' } })));
+  });
+
+  it('campo extra, campo obrigatório ausente e tipo errado são recusados', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    const semQuando = Object.fromEntries(Object.entries(regra()).filter(([chave]) => chave !== 'quando'));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ extra: 'x' })));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), semQuando));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ ativa: 'sim' })));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ schemaVersion: 2 })));
+  });
+
+  it('limites de tamanho: nome curto, mensagem vazia ou longa, sem condições ou com mais de 8', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    const base = regra();
+    const condicao = { variavel: 'horasNoDia', op: '>', valor: 1 };
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ nome: 'ab' })));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ entao: { ...base.entao, mensagem: '' } })));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ entao: { ...base.entao, mensagem: 'x'.repeat(201) } })));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ quando: { logica: 'E', condicoes: [] } })));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ quando: { logica: 'E', condicoes: Array.from({ length: 9 }, () => condicao) } })));
+    await assertSucceeds(setDoc(doc(admin, 'regrasEscala', ID), regra({ quando: { logica: 'OU', condicoes: Array.from({ length: 8 }, () => condicao) } })));
+  });
+
+  it('alcance por equipe exige ao menos uma equipe', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ vale: { tipo: 'EQUIPE' } })));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ vale: { tipo: 'EQUIPE', ids: [] } })));
+    await assertSucceeds(setDoc(doc(admin, 'regrasEscala', ID), regra({ vale: { tipo: 'EQUIPE', ids: ['EQ_COSI_SOC'] } })));
+  });
+
+  it('autor não pode ser forjado: criadoPorLogin e atualizadoPorLogin são o do administrador logado', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ criadoPorLogin: usuarios.gestor.login })));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', ID), regra({ atualizadoPorLogin: usuarios.gestor.login })));
+  });
+
+  it('id do documento precisa ser o do campo e seguir o padrão (minúsculas, números e hífen)', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    await assertFails(setDoc(doc(admin, 'regrasEscala', 'regra-outra'), regra()));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', 'Regra_Maiuscula'), regra({ id: 'Regra_Maiuscula' })));
+    await assertFails(setDoc(doc(admin, 'regrasEscala', 'ab'), regra({ id: 'ab' })));
+  });
+
+  it('ADMIN_SISTEMA liga e desliga a regra; não troca quem criou nem forja quem atualizou', async () => {
+    await semear();
+    const admin = autenticarComo(usuarios.admin);
+    const ref = doc(admin, 'regrasEscala', ID);
+    await assertSucceeds(updateDoc(ref, { ativa: false, atualizadoPorLogin: usuarios.admin.login, atualizadoEm: '2026-11-17T10:00:00.000Z' }));
+    await assertFails(updateDoc(ref, { criadoPorLogin: usuarios.gestor.login }));
+    await assertFails(updateDoc(ref, { atualizadoPorLogin: usuarios.gestor.login }));
+    await assertFails(updateDoc(ref, { categoria: 'LEGAL' }));
+  });
+
+  it('ADMIN_SISTEMA exclui a regra', async () => {
+    await semear();
+    await assertSucceeds(deleteDoc(doc(autenticarComo(usuarios.admin), 'regrasEscala', ID)));
+  });
+});
