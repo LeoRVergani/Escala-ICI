@@ -6,7 +6,7 @@ import { avaliarRegras, diferencaDeProblemas, indexarProblemasPorCelula, type Al
 import { REGRAS_PADRAO } from '@/lib/regrasPadrao';
 import { AdminCoordenacoesPage } from './AdminCoordenacoesPage';
 import { AdminConferenciaPage } from './AdminConferenciaPage';
-import { conferirAdministracao } from '@/lib/conferenciaAdministracao';
+import { conferirAdministracao, plantaoDaEquipe } from '@/lib/conferenciaAdministracao';
 import { MenuAcoes } from './MenuAcoes';
 import { rotuloCurtoStatusOperacaoDashboard, tomStatusOperacaoDashboard } from '@/lib/operacoesDashboard';
 import { ConfirmarPublicacaoPlantao } from './ConfirmarPublicacaoPlantao';
@@ -12494,10 +12494,11 @@ export function DashboardApp() {
       {tela === 'administracao' && podeAcessarAdministracao && abaAdministracao === 'regras' && usuarioReal && (
         <AdminRegrasPage
           regras={REGRAS_EM_VIGOR}
+          equipes={equipesAdmin.filter((equipe) => equipe.ativa !== false && plantaoDaEquipe(equipe.id, gruposPlantaoAdmin) === null).map((equipe) => ({ id: equipe.id, nome: equipe.nome }))}
           documentos={contextoEhJornada(contextoEscalaAtivo) ? documentos : []}
           catalogo={catalogo}
           escalaAberta={contextoEhJornada(contextoEscalaAtivo) ? `${contextoEscalaAtivo.label} · ${formatarCompetencia(contextoEscalaAtivo.competencia)}` : null}
-          nomePorLogin={Object.fromEntries(todosUsuariosAdmin.map((pessoa) => [pessoa.login, pessoa.nome]))}
+          nomePorLogin={{ ...nomePorLoginRegras, ...Object.fromEntries(todosUsuariosAdmin.map((pessoa) => [pessoa.login, pessoa.nome])) }}
           subnav={<AdministracaoSubnav aba="regras" podeAcessarPlantoes={podeAcessarPlantoes} onEscolherAba={escolherAbaAdministracao} />}
         />
       )}

@@ -4,9 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { adicionarDias } from '@escala-ici/contrato';
 import { detectarDescansoInsuficiente, detectarSequencias6x1 } from './alertasEscala';
 import {
-  agruparProblemasPorPessoa, avaliarRegras, bloqueiaPublicacaoPorRegra, construirContextoDias, diferencaDeProblemas, fraseDaRegra, indexarProblemasPorCelula, renderizarMensagem, validarRegra,
+  agruparProblemasPorPessoa, avaliarRegras, copiarComoRascunho, novaRegraEmBranco, testarRegra, variaveisDaRegra, variaveisPorCategoria, bloqueiaPublicacaoPorRegra, construirContextoDias, diferencaDeProblemas, fraseDaRegra, indexarProblemasPorCelula, renderizarMensagem, validarRegra,
   type RegraEscala,
 } from './regrasEscala';
+import { EXEMPLOS_REGRA } from './regrasExemplos';
 import { REGRAS_PADRAO } from './regrasPadrao';
 
 function dia(codigo: string, manual?: { i: string; f: string; vd: boolean; m: number }): Dia {
@@ -174,7 +175,7 @@ describe('REGRAS-ESCALA-1 — validação e texto', () => {
 
   it('a frase legível não tem "6x1" escrito — o número é só o valor da regra', () => {
     expect(fraseDaRegra(regra)).toBe('SE dias seguidos de trabalho > 6 dias ENTÃO gerar alerta (aviso)');
-    expect(fraseDaRegra(REGRAS_PADRAO[2]!)).toBe('SE horas de descanso desde o turno anterior < 35 h E dias de folga entre o turno anterior e este >= 1 dias ENTÃO gerar alerta (aviso)');
+    expect(fraseDaRegra(REGRAS_PADRAO[2]!)).toBe('SE horas de descanso desde o turno anterior < 35 h E dias de folga entre o turno anterior e este >= 1 dia ENTÃO gerar alerta (aviso)');
     expect(JSON.stringify(REGRAS_PADRAO)).not.toMatch(/6x1/iu);
   });
 
@@ -221,5 +222,56 @@ describe('REGRAS-ESCALA-2 — problemas na grade e prévia de mudança', () => {
     const b = documento(sequenciaDeDias(['N', 'M']), 'bia');
     const grupos = agruparProblemasPorPessoa(avaliarRegras([b, a], CATALOGO_SOC, REGRAS_PADRAO));
     expect(grupos.map((grupo) => [grupo.login, grupo.alertas.length])).toEqual([['ana', 2], ['bia', 1]]);
+  });
+});
+
+describe('REGRAS-ESCALA-3 — exemplos, cópia e teste de regra', () => {
+  const comId = (chave: string) => ({ ...EXEMPLOS_REGRA.find((exemplo) => exemplo.chave === chave)!.modelo, id: `teste-${chave}` });
+
+  it('todo exemplo do construtor é uma regra válida', () => {
+    for (const exemplo of EXEMPLOS_REGRA) expect(validarRegra({ ...exemplo.modelo, id: exemplo.chave })).toEqual([]);
+    expect(validarRegra(novaRegraEmBranco('x'))).toEqual(['Dê um nome para a regra.']);
+  });
+
+  it('cada exemplo dispara nos casos certos', () => {
+    const seisDias = documento(sequenciaDeDias(['M', 'M', 'M', 'M', 'M', 'M']));
+    expect(testarRegra(comId('cinco-dias'), [seisDias], CATALOGO_SOC).total).toBe(1);
+
+    const longo = documento({ '2026-08-03': dia('T', { i: '06:00', f: '20:00', vd: false, m: 840 }), '2026-08-04': dia('T') });
+    expect(testarRegra(comId('turno-longo'), [longo], CATALOGO_SOC).alertas.map((alerta) => alerta.data)).toEqual(['2026-08-03']);
+
+    // 01/08 é sábado; 02/08, domingo
+    const fimDeSemana = documento(sequenciaDeDias(['M', 'M', 'M'], '2026-08-01'));
+    expect(testarRegra(comId('domingo'), [fimDeSemana], CATALOGO_SOC).alertas.map((alerta) => alerta.data)).toEqual(['2026-08-02']);
+
+    const apertado = documento(sequenciaDeDias(['N', 'M']));
+    expect(testarRegra(comId('descanso-12'), [apertado], CATALOGO_SOC).total).toBe(1);
+  });
+
+  it('o teste resume casos, pessoas e o tamanho do que foi avaliado — e funciona com a regra ainda desligada', () => {
+    const a = documento(sequenciaDeDias(['N', 'M', 'N', 'M']), 'ana');
+    const b = documento(sequenciaDeDias(['M', 'M']), 'bia');
+    const resultado = testarRegra({ ...comId('descanso-12'), ativa: false }, [a, b], CATALOGO_SOC, { nomePorLogin: { ana: 'Ana Souza' } });
+    expect(resultado).toMatchObject({ total: 2, pessoasAfetadas: 1, documentosAvaliados: 2, diasAvaliados: 6 });
+    expect(resultado.porPessoa).toEqual([{ login: 'ana', nome: 'Ana Souza', total: 2 }]);
+  });
+
+  it('regra inválida não roda no teste', () => {
+    const invalida = { ...novaRegraEmBranco('x'), quando: { logica: 'E' as const, condicoes: [] } };
+    expect(testarRegra(invalida, [documento(sequenciaDeDias(['M']))], CATALOGO_SOC).total).toBe(0);
+  });
+
+  it('copiar uma regra legal cria uma regra da empresa, sem tocar na original', () => {
+    const legal = REGRAS_PADRAO[1]!;
+    const copia = copiarComoRascunho(legal, 'nova');
+    expect(copia).toMatchObject({ id: 'nova', categoria: 'EMPRESA', origem: 'ADMIN', nome: 'Descanso mínimo entre dois turnos (versão da empresa)' });
+    copia.quando.condicoes[0]!.valor = 12;
+    expect(legal.quando.condicoes[0]!.valor).toBe(11);
+    expect(validarRegra(copia)).toEqual([]);
+  });
+
+  it('o construtor oferece as variáveis por categoria e os campos da mensagem vêm das condições', () => {
+    expect(variaveisPorCategoria().map((grupo) => grupo.categoria)).toEqual(['SEQUENCIA', 'DESCANSO', 'CARGA', 'DIA']);
+    expect(variaveisDaRegra(comId('descanso-12'))).toEqual(['descansoHoras', 'folgasEntreTurnos']);
   });
 });

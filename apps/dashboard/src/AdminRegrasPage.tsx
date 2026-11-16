@@ -1,13 +1,17 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, CalendarClock, CheckCircle2, ChevronRight, Clock3, Eye, Info, Lock, Moon, Repeat, Scale, ShieldAlert, Sparkles, X,
+  AlertTriangle, CalendarClock, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, Eye, FlaskConical, Info, Lock, Moon, Pencil, Plus, Repeat, Scale,
+  ShieldAlert, Sparkles, Trash2, X,
 } from 'lucide-react';
 import type { TipoTurno, TurnosMes } from '@escala-ici/contrato';
 
 import {
-  avaliarRegras, formatarValorRegra, OPERADORES_REGRA, renderizarMensagem, ROTULO_GRAVIDADE, VARIAVEIS_REGRA,
+  avaliarRegras, copiarComoRascunho, formatarValorRegra, gerarIdRegraEmTeste, NOMES_DIA_SEMANA, novaRegraEmBranco, OPERADORES_REGRA, renderizarMensagem, ROTULO_GRAVIDADE, rotuloUnidade, VARIAVEIS_REGRA,
   type AlertaRegra, type CategoriaVariavel, type CondicaoRegra, type RegraEscala, type ValoresDia,
 } from '@/lib/regrasEscala';
+import { EXEMPLOS_REGRA } from '@/lib/regrasExemplos';
+import { ConstrutorRegra } from './ConstrutorRegra';
+import { MenuAcoes } from './MenuAcoes';
 
 /**
  * REGRAS-ESCALA-1 — Administração › Regras: as regras da escala como frases
@@ -46,12 +50,14 @@ function Condicao({ condicao }: { condicao: CondicaoRegra }) {
     <span className="regra-condicao" title={definicao.ajuda}>
       <span className="regra-chip regra-chip-variavel">{definicao.rotulo}</span>
       <span className="regra-chip regra-chip-op" title={OPERADORES_REGRA[condicao.op]}>{SIMBOLO_OPERADOR[condicao.op]}</span>
-      <span className="regra-chip regra-chip-valor">{formatarValorRegra(condicao.valor)}{definicao.unidade === '' ? '' : ` ${definicao.unidade}`}</span>
+      <span className="regra-chip regra-chip-valor">{Number.isFinite(condicao.valor)
+        ? (condicao.variavel === 'diaDaSemana' ? (NOMES_DIA_SEMANA[condicao.valor] ?? formatarValorRegra(condicao.valor)) : formatarValorRegra(condicao.valor))
+        : '…'}{definicao.unidade === '' || !Number.isFinite(condicao.valor) ? '' : ` ${rotuloUnidade(definicao.unidade, condicao.valor)}`}</span>
     </span>
   );
 }
 
-function FraseSeEntao({ regra }: { regra: RegraEscala }) {
+export function FraseSeEntao({ regra }: { regra: RegraEscala }) {
   const { entao, quando } = regra;
   return (
     <div className="regra-frase">
@@ -83,8 +89,10 @@ function Alcance({ regra }: { regra: RegraEscala }) {
   return <span className="regra-selo">{regra.vale.tipo === 'TODAS' ? 'Todas as escalas' : `${regra.vale.ids?.length ?? 0} equipe(s)`}</span>;
 }
 
-export function AdminRegrasPage({ regras, documentos, catalogo, escalaAberta, nomePorLogin, subnav }: {
+export function AdminRegrasPage({ regras, equipes, documentos, catalogo, escalaAberta, nomePorLogin, subnav }: {
   regras: readonly RegraEscala[];
+  /** Equipes que o construtor oferece em "Vale para". */
+  equipes: ReadonlyArray<{ id: string; nome: string }>;
   documentos: readonly TurnosMes[];
   catalogo: Record<string, TipoTurno>;
   /** Nome legível da escala usada para contar os casos (ex.: "SOC · Agosto de 2026"), ou null. */
@@ -93,26 +101,38 @@ export function AdminRegrasPage({ regras, documentos, catalogo, escalaAberta, no
   subnav: ReactNode;
 }) {
   const [aberta, setAberta] = useState<RegraEscala | null>(null);
-  const alertas = useMemo(() => avaliarRegras(documentos, catalogo, regras, { nomePorLogin }), [documentos, catalogo, regras, nomePorLogin]);
+  /** REGRAS-ESCALA-3 — regras em teste: só nesta tela, nada é salvo (salvar vem na etapa seguinte). */
+  const [emTeste, setEmTeste] = useState<RegraEscala[]>([]);
+  const [construtor, setConstrutor] = useState<{ regra: RegraEscala; emEdicao: boolean } | null>(null);
+  const alertas = useMemo(
+    () => avaliarRegras(documentos, catalogo, regras, { nomePorLogin }),
+    [documentos, catalogo, regras, nomePorLogin],
+  );
+  const alertasEmTeste = useMemo(
+    () => avaliarRegras(documentos, catalogo, emTeste.map((regra) => ({ ...regra, ativa: true })), { nomePorLogin }),
+    [documentos, catalogo, emTeste, nomePorLogin],
+  );
   const casosPorRegra = useMemo(() => {
     const mapa = new Map<string, AlertaRegra[]>();
-    for (const alerta of alertas) mapa.set(alerta.regraId, [...(mapa.get(alerta.regraId) ?? []), alerta]);
+    for (const alerta of [...alertas, ...alertasEmTeste]) mapa.set(alerta.regraId, [...(mapa.get(alerta.regraId) ?? []), alerta]);
     return mapa;
-  }, [alertas]);
+  }, [alertas, alertasEmTeste]);
   const legais = regras.filter((regra) => regra.categoria === 'LEGAL');
   const daEmpresa = regras.filter((regra) => regra.categoria === 'EMPRESA');
 
-  const cartao = (regra: RegraEscala) => {
+  const cartao = (regra: RegraEscala, emModoTeste = false) => {
     const casos = casosPorRegra.get(regra.id)?.length ?? 0;
     return (
-      <li key={regra.id} className="regra-cartao" data-legal={regra.categoria === 'LEGAL' ? '' : undefined} data-inativa={regra.ativa ? undefined : ''}>
+      <li key={regra.id} className="regra-cartao" data-legal={regra.categoria === 'LEGAL' ? '' : undefined} data-inativa={regra.ativa ? undefined : ''} data-teste={emModoTeste ? '' : undefined}>
         <div className="regra-cartao-topo">
           <span className="regra-icone" aria-hidden="true">{iconeDaRegra(regra)}</span>
           <span className="regra-titulo">
             <strong>{regra.nome}</strong>
             <small>{regra.descricao}</small>
           </span>
-          <span className="regra-estado" data-ativa={regra.ativa ? '' : undefined}><span aria-hidden="true" /> {regra.ativa ? 'Ativa' : 'Desligada'}</span>
+          {emModoTeste
+            ? <span className="regra-estado regra-estado-teste"><FlaskConical size={12} aria-hidden="true" /> Em teste</span>
+            : <span className="regra-estado" data-ativa={regra.ativa ? '' : undefined}><span aria-hidden="true" /> {regra.ativa ? 'Ativa' : 'Desligada'}</span>}
         </div>
         <FraseSeEntao regra={regra} />
         <div className="regra-cartao-rodape">
@@ -125,9 +145,16 @@ export function AdminRegrasPage({ regras, documentos, catalogo, escalaAberta, no
               {escalaAberta === null ? 'Sem escala aberta' : casos === 0 ? 'Nenhum caso na escala aberta' : `${casos} ${casos === 1 ? 'caso' : 'casos'} na escala aberta`}
             </span>
           </span>
-          <button type="button" className="secondary-button compact-button" onClick={() => setAberta(regra)}>
-            <Eye size={14} aria-hidden="true" /> Ver detalhes <ChevronRight size={14} aria-hidden="true" />
-          </button>
+          {emModoTeste ? (
+            <span className="regra-acoes-teste">
+              <button type="button" className="secondary-button compact-button" onClick={() => setConstrutor({ regra, emEdicao: true })}><Pencil size={14} aria-hidden="true" /> Editar</button>
+              <button type="button" className="icon-button" aria-label={`Descartar ${regra.nome}`} title="Descartar" onClick={() => setEmTeste((atuais) => atuais.filter((item) => item.id !== regra.id))}><Trash2 size={15} /></button>
+            </span>
+          ) : (
+            <button type="button" className="secondary-button compact-button" onClick={() => setAberta(regra)}>
+              <Eye size={14} aria-hidden="true" /> Ver detalhes <ChevronRight size={14} aria-hidden="true" />
+            </button>
+          )}
         </div>
       </li>
     );
@@ -141,6 +168,19 @@ export function AdminRegrasPage({ regras, documentos, catalogo, escalaAberta, no
           <h1>Regras da escala</h1>
           <p>Quando o sistema deve avisar a liderança. Cada regra é uma frase: <strong>SE</strong> acontece algo, <strong>ENTÃO</strong> gera um alerta.</p>
         </div>
+        <div className="grade-header-actions">
+          <MenuAcoes
+            rotulo="Começar de um exemplo"
+            classeBotao="secondary-button"
+            conteudoBotao={<><Sparkles size={15} aria-hidden="true" /> Começar de um exemplo <ChevronDown size={14} aria-hidden="true" /></>}
+            itens={EXEMPLOS_REGRA.map((exemplo) => ({
+              rotulo: exemplo.titulo,
+              dica: exemplo.descricao,
+              executar: () => setConstrutor({ regra: { ...structuredClone(exemplo.modelo), id: gerarIdRegraEmTeste() }, emEdicao: false }),
+            }))}
+          />
+          <button type="button" className="primary-button" onClick={() => setConstrutor({ regra: novaRegraEmBranco(gerarIdRegraEmTeste()), emEdicao: false })}><Plus size={16} /> Nova regra</button>
+        </div>
       </header>
       {subnav}
 
@@ -148,6 +188,7 @@ export function AdminRegrasPage({ regras, documentos, catalogo, escalaAberta, no
         <div><CheckCircle2 size={18} aria-hidden="true" /><span><small>Regras ativas</small><strong>{regras.filter((regra) => regra.ativa).length}</strong></span></div>
         <div><Scale size={18} aria-hidden="true" /><span><small>Legais</small><strong>{legais.length}</strong></span></div>
         <div><Sparkles size={18} aria-hidden="true" /><span><small>Da empresa</small><strong>{daEmpresa.length}</strong></span></div>
+        <div><FlaskConical size={18} aria-hidden="true" /><span><small>Em teste</small><strong>{emTeste.length}</strong></span></div>
         <div data-alerta={alertas.length > 0 ? '' : undefined}><AlertTriangle size={18} aria-hidden="true" /><span><small>Casos na escala aberta</small><strong>{escalaAberta === null ? '–' : alertas.length}</strong></span></div>
       </div>
 
@@ -158,7 +199,7 @@ export function AdminRegrasPage({ regras, documentos, catalogo, escalaAberta, no
       <div className="regras-grupo">
         <h2><Scale size={16} aria-hidden="true" /> Regras legais</h2>
         <p>Já valem hoje. Vêm da legislação trabalhista: o limite poderá ser endurecido, mas elas não podem ser desligadas.</p>
-        <ul className="regras-lista">{legais.map(cartao)}</ul>
+        <ul className="regras-lista">{legais.map((regra) => cartao(regra))}</ul>
       </div>
 
       <div className="regras-grupo">
@@ -166,21 +207,53 @@ export function AdminRegrasPage({ regras, documentos, catalogo, escalaAberta, no
         {daEmpresa.length === 0 ? (
           <div className="regras-vazio">
             <Sparkles size={22} aria-hidden="true" />
-            <strong>Nenhuma regra da empresa ainda</strong>
-            <small>Em breve você poderá criar regras aqui — por exemplo, “SE horas trabalhadas no dia &gt; 12 ENTÃO gerar alerta” — para qualquer modelo de escala (6x1, 5x2, 12x36…).</small>
+            <strong>Nenhuma regra da empresa salva ainda</strong>
+            <small>Monte uma regra com <strong>Nova regra</strong> ou comece de um exemplo, e teste na escala aberta. Salvar e ativar a regra para todos chega na próxima etapa.</small>
           </div>
         ) : (
-          <ul className="regras-lista">{daEmpresa.map(cartao)}</ul>
+          <ul className="regras-lista">{daEmpresa.map((regra) => cartao(regra))}</ul>
         )}
       </div>
 
-      {aberta && <DetalheRegra regra={aberta} casos={casosPorRegra.get(aberta.id) ?? []} escalaAberta={escalaAberta} onFechar={() => setAberta(null)} />}
+      {emTeste.length > 0 && (
+        <div className="regras-grupo">
+          <h2><FlaskConical size={16} aria-hidden="true" /> Em teste</h2>
+          <p>Estas regras existem só nesta tela e <strong>não valem para ninguém</strong>. Ao sair da página, elas se perdem.</p>
+          <ul className="regras-lista">{emTeste.map((regra) => cartao(regra, true))}</ul>
+        </div>
+      )}
+
+      {aberta && (
+        <DetalheRegra
+          regra={aberta}
+          casos={casosPorRegra.get(aberta.id) ?? []}
+          escalaAberta={escalaAberta}
+          onFechar={() => setAberta(null)}
+          onCriarVersao={() => { setConstrutor({ regra: copiarComoRascunho(aberta, gerarIdRegraEmTeste()), emEdicao: false }); setAberta(null); }}
+        />
+      )}
+      {construtor && (
+        <ConstrutorRegra
+          inicial={construtor.regra}
+          equipes={equipes}
+          documentos={documentos}
+          catalogo={catalogo}
+          escalaAberta={escalaAberta}
+          nomePorLogin={nomePorLogin}
+          emEdicao={construtor.emEdicao}
+          onFechar={() => setConstrutor(null)}
+          onManterEmTeste={(regra) => {
+            setEmTeste((atuais) => (atuais.some((item) => item.id === regra.id) ? atuais.map((item) => (item.id === regra.id ? regra : item)) : [...atuais, regra]));
+            setConstrutor(null);
+          }}
+        />
+      )}
     </section>
   );
 }
 
-function DetalheRegra({ regra, casos, escalaAberta, onFechar }: {
-  regra: RegraEscala; casos: readonly AlertaRegra[]; escalaAberta: string | null; onFechar: () => void;
+function DetalheRegra({ regra, casos, escalaAberta, onFechar, onCriarVersao }: {
+  regra: RegraEscala; casos: readonly AlertaRegra[]; escalaAberta: string | null; onFechar: () => void; onCriarVersao: () => void;
 }) {
   const exemplo = renderizarMensagem(regra.entao.mensagem, {
     pessoa: 'Ana', data: '2026-08-12', limite: regra.quando.condicoes[0]?.valor ?? null, valores: valoresDeExemplo(regra),
@@ -242,7 +315,10 @@ function DetalheRegra({ regra, casos, escalaAberta, onFechar }: {
         {regra.categoria === 'LEGAL' && (
           <p className="regra-nota-legal"><Lock size={14} aria-hidden="true" /><span>Regra legal: o limite poderá ser <strong>endurecido</strong> (por exemplo, descanso de 12 h), mas a regra não pode ser desligada nem afrouxada.</span></p>
         )}
-        <div className="criar-equipe-acoes"><button type="button" className="primary-button" onClick={onFechar}>Fechar</button></div>
+        <div className="criar-equipe-acoes">
+          <button type="button" className="secondary-button" onClick={onCriarVersao}><Copy size={15} aria-hidden="true" /> {regra.categoria === 'LEGAL' ? 'Criar uma versão mais rígida' : 'Criar uma cópia para editar'}</button>
+          <button type="button" className="primary-button" onClick={onFechar}>Fechar</button>
+        </div>
       </section>
     </div>
   );
