@@ -62,6 +62,9 @@ interface AppFrameProps {
   onNavegar: (id: string) => void;
   onSair: () => void;
   produtoHref?: string;
+  /** VERSAO-DASHBOARD-1 — "Dashboard 1.5.0" no rodapé do menu (opcional; o title mostra data e commit). */
+  versaoTexto?: string;
+  versaoDetalhe?: string;
   acoesTopo?: ReactNode;
   /**
    * Fase ESCALAS-UX-2A.1 — slot opcional para o cluster "Escala atual /
@@ -96,6 +99,8 @@ export function AppFrame({
   onNavegar,
   onSair,
   produtoHref,
+  versaoTexto,
+  versaoDetalhe,
   acoesTopo,
   contextoEscala,
   perfil,
@@ -183,6 +188,9 @@ export function AppFrame({
                 <small>Dados protegidos pelas regras</small>
               </div>
             </div>
+          )}
+          {!recolhida && versaoTexto && (
+            <small className="sidebar-versao" title={versaoDetalhe || undefined}>{versaoTexto}</small>
           )}
           <button
             className="collapse-button"

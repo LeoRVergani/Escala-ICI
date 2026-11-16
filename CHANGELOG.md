@@ -7,9 +7,14 @@ A versão aparece no fim do **Perfil** (ex.: `3.0.0`) e fica em
 - **MENOR** (`3.1.0`) — funcionalidade nova.
 - **CORREÇÃO** (`3.0.1`) — ajuste ou correção, sem funcionalidade nova.
 
-Cada patch que muda o App sobe o número. O App confere `/versao.json` ao abrir,
+Cada patch que muda o App — ou um arquivo que o App também usa (`components/`, `lib/`) — sobe o número.
+O Dashboard tem a sua própria versão: veja `CHANGELOG-DASHBOARD.md`. O App confere `/versao.json` ao abrir,
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
+
+## 3.7.6 — ajuste interno na grade de escalas
+- A grade de escalas (que o App também usa) ganhou suporte interno para destacar uma célula e mostrar a mensagem
+  de uma regra no tooltip. Sem mudança visível para o colaborador; o número sobe porque o código do App mudou.
 
 ## 3.7.5 — cards dos turnos organizados no celular
 - Hoje da coordenação, no celular: todos os cards de turno com o mesmo

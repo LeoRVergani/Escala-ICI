@@ -1,14 +1,30 @@
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
+
+import { versaoDoBuildDashboard } from './versaoBuild';
 
 const diretorioApp = fileURLToPath(new URL('.', import.meta.url));
 const raizRepositorio = fileURLToPath(new URL('../../', import.meta.url));
+const versao = versaoDoBuildDashboard();
+
+/** VERSAO-DASHBOARD-1 — publica /versao.json: depois do deploy, `curl .../versao.json` mostra o que está rodando. */
+function publicarVersao(): Plugin {
+  return {
+    name: 'escala-ici-dashboard-versao-json',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'versao.json', source: `${JSON.stringify(versao)}\n` });
+    },
+  };
+}
 
 export default defineConfig({
   root: diretorioApp,
   envDir: raizRepositorio,
-  plugins: [react()],
+  plugins: [react(), publicarVersao()],
+  define: {
+    __VERSAO_DASHBOARD__: JSON.stringify(versao),
+  },
   resolve: {
     alias: {
       '@': raizRepositorio,
