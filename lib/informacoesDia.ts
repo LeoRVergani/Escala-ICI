@@ -376,3 +376,40 @@ export function paraOColaborador(lista: readonly InformacaoDia[], login: string,
     && informacao.dataFim >= hojeIso
     && informacao.dataInicio <= limite));
 }
+
+// ------------------------------------------------------- marcadores na grade
+
+/** O que a grade da escala mostra numa célula (pessoa + dia) que tem informação. */
+export interface MarcadorCelula {
+  /** Cores distintas, na ordem em que aparecem (no máximo uma por tipo). */
+  cores: CorInformacao[];
+  itens: InformacaoDia[];
+}
+
+export function chaveMarcador(login: string, data: string): string {
+  return `${login}_${data}`;
+}
+
+/** Uma entrada por pessoa e dia coberto — um período vira um marcador em cada dia que cobre. */
+export function marcadoresPorCelula(lista: readonly InformacaoDia[]): Map<string, MarcadorCelula> {
+  const mapa = new Map<string, MarcadorCelula>();
+  for (const informacao of lista) {
+    const dias = Math.min(diasEntreDatas(informacao.dataInicio, informacao.dataFim), LIMITE_DIAS_PERIODO - 1);
+    for (let indice = 0; indice <= dias; indice += 1) {
+      const chave = chaveMarcador(informacao.login, adicionarDias(informacao.dataInicio, indice));
+      const atual = mapa.get(chave) ?? { cores: [], itens: [] };
+      const cor = metaDoTipo(informacao.tipo).cor;
+      if (!atual.cores.includes(cor)) atual.cores.push(cor);
+      atual.itens.push(informacao);
+      mapa.set(chave, atual);
+    }
+  }
+  return mapa;
+}
+
+/** "Atestado: Atestado de 3 dias (dia todo) · Curso ou treinamento (das 14:00 às 18:00)" — para o tooltip da célula. */
+export function textoDoMarcador(marcador: MarcadorCelula): string {
+  return ordenarInformacoes(marcador.itens)
+    .map((informacao) => `${metaDoTipo(informacao.tipo).rotulo}${informacao.titulo.trim() !== '' ? `: ${informacao.titulo}` : ''} (${descricaoHorario(informacao).replace(/^Dia todo$/u, 'dia todo')})`)
+    .join(' · ');
+}

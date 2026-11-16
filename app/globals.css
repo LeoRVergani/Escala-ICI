@@ -10626,3 +10626,21 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 .info-app-texto em { color: var(--text); font-size: 12.5px; font-style: normal; line-height: 1.4; }
 .info-app-quando { flex: 0 0 auto; padding: 2px 9px; border-radius: 999px; background: var(--surface); color: var(--info-cor); font-size: 11.5px; font-weight: 800; white-space: nowrap; }
 .info-app-mais { color: var(--muted); font-size: 12.5px; text-align: center; }
+
+/* INFORMACOES-DIA-1 — pontinhos coloridos embaixo da célula da grade (atestado, curso, afastamento, anotação). */
+.shift-marcador { position: absolute; bottom: -5px; left: 50%; display: flex; gap: 2px; transform: translateX(-50%); pointer-events: none; }
+.shift-marcador > i { width: 7px; height: 7px; border-radius: 50%; background: var(--info-cor, var(--primary-bright)); box-shadow: 0 0 0 1.5px var(--surface); }
+
+/* INFORMACOES-DIA-1 — legenda dos pontinhos da grade. */
+.legenda-informacoes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 0 10px; color: var(--muted); font-size: 12.5px; }
+.legenda-informacoes > b { color: var(--text); }
+.legenda-informacoes > span { display: inline-flex; align-items: center; gap: 6px; }
+.legenda-informacoes > span > i { width: 9px; height: 9px; border-radius: 50%; background: var(--info-cor); }
+.legenda-informacoes > small { color: var(--muted); }
+
+/* INFORMACOES-DIA-1 — aviso no modal de editar célula: a pessoa tem algo registrado neste dia. */
+.aviso-informacoes-dia { display: grid; gap: 6px; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--border); border-left: 4px solid var(--primary-bright); border-radius: 12px; background: var(--surface-muted); color: var(--text); font-size: 13px; }
+.aviso-informacoes-dia > strong { font-size: 13px; }
+.aviso-informacoes-dia > ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.aviso-informacoes-dia > ul > li { padding-left: 8px; border-left: 3px solid var(--info-cor, var(--primary-bright)); color: var(--muted); line-height: 1.4; }
+.aviso-informacoes-dia > ul > li > b { color: var(--text); }

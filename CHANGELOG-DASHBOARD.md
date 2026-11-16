@@ -15,6 +15,14 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.8.0 — Informações marcadas na grade da escala (patch 0097)
+- Na Grade da equipe, a célula do dia que tem informação (atestado, afastamento por horário, curso, anotação)
+  ganha um pontinho colorido embaixo; o tooltip mostra o que é, e uma legenda explica as cores.
+- Ao clicar numa célula para editar, o modal avisa "Esta pessoa tem uma informação neste dia" antes de mexer na
+  escala.
+- Não muda Rules nem índices (usa a mesma leitura da tela Informações). Tocou `components/ScheduleGrid.tsx`
+  (usada também no App) → App 3.8.1.
+
 ## 1.7.0 — Informações: atestado, afastamento por horário, curso e anotações (patch 0096)
 - Nova tela "Informações" (menu, abaixo de Escalas): o chefe de equipe escolhe o colaborador, o tipo (afastamento
   por horário, atestado, curso ou treinamento, outra informação), o dia ou período, "dia todo" ou um horário, e

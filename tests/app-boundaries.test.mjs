@@ -1365,3 +1365,22 @@ test('INFORMACOES-DIA-1 — o colaborador só lê o que foi liberado e é dele; 
   assert.match(bloco, /usuarios\/\$\(request\.resource\.data\.login\)\)\.data\.get\('equipeId', null\) == request\.resource\.data\.equipeId/);
   assert.match(bloco, /allow delete: if podeGerirInformacoesDaEquipe\(resource\.data\.equipeId\);/);
 });
+
+test('INFORMACOES-DIA-1 (grade) — os marcadores são só da liderança: o App não os passa e a grade só os desenha se vierem de fora', async () => {
+  const [grade, dashboard, appJs, hook] = await Promise.all([
+    ler('components/ScheduleGrid.tsx'), ler('apps/dashboard/src/DashboardApp.tsx'), ler('apps/app/src/EmployeeApp.tsx'), ler('apps/dashboard/src/useInformacoesDaEquipe.ts'),
+  ]);
+  // A ScheduleGrid é compartilhada: o marcador é uma prop opcional, desenhada só quando informada.
+  assert.match(grade, /marcadoresPorCelula\?: Map<string, MarcadorCelula>;/);
+  assert.match(grade, /\{marcador && \(\s*<span className="shift-marcador"/);
+  // O App nunca passa marcadores (informação reservada não pode vazar para a grade do colaborador).
+  assert.doesNotMatch(appJs, /marcadoresPorCelula|marcadoresGrade/u);
+  // Só a "Grade da equipe" do Dashboard recebe os marcadores, vindos da consulta da equipe (ou dos exemplos da demonstração).
+  assert.equal((dashboard.match(/marcadoresPorCelula=\{marcadoresGrade\}/g) ?? []).length, 1);
+  assert.match(dashboard, /useInformacoesDaEquipe\(\{ equipeId: equipeDaGrade, desdeIso: inicioDaGrade, demo: exemplosInformacoesGrade \}\)/);
+  // Consulta negada (quem só consulta a escala) = sem marcadores, nunca erro na tela.
+  assert.match(hook, /observarInformacoesDaEquipe\(equipeId, desdeIso, setInformacoes, \(\) => setInformacoes\(\[\]\)\)/);
+  // Aviso ao editar o dia e legenda.
+  assert.match(dashboard, /Esta pessoa tem \{doDiaDaPessoa\.length === 1/);
+  assert.match(dashboard, /\{marcadoresGrade\.size > 0 && \(\s*<p className="legenda-informacoes">/);
+});
