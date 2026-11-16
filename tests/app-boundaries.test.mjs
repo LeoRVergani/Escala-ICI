@@ -1234,3 +1234,23 @@ test('REGRAS-ESCALA-2 — problemas da escala: painel por pessoa, célula marcad
   assert.match(revisao, /celula\?\.scrollIntoView\(\{ behavior: 'smooth', block: 'center', inline: 'center' \}\);/);
   assert.match(painel, /onVerNaEscala\(alerta\)/);
 });
+
+test('REGRAS-ESCALA-3 — construtor SE/ENTÃO: testa sem gravar; regras em teste só na tela; legal vira cópia da empresa', async () => {
+  const [painel, construtor, exemplos] = await Promise.all([
+    ler('apps/dashboard/src/AdminRegrasPage.tsx'), ler('apps/dashboard/src/ConstrutorRegra.tsx'), ler('lib/regrasExemplos.ts'),
+  ]);
+  // Nada é gravado nesta etapa: nem o construtor nem o painel falam com Firebase.
+  assert.doesNotMatch(construtor, /firebase|setDoc|updateDoc|localStorage/iu);
+  assert.doesNotMatch(painel, /firebase|setDoc|updateDoc|localStorage/iu);
+  // O teste usa o mesmo motor que vale na escala, sobre as escalas já carregadas.
+  assert.match(construtor, /testarRegra\(regra, documentos, catalogo, \{ nomePorLogin \}\)/);
+  // "Manter em teste" só com a regra válida; regras em teste ficam em estado local do painel.
+  assert.match(construtor, /disabled=\{falta\.length > 0\} onClick=\{\(\) => onManterEmTeste\(regra\)\}/);
+  assert.match(painel, /const \[emTeste, setEmTeste\] = useState<RegraEscala\[\]>\(\[\]\);/);
+  // Regra legal nunca é editada: o detalhe só oferece uma versão (cópia da empresa) mais rígida.
+  assert.match(painel, /copiarComoRascunho\(aberta, gerarIdRegraEmTeste\(\)\)/);
+  // Os exemplos não prendem o sistema a um modelo de escala (o nome do modelo é do administrador).
+  assert.doesNotMatch(exemplos, /6x1|6X1/u);
+  // O campo da mensagem usa handler estável (sem ref lido dentro do map — React Compiler).
+  assert.match(construtor, /function inserirCampo\(evento: MouseEvent<HTMLButtonElement>\)/);
+});

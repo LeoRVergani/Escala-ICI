@@ -328,9 +328,14 @@ export function validarRegra(regra: RegraEscala): string[] {
 
 // -------------------------------------------------------------- texto legível
 
+/** "1 dia", "6 dias", "11 h": a unidade concorda com o valor. */
+export function rotuloUnidade(unidade: string, valor: number): string {
+  return unidade === 'dias' && valor === 1 ? 'dia' : unidade;
+}
+
 export function descreverCondicao(condicao: CondicaoRegra): string {
   const definicao = VARIAVEIS_REGRA[condicao.variavel];
-  const unidade = definicao.unidade === '' ? '' : ` ${definicao.unidade}`;
+  const unidade = definicao.unidade === '' ? '' : ` ${rotuloUnidade(definicao.unidade, condicao.valor)}`;
   return `${definicao.rotulo} ${condicao.op} ${formatarValorRegra(condicao.valor)}${unidade}`;
 }
 
@@ -398,4 +403,94 @@ export function agruparProblemasPorPessoa(alertas: readonly AlertaRegra[]): Arra
   return [...mapa.entries()]
     .map(([login, lista]) => ({ login, alertas: lista.sort((a, b) => a.data.localeCompare(b.data)) }))
     .sort((a, b) => b.alertas.length - a.alertas.length || a.login.localeCompare(b.login));
+}
+
+// ------------------------------------------------- construtor e teste (fase 3)
+
+export const NOMES_DIA_SEMANA: readonly string[] = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+
+export const CAMPOS_MENSAGEM_FIXOS: ReadonlyArray<{ campo: string; rotulo: string }> = [
+  { campo: 'pessoa', rotulo: 'pessoa' },
+  { campo: 'dia', rotulo: 'dia' },
+  { campo: 'limite', rotulo: 'limite' },
+];
+
+export const ROTULO_CATEGORIA_VARIAVEL: Readonly<Record<CategoriaVariavel, string>> = {
+  SEQUENCIA: 'Sequência de trabalho', DESCANSO: 'Descanso', CARGA: 'Carga de trabalho', DIA: 'O dia',
+};
+
+/** Variáveis agrupadas por categoria, na ordem em que o construtor as oferece. */
+export function variaveisPorCategoria(): Array<{ categoria: CategoriaVariavel; rotulo: string; variaveis: VariavelRegra[] }> {
+  const ordem: CategoriaVariavel[] = ['SEQUENCIA', 'DESCANSO', 'CARGA', 'DIA'];
+  return ordem.map((categoria) => ({
+    categoria,
+    rotulo: ROTULO_CATEGORIA_VARIAVEL[categoria],
+    variaveis: (Object.keys(VARIAVEIS_REGRA) as VariavelRegra[]).filter((variavel) => VARIAVEIS_REGRA[variavel].categoria === categoria),
+  }));
+}
+
+export function novaRegraEmBranco(id: string): RegraEscala {
+  return {
+    id, nome: '', descricao: '', categoria: 'EMPRESA', ativa: true,
+    quando: { logica: 'E', condicoes: [{ variavel: 'diasSeguidosTrabalho', op: '>', valor: 5 }] },
+    entao: { gravidade: 'AVISO', bloqueiaPublicacao: false, mensagem: '{pessoa} trabalha {diasSeguidosTrabalho} dias seguidos — o máximo é {limite}', agrupar: 'PRIMEIRO_DIA_DA_SEQUENCIA' },
+    vale: { tipo: 'TODAS' }, origem: 'ADMIN', schemaVersion: 1,
+  };
+}
+
+/** Cópia editável de uma regra: sempre vira regra da empresa (a regra legal original não é tocada). */
+export function copiarComoRascunho(regra: RegraEscala, novoId: string): RegraEscala {
+  return {
+    ...structuredClone(regra),
+    id: novoId,
+    nome: regra.categoria === 'LEGAL' ? `${regra.nome} (versão da empresa)` : `${regra.nome} (cópia)`,
+    categoria: 'EMPRESA', ativa: true, origem: 'ADMIN',
+  };
+}
+
+/** Variáveis que a regra usa nas condições — o construtor oferece-as como campos da mensagem. */
+export function variaveisDaRegra(regra: RegraEscala): VariavelRegra[] {
+  return [...new Set(regra.quando.condicoes.map((condicao) => condicao.variavel))];
+}
+
+export interface ResultadoTesteRegra {
+  total: number;
+  pessoasAfetadas: number;
+  documentosAvaliados: number;
+  diasAvaliados: number;
+  porPessoa: Array<{ login: string; nome: string; total: number }>;
+  amostra: AlertaRegra[];
+  alertas: AlertaRegra[];
+}
+
+/**
+ * Roda UMA regra (mesmo que ainda seja um rascunho) sobre as escalas dadas, sem gravar nada.
+ * Regra inválida não roda: o resultado vem vazio (a tela mostra o que falta).
+ */
+export function testarRegra(
+  regra: RegraEscala,
+  documentos: readonly TurnosMes[],
+  catalogo: Record<string, TipoTurno>,
+  opcoes: OpcoesAvaliacao = {},
+): ResultadoTesteRegra {
+  const alertas = avaliarRegras(documentos, catalogo, [{ ...regra, ativa: true }], opcoes);
+  const aplicaveis = documentos.filter((documento) => regraAplicaAoDocumento(regra, documento));
+  const porLogin = new Map<string, number>();
+  for (const alerta of alertas) porLogin.set(alerta.login, (porLogin.get(alerta.login) ?? 0) + 1);
+  return {
+    total: alertas.length,
+    pessoasAfetadas: porLogin.size,
+    documentosAvaliados: aplicaveis.length,
+    diasAvaliados: aplicaveis.reduce((soma, documento) => soma + intervaloDatas(documento.periodoInicio, documento.periodoFim).length, 0),
+    porPessoa: [...porLogin.entries()]
+      .map(([login, total]) => ({ login, nome: opcoes.nomePorLogin?.[login] ?? login, total }))
+      .sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome, 'pt-BR')),
+    amostra: alertas.slice(0, 8),
+    alertas,
+  };
+}
+
+/** Identificador de uma regra que só existe em teste (única o bastante para a sessão da tela). */
+export function gerarIdRegraEmTeste(): string {
+  return `teste-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
