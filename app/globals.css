@@ -10352,3 +10352,113 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 
 /* VERSAO-DASHBOARD-1 — número da versão no rodapé do menu do Dashboard (discreto). */
 .sidebar-versao { display: block; padding: 0 12px 6px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.02em; opacity: 0.8; cursor: default; }
+
+/* =====================================================================
+ * ASSISTENTE-REGRAS-1 — criar regra em 3 passos, para qualquer pessoa.
+ * ===================================================================== */
+.assistente-regra { display: grid; gap: 16px; width: min(700px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow-y: auto; }
+.assistente-regra > * { margin: 0; }
+.assistente-progresso { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.assistente-progresso > li { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 6px; border-radius: 999px; background: var(--surface-muted); color: var(--muted); font-size: 12.5px; font-weight: 800; }
+.assistente-progresso > li > span { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--surface); font-size: 12px; }
+.assistente-progresso > li[data-estado="atual"] { background: color-mix(in srgb, var(--primary-bright) 16%, var(--surface)); color: var(--primary-bright); }
+.assistente-progresso > li[data-estado="atual"] > span { background: var(--primary-bright); color: #fff; }
+.assistente-progresso > li[data-estado="feito"] { color: #059669; }
+.assistente-progresso > li[data-estado="feito"] > span { background: #10b981; color: #fff; }
+
+.assistente-corpo { display: grid; gap: 14px; }
+.assistente-corpo > * { margin: 0; }
+.assistente-corpo h3 { color: var(--text); font-size: 17px; font-weight: 800; }
+
+.assistente-situacoes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.assistente-situacoes > button {
+  display: grid; justify-items: start; gap: 6px; padding: 16px; border: 1.5px solid var(--border); border-radius: 16px;
+  background: var(--surface); color: var(--muted); font: inherit; text-align: left; cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.assistente-situacoes > button:hover { border-color: var(--primary-bright); transform: translateY(-1px); }
+.assistente-situacoes > button.active { border-color: var(--primary-bright); background: color-mix(in srgb, var(--primary-bright) 8%, var(--surface)); }
+.assistente-situacoes > button strong { color: var(--text); font-size: 15px; line-height: 1.3; }
+.assistente-situacoes > button small { font-size: 12.5px; line-height: 1.45; }
+.assistente-situacao-icone { display: inline-grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: color-mix(in srgb, var(--primary-bright) 14%, var(--surface)); color: var(--primary-bright); }
+
+.assistente-link { display: inline-flex; align-items: center; gap: 4px; justify-self: start; padding: 4px 0; border: 0; background: none; color: var(--primary-bright); font: inherit; font-size: 13.5px; font-weight: 700; cursor: pointer; }
+.assistente-link small { color: var(--muted); font-weight: 600; }
+.assistente-link:hover { text-decoration: underline; }
+
+.assistente-frase { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 20px; border-radius: 16px; background: var(--surface-muted); color: var(--text); font-size: 19px; line-height: 1.5; }
+.assistente-frase b { font-weight: 800; }
+.assistente-ajuste { display: inline-flex; align-items: center; gap: 6px; padding: 4px; border: 1.5px solid var(--primary-bright); border-radius: 14px; background: var(--surface); }
+.assistente-ajuste > button { display: inline-grid; place-items: center; width: 40px; height: 40px; border: 0; border-radius: 10px; background: color-mix(in srgb, var(--primary-bright) 14%, var(--surface)); color: var(--primary-bright); cursor: pointer; }
+.assistente-ajuste > button:hover:not(:disabled) { background: color-mix(in srgb, var(--primary-bright) 26%, var(--surface)); }
+.assistente-ajuste > button:disabled { cursor: not-allowed; opacity: 0.4; }
+.assistente-ajuste > input { width: 52px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 24px; font-weight: 800; text-align: center; }
+.assistente-ajuste > input:focus { outline: none; }
+.assistente-ajuste > em { padding: 0 10px 0 2px; color: var(--muted); font-size: 15px; font-style: normal; font-weight: 700; }
+.assistente-dia { min-height: 48px; padding: 0 14px; border: 1.5px solid var(--primary-bright); border-radius: 14px; background: var(--surface); color: var(--text); font: inherit; font-size: 17px; font-weight: 800; }
+.assistente-ajuda { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.assistente-ajuda > svg { flex: 0 0 auto; color: var(--primary-bright); }
+
+.assistente-efeito { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface-muted); color: var(--text); font-size: 14px; line-height: 1.5; }
+.assistente-efeito > svg { flex: 0 0 auto; margin-top: 2px; }
+.assistente-efeito p { margin: 0; }
+.assistente-efeito small { display: block; margin-top: 6px; color: var(--muted); font-size: 12.5px; }
+.assistente-efeito[data-estado="neutro"] > svg { color: var(--primary-bright); }
+.assistente-efeito[data-estado="ok"] { border-color: color-mix(in srgb, #10b981 45%, var(--border)); background: color-mix(in srgb, #10b981 8%, var(--surface)); }
+.assistente-efeito[data-estado="ok"] > svg { color: #10b981; }
+.assistente-efeito[data-estado="alerta"] { border-color: color-mix(in srgb, #f59e0b 50%, var(--border)); background: color-mix(in srgb, #f59e0b 8%, var(--surface)); }
+.assistente-efeito[data-estado="alerta"] > svg { color: #f59e0b; }
+.assistente-efeito-pessoas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.assistente-efeito-pessoas > span { padding: 3px 10px; border-radius: 999px; background: var(--surface); color: var(--text); font-size: 12.5px; font-weight: 700; }
+
+.assistente-serio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.assistente-serio > button { display: grid; justify-items: start; gap: 4px; padding: 14px; border: 1.5px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--muted); font: inherit; text-align: left; cursor: pointer; }
+.assistente-serio > button strong { color: var(--text); font-size: 14px; }
+.assistente-serio > button small { font-size: 12px; line-height: 1.4; }
+.assistente-serio > button[data-gravidade="INFO"] > svg { color: #3b82f6; }
+.assistente-serio > button[data-gravidade="AVISO"] > svg { color: #f59e0b; }
+.assistente-serio > button[data-gravidade="CRITICO"] > svg { color: var(--danger); }
+.assistente-serio > button.active { border-color: var(--primary-bright); background: color-mix(in srgb, var(--primary-bright) 9%, var(--surface)); }
+.assistente-opcao { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; cursor: pointer; }
+.assistente-opcao input { width: 18px; height: 18px; margin-top: 2px; }
+.assistente-opcao span { display: grid; gap: 3px; }
+.assistente-opcao strong { display: inline-flex; align-items: flex-start; gap: 6px; color: var(--text); font-size: 14px; line-height: 1.4; }
+.assistente-opcao small { color: var(--muted); font-size: 12.5px; }
+.assistente-alcance { display: flex; gap: 8px; }
+.assistente-alcance > button { flex: 1 1 0; padding: 12px; border: 1.5px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.assistente-alcance > button.active { border-color: var(--primary-bright); background: color-mix(in srgb, var(--primary-bright) 9%, var(--surface)); color: var(--primary-bright); }
+.assistente-texto { display: grid; gap: 8px; padding: 12px 14px; border-radius: 14px; background: var(--surface-muted); }
+.assistente-texto > p { margin: 0; color: var(--text); font-size: 13.5px; line-height: 1.5; }
+.assistente-texto small { color: var(--muted); font-weight: 800; }
+.assistente-texto textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 13.5px; resize: vertical; }
+.assistente-resumo { display: flex; align-items: flex-start; gap: 9px; padding: 14px 16px; border-radius: 14px; background: color-mix(in srgb, var(--primary-bright) 9%, var(--surface)); color: var(--text); font-size: 15px; font-weight: 700; line-height: 1.5; }
+.assistente-resumo > svg { flex: 0 0 auto; margin-top: 3px; color: var(--primary-bright); }
+.assistente-rodape { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.assistente-rodape > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.assistente-rodape > button, .assistente-rodape > div > button { display: inline-flex; align-items: center; gap: 6px; }
+
+@media (max-width: 720px) {
+  .assistente-situacoes, .assistente-serio { grid-template-columns: 1fr; }
+  .assistente-frase { font-size: 17px; padding: 16px; }
+  .assistente-alcance { flex-direction: column; }
+  .assistente-progresso > li { font-size: 11px; }
+  .assistente-rodape { flex-wrap: wrap; }
+}
+
+/* ASSISTENTE-REGRAS-1 — ponto final colado na última palavra; rodapé fixo (o botão principal nunca fica fora da tela). */
+.assistente-fim { margin-left: -6px; }
+.assistente-regra .assistente-rodape {
+  position: sticky; bottom: -1px; z-index: 2; margin: 0 -24px -24px; padding: 14px 24px;
+  border-top: 1px solid var(--border); background: var(--surface);
+}
+.assistente-regra { padding: 24px; }
+@media (max-width: 720px) {
+  .assistente-regra { padding: 16px; }
+  .assistente-regra .assistente-rodape { margin: 0 -16px -16px; padding: 12px 16px; }
+}
+@media (max-width: 720px) {
+  .assistente-rodape, .assistente-rodape > div { flex-wrap: nowrap; gap: 8px; }
+  .assistente-rodape > div { flex: 1 1 auto; }
+  .assistente-rodape button { padding-left: 12px; padding-right: 12px; font-size: 13px; white-space: nowrap; }
+  .assistente-rodape > div > .primary-button { flex: 1 1 auto; justify-content: center; }
+}

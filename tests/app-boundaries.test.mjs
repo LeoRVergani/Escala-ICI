@@ -1240,7 +1240,7 @@ test('REGRAS-ESCALA-2 — problemas da escala: painel por pessoa, célula marcad
 
 test('REGRAS-ESCALA-3 — construtor SE/ENTÃO: testa sem gravar; regras em teste só na tela; legal vira cópia da empresa', async () => {
   const [painel, construtor, exemplos] = await Promise.all([
-    ler('apps/dashboard/src/AdminRegrasPage.tsx'), ler('apps/dashboard/src/ConstrutorRegra.tsx'), ler('lib/regrasExemplos.ts'),
+    ler('apps/dashboard/src/AdminRegrasPage.tsx'), ler('apps/dashboard/src/ConstrutorRegra.tsx'), ler('lib/regrasAssistente.ts'),
   ]);
   // Nada é gravado nesta etapa: nem o construtor nem o painel falam com Firebase.
   assert.doesNotMatch(construtor, /firebase|setDoc|updateDoc|localStorage/iu);
@@ -1252,7 +1252,7 @@ test('REGRAS-ESCALA-3 — construtor SE/ENTÃO: testa sem gravar; regras em test
   assert.match(painel, /const \[emTeste, setEmTeste\] = useState<RegraEscala\[\]>\(\[\]\);/);
   // Regra legal nunca é editada: o detalhe só oferece uma versão (cópia da empresa) mais rígida.
   assert.match(painel, /copiarComoRascunho\(aberta, gerarIdRegraEmTeste\(\)\)/);
-  // Os exemplos não prendem o sistema a um modelo de escala (o nome do modelo é do administrador).
+  // As situações do assistente não prendem o sistema a um modelo de escala (o nome do modelo é do administrador).
   assert.doesNotMatch(exemplos, /6x1|6X1/u);
   // O campo da mensagem usa handler estável (sem ref lido dentro do map — React Compiler).
   assert.match(construtor, /function inserirCampo\(evento: MouseEvent<HTMLButtonElement>\)/);
@@ -1304,4 +1304,32 @@ test('VERSAO-1 — a versão do App e a do Dashboard são as da primeira seção
   assert.match(frame, /className="sidebar-versao"/);
   assert.match(vite, /fileName: 'versao\.json'/);
   assert.match(vite, /__VERSAO_DASHBOARD__: JSON\.stringify\(versao\)/);
+});
+
+test('ASSISTENTE-REGRAS-1 — criar regra em 3 passos: sem termos técnicos à vista, efeito ao vivo, modo avançado por link, nada grava sozinho', async () => {
+  const [assistente, painel, lib] = await Promise.all([
+    ler('apps/dashboard/src/AssistenteRegra.tsx'), ler('apps/dashboard/src/AdminRegrasPage.tsx'), ler('lib/regrasAssistente.ts'),
+  ]);
+  // "Nova regra" abre o passo a passo; o construtor SE/ENTÃO só por "Preciso de algo diferente"/"Ajustes avançados".
+  assert.match(painel, /setAssistente\(\{ id: gerarIdRegraEmTeste\(\), estado: null, jaSalva: false \}\)/);
+  assert.match(assistente, /onAvancado\(novaRegraEmBranco\(idRegra\)\)/);
+  assert.match(assistente, /onAvancado\(regra\)/);
+  // Editar escolhe sozinho: o desenho de uma situação reabre no passo a passo; o resto, no avançado.
+  assert.match(painel, /const estado = lerEstadoDaRegra\(regra\);\s*if \(estado !== null\) setAssistente\(/);
+  // O efeito é calculado ao vivo pelo mesmo motor (sem botão de testar).
+  assert.match(assistente, /testarRegra\(regra, documentos, catalogo, \{ nomePorLogin \}\)/);
+  // Nada de termos do motor no que a pessoa lê: texto dentro das telas (JSX) e rótulos entre aspas.
+  const semComentarios = assistente.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/^\s*\/\/.*$/gmu, '');
+  const textosJsx = [...semComentarios.matchAll(/>([^<>{}=]*[A-Za-zÀ-ú][^<>{}=]*)</gu)].map((achado) => achado[1]);
+  const rotulos = [...semComentarios.matchAll(/(?:aria-label|placeholder|title)="([^"]+)"/gu)].map((achado) => achado[1]);
+  const aVista = [...textosJsx, ...rotulos].join(' | ');
+  assert.ok(aVista.length > 500, 'a verificação precisa enxergar os textos da tela');
+  for (const jargao of ['Variável', 'variável', 'Condição', 'condição', 'Gravidade', 'gravidade', 'agrupar', 'Agrupar', 'SE ', 'ENTÃO', 'JSON']) {
+    assert.ok(!aVista.includes(jargao), `termo técnico à vista na tela: ${jargao}`);
+  }
+  // Nunca fala com o Firestore: quem grava é a tela que o chama.
+  assert.doesNotMatch(assistente, /firebase|setDoc|updateDoc|deleteDoc|localStorage/iu);
+  assert.doesNotMatch(lib, /6x1|6X1|firebase|from 'react'/u);
+  // Só ativa com nome e (se for por equipe) ao menos uma equipe.
+  assert.match(assistente, /disabled=\{salvando \|\| precisaEquipe \|\| !nomeValido\} onClick=\{\(\) => void salvar\(\)\}/);
 });

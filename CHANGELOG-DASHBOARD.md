@@ -15,6 +15,17 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.6.0 — criar regra em 3 passos, para qualquer pessoa (patch 0095)
+- "Nova regra" agora é um passo a passo: 1) escolher o que vigiar (dias demais seguidos, pouco descanso, turno
+  comprido, dia da semana), 2) ajustar UM número numa frase ("…trabalhar mais de [5] dias seguidos") e 3) dizer
+  quão sério é e para quem vale — sem termos técnicos.
+- O efeito aparece ao vivo ("3 pessoas seriam avisadas na escala…") enquanto se ajusta o número.
+- Última tela com o resumo numa frase; o texto do aviso pode ser mudado, mas já vem pronto.
+- A tela anterior (SE/ENTÃO) continua, como "Preciso de algo diferente"/"Ajustes avançados", para quem já conhece.
+- Regras criadas pelo passo a passo reabrem nele ao editar; as de desenho livre abrem no modo avançado.
+- Saiu o menu "Começar de um exemplo" (o passo 1 faz o mesmo papel).
+- Só Dashboard (App continua na 3.7.6).
+
 ## 1.5.0 — regras da escala salvas valem de verdade (patch 0093)
 - Administração › Regras: o administrador salva, liga/desliga, edita e exclui regras da empresa; só ele grava
   (Rules da coleção `regrasEscala`, com testes de regra).

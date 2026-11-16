@@ -508,3 +508,13 @@ export function testarRegra(
 export function gerarIdRegraEmTeste(): string {
   return `teste-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
+
+/** Valores de exemplo que fazem a regra disparar — para mostrar como a mensagem fica. */
+export function valoresDeExemplo(regra: RegraEscala): ValoresDia {
+  const valores: ValoresDia = {};
+  for (const condicao of regra.quando.condicoes) {
+    const { valor, op } = condicao;
+    valores[condicao.variavel] = op === '>' || op === '!=' ? valor + 1 : op === '<' ? (valor >= 2 ? valor - 2 : valor - 1) : valor;
+  }
+  return valores;
+}

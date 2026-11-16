@@ -7,7 +7,15 @@ import {
   agruparProblemasPorPessoa, avaliarRegras, copiarComoRascunho, novaRegraEmBranco, testarRegra, variaveisDaRegra, variaveisPorCategoria, bloqueiaPublicacaoPorRegra, construirContextoDias, diferencaDeProblemas, fraseDaRegra, indexarProblemasPorCelula, renderizarMensagem, validarRegra,
   type RegraEscala,
 } from './regrasEscala';
-import { EXEMPLOS_REGRA } from './regrasExemplos';
+import { estadoInicialDaSituacao, montarRegraDoAssistente, type SituacaoChave } from './regrasAssistente';
+
+/** As 4 regras de exemplo dos testes = as 4 situações do assistente com os valores padrão. */
+const SITUACAO_DO_EXEMPLO: Record<string, SituacaoChave> = {
+  'cinco-dias': 'DIAS_SEGUIDOS', 'turno-longo': 'TURNO_LONGO', 'descanso-12': 'POUCO_DESCANSO', domingo: 'DIA_DA_SEMANA',
+};
+function regraDeExemplo(chave: string, id: string) {
+  return montarRegraDoAssistente(estadoInicialDaSituacao(SITUACAO_DO_EXEMPLO[chave]!), id);
+}
 import { REGRAS_PADRAO } from './regrasPadrao';
 
 function dia(codigo: string, manual?: { i: string; f: string; vd: boolean; m: number }): Dia {
@@ -226,10 +234,10 @@ describe('REGRAS-ESCALA-2 — problemas na grade e prévia de mudança', () => {
 });
 
 describe('REGRAS-ESCALA-3 — exemplos, cópia e teste de regra', () => {
-  const comId = (chave: string) => ({ ...EXEMPLOS_REGRA.find((exemplo) => exemplo.chave === chave)!.modelo, id: `teste-${chave}` });
+  const comId = (chave: string) => regraDeExemplo(chave, `teste-${chave}`);
 
   it('todo exemplo do construtor é uma regra válida', () => {
-    for (const exemplo of EXEMPLOS_REGRA) expect(validarRegra({ ...exemplo.modelo, id: exemplo.chave })).toEqual([]);
+    for (const chave of Object.keys(SITUACAO_DO_EXEMPLO)) expect(validarRegra(regraDeExemplo(chave, chave))).toEqual([]);
     expect(validarRegra(novaRegraEmBranco('x'))).toEqual(['Dê um nome para a regra.']);
   });
 

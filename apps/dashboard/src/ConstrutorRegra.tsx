@@ -6,10 +6,10 @@ import type { TipoTurno, TurnosMes } from '@escala-ici/contrato';
 
 import {
   CAMPOS_MENSAGEM_FIXOS, NOMES_DIA_SEMANA, OPERADORES_REGRA, ROTULO_GRAVIDADE, VARIAVEIS_REGRA, renderizarMensagem, testarRegra,
-  rotuloUnidade, validarRegra, variaveisDaRegra, variaveisPorCategoria,
+  rotuloUnidade, validarRegra, valoresDeExemplo, variaveisDaRegra, variaveisPorCategoria,
   type CondicaoRegra, type GravidadeRegra, type OperadorRegra, type RegraEscala, type ResultadoTesteRegra, type VariavelRegra,
 } from '@/lib/regrasEscala';
-import { FraseSeEntao, valoresDeExemplo } from './AdminRegrasPage';
+import { FraseSeEntao } from './AdminRegrasPage';
 
 /**
  * REGRAS-ESCALA-3 — construtor visual "SE … ENTÃO …". A regra se monta
