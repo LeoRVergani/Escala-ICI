@@ -10339,3 +10339,13 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
   .construtor-rodape > div { width: 100%; }
   .construtor-rodape > div > button { flex: 1 1 0; }
 }
+
+/* REGRAS-ESCALA-4 — regras salvas: interruptor ligar/desligar e aviso de publicação bloqueada. */
+.regra-estado-botao { border: 0; font: inherit; cursor: pointer; }
+.regra-estado-botao:hover:not(:disabled) { filter: brightness(0.95); }
+.regra-estado-botao:disabled { cursor: wait; opacity: 0.6; }
+.publicacao-bloqueada { display: flex; align-items: flex-start; gap: 8px; }
+.publicacao-bloqueada > svg { flex: 0 0 auto; margin-top: 2px; }
+
+/* REGRAS-ESCALA-4 — a lista de problemas na janela de publicação rola por dentro (com muitos casos a janela estourava a tela). */
+.edit-modal .admin-form-preview { max-height: 220px; overflow-y: auto; }

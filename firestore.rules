@@ -1322,6 +1322,73 @@ service cloud.firestore {
     }
 
     /**
+     * REGRAS-ESCALA-4 — regras da escala criadas pelo administrador (`regrasEscala/{id}`).
+     * As regras LEGAIS (dias seguidos, descanso) ficam no código e nunca são gravadas aqui:
+     * `categoria` só pode ser 'EMPRESA'.
+     *
+     * Leitura: qualquer autenticado (o motor roda no Dashboard e no App). Escrita: só
+     * ADMIN_SISTEMA. O formato é conferido campo a campo; a lista de condições só em
+     * tamanho (as Rules não percorrem listas) — o motor revalida cada regra (variável,
+     * comparação e valor) antes de rodá-la, e descarta a que for inválida.
+     * Campos opcionais com `.get()` (acesso direto a campo ausente derruba a avaliação).
+     */
+    function regraEscalaValida(dados, id) {
+      return dados.keys().hasOnly([
+          'id', 'nome', 'descricao', 'categoria', 'ativa', 'quando', 'entao', 'vale',
+          'origem', 'schemaVersion', 'criadoPorLogin', 'criadoEm', 'atualizadoPorLogin', 'atualizadoEm',
+        ])
+        && dados.keys().hasAll([
+          'id', 'nome', 'categoria', 'ativa', 'quando', 'entao', 'vale',
+          'origem', 'schemaVersion', 'criadoPorLogin', 'atualizadoPorLogin',
+        ])
+        && dados.id == id
+        && dados.nome is string && dados.nome.size() >= 3 && dados.nome.size() <= 80
+        && dados.get('descricao', '') is string && dados.get('descricao', '').size() <= 160
+        && dados.categoria == 'EMPRESA'
+        && dados.ativa is bool
+        && dados.origem == 'ADMIN'
+        && dados.schemaVersion == 1
+        && dados.quando is map
+        && dados.quando.keys().hasOnly(['logica', 'condicoes'])
+        && dados.quando.keys().hasAll(['logica', 'condicoes'])
+        && dados.quando.logica in ['E', 'OU']
+        && dados.quando.condicoes is list
+        && dados.quando.condicoes.size() >= 1 && dados.quando.condicoes.size() <= 8
+        && dados.entao is map
+        && dados.entao.keys().hasOnly(['gravidade', 'bloqueiaPublicacao', 'mensagem', 'agrupar', 'sugestao'])
+        && dados.entao.keys().hasAll(['gravidade', 'bloqueiaPublicacao', 'mensagem', 'agrupar'])
+        && dados.entao.gravidade in ['INFO', 'AVISO', 'CRITICO']
+        && dados.entao.bloqueiaPublicacao is bool
+        && dados.entao.mensagem is string && dados.entao.mensagem.size() >= 1 && dados.entao.mensagem.size() <= 200
+        && dados.entao.agrupar in ['CADA_DIA', 'PRIMEIRO_DIA_DA_SEQUENCIA']
+        && dados.entao.get('sugestao', '') is string && dados.entao.get('sugestao', '').size() <= 200
+        && dados.vale is map
+        && dados.vale.keys().hasOnly(['tipo', 'ids'])
+        && dados.vale.tipo in ['TODAS', 'EQUIPE']
+        && (
+          dados.vale.tipo == 'TODAS'
+          || (dados.vale.get('ids', []) is list && dados.vale.get('ids', []).size() >= 1 && dados.vale.get('ids', []).size() <= 50)
+        );
+    }
+
+    match /regrasEscala/{regraId} {
+      allow read: if autenticado();
+
+      allow create: if souAdminSistema()
+        && regraId.matches('^[a-z0-9-]{3,60}$')
+        && regraEscalaValida(request.resource.data, regraId)
+        && request.resource.data.criadoPorLogin == loginDoAuth()
+        && request.resource.data.atualizadoPorLogin == loginDoAuth();
+
+      allow update: if souAdminSistema()
+        && regraEscalaValida(request.resource.data, regraId)
+        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
+        && request.resource.data.atualizadoPorLogin == loginDoAuth();
+
+      allow delete: if souAdminSistema();
+    }
+
+    /**
      * Hierarquia organizacional flexível (qualquer nível acima de
      * `equipes`: diretoria, gerência, coordenação, supervisão...) —
      * coleção ADITIVA, não substitui `setores`/`equipes`.

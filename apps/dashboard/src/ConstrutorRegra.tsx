@@ -27,7 +27,7 @@ function valorDe(entrada: string): number {
   return entrada.trim() === '' ? Number.NaN : Number(entrada.replace(',', '.'));
 }
 
-export function ConstrutorRegra({ inicial, equipes, documentos, catalogo, escalaAberta, nomePorLogin, emEdicao, onFechar, onManterEmTeste }: {
+export function ConstrutorRegra({ inicial, equipes, documentos, catalogo, escalaAberta, nomePorLogin, emEdicao, jaSalva, onFechar, onManterEmTeste, onSalvar }: {
   inicial: RegraEscala;
   equipes: ReadonlyArray<{ id: string; nome: string }>;
   documentos: readonly TurnosMes[];
@@ -35,12 +35,18 @@ export function ConstrutorRegra({ inicial, equipes, documentos, catalogo, escala
   escalaAberta: string | null;
   nomePorLogin: Readonly<Record<string, string>>;
   emEdicao: boolean;
+  /** A regra aberta já está salva (editar muda o que vale para todos); senão é nova ou em teste. */
+  jaSalva: boolean;
   onFechar: () => void;
   onManterEmTeste: (regra: RegraEscala) => void;
+  /** Grava a regra (a tela que chama decide onde). Se recusar, a mensagem aparece aqui. */
+  onSalvar: (regra: RegraEscala) => Promise<void>;
 }) {
   const [regra, setRegra] = useState<RegraEscala>(inicial);
   const [teste, setTeste] = useState<{ resultado: ResultadoTesteRegra; instantaneo: string } | null>(null);
   const [testando, setTestando] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [erroSalvar, setErroSalvar] = useState('');
   const campoMensagem = useRef<HTMLTextAreaElement>(null);
   const falta = useMemo(() => validarRegra(regra), [regra]);
   const instantaneo = JSON.stringify([regra.quando, regra.entao, regra.vale]);
@@ -105,14 +111,26 @@ export function ConstrutorRegra({ inicial, equipes, documentos, catalogo, escala
 
   const podeTestar = falta.length === 0 && escalaAberta !== null && documentos.length > 0;
 
+  async function salvar() {
+    setErroSalvar('');
+    setSalvando(true);
+    try {
+      await onSalvar(regra);
+    } catch (falha) {
+      const texto = falha instanceof Error ? falha.message : '';
+      setErroSalvar(/permission|insufficient/iu.test(texto) ? 'Sem permissão: só o administrador do sistema salva regras.' : texto || 'Não foi possível salvar agora.');
+      setSalvando(false);
+    }
+  }
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onFechar}>
-      <section className="edit-modal construtor-regra" role="dialog" aria-modal="true" aria-label={emEdicao ? 'Editar regra em teste' : 'Nova regra'} onMouseDown={(evento) => evento.stopPropagation()}>
+      <section className="edit-modal construtor-regra" role="dialog" aria-modal="true" aria-label={jaSalva ? 'Editar regra' : emEdicao ? 'Editar regra em teste' : 'Nova regra'} onMouseDown={(evento) => evento.stopPropagation()}>
         <header className="criar-equipe-cabecalho">
           <span className="criar-equipe-icone"><Sparkles size={18} aria-hidden="true" /></span>
           <div>
-            <h2>{emEdicao ? 'Editar regra em teste' : 'Nova regra'}</h2>
-            <p>Monte a regra como uma frase e teste na escala aberta. <strong>Nada é salvo nesta etapa.</strong></p>
+            <h2>{jaSalva ? 'Editar regra' : emEdicao ? 'Editar regra em teste' : 'Nova regra'}</h2>
+            <p>Monte a regra como uma frase e teste na escala aberta. <strong>Ela só passa a valer quando você salvar.</strong></p>
           </div>
           <button className="icon-button" type="button" onClick={onFechar} aria-label="Fechar"><X size={18} /></button>
         </header>
@@ -198,6 +216,9 @@ export function ConstrutorRegra({ inicial, equipes, documentos, catalogo, escala
                 {camposMensagem.map((item) => <button key={item.campo} type="button" className="construtor-campo-botao" data-campo={item.campo} onClick={inserirCampo}>{item.rotulo}</button>)}
               </div>
               <p className="construtor-exemplo"><small>Exemplo:</small> {exemplo || '—'}</p>
+              <label className="criar-equipe-campo"><span>Sugestão de correção <small>(opcional)</small></span>
+                <input value={regra.entao.sugestao ?? ''} maxLength={200} placeholder="O que a liderança deve fazer. Aceita {pessoa}, {dia}, {limite}…"
+                  onChange={(evento) => mudar({ entao: { ...regra.entao, sugestao: evento.target.value } })} /></label>
             </div>
 
             <div className="construtor-bloco">
@@ -258,11 +279,22 @@ export function ConstrutorRegra({ inicial, equipes, documentos, catalogo, escala
           </aside>
         </div>
 
+        {erroSalvar && <div className="alert error" role="alert">{erroSalvar}</div>}
         <footer className="construtor-rodape">
-          <small><Info size={13} aria-hidden="true" /> Salvar e ativar a regra para todos chega na próxima etapa. Por enquanto ela fica só em teste, nesta tela.</small>
+          <small>
+            <Info size={13} aria-hidden="true" />
+            {regra.entao.bloqueiaPublicacao
+              ? 'Ao salvar, escalas com este problema não poderão ser publicadas até a correção — para todas as lideranças.'
+              : 'Ao salvar, a regra passa a valer para todas as lideranças, nas escalas do alcance escolhido.'}
+          </small>
           <div>
-            <button type="button" className="secondary-button" onClick={onFechar}>Cancelar</button>
-            <button type="button" className="primary-button" disabled={falta.length > 0} onClick={() => onManterEmTeste(regra)}>Manter em teste</button>
+            <button type="button" className="secondary-button" disabled={salvando} onClick={onFechar}>Cancelar</button>
+            {!jaSalva && (
+              <button type="button" className="secondary-button" disabled={falta.length > 0 || salvando} onClick={() => onManterEmTeste(regra)}>Manter em teste</button>
+            )}
+            <button type="button" className="primary-button" disabled={falta.length > 0 || salvando} onClick={() => void salvar()}>
+              {salvando ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : null} {jaSalva ? 'Salvar alterações' : 'Salvar e ativar'}
+            </button>
           </div>
         </footer>
       </section>

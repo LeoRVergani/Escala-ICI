@@ -174,8 +174,8 @@ describe('REGRAS-ESCALA-1 — validação e texto', () => {
   });
 
   it('a frase legível não tem "6x1" escrito — o número é só o valor da regra', () => {
-    expect(fraseDaRegra(regra)).toBe('SE dias seguidos de trabalho > 6 dias ENTÃO gerar alerta (aviso)');
-    expect(fraseDaRegra(REGRAS_PADRAO[2]!)).toBe('SE horas de descanso desde o turno anterior < 35 h E dias de folga entre o turno anterior e este >= 1 dia ENTÃO gerar alerta (aviso)');
+    expect(fraseDaRegra(regra)).toBe('SE dias seguidos de trabalho > 6 dias ENTÃO gerar alerta (crítico)');
+    expect(fraseDaRegra(REGRAS_PADRAO[2]!)).toBe('SE horas de descanso desde o turno anterior < 35 h E dias de folga entre o turno anterior e este >= 1 dia ENTÃO gerar alerta (crítico)');
     expect(JSON.stringify(REGRAS_PADRAO)).not.toMatch(/6x1/iu);
   });
 

@@ -503,7 +503,10 @@ test('a fase 3K-D2B mantém os alertas operacionais (6x1 e descanso mínimo) exc
   assert.match(alertas, /export function bloqueiaPublicacaoPorAlerta[\s\S]*return false/);
 
   // Dashboard mostra os alertas na grade e no sininho; o App não importa nada disso.
-  assert.match(dashboard, /gerarAlertasEscala/);
+  // REGRAS-ESCALA-4 — o Dashboard calcula os alertas pelo motor de regras (legais + salvas); o módulo
+  // antigo segue puro e serve de referência da equivalência (lib/regrasEscala.test.ts) e das trocas de folga.
+  assert.match(dashboard, /avaliarRegras\(documentos, catalogo, regrasEmVigor/);
+  assert.doesNotMatch(dashboard, /gerarAlertasEscala/);
   assert.match(dashboard, /construirIndiceAlertasGrade/);
   assert.match(dashboard, /AlertasOperacionaisBell/);
   assert.match(scheduleGrid, /grade-alert-sequencia/);
@@ -1200,8 +1203,8 @@ test('REGRAS-ESCALA-1 — painel de regras usa o motor novo; regras padrão sem 
   const [dashboard, painel, motor, padrao] = await Promise.all([
     ler('apps/dashboard/src/DashboardApp.tsx'), ler('apps/dashboard/src/AdminRegrasPage.tsx'), ler('lib/regrasEscala.ts'), ler('lib/regrasPadrao.ts'),
   ]);
-  assert.match(dashboard, /abaAdministracao === 'regras' && usuarioReal && \(\s*<AdminRegrasPage\s*regras=\{REGRAS_EM_VIGOR\}/);
-  assert.match(painel, /avaliarRegras\(documentos, catalogo, regras, \{ nomePorLogin \}\)/);
+  assert.match(dashboard, /abaAdministracao === 'regras' && usuarioReal && \(\s*<AdminRegrasPage\s*regras=\{REGRAS_PADRAO\}\s*regrasSalvas=\{regrasSalvas\}/);
+  assert.match(painel, /avaliarRegras\(documentos, catalogo, todasValendo, \{ nomePorLogin \}\)/);
   // O motor é puro: nada de Firebase nem React; o interpretador nunca executa código (sem eval/Function).
   assert.doesNotMatch(motor, /firebase|from 'react'|\beval\(|new Function/u);
   // O texto das regras não prende o sistema a um modelo de escala: o limite é só um valor.
@@ -1216,8 +1219,8 @@ test('REGRAS-ESCALA-2 — problemas da escala: painel por pessoa, célula marcad
     ler('apps/dashboard/src/DashboardApp.tsx'), ler('components/ScheduleImportReview.tsx'), ler('components/ScheduleGrid.tsx'), ler('apps/dashboard/src/PainelProblemasEscala.tsx'),
   ]);
   // Um único ponto para trocar as regras em vigor; o motor novo alimenta painel, células e prévia.
-  assert.match(dashboard, /const REGRAS_EM_VIGOR = REGRAS_PADRAO;/);
-  assert.match(dashboard, /avaliarRegras\(documentos, catalogo, REGRAS_EM_VIGOR, \{ nomePorLogin: nomePorLoginRegras \}\)/);
+  assert.match(dashboard, /const regrasEmVigor = useMemo<readonly RegraEscala\[\]>\(\s*\(\) => \[\.\.\.REGRAS_PADRAO, \.\.\.regrasSalvas\.filter\(\(regra\) => regra\.ativa\)\]/);
+  assert.match(dashboard, /avaliarRegras\(documentos, catalogo, regrasEmVigor, \{ nomePorLogin: nomePorLoginRegras \}\)/);
   // As TRÊS telas de grade recebem as mensagens das regras (nenhuma ficou com texto de limite fixo).
   assert.equal((dashboard.match(/problemasPorCelula=\{problemasPorCelula\}/g) ?? []).length, 3);
   assert.equal((dashboard.match(/<PainelProblemasEscala alertas=\{problemasDaEscala\}/g) ?? []).length, 3, 'painel nas duas revisões e na Grade da equipe (ScheduleGrid)');
@@ -1245,7 +1248,7 @@ test('REGRAS-ESCALA-3 — construtor SE/ENTÃO: testa sem gravar; regras em test
   // O teste usa o mesmo motor que vale na escala, sobre as escalas já carregadas.
   assert.match(construtor, /testarRegra\(regra, documentos, catalogo, \{ nomePorLogin \}\)/);
   // "Manter em teste" só com a regra válida; regras em teste ficam em estado local do painel.
-  assert.match(construtor, /disabled=\{falta\.length > 0\} onClick=\{\(\) => onManterEmTeste\(regra\)\}/);
+  assert.match(construtor, /disabled=\{falta\.length > 0 \|\| salvando\} onClick=\{\(\) => onManterEmTeste\(regra\)\}/);
   assert.match(painel, /const \[emTeste, setEmTeste\] = useState<RegraEscala\[\]>\(\[\]\);/);
   // Regra legal nunca é editada: o detalhe só oferece uma versão (cópia da empresa) mais rígida.
   assert.match(painel, /copiarComoRascunho\(aberta, gerarIdRegraEmTeste\(\)\)/);
@@ -1253,4 +1256,34 @@ test('REGRAS-ESCALA-3 — construtor SE/ENTÃO: testa sem gravar; regras em test
   assert.doesNotMatch(exemplos, /6x1|6X1/u);
   // O campo da mensagem usa handler estável (sem ref lido dentro do map — React Compiler).
   assert.match(construtor, /function inserirCampo\(evento: MouseEvent<HTMLButtonElement>\)/);
+});
+
+test('REGRAS-ESCALA-4 — regras salvas valem de verdade: um motor para tudo, bloqueio de publicação, só o administrador grava', async () => {
+  const [dashboard, painel, construtor, repositorio, rules, persistencia] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'), ler('apps/dashboard/src/AdminRegrasPage.tsx'), ler('apps/dashboard/src/ConstrutorRegra.tsx'),
+    ler('lib/firebase/regrasEscalaRepository.ts'), ler('firestore.rules'), ler('lib/regrasPersistencia.ts'),
+  ]);
+  // UM motor: sino, alertas, contadores de outras escalas, células e prévia usam as regras em vigor.
+  assert.equal((dashboard.match(/avaliarRegras\(/g) ?? []).length >= 5, true, 'escala aberta, 2 contadores de outras escalas e as 2 pontas da prévia');
+  assert.match(dashboard, /alertas=\{problemasDaEscala\}/);
+  assert.match(dashboard, /alertas: AlertaRegra\[\];/);
+  // Bloqueio: a regra marcada impede publicar (função e botão) e a justificativa não libera.
+  assert.match(dashboard, /const publicacaoBloqueadaPorRegra = bloqueiaPublicacaoPorRegra\(problemasDaEscala\);/);
+  assert.match(dashboard, /if \(publicacaoBloqueadaPorRegra\) \{\s*setErroPublicacao\(/);
+  assert.match(dashboard, /disabled=\{processando \|\| publicacaoBloqueadaPorRegra \|\|/);
+  // Qualquer liderança LÊ (assinatura no login); o painel e o construtor nunca falam com o Firestore.
+  assert.match(dashboard, /observarRegrasEscala\(/);
+  assert.doesNotMatch(painel, /firebase|setDoc|updateDoc|deleteDoc/iu);
+  assert.doesNotMatch(construtor, /firebase|setDoc|updateDoc|deleteDoc/iu);
+  // O repositório só grava com a escrita administrativa habilitada e só regra válida.
+  assert.equal((repositorio.match(/exigirEscritaAdministrativaHabilitada\(\);/g) ?? []).length, 3);
+  assert.match(repositorio, /errosParaSalvar\(regra\)/);
+  assert.match(persistencia, /categoria: 'EMPRESA'/);
+  // Rules: leitura de autenticado; criar, editar e excluir só ADMIN_SISTEMA; legal nunca gravada.
+  const bloco = /match \/regrasEscala\/\{regraId\} \{([\s\S]*?)\n    \}/u.exec(rules)?.[1] ?? '';
+  assert.match(bloco, /allow read: if autenticado\(\);/);
+  assert.match(bloco, /allow create: if souAdminSistema\(\)/);
+  assert.match(bloco, /allow update: if souAdminSistema\(\)/);
+  assert.match(bloco, /allow delete: if souAdminSistema\(\);/);
+  assert.match(rules, /dados\.categoria == 'EMPRESA'/);
 });

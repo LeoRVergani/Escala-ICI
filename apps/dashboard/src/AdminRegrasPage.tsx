@@ -10,6 +10,7 @@ import {
   type AlertaRegra, type CategoriaVariavel, type CondicaoRegra, type RegraEscala, type ValoresDia,
 } from '@/lib/regrasEscala';
 import { EXEMPLOS_REGRA } from '@/lib/regrasExemplos';
+import { idParaSalvar, type RegraEscalaSalva } from '@/lib/regrasPersistencia';
 import { ConstrutorRegra } from './ConstrutorRegra';
 import { MenuAcoes } from './MenuAcoes';
 
@@ -89,8 +90,19 @@ function Alcance({ regra }: { regra: RegraEscala }) {
   return <span className="regra-selo">{regra.vale.tipo === 'TODAS' ? 'Todas as escalas' : `${regra.vale.ids?.length ?? 0} equipe(s)`}</span>;
 }
 
-export function AdminRegrasPage({ regras, equipes, documentos, catalogo, escalaAberta, nomePorLogin, subnav }: {
+export function AdminRegrasPage({
+  regras, regrasSalvas, erroCarregar, ignoradas, equipes, documentos, catalogo, escalaAberta, nomePorLogin, subnav, onSalvar, onAlternar, onExcluir,
+}: {
+  /** As regras legais (vêm do código; não se grava nem se desliga). */
   regras: readonly RegraEscala[];
+  /** REGRAS-ESCALA-4 — regras da empresa salvas pelo administrador. */
+  regrasSalvas: readonly RegraEscalaSalva[];
+  erroCarregar: string;
+  /** Quantas regras salvas vieram inválidas e foram ignoradas. */
+  ignoradas: number;
+  onSalvar: (regra: RegraEscala, existente: RegraEscalaSalva | null) => Promise<void>;
+  onAlternar: (regra: RegraEscalaSalva, ativa: boolean) => Promise<void>;
+  onExcluir: (regra: RegraEscalaSalva) => Promise<void>;
   /** Equipes que o construtor oferece em "Vale para". */
   equipes: ReadonlyArray<{ id: string; nome: string }>;
   documentos: readonly TurnosMes[];
@@ -103,10 +115,14 @@ export function AdminRegrasPage({ regras, equipes, documentos, catalogo, escalaA
   const [aberta, setAberta] = useState<RegraEscala | null>(null);
   /** REGRAS-ESCALA-3 — regras em teste: só nesta tela, nada é salvo (salvar vem na etapa seguinte). */
   const [emTeste, setEmTeste] = useState<RegraEscala[]>([]);
-  const [construtor, setConstrutor] = useState<{ regra: RegraEscala; emEdicao: boolean } | null>(null);
+  const [construtor, setConstrutor] = useState<{ regra: RegraEscala; emEdicao: boolean; jaSalva: boolean } | null>(null);
+  const [ocupado, setOcupado] = useState<string | null>(null);
+  const [erroAcao, setErroAcao] = useState('');
+  const [excluindo, setExcluindo] = useState<RegraEscalaSalva | null>(null);
+  const todasValendo = useMemo(() => [...regras, ...regrasSalvas], [regras, regrasSalvas]);
   const alertas = useMemo(
-    () => avaliarRegras(documentos, catalogo, regras, { nomePorLogin }),
-    [documentos, catalogo, regras, nomePorLogin],
+    () => avaliarRegras(documentos, catalogo, todasValendo, { nomePorLogin }),
+    [documentos, catalogo, todasValendo, nomePorLogin],
   );
   const alertasEmTeste = useMemo(
     () => avaliarRegras(documentos, catalogo, emTeste.map((regra) => ({ ...regra, ativa: true })), { nomePorLogin }),
@@ -118,9 +134,39 @@ export function AdminRegrasPage({ regras, equipes, documentos, catalogo, escalaA
     return mapa;
   }, [alertas, alertasEmTeste]);
   const legais = regras.filter((regra) => regra.categoria === 'LEGAL');
-  const daEmpresa = regras.filter((regra) => regra.categoria === 'EMPRESA');
+  const daEmpresa = regrasSalvas;
 
-  const cartao = (regra: RegraEscala, emModoTeste = false) => {
+  function textoErro(falha: unknown): string {
+    const texto = falha instanceof Error ? falha.message : '';
+    return /permission|insufficient/iu.test(texto) ? 'Sem permissão: só o administrador do sistema altera regras.' : texto || 'Não foi possível concluir agora.';
+  }
+  async function alternar(regra: RegraEscalaSalva) {
+    setErroAcao('');
+    setOcupado(regra.id);
+    try {
+      await onAlternar(regra, !regra.ativa);
+    } catch (falha) {
+      setErroAcao(textoErro(falha));
+    } finally {
+      setOcupado(null);
+    }
+  }
+  async function confirmarExclusao(regra: RegraEscalaSalva) {
+    setErroAcao('');
+    setOcupado(regra.id);
+    try {
+      await onExcluir(regra);
+      setExcluindo(null);
+    } catch (falha) {
+      setErroAcao(textoErro(falha));
+    } finally {
+      setOcupado(null);
+    }
+  }
+
+  const cartao = (regra: RegraEscala, modo: 'legal' | 'salva' | 'teste' = 'legal') => {
+    const emModoTeste = modo === 'teste';
+    const salva = modo === 'salva' ? (regra as RegraEscalaSalva) : null;
     const casos = casosPorRegra.get(regra.id)?.length ?? 0;
     return (
       <li key={regra.id} className="regra-cartao" data-legal={regra.categoria === 'LEGAL' ? '' : undefined} data-inativa={regra.ativa ? undefined : ''} data-teste={emModoTeste ? '' : undefined}>
@@ -132,7 +178,14 @@ export function AdminRegrasPage({ regras, equipes, documentos, catalogo, escalaA
           </span>
           {emModoTeste
             ? <span className="regra-estado regra-estado-teste"><FlaskConical size={12} aria-hidden="true" /> Em teste</span>
-            : <span className="regra-estado" data-ativa={regra.ativa ? '' : undefined}><span aria-hidden="true" /> {regra.ativa ? 'Ativa' : 'Desligada'}</span>}
+            : salva
+              ? (
+                <button type="button" role="switch" aria-checked={salva.ativa} className="regra-estado regra-estado-botao" data-ativa={salva.ativa ? '' : undefined}
+                  disabled={ocupado === salva.id} title={salva.ativa ? 'Desligar a regra' : 'Ligar a regra'} onClick={() => void alternar(salva)}>
+                  <span aria-hidden="true" /> {salva.ativa ? 'Ativa' : 'Desligada'}
+                </button>
+              )
+              : <span className="regra-estado" data-ativa={regra.ativa ? '' : undefined}><span aria-hidden="true" /> {regra.ativa ? 'Ativa' : 'Desligada'}</span>}
         </div>
         <FraseSeEntao regra={regra} />
         <div className="regra-cartao-rodape">
@@ -142,12 +195,17 @@ export function AdminRegrasPage({ regras, equipes, documentos, catalogo, escalaA
               : <span className="regra-selo">Da empresa</span>}
             <Alcance regra={regra} />
             <span className="regra-selo regra-selo-casos" data-casos={casos > 0 ? '' : undefined} title={escalaAberta ?? 'Abra uma escala para ver os casos'}>
-              {escalaAberta === null ? 'Sem escala aberta' : casos === 0 ? 'Nenhum caso na escala aberta' : `${casos} ${casos === 1 ? 'caso' : 'casos'} na escala aberta`}
+              {!regra.ativa ? 'Desligada — não vale' : escalaAberta === null ? 'Sem escala aberta' : casos === 0 ? 'Nenhum caso na escala aberta' : `${casos} ${casos === 1 ? 'caso' : 'casos'} na escala aberta`}
             </span>
           </span>
-          {emModoTeste ? (
+          {salva ? (
             <span className="regra-acoes-teste">
-              <button type="button" className="secondary-button compact-button" onClick={() => setConstrutor({ regra, emEdicao: true })}><Pencil size={14} aria-hidden="true" /> Editar</button>
+              <button type="button" className="secondary-button compact-button" onClick={() => setConstrutor({ regra: salva, emEdicao: true, jaSalva: true })}><Pencil size={14} aria-hidden="true" /> Editar</button>
+              <button type="button" className="icon-button" aria-label={`Excluir ${salva.nome}`} title="Excluir" onClick={() => { setErroAcao(''); setExcluindo(salva); }}><Trash2 size={15} /></button>
+            </span>
+          ) : emModoTeste ? (
+            <span className="regra-acoes-teste">
+              <button type="button" className="secondary-button compact-button" onClick={() => setConstrutor({ regra, emEdicao: true, jaSalva: false })}><Pencil size={14} aria-hidden="true" /> Editar</button>
               <button type="button" className="icon-button" aria-label={`Descartar ${regra.nome}`} title="Descartar" onClick={() => setEmTeste((atuais) => atuais.filter((item) => item.id !== regra.id))}><Trash2 size={15} /></button>
             </span>
           ) : (
@@ -176,22 +234,25 @@ export function AdminRegrasPage({ regras, equipes, documentos, catalogo, escalaA
             itens={EXEMPLOS_REGRA.map((exemplo) => ({
               rotulo: exemplo.titulo,
               dica: exemplo.descricao,
-              executar: () => setConstrutor({ regra: { ...structuredClone(exemplo.modelo), id: gerarIdRegraEmTeste() }, emEdicao: false }),
+              executar: () => setConstrutor({ regra: { ...structuredClone(exemplo.modelo), id: gerarIdRegraEmTeste() }, emEdicao: false, jaSalva: false }),
             }))}
           />
-          <button type="button" className="primary-button" onClick={() => setConstrutor({ regra: novaRegraEmBranco(gerarIdRegraEmTeste()), emEdicao: false })}><Plus size={16} /> Nova regra</button>
+          <button type="button" className="primary-button" onClick={() => setConstrutor({ regra: novaRegraEmBranco(gerarIdRegraEmTeste()), emEdicao: false, jaSalva: false })}><Plus size={16} /> Nova regra</button>
         </div>
       </header>
       {subnav}
 
       <div className="admin-numeros">
-        <div><CheckCircle2 size={18} aria-hidden="true" /><span><small>Regras ativas</small><strong>{regras.filter((regra) => regra.ativa).length}</strong></span></div>
+        <div><CheckCircle2 size={18} aria-hidden="true" /><span><small>Regras ativas</small><strong>{todasValendo.filter((regra) => regra.ativa).length}</strong></span></div>
         <div><Scale size={18} aria-hidden="true" /><span><small>Legais</small><strong>{legais.length}</strong></span></div>
         <div><Sparkles size={18} aria-hidden="true" /><span><small>Da empresa</small><strong>{daEmpresa.length}</strong></span></div>
         <div><FlaskConical size={18} aria-hidden="true" /><span><small>Em teste</small><strong>{emTeste.length}</strong></span></div>
         <div data-alerta={alertas.length > 0 ? '' : undefined}><AlertTriangle size={18} aria-hidden="true" /><span><small>Casos na escala aberta</small><strong>{escalaAberta === null ? '–' : alertas.length}</strong></span></div>
       </div>
 
+      {erroCarregar && <div className="alert error" role="alert">{erroCarregar}</div>}
+      {ignoradas > 0 && <div className="alert warning" role="status">{ignoradas === 1 ? '1 regra salva está inválida e foi ignorada.' : `${ignoradas} regras salvas estão inválidas e foram ignoradas.`}</div>}
+      {erroAcao && <div className="alert error" role="alert">{erroAcao}</div>}
       <p className="regras-dica"><Info size={15} aria-hidden="true" /> {escalaAberta === null
         ? 'Escolha uma escala em Escalas para ver quantos casos cada regra encontra nela.'
         : <>Os casos são contados na escala <strong>{escalaAberta}</strong>.</>}</p>
@@ -207,19 +268,19 @@ export function AdminRegrasPage({ regras, equipes, documentos, catalogo, escalaA
         {daEmpresa.length === 0 ? (
           <div className="regras-vazio">
             <Sparkles size={22} aria-hidden="true" />
-            <strong>Nenhuma regra da empresa salva ainda</strong>
-            <small>Monte uma regra com <strong>Nova regra</strong> ou comece de um exemplo, e teste na escala aberta. Salvar e ativar a regra para todos chega na próxima etapa.</small>
+            <strong>Nenhuma regra da empresa ainda</strong>
+            <small>Monte uma regra com <strong>Nova regra</strong> ou comece de um exemplo, teste na escala aberta e salve para valer para todas as lideranças.</small>
           </div>
         ) : (
-          <ul className="regras-lista">{daEmpresa.map((regra) => cartao(regra))}</ul>
+          <ul className="regras-lista">{daEmpresa.map((regra) => cartao(regra, 'salva'))}</ul>
         )}
       </div>
 
       {emTeste.length > 0 && (
         <div className="regras-grupo">
           <h2><FlaskConical size={16} aria-hidden="true" /> Em teste</h2>
-          <p>Estas regras existem só nesta tela e <strong>não valem para ninguém</strong>. Ao sair da página, elas se perdem.</p>
-          <ul className="regras-lista">{emTeste.map((regra) => cartao(regra, true))}</ul>
+          <p>Estas regras existem só nesta tela e <strong>não valem para ninguém</strong> até você salvar. Ao sair da página, elas se perdem.</p>
+          <ul className="regras-lista">{emTeste.map((regra) => cartao(regra, 'teste'))}</ul>
         </div>
       )}
 
@@ -229,8 +290,25 @@ export function AdminRegrasPage({ regras, equipes, documentos, catalogo, escalaA
           casos={casosPorRegra.get(aberta.id) ?? []}
           escalaAberta={escalaAberta}
           onFechar={() => setAberta(null)}
-          onCriarVersao={() => { setConstrutor({ regra: copiarComoRascunho(aberta, gerarIdRegraEmTeste()), emEdicao: false }); setAberta(null); }}
+          onCriarVersao={() => { setConstrutor({ regra: copiarComoRascunho(aberta, gerarIdRegraEmTeste()), emEdicao: false, jaSalva: false }); setAberta(null); }}
         />
+      )}
+      {excluindo && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setExcluindo(null)}>
+          <section className="edit-modal alteracao-problemas" role="alertdialog" aria-modal="true" aria-label="Excluir regra" onMouseDown={(evento) => evento.stopPropagation()}>
+            <header className="criar-equipe-cabecalho">
+              <span className="criar-equipe-icone alteracao-problemas-icone"><Trash2 size={18} aria-hidden="true" /></span>
+              <div><h2>Excluir “{excluindo.nome}”?</h2><p>A regra deixa de valer para todas as lideranças, imediatamente.</p></div>
+              <button className="icon-button" type="button" onClick={() => setExcluindo(null)} aria-label="Fechar"><X size={18} /></button>
+            </header>
+            <p className="regra-exemplo">Se você só quer parar de usá-la por um tempo, <strong>desligue</strong> a regra em vez de excluir.</p>
+            {erroAcao && <div className="alert error" role="alert">{erroAcao}</div>}
+            <div className="criar-equipe-acoes">
+              <button type="button" className="secondary-button" disabled={ocupado === excluindo.id} onClick={() => setExcluindo(null)}>Manter a regra</button>
+              <button type="button" className="primary-button danger-button" disabled={ocupado === excluindo.id} onClick={() => void confirmarExclusao(excluindo)}>Excluir</button>
+            </div>
+          </section>
+        </div>
       )}
       {construtor && (
         <ConstrutorRegra
@@ -241,7 +319,14 @@ export function AdminRegrasPage({ regras, equipes, documentos, catalogo, escalaA
           escalaAberta={escalaAberta}
           nomePorLogin={nomePorLogin}
           emEdicao={construtor.emEdicao}
+          jaSalva={construtor.jaSalva}
           onFechar={() => setConstrutor(null)}
+          onSalvar={async (regra) => {
+            const existente = regrasSalvas.find((item) => item.id === idParaSalvar(regra)) ?? null;
+            await onSalvar(regra, existente);
+            setEmTeste((atuais) => atuais.filter((item) => item.id !== regra.id));
+            setConstrutor(null);
+          }}
           onManterEmTeste={(regra) => {
             setEmTeste((atuais) => (atuais.some((item) => item.id === regra.id) ? atuais.map((item) => (item.id === regra.id ? regra : item)) : [...atuais, regra]));
             setConstrutor(null);
