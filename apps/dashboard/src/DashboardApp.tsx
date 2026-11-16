@@ -1,6 +1,7 @@
 'use client';
 
 import { AdminRegrasPage } from './AdminRegrasPage';
+import { detalheVersaoDashboard, numeroVersaoDashboard } from './versaoDashboard';
 import { PainelProblemasEscala } from './PainelProblemasEscala';
 import { avaliarRegras, bloqueiaPublicacaoPorRegra, diferencaDeProblemas, indexarProblemasPorCelula, type AlertaRegra, type RegraEscala } from '@/lib/regrasEscala';
 import { montarDocumentoRegra, type RegraEscalaSalva } from '@/lib/regrasPersistencia';
@@ -10149,6 +10150,8 @@ export function DashboardApp() {
       onNavegar={(id) => setTela(id as Tela)}
       onSair={encerrarSessao}
       produtoHref={import.meta.env.VITE_EMPLOYEE_APP_URL ?? '/app'}
+      versaoTexto={`Dashboard ${numeroVersaoDashboard()}`}
+      versaoDetalhe={detalheVersaoDashboard()}
       // DASHBOARD-LOTE1 — o seletor de equipe/mês só nas telas ligadas à escala (vazio nas demais).
       contextoEscala={(TELAS_COM_SELETOR_ESCALA.has(tela) ? (
         <div className="schedule-context-cluster">

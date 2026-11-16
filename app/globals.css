@@ -10349,3 +10349,6 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 
 /* REGRAS-ESCALA-4 — a lista de problemas na janela de publicação rola por dentro (com muitos casos a janela estourava a tela). */
 .edit-modal .admin-form-preview { max-height: 220px; overflow-y: auto; }
+
+/* VERSAO-DASHBOARD-1 — número da versão no rodapé do menu do Dashboard (discreto). */
+.sidebar-versao { display: block; padding: 0 12px 6px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.02em; opacity: 0.8; cursor: default; }

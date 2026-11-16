@@ -1287,3 +1287,21 @@ test('REGRAS-ESCALA-4 — regras salvas valem de verdade: um motor para tudo, bl
   assert.match(bloco, /allow delete: if souAdminSistema\(\);/);
   assert.match(rules, /dados\.categoria == 'EMPRESA'/);
 });
+
+test('VERSAO-1 — a versão do App e a do Dashboard são as da primeira seção do respectivo CHANGELOG, e o Dashboard a mostra no menu', async () => {
+  const [pacoteApp, pacoteDash, changelogApp, changelogDash, frame, dashboard, vite] = await Promise.all([
+    ler('apps/app/package.json'), ler('apps/dashboard/package.json'), ler('CHANGELOG.md'), ler('CHANGELOG-DASHBOARD.md'),
+    ler('components/AppFrame.tsx'), ler('apps/dashboard/src/DashboardApp.tsx'), ler('apps/dashboard/vite.config.ts'),
+  ]);
+  const primeira = (texto) => /^## (\d+\.\d+\.\d+)\b/mu.exec(texto)?.[1];
+  const versaoApp = JSON.parse(pacoteApp).version;
+  const versaoDash = JSON.parse(pacoteDash).version;
+  // Esqueceu de subir o número (ou de registrar a entrega)? Este teste falha — é a trava contra o esquecimento.
+  assert.equal(primeira(changelogApp), versaoApp, `CHANGELOG.md começa em ${primeira(changelogApp)}, mas apps/app/package.json está em ${versaoApp}`);
+  assert.equal(primeira(changelogDash), versaoDash, `CHANGELOG-DASHBOARD.md começa em ${primeira(changelogDash)}, mas apps/dashboard/package.json está em ${versaoDash}`);
+  // O Dashboard mostra a versão no rodapé do menu e publica /versao.json.
+  assert.match(dashboard, /versaoTexto=\{`Dashboard \$\{numeroVersaoDashboard\(\)\}`\}/);
+  assert.match(frame, /className="sidebar-versao"/);
+  assert.match(vite, /fileName: 'versao\.json'/);
+  assert.match(vite, /__VERSAO_DASHBOARD__: JSON\.stringify\(versao\)/);
+});

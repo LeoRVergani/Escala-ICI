@@ -9,6 +9,7 @@ export default defineConfig({
       'components/**/*.test.ts',
       'apps/push-worker/test/**/*.test.ts',
       'apps/app/src/**/*.test.ts',
+      'apps/dashboard/src/**/*.test.ts',
     ],
   },
   resolve: {
