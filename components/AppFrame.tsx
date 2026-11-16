@@ -5,6 +5,7 @@ import {
   CalendarDays,
   CalendarRange,
   ChevronDown,
+  ClipboardList,
   LayoutDashboard,
   Table2,
   LogOut,
@@ -29,7 +30,7 @@ import { ThemeToggle } from './ThemeProvider';
 export interface ItemNavegacao {
   id: string;
   rotulo: string;
-  icone: 'home' | 'upload' | 'calendar' | 'grid' | 'users' | 'user' | 'trocas' | 'admin' | 'plantao';
+  icone: 'home' | 'upload' | 'calendar' | 'grid' | 'users' | 'user' | 'trocas' | 'admin' | 'plantao' | 'notas';
   /**
    * FASE-APP-UX-OPERACOES-MOBILE-1 — item some da barra inferior mobile
    * (`.bottom-nav`) mas continua na sidebar (desktop). Usado por "Perfil":
@@ -51,6 +52,7 @@ const ICONES: Record<ItemNavegacao['icone'], LucideIcon> = {
   trocas: ArrowLeftRight,
   admin: ShieldCheck,
   plantao: Radio,
+  notas: ClipboardList,
 };
 
 interface AppFrameProps {

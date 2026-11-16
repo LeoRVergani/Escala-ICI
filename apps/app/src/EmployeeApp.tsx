@@ -209,6 +209,9 @@ import {
   temJornadaPublicada,
   temPlantaoPublicado,
 } from './operacoesApp';
+import { InformacoesParaVoce } from './informacoes/InformacoesParaVoce';
+import { useInformacoesDoColaborador } from './informacoes/useInformacoesDoColaborador';
+import { paraOColaborador } from '@/lib/informacoesDia';
 import { LembretesView } from './lembretes/LembretesView';
 import {
   ROTULO_STATUS_TROCA,
@@ -3572,6 +3575,9 @@ export function EmployeeApp() {
     dadosIniciaisCarregados: dadosCarregados,
     modoDemonstracao,
   });
+  // INFORMACOES-DIA-1 — o que a liderança liberou para este colaborador ver (a consulta e as Rules só entregam as dele).
+  const { informacoes: informacoesLiberadasApp } = useInformacoesDoColaborador({ login: loginUsuario, desdeIso: dataHoje, listenersLiberados });
+  const informacoesParaVoceApp = loginUsuario === null ? [] : paraOColaborador(informacoesLiberadasApp, loginUsuario, dataHoje);
 
   /**
    * APROVAR-TROCA-APP-1 — quem coordena (coordenador, supervisor, gestor de
@@ -5515,6 +5521,8 @@ export function EmployeeApp() {
               <ChevronRight size={18} aria-hidden="true" />
             </button>
           )}
+          {/* INFORMACOES-DIA-1 — o que a liderança registrou e liberou para você (some quando não há nada). */}
+          <InformacoesParaVoce informacoes={informacoesParaVoceApp} hoje={dataHoje} />
           {/* HOJE-COORDENACAO-1 — com equipes carregadas, a visão nova; sem, o painel de estado (carregando/sem equipes). */}
           {souCoordenacaoApp && (visaoCoordenacaoApp.equipes.length > 0 || visaoCoordenacaoApp.plantoes.length > 0 ? (
             <HojeCoordenacao

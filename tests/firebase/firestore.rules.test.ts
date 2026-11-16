@@ -7500,3 +7500,171 @@ describe('REGRAS-ESCALA-4 — regrasEscala', () => {
     await assertSucceeds(deleteDoc(doc(autenticarComo(usuarios.admin), 'regrasEscala', ID)));
   });
 });
+
+/**
+ * INFORMACOES-DIA-1 — `informacoesDia/{id}`: atestado, afastamento por horário, curso ou anotação sobre um
+ * colaborador num dia/período. O chefe da equipe lê e grava; o colaborador só LÊ o que for liberado a ele.
+ */
+describe('INFORMACOES-DIA-1 — informacoesDia', () => {
+  const ID = 'info-teste-1';
+  const informacao = (ajustes: Record<string, unknown> = {}) => ({
+    id: ID,
+    schemaVersion: 1,
+    equipeId: 'EQ_COSI_SOC',
+    login: usuarios.colaborador.login,
+    nomeColaborador: 'Caio Monteiro',
+    tipo: 'ATESTADO',
+    dataInicio: '2026-11-12',
+    dataFim: '2026-11-14',
+    horaInicio: null,
+    horaFim: null,
+    titulo: 'Atestado de 3 dias',
+    observacao: '',
+    visivelParaColaborador: false,
+    criadoPorLogin: usuarios.gestor.login,
+    criadoPorNome: 'Marina Azevedo',
+    criadoEm: '2026-11-12T12:00:00.000Z',
+    atualizadoPorLogin: usuarios.gestor.login,
+    atualizadoEm: '2026-11-12T12:00:00.000Z',
+    ...ajustes,
+  });
+  async function semear(...documentos: Array<Record<string, unknown>>) {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      for (const documento of documentos) {
+        await setDoc(doc(contexto.firestore(), 'informacoesDia', String(documento.id)), documento);
+      }
+    });
+  }
+
+  it('o chefe da equipe cria, lê, edita e exclui informação de alguém da própria equipe', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertSucceeds(setDoc(doc(gestor, 'informacoesDia', ID), informacao()));
+    await assertSucceeds(getDoc(doc(gestor, 'informacoesDia', ID)));
+    await assertSucceeds(updateDoc(doc(gestor, 'informacoesDia', ID), { titulo: 'Atestado de 5 dias', dataFim: '2026-11-16', atualizadoEm: '2026-11-13T08:00:00.000Z' }));
+    await assertSucceeds(deleteDoc(doc(gestor, 'informacoesDia', ID)));
+  });
+
+  it('colaborador e colega da mesma equipe não criam informação', async () => {
+    for (const usuario of [usuarios.colaborador, usuarios.colega]) {
+      const contexto = autenticarComo(usuario);
+      await assertFails(setDoc(doc(contexto, 'informacoesDia', ID), informacao({ criadoPorLogin: usuario.login, atualizadoPorLogin: usuario.login })));
+    }
+  });
+
+  it('o chefe não cria para quem é de outra equipe, nem com a equipe "emprestada"', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    // equipe de fora: ele não é chefe dela
+    await assertFails(setDoc(doc(gestor, 'informacoesDia', ID), informacao({ equipeId: 'EQ_CODB_NOC', login: usuarios.externo.login, nomeColaborador: 'Ravi Nogueira' })));
+    // equipe dele, mas a pessoa é de outra equipe: o cadastro da pessoa desmente
+    await assertFails(setDoc(doc(gestor, 'informacoesDia', ID), informacao({ login: usuarios.externo.login, nomeColaborador: 'Ravi Nogueira' })));
+  });
+
+  it('ADMIN_SISTEMA cria para qualquer equipe, mas a pessoa precisa ser mesmo daquela equipe', async () => {
+    const admin = autenticarComo(usuarios.admin);
+    const comoAdmin = { criadoPorLogin: usuarios.admin.login, atualizadoPorLogin: usuarios.admin.login };
+    await assertSucceeds(setDoc(doc(admin, 'informacoesDia', ID), informacao({ ...comoAdmin })));
+    await assertSucceeds(setDoc(doc(admin, 'informacoesDia', 'info-outra'), informacao({ ...comoAdmin, id: 'info-outra', equipeId: 'EQ_CODB_NOC', login: usuarios.externo.login, nomeColaborador: 'Ravi Nogueira' })));
+    await assertFails(setDoc(doc(admin, 'informacoesDia', 'info-errada'), informacao({ ...comoAdmin, id: 'info-errada', equipeId: 'EQ_CODB_NOC' })));
+  });
+
+  it('o colaborador lê só a informação liberada para ele — nunca a reservada nem a de outra pessoa', async () => {
+    await semear(
+      informacao({ id: 'visivel', visivelParaColaborador: true }),
+      informacao({ id: 'reservada', visivelParaColaborador: false }),
+    );
+    const colaborador = autenticarComo(usuarios.colaborador);
+    await assertSucceeds(getDoc(doc(colaborador, 'informacoesDia', 'visivel')));
+    await assertFails(getDoc(doc(colaborador, 'informacoesDia', 'reservada')));
+    // outro colaborador (mesma equipe) não lê nem a liberada
+    await assertFails(getDoc(doc(autenticarComo(usuarios.colega), 'informacoesDia', 'visivel')));
+    // o chefe lê as duas
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertSucceeds(getDoc(doc(gestor, 'informacoesDia', 'reservada')));
+    await assertSucceeds(getDoc(doc(gestor, 'informacoesDia', 'visivel')));
+  });
+
+  it('a consulta do colaborador (as dele, liberadas) funciona; sem o filtro de liberadas, é negada', async () => {
+    await semear(informacao({ id: 'visivel', visivelParaColaborador: true }), informacao({ id: 'reservada' }));
+    const colaborador = autenticarComo(usuarios.colaborador);
+    const liberadas = await assertSucceeds(getDocs(query(
+      collection(colaborador, 'informacoesDia'),
+      where('login', '==', usuarios.colaborador.login),
+      where('visivelParaColaborador', '==', true),
+    )));
+    expect(liberadas.docs.map((item) => item.id)).toEqual(['visivel']);
+    await assertFails(getDocs(query(collection(colaborador, 'informacoesDia'), where('login', '==', usuarios.colaborador.login))));
+    await assertFails(getDocs(query(collection(colaborador, 'informacoesDia'), where('login', '==', usuarios.colega.login), where('visivelParaColaborador', '==', true))));
+  });
+
+  it('a consulta do chefe pela equipe dele funciona; pela equipe de outro, é negada', async () => {
+    await semear(informacao({ id: 'a' }), informacao({ id: 'b', visivelParaColaborador: true }));
+    const gestor = autenticarComo(usuarios.gestor);
+    const doTime = await assertSucceeds(getDocs(query(collection(gestor, 'informacoesDia'), where('equipeId', '==', 'EQ_COSI_SOC'))));
+    expect(doTime.docs).toHaveLength(2);
+    await assertFails(getDocs(query(collection(gestor, 'informacoesDia'), where('equipeId', '==', 'EQ_CODB_NOC'))));
+  });
+
+  it('sem login nada é lido', async () => {
+    await semear(informacao({ id: 'visivel', visivelParaColaborador: true }));
+    await assertFails(getDoc(doc(ambiente.unauthenticatedContext().firestore(), 'informacoesDia', 'visivel')));
+  });
+
+  it('formato: tipo, datas, horários, afastamento sem horário, campo extra e textos longos são recusados', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    const ref = doc(gestor, 'informacoesDia', ID);
+    await assertFails(setDoc(ref, informacao({ tipo: 'FERIAS' })));
+    await assertFails(setDoc(ref, informacao({ dataFim: '2026-11-10' })));
+    await assertFails(setDoc(ref, informacao({ dataInicio: '12/11/2026' })));
+    await assertFails(setDoc(ref, informacao({ horaInicio: '09:00', horaFim: null })));
+    await assertFails(setDoc(ref, informacao({ horaInicio: '10:00', horaFim: '09:00' })));
+    await assertFails(setDoc(ref, informacao({ horaInicio: '25:00', horaFim: '26:00' })));
+    await assertFails(setDoc(ref, informacao({ tipo: 'AFASTAMENTO_HORARIO' })));
+    await assertFails(setDoc(ref, informacao({ extra: 'x' })));
+    await assertFails(setDoc(ref, informacao({ titulo: 'x'.repeat(81) })));
+    await assertFails(setDoc(ref, informacao({ observacao: 'x'.repeat(501) })));
+    await assertFails(setDoc(ref, informacao({ visivelParaColaborador: 'sim' })));
+    // e os válidos passam
+    await assertSucceeds(setDoc(ref, informacao({ tipo: 'AFASTAMENTO_HORARIO', dataFim: '2026-11-12', horaInicio: '09:00', horaFim: '11:30', visivelParaColaborador: true })));
+  });
+
+  it('autoria: não dá para forjar quem criou; editar não troca quem criou, a pessoa nem a equipe', async () => {
+    const gestor = autenticarComo(usuarios.gestor);
+    await assertFails(setDoc(doc(gestor, 'informacoesDia', ID), informacao({ criadoPorLogin: usuarios.admin.login })));
+    await assertFails(setDoc(doc(gestor, 'informacoesDia', ID), informacao({ atualizadoPorLogin: usuarios.admin.login })));
+    await semear(informacao());
+    const ref = doc(gestor, 'informacoesDia', ID);
+    await assertFails(updateDoc(ref, { criadoPorLogin: usuarios.admin.login }));
+    await assertFails(updateDoc(ref, { login: usuarios.colega.login }));
+    await assertFails(updateDoc(ref, { equipeId: 'EQ_CODB_NOC' }));
+    await assertFails(updateDoc(ref, { atualizadoPorLogin: usuarios.admin.login }));
+  });
+
+  it('o colaborador dono da informação liberada não consegue editar nem excluir', async () => {
+    await semear(informacao({ visivelParaColaborador: true }));
+    const colaborador = autenticarComo(usuarios.colaborador);
+    await assertFails(updateDoc(doc(colaborador, 'informacoesDia', ID), { titulo: 'Mudei', atualizadoPorLogin: usuarios.colaborador.login }));
+    await assertFails(updateDoc(doc(colaborador, 'informacoesDia', ID), { visivelParaColaborador: false, atualizadoPorLogin: usuarios.colaborador.login }));
+    await assertFails(deleteDoc(doc(colaborador, 'informacoesDia', ID)));
+  });
+
+  it('alguém de outra equipe não lê, edita nem exclui', async () => {
+    await semear(informacao({ visivelParaColaborador: true }));
+    const deFora = autenticarComo(usuarios.externo);
+    await assertFails(getDoc(doc(deFora, 'informacoesDia', ID)));
+    await assertFails(updateDoc(doc(deFora, 'informacoesDia', ID), { titulo: 'Mudei', atualizadoPorLogin: usuarios.externo.login }));
+    await assertFails(deleteDoc(doc(deFora, 'informacoesDia', ID)));
+  });
+
+  it('gestor de unidade registra para pessoas das equipes da própria unidade, e só delas', async () => {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(doc(db, 'unidadesOrganizacionais', 'GEDSI'), { unidadeId: 'GEDSI', nome: 'GEDSI', sigla: 'GEDSI', tipo: 'GERENCIA', parentId: null, caminho: ['GEDSI'], ativa: true, criadoPorLogin: usuarios.admin.login });
+      await setDoc(doc(db, 'equipes', 'EQ_GEDSI_TESTE'), { id: 'EQ_GEDSI_TESTE', nome: 'Equipe GEDSI', sigla: 'GT', ativa: true, unidadeId: 'GEDSI', caminhoUnidade: ['GEDSI'] });
+      await setDoc(doc(db, 'usuarios', 'clara.teste'), { login: 'clara.teste', nome: 'Clara Teste', email: 'clara.teste@teste.local', equipeId: 'EQ_GEDSI_TESTE', nivelHierarquico: 6 });
+    });
+    const gestorUnidade = autenticarComo(usuarios.gestorUnidade);
+    const dela = informacao({ id: 'info-clara', equipeId: 'EQ_GEDSI_TESTE', login: 'clara.teste', nomeColaborador: 'Clara Teste', criadoPorLogin: usuarios.gestorUnidade.login, atualizadoPorLogin: usuarios.gestorUnidade.login });
+    await assertSucceeds(setDoc(doc(gestorUnidade, 'informacoesDia', 'info-clara'), dela));
+    await assertFails(setDoc(doc(gestorUnidade, 'informacoesDia', ID), informacao({ criadoPorLogin: usuarios.gestorUnidade.login, atualizadoPorLogin: usuarios.gestorUnidade.login })));
+  });
+});

@@ -15,6 +15,17 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.7.0 — Informações: atestado, afastamento por horário, curso e anotações (patch 0096)
+- Nova tela "Informações" (menu, abaixo de Escalas): o chefe de equipe escolhe o colaborador, o tipo (afastamento
+  por horário, atestado, curso ou treinamento, outra informação), o dia ou período, "dia todo" ou um horário, e
+  escreve um título e observações (opcionais).
+- Cada informação pode ser liberada (ou não) para o colaborador ver no App; por padrão só a liderança vê.
+- Consulta: calendário do mês com pontos coloridos por tipo, painel do dia, lista do mês agrupada por dia, busca,
+  filtros (pessoa, tipo, quem pode ver) e números do topo (hoje, no mês, atestados, o colaborador vê).
+- Atestado: o formulário lembra de não registrar diagnóstico nem CID.
+- **Requer publicar as Rules e os índices do Firestore** (coleção `informacoesDia`; 456 testes de regra na VM).
+- O App passa a mostrar o que for liberado (App 3.8.0).
+
 ## 1.6.0 — criar regra em 3 passos, para qualquer pessoa (patch 0095)
 - "Nova regra" agora é um passo a passo: 1) escolher o que vigiar (dias demais seguidos, pouco descanso, turno
   comprido, dia da semana), 2) ajustar UM número numa frase ("…trabalhar mais de [5] dias seguidos") e 3) dizer

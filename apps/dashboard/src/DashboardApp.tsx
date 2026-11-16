@@ -1,6 +1,7 @@
 'use client';
 
 import { AdminRegrasPage } from './AdminRegrasPage';
+import { InformacoesPage } from './InformacoesPage';
 import { detalheVersaoDashboard, numeroVersaoDashboard } from './versaoDashboard';
 import { PainelProblemasEscala } from './PainelProblemasEscala';
 import { avaliarRegras, bloqueiaPublicacaoPorRegra, diferencaDeProblemas, indexarProblemasPorCelula, type AlertaRegra, type RegraEscala } from '@/lib/regrasEscala';
@@ -454,7 +455,7 @@ import type {
   Usuario,
 } from '@/lib/modelos';
 
-type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao' | 'responsaveisEscala' | 'equipe' | 'liderancas' | 'colaboradores' | 'escalaPlantao';
+type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao' | 'responsaveisEscala' | 'equipe' | 'liderancas' | 'colaboradores' | 'informacoes' | 'escalaPlantao';
 
 /**
  * PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — telas cujo conteúdo é o
@@ -988,6 +989,8 @@ function descreverDivergenciaPlantao(divergencia: DivergenciaPlantao): string {
 const NAVEGACAO: ItemNavegacao[] = [
   { id: 'visao', rotulo: 'Visão geral', icone: 'home' },
   { id: 'escalas', rotulo: 'Escalas', icone: 'calendar' },
+  // INFORMACOES-DIA-1 — atestado, afastamento por horário, curso e anotações sobre cada colaborador.
+  { id: 'informacoes', rotulo: 'Informações', icone: 'notas' },
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   { id: 'usuarios', rotulo: 'Usuários', icone: 'users' },
   { id: 'liderancas', rotulo: 'Lideranças', icone: 'user' },
@@ -1006,6 +1009,7 @@ const NAVEGACAO_COORDENACAO: ItemNavegacao[] = [
   { id: 'visao', rotulo: 'Início', icone: 'home' },
   { id: 'equipe', rotulo: 'Minha equipe', icone: 'users' },
   { id: 'escalas', rotulo: 'Escalas', icone: 'calendar' },
+  { id: 'informacoes', rotulo: 'Informações', icone: 'notas' },
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   // LIDERANCAS-1 — toda liderança vê e promove lideranças.
   { id: 'liderancas', rotulo: 'Lideranças', icone: 'user' },
@@ -9017,6 +9021,16 @@ export function DashboardApp() {
    * ao Plantão nunca o tira da equipe dele.
    */
   const gruposMinhaEquipe = escoposOperacionais.plantoesAdministraveis;
+  /**
+   * INFORMACOES-DIA-1 — equipes cujas pessoas o chefe pode registrar: as da Jornada que ele administra e a
+   * equipe interna de cada Plantão que organiza (nome do Plantão). O administrador vê todas as equipes ativas.
+   */
+  const equipesParaInformacoes = (souAdmin
+    ? equipesAdmin.filter((equipe) => equipe.ativa !== false).map((equipe) => ({ id: equipe.id, nome: equipe.nome }))
+    : [
+      ...equipesMinhaEquipe.map((equipe) => ({ id: equipe.id, nome: equipe.nome })),
+      ...gruposMinhaEquipe.filter((grupo) => grupo.equipeResponsavelId).map((grupo) => ({ id: grupo.equipeResponsavelId, nome: grupo.nome })),
+    ]).filter((equipe, indice, lista) => lista.findIndex((outra) => outra.id === equipe.id) === indice);
   const abasMinhaEquipe: Array<{ chave: string; tipo: 'JORNADA' | 'PLANTAO'; id: string; nome: string }> = [
     ...equipesMinhaEquipe.map((equipe) => ({ chave: `JORNADA:${equipe.id}`, tipo: 'JORNADA' as const, id: equipe.id, nome: equipe.nome })),
     ...gruposMinhaEquipe.map((grupo) => ({ chave: `PLANTAO:${grupo.grupoId}`, tipo: 'PLANTAO' as const, id: grupo.grupoId, nome: grupo.nome })),
@@ -11476,6 +11490,15 @@ export function DashboardApp() {
         />
       )}
       {/* LIDERANCAS-2 — colaboradores, com quem é das minhas equipes em destaque. */}
+      {/* INFORMACOES-DIA-1 — o chefe registra e consulta o que aconteceu com cada colaborador. */}
+      {tela === 'informacoes' && usuarioReal && (
+        <InformacoesPage
+          autor={usuarioReal}
+          equipes={equipesParaInformacoes}
+          modoDemo={modoDemo}
+          pessoasDemo={modoDemo ? [usuarioReal, ...usuarios.filter((pessoa) => pessoa.login !== usuarioReal.login)] : undefined}
+        />
+      )}
       {tela === 'colaboradores' && usuarioReal && (
         <ColaboradoresPage
           pessoasDemo={modoDemo ? [usuarioReal, ...usuarios.filter((pessoa) => pessoa.login !== usuarioReal.login)] : undefined}

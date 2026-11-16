@@ -12,6 +12,12 @@ O Dashboard tem a sua própria versão: veja `CHANGELOG-DASHBOARD.md`. O App con
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.8.0 — "Para você": informações da liderança no Hoje
+- Na aba Hoje aparece o cartão "Para você" com o que a sua liderança registrou e liberou para você ver: curso,
+  afastamento por horário, atestado ou uma anotação, com o dia e o horário. Só aparece quando há algo e some
+  quando a data passa. O que a liderança não liberou nunca chega ao App.
+- A informação é lida na hora, sem precisar atualizar; não há notificação (push) por enquanto.
+
 ## 3.7.6 — ajuste interno na grade de escalas
 - A grade de escalas (que o App também usa) ganhou suporte interno para destacar uma célula e mostrar a mensagem
   de uma regra no tooltip. Sem mudança visível para o colaborador; o número sobe porque o código do App mudou.

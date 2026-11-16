@@ -1371,6 +1371,86 @@ service cloud.firestore {
         );
     }
 
+    /**
+     * INFORMACOES-DIA-1 — informações que a liderança registra sobre um colaborador num dia ou
+     * período (atestado, afastamento por horário, curso, anotação). Sempre visíveis para quem é
+     * chefe da equipe; o colaborador só LÊ as marcadas `visivelParaColaborador` (e só as dele).
+     *
+     * Quem gerencia: quem administra a Jornada da equipe (Matriz), o chefe da própria equipe
+     * (também cobre a equipe interna de um Plantão) e o gestor de unidade dentro do escopo.
+     * Integridade: o colaborador precisa mesmo ser da equipe informada (`get` do cadastro) —
+     * ninguém empurra aviso para quem não é da sua equipe. Campos opcionais com `.get()`.
+     */
+    function podeGerirInformacoesDaEquipe(equipeId) {
+      return autenticado()
+        && (
+          podeAdministrarJornada(equipeId)
+          || (souResponsavelOperacionalElegivel() && podeOperarNaEquipe(equipeId))
+          || (souGestorUnidade() && equipeDentroDoEscopoDeUnidade(equipeId))
+        );
+    }
+
+    function informacaoDiaValida(dados, id) {
+      return dados.keys().hasOnly([
+          'id', 'schemaVersion', 'equipeId', 'login', 'nomeColaborador', 'tipo', 'dataInicio', 'dataFim',
+          'horaInicio', 'horaFim', 'titulo', 'observacao', 'visivelParaColaborador',
+          'criadoPorLogin', 'criadoPorNome', 'criadoEm', 'atualizadoPorLogin', 'atualizadoEm',
+        ])
+        && dados.keys().hasAll([
+          'id', 'schemaVersion', 'equipeId', 'login', 'nomeColaborador', 'tipo', 'dataInicio', 'dataFim',
+          'horaInicio', 'horaFim', 'titulo', 'observacao', 'visivelParaColaborador',
+          'criadoPorLogin', 'criadoPorNome', 'criadoEm', 'atualizadoPorLogin', 'atualizadoEm',
+        ])
+        && dados.id == id
+        && dados.schemaVersion == 1
+        && dados.tipo in ['AFASTAMENTO_HORARIO', 'ATESTADO', 'CURSO', 'OUTRO']
+        && dados.equipeId is string && dados.equipeId.size() > 0
+        && dados.login is string && dados.login.size() > 0
+        && dados.nomeColaborador is string && dados.nomeColaborador.size() >= 1 && dados.nomeColaborador.size() <= 120
+        && dados.dataInicio is string && dados.dataInicio.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && dados.dataFim is string && dados.dataFim.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && dados.dataFim >= dados.dataInicio
+        && (
+          (dados.horaInicio == null && dados.horaFim == null)
+          || (
+            dados.horaInicio is string && dados.horaFim is string
+            && dados.horaInicio.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+            && dados.horaFim.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+            && dados.horaFim > dados.horaInicio
+          )
+        )
+        && (dados.tipo != 'AFASTAMENTO_HORARIO' || dados.horaInicio != null)
+        && dados.titulo is string && dados.titulo.size() <= 80
+        && dados.observacao is string && dados.observacao.size() <= 500
+        && dados.visivelParaColaborador is bool
+        && dados.criadoPorLogin is string && dados.criadoPorNome is string && dados.criadoEm is string
+        && dados.atualizadoPorLogin is string && dados.atualizadoEm is string;
+    }
+
+    match /informacoesDia/{informacaoId} {
+      allow read: if autenticado()
+        && (
+          podeGerirInformacoesDaEquipe(resource.data.equipeId)
+          || (resource.data.login == loginDoAuth() && resource.data.visivelParaColaborador == true)
+        );
+
+      allow create: if podeGerirInformacoesDaEquipe(request.resource.data.equipeId)
+        && informacaoDiaValida(request.resource.data, informacaoId)
+        && request.resource.data.criadoPorLogin == loginDoAuth()
+        && request.resource.data.atualizadoPorLogin == loginDoAuth()
+        && get(/databases/$(database)/documents/usuarios/$(request.resource.data.login)).data.get('equipeId', null) == request.resource.data.equipeId;
+
+      allow update: if podeGerirInformacoesDaEquipe(resource.data.equipeId)
+        && informacaoDiaValida(request.resource.data, informacaoId)
+        && request.resource.data.equipeId == resource.data.equipeId
+        && request.resource.data.login == resource.data.login
+        && request.resource.data.criadoPorLogin == resource.data.criadoPorLogin
+        && request.resource.data.criadoEm == resource.data.criadoEm
+        && request.resource.data.atualizadoPorLogin == loginDoAuth();
+
+      allow delete: if podeGerirInformacoesDaEquipe(resource.data.equipeId);
+    }
+
     match /regrasEscala/{regraId} {
       allow read: if autenticado();
 

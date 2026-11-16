@@ -1333,3 +1333,35 @@ test('ASSISTENTE-REGRAS-1 — criar regra em 3 passos: sem termos técnicos à v
   // Só ativa com nome e (se for por equipe) ao menos uma equipe.
   assert.match(assistente, /disabled=\{salvando \|\| precisaEquipe \|\| !nomeValido\} onClick=\{\(\) => void salvar\(\)\}/);
 });
+
+test('INFORMACOES-DIA-1 — o colaborador só lê o que foi liberado e é dele; o chefe grava pelo repositório; Rules só para quem gerencia a equipe', async () => {
+  const [repositorio, hook, cartao, pagina, modal, dashboard, appJs, rules, biblioteca] = await Promise.all([
+    ler('lib/firebase/informacoesDiaRepository.ts'), ler('apps/app/src/informacoes/useInformacoesDoColaborador.ts'),
+    ler('apps/app/src/informacoes/InformacoesParaVoce.tsx'), ler('apps/dashboard/src/InformacoesPage.tsx'), ler('apps/dashboard/src/InformacaoModal.tsx'),
+    ler('apps/dashboard/src/DashboardApp.tsx'), ler('apps/app/src/EmployeeApp.tsx'), ler('firestore.rules'), ler('lib/informacoesDia.ts'),
+  ]);
+  // App: a consulta pede só as DELE e só as LIBERADAS (é o que as Rules exigem), e ainda há um filtro de reforço no cliente.
+  const consultaApp = /export function observarInformacoesDoColaborador[\s\S]*?\n\}/u.exec(repositorio)?.[0] ?? '';
+  assert.match(consultaApp, /where\('login', '==', login\)/);
+  assert.match(consultaApp, /where\('visivelParaColaborador', '==', true\)/);
+  assert.match(appJs, /paraOColaborador\(informacoesLiberadasApp, loginUsuario, dataHoje\)/);
+  assert.match(hook, /if \(!listenersLiberados \|\| login === null\) return undefined;/);
+  // O App nunca grava nem apaga informação.
+  for (const fonte of [hook, cartao]) assert.doesNotMatch(fonte, /salvarInformacao|excluirInformacao|setDoc|deleteDoc/u);
+  assert.doesNotMatch(appJs, /salvarInformacao|excluirInformacao/u);
+  // Dashboard: grava e apaga só pelo repositório; no modo demonstração fica na memória. Uma assinatura por equipe (sem consulta "in").
+  assert.match(pagina, /await salvarInformacao\(documento\)/);
+  assert.match(pagina, /await excluirInformacao\(informacao\.id\)/);
+  assert.doesNotMatch(`${pagina}${modal}`, /setDoc|deleteDoc|localStorage/u);
+  assert.doesNotMatch(repositorio, /where\('equipeId', 'in'/u);
+  assert.match(dashboard, /\{ id: 'informacoes', rotulo: 'Informações', icone: 'notas' \}/);
+  // A visibilidade começa DESLIGADA (só a liderança vê até alguém liberar).
+  assert.match(biblioteca, /titulo: '', observacao: '', visivelParaColaborador: false, \.\.\.base/);
+  // Rules: leitura = chefe da equipe OU (dono da informação E liberada); escrita só quem gerencia a equipe; sem forjar autor.
+  const bloco = /match \/informacoesDia\/\{informacaoId\} \{([\s\S]*?)\n    \}/u.exec(rules)?.[1] ?? '';
+  assert.match(bloco, /podeGerirInformacoesDaEquipe\(resource\.data\.equipeId\)\s*\|\|\s*\(resource\.data\.login == loginDoAuth\(\) && resource\.data\.visivelParaColaborador == true\)/);
+  assert.match(bloco, /allow create: if podeGerirInformacoesDaEquipe\(request\.resource\.data\.equipeId\)/);
+  assert.match(bloco, /request\.resource\.data\.criadoPorLogin == loginDoAuth\(\)/);
+  assert.match(bloco, /usuarios\/\$\(request\.resource\.data\.login\)\)\.data\.get\('equipeId', null\) == request\.resource\.data\.equipeId/);
+  assert.match(bloco, /allow delete: if podeGerirInformacoesDaEquipe\(resource\.data\.equipeId\);/);
+});
