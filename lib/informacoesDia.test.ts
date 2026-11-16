@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  cobreDia, dataValida, descricaoHorario, descricaoPeriodo, entradaDaInformacao, entradaEmBranco, filtrarInformacoes, informacoesDoDia, informacoesDoMes,
-  lerInformacao, montarDocumentoInformacao, nomeDoMes, ordenarInformacoes, paraOColaborador, resumoDoPeriodo, resumoPorDia, rotuloDiaRelativo, SEM_FILTROS,
-  semanasDoMes, tituloDoDia, tituloExibicao, validarEntradaInformacao, type EntradaInformacao, type InformacaoDia,
+  chaveMarcador, cobreDia, dataValida, descricaoHorario, descricaoPeriodo, entradaDaInformacao, entradaEmBranco, filtrarInformacoes, informacoesDoDia, informacoesDoMes,
+  lerInformacao, marcadoresPorCelula, montarDocumentoInformacao, nomeDoMes, ordenarInformacoes, paraOColaborador, resumoDoPeriodo, resumoPorDia, rotuloDiaRelativo, SEM_FILTROS,
+  semanasDoMes, textoDoMarcador, tituloDoDia, tituloExibicao, validarEntradaInformacao, type EntradaInformacao, type InformacaoDia,
 } from './informacoesDia';
 
 const AUTOR = { login: 'marina.azevedo', nome: 'Marina Azevedo' };
@@ -209,5 +209,40 @@ describe('INFORMACOES-DIA-1 — o que o colaborador enxerga no App', () => {
   it('a janela é ajustável', () => {
     expect(paraOColaborador(lista, 'caio', HOJE, 60).map((item) => item.id)).toContain('muito-longe');
     expect(paraOColaborador(lista, 'caio', HOJE, 1).map((item) => item.id)).toEqual(['em-curso', 'visivel-hoje']);
+  });
+});
+
+describe('INFORMACOES-DIA-1 — marcadores na grade da escala', () => {
+  it('cada dia que a informação cobre vira um marcador da pessoa, e só dela', () => {
+    const periodo = info('p', { login: 'ana', dataInicio: '2026-11-10', dataFim: '2026-11-12' });
+    const marcadores = marcadoresPorCelula([periodo]);
+    expect([...marcadores.keys()]).toEqual(['ana_2026-11-10', 'ana_2026-11-11', 'ana_2026-11-12']);
+    expect(marcadores.has(chaveMarcador('bia', '2026-11-11'))).toBe(false);
+    expect(marcadores.has(chaveMarcador('ana', '2026-11-13'))).toBe(false);
+  });
+
+  it('duas informações no mesmo dia viram um marcador só, com as duas cores (sem repetir a cor do mesmo tipo)', () => {
+    const lista = [
+      info('a', { login: 'ana', tipo: 'CURSO', diaTodo: false, horaInicio: '14:00', horaFim: '18:00', titulo: 'NR-10' }),
+      info('b', { login: 'ana', tipo: 'ATESTADO' }),
+      info('c', { login: 'ana', tipo: 'ATESTADO', titulo: 'Segundo' }),
+    ];
+    const marcador = marcadoresPorCelula(lista).get('ana_2026-11-12')!;
+    expect(marcador.cores).toEqual(['azul', 'rosa']);
+    expect(marcador.itens).toHaveLength(3);
+  });
+
+  it('o texto do tooltip junta tipo, título e horário, em ordem', () => {
+    const lista = [
+      info('a', { login: 'ana', tipo: 'CURSO', diaTodo: false, horaInicio: '14:00', horaFim: '18:00', titulo: 'NR-10' }),
+      info('b', { login: 'ana', tipo: 'ATESTADO' }),
+    ];
+    expect(textoDoMarcador(marcadoresPorCelula(lista).get('ana_2026-11-12')!)).toBe('Atestado (dia todo) · Curso ou treinamento: NR-10 (das 14:00 às 18:00)');
+  });
+
+  it('um período absurdo não trava a grade (no máximo 1 ano de marcadores)', () => {
+    const longo = info('l', { login: 'ana', dataInicio: '2026-01-01', dataFim: '2026-12-31' });
+    expect(marcadoresPorCelula([longo]).size).toBe(365);
+    expect(marcadoresPorCelula([])).toEqual(new Map());
   });
 });

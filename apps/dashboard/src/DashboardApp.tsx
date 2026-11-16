@@ -2,6 +2,9 @@
 
 import { AdminRegrasPage } from './AdminRegrasPage';
 import { InformacoesPage } from './InformacoesPage';
+import { informacoesDeExemplo } from './informacoesDemo';
+import { useInformacoesDaEquipe } from './useInformacoesDaEquipe';
+import { descricaoHorario, informacoesDoDia, marcadoresPorCelula, metaDoTipo, TIPOS_INFORMACAO, tituloExibicao } from '@/lib/informacoesDia';
 import { detalheVersaoDashboard, numeroVersaoDashboard } from './versaoDashboard';
 import { PainelProblemasEscala } from './PainelProblemasEscala';
 import { avaliarRegras, bloqueiaPublicacaoPorRegra, diferencaDeProblemas, indexarProblemasPorCelula, type AlertaRegra, type RegraEscala } from '@/lib/regrasEscala';
@@ -34,6 +37,7 @@ import {
   equipesConsultaEfetivas,
   formatarCompetencia,
   formatarData,
+  adicionarDias,
   formatarMinutos,
   idCompetenciaPlantao,
   MAXIMO_CONTATOS_PLANTONISTA,
@@ -4495,6 +4499,25 @@ export function DashboardApp() {
     [documentos, catalogo, regrasEmVigor, nomePorLoginRegras],
   );
   const problemasPorCelula = useMemo(() => indexarProblemasPorCelula(problemasDaEscala), [problemasDaEscala]);
+  /**
+   * INFORMACOES-DIA-1 — informações (atestado, curso, afastamento…) da equipe da grade aberta: viram um
+   * pontinho colorido na célula do dia e um aviso ao editar aquele dia. Todos os documentos da grade são
+   * da mesma equipe. Em demonstração, exemplos ancorados no início do período da grade.
+   */
+  const equipeDaGrade = documentos[0]?.equipeId ?? null;
+  const inicioDaGrade = documentos[0]?.periodoInicio ?? '';
+  const exemplosInformacoesGrade = useMemo(
+    () => (modoDemo
+      ? (inicioDaGrade === '' ? [] : informacoesDeExemplo(
+        adicionarDias(inicioDaGrade, 3),
+        usuarios.filter((pessoa) => pessoa.equipeId === equipeDaGrade && pessoa.ativo !== false).map((pessoa) => ({ login: pessoa.login, nome: pessoa.nome, equipeId: pessoa.equipeId })),
+        { login: 'demo', nome: 'Sofia Valente' },
+      ))
+      : undefined),
+    [modoDemo, inicioDaGrade, usuarios, equipeDaGrade],
+  );
+  const informacoesDaGrade = useInformacoesDaEquipe({ equipeId: equipeDaGrade, desdeIso: inicioDaGrade, demo: exemplosInformacoesGrade });
+  const marcadoresGrade = useMemo(() => marcadoresPorCelula(informacoesDaGrade), [informacoesDaGrade]);
   const alertasVisiveis = useMemo(
     () => montarAlertasVisiveis(problemasDaEscala, usuarios, documentos, publicados),
     [problemasDaEscala, usuarios, documentos, publicados],
@@ -11352,6 +11375,14 @@ export function DashboardApp() {
                 </div>
               </header>
               <PainelProblemasEscala alertas={problemasDaEscala} nomePorLogin={nomePorLoginRegras} onVerNaEscala={focarProblemaNaGrade} />
+              {/* INFORMACOES-DIA-1 — legenda dos pontinhos: só aparece quando a grade tem informações registradas. */}
+              {marcadoresGrade.size > 0 && (
+                <p className="legenda-informacoes">
+                  <b>Informações registradas:</b>
+                  {TIPOS_INFORMACAO.map((tipo) => <span key={tipo.chave} data-cor={tipo.cor}><i aria-hidden="true" /> {tipo.rotulo}</span>)}
+                  <small>Passe o mouse na célula para ver os detalhes.</small>
+                </p>
+              )}
               <article className="panel grid-panel">
                 <div className="toolbar">
                   <label><Filter size={16} /><select value={filtroTurno} onChange={(evento) => setFiltroTurno(evento.target.value)}>
@@ -11370,6 +11401,7 @@ export function DashboardApp() {
                   indiceAlertas={indiceAlertasGrade}
                   problemasPorCelula={problemasPorCelula}
                   focoProblema={focoProblema}
+                  marcadoresPorCelula={marcadoresGrade}
                   onEditar={abrirCelulaParaEdicao}
                   onRemover={(documento) => setRemoverMembroPendente(documento)}
                 />
@@ -13499,6 +13531,22 @@ export function DashboardApp() {
               <div><p className="eyebrow">{celulaEditando.data}</p><h2 id="edit-title">Editar célula</h2><p>{celulaEditando.documento.login}</p></div>
               <button className="icon-button" type="button" onClick={() => setCelulaEditando(null)} aria-label="Fechar"><X size={18} /></button>
             </div>
+              {/* INFORMACOES-DIA-1 — a pessoa tem algo registrado neste dia: a liderança vê antes de mexer na escala. */}
+              {(() => {
+                const doDiaDaPessoa = informacoesDoDia(informacoesDaGrade.filter((informacao) => informacao.login === celulaEditando.documento.login), celulaEditando.data);
+                return doDiaDaPessoa.length === 0 ? null : (
+                  <div className="aviso-informacoes-dia" role="note">
+                    <strong>Esta pessoa tem {doDiaDaPessoa.length === 1 ? 'uma informação' : `${doDiaDaPessoa.length} informações`} neste dia:</strong>
+                    <ul>
+                      {doDiaDaPessoa.map((informacao) => (
+                        <li key={informacao.id} data-cor={metaDoTipo(informacao.tipo).cor}>
+                          <b>{metaDoTipo(informacao.tipo).rotulo}</b> — {tituloExibicao(informacao)} · {descricaoHorario(informacao)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })()}
               {!celulaEditando.dia.c && (
                 <label className="cycle-assist-toggle">
                   <input

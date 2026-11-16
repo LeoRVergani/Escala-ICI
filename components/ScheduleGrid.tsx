@@ -19,6 +19,7 @@ import {
 } from '@/lib/alertasEscala';
 import { agruparGradePorPeriodo } from '@/lib/gradeMembros';
 import type { Usuario } from '@/lib/modelos';
+import { chaveMarcador, textoDoMarcador, type MarcadorCelula } from '@/lib/informacoesDia';
 import type { ProblemaCelula } from '@/lib/regrasEscala';
 
 interface ScheduleGridProps {
@@ -34,6 +35,8 @@ interface ScheduleGridProps {
   problemasPorCelula?: Map<string, ProblemaCelula>;
   /** REGRAS-ESCALA-2 — célula a destacar e rolar até ela ("Ver na escala"); `nonce` repete o mesmo pedido. */
   focoProblema?: { chave: string; nonce: number } | null;
+  /** INFORMACOES-DIA-1 — células (login_data) que têm informação registrada: ponto colorido e tooltip. Só a liderança passa isto. */
+  marcadoresPorCelula?: Map<string, MarcadorCelula>;
   compacta?: boolean;
   avisoDivergencia?: boolean;
 }
@@ -88,6 +91,7 @@ export function ScheduleGrid({
   indiceAlertas,
   problemasPorCelula,
   focoProblema,
+  marcadoresPorCelula,
   compacta = false,
   avisoDivergencia = true,
 }: ScheduleGridProps) {
@@ -149,6 +153,8 @@ export function ScheduleGrid({
           const chaveCelula = chaveIndicadorCelula(documento.usuarioUid, data);
           const problemaRegra = problemasPorCelula?.get(chaveCelula);
           const emFocoProblema = focoProblema?.chave === chaveCelula;
+          const marcador = marcadoresPorCelula?.get(chaveMarcador(documento.login, data));
+          const textoMarcador = marcador ? `Informação: ${textoDoMarcador(marcador)}` : null;
           const avisos = problemasPorCelula !== undefined
             ? (problemaRegra?.mensagens ?? [])
             : [
@@ -179,8 +185,9 @@ export function ScheduleGrid({
                       `${data} · ${catalogo[dia.c]?.descricao ?? dia.c}`
                         + (dia.t !== undefined ? ` (${catalogo[dia.t]?.descricao ?? dia.t})` : ''),
                       ...avisos,
+                      ...(textoMarcador ? [textoMarcador] : []),
                     ].join(' · ')
-                  : `${data} · Sem turno definido — clique para atribuir`}
+                  : `${data} · Sem turno definido — clique para atribuir${textoMarcador ? ` · ${textoMarcador}` : ''}`}
                 onClick={() => onEditar?.(documento, data, dia ?? { c: '' })}
                 disabled={!editavel}
               >
@@ -196,6 +203,11 @@ export function ScheduleGrid({
                 {indicador?.descansoInsuficiente && (
                   <span className="grade-alert-badge grade-alert-descanso" aria-hidden="true">
                     <AlertTriangle size={9} strokeWidth={3} />
+                  </span>
+                )}
+                {marcador && (
+                  <span className="shift-marcador" aria-hidden="true">
+                    {marcador.cores.slice(0, 3).map((cor) => <i key={cor} data-cor={cor} />)}
                   </span>
                 )}
               </button>
