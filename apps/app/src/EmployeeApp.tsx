@@ -3582,6 +3582,10 @@ export function EmployeeApp() {
   const informacoesParaVoceApp = loginUsuario === null ? [] : paraOColaborador(informacoesLiberadasApp, loginUsuario, dataHoje);
   // RECADOS-1 — recados da liderança que esperam a resposta deste colaborador (responde com um toque e some).
   const { pendentes: recadosPendentesApp, responder: responderRecadoApp } = useRecadosRecebidos({ login: loginUsuario, listenersLiberados });
+  // RECADOS-1 — bolinha na aba "Hoje" com os recados esperando resposta (vale em qualquer aba em que a pessoa esteja).
+  const navegacaoApp = recadosPendentesApp.length > 0
+    ? NAVEGACAO.map((item) => (item.id === 'hoje' ? { ...item, contador: recadosPendentesApp.length } : item))
+    : NAVEGACAO;
 
   /**
    * APROVAR-TROCA-APP-1 — quem coordena (coordenador, supervisor, gestor de
@@ -5453,7 +5457,7 @@ export function EmployeeApp() {
       produto="app"
       usuario={usuario}
       competencia={formatarCompetencia(competenciaAtiva)}
-      itens={NAVEGACAO}
+      itens={navegacaoApp}
       ativo={tela}
       onNavegar={(id) => setTela(id as Tela)}
       onSair={encerrarSessao}

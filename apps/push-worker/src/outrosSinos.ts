@@ -1,4 +1,4 @@
-import type { Firestore } from 'firebase-admin/firestore';
+import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type { Messaging } from 'firebase-admin/messaging';
 
 import type { PushWorkerConfig } from './config.js';
@@ -8,7 +8,9 @@ import { CODIGOS_FID_INVALIDO, sendToDevices } from './pushSender.js';
 /**
  * SINOS-NO-CELULAR-1 — os outros sinos do App também viram push:
  *  - trocas de Plantão (notificacoesTrocaPlantao/{id}, destinatarioLogin);
- *  - escala publicada/alterada (eventosEscala/{id}, por usuário).
+ *  - escala publicada/alterada (eventosEscala/{id}, por usuário);
+ *  - RECADOS-1: recado novo da liderança (recados/{id}, destinatarioLogin) — texto FIXO, sem nome de quem
+ *    enviou nem o conteúdo do recado na tela bloqueada.
  * Mesmas proteções do push de trocas 6x1: textos FIXOS e genéricos (nada de
  * nome na tela bloqueada), uma vez por aviso (reserva atômica em
  * pushSinosEnviados), só depois de PUSH_ACTIVATED_AT, respeita PUSH_ENABLED,
@@ -24,6 +26,47 @@ const TEXTOS_TROCA_PLANTAO: Record<string, { titulo: string; corpo: string }> = 
   TROCA_PLANTAO_APROVADA: { titulo: 'Troca de plantão aprovada', corpo: 'Sua troca de plantão foi aprovada. Abra o app para ver.' },
   TROCA_PLANTAO_CANCELADA: { titulo: 'Troca de plantão cancelada', corpo: 'A solicitação de troca de plantão foi cancelada.' },
 };
+
+/** RECADOS-1 — o push NUNCA leva o nome de quem enviou nem o texto do recado: só avisa que há um recado. */
+export function textoRecado(tipo: unknown): { titulo: string; corpo: string } | null {
+  if (tipo === 'PERGUNTA') return { titulo: 'Nova mensagem da liderança', corpo: 'Você recebeu um recado que espera sua resposta. Abra o app para responder.' };
+  if (tipo === 'AVISO') return { titulo: 'Nova mensagem da liderança', corpo: 'Você recebeu um aviso da liderança. Abra o app para ver.' };
+  return null;
+}
+
+/** Milissegundos de um Timestamp do Firestore, de uma Date ou de um texto ISO; `null` se não der para ler. */
+export function milissegundos(valor: unknown): number | null {
+  if (valor !== null && typeof valor === 'object' && typeof (valor as { toMillis?: unknown }).toMillis === 'function') {
+    return (valor as { toMillis: () => number }).toMillis();
+  }
+  if (valor instanceof Date) return valor.getTime();
+  if (typeof valor === 'string') {
+    const ms = Date.parse(valor);
+    return Number.isNaN(ms) ? null : ms;
+  }
+  return null;
+}
+
+/**
+ * Em `recados` o `criadoEm` é um TIMESTAMP do Firestore (nas outras coleções é texto ISO). Comparar um Timestamp com a
+ * data de ativação em TEXTO não dá erro — simplesmente nunca retorna nada, e o push nunca sairia. Por isso a conversão.
+ */
+export function inicioDeAtivacao(pushActivatedAt: string): Timestamp {
+  return Timestamp.fromDate(new Date(pushActivatedAt));
+}
+
+/** Este recado merece push agora? Só os que ainda esperam resposta e não venceram. Nada mais entra no aviso. */
+export function decidirPushRecado(
+  dados: { destinatarioLogin?: unknown; tipo?: unknown; status?: unknown; expiraEm?: unknown },
+  agoraMs: number,
+): { login: string; texto: { titulo: string; corpo: string } } | null {
+  if (typeof dados.destinatarioLogin !== 'string' || dados.destinatarioLogin === '') return null;
+  if (dados.status !== 'ENVIADO') return null;
+  const expira = milissegundos(dados.expiraEm);
+  if (expira !== null && expira <= agoraMs) return null;
+  const texto = textoRecado(dados.tipo);
+  return texto === null ? null : { login: dados.destinatarioLogin, texto };
+}
 
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 
@@ -145,9 +188,23 @@ export function iniciarOutrosSinos({
       }
     }, (erro) => logger.error('listener de eventosEscala falhou', { erro: erro.message }));
 
-  logger.info('push de trocas de plantão e escala publicada iniciado', { pushEnabled: config.pushEnabled });
+  // RECADOS-1 — recado novo da liderança vira push (uma vez por recado: reserva `RC_<id>` em pushSinosEnviados).
+  const pararRecados = db.collection('recados')
+    .where('criadoEm', '>=', inicioDeAtivacao(config.pushActivatedAt))
+    .onSnapshot((snapshot) => {
+      for (const mudanca of snapshot.docChanges()) {
+        if (mudanca.type !== 'added') continue;
+        const decisao = decidirPushRecado(mudanca.doc.data(), Date.now());
+        if (decisao === null) continue;
+        void enviarUmaVez(`RC_${mudanca.doc.id}`, decisao.login, 'RECADO', decisao.texto)
+          .catch((erro) => logger.error('push de recado falhou', { erro: erro instanceof Error ? erro.message : String(erro) }));
+      }
+    }, (erro) => logger.error('listener de recados falhou', { erro: erro.message }));
+
+  logger.info('push de trocas de plantão, escala publicada e recados iniciado', { pushEnabled: config.pushEnabled });
   return () => {
     pararTrocasPlantao();
     pararEventosEscala();
+    pararRecados();
   };
 }

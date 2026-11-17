@@ -15,6 +15,10 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.10.1 — ajuste interno na barra de navegação (patch 0102)
+- O menu lateral aceita uma bolinha de contador por item (usada só no App). Sem mudança visível no Dashboard.
+- Só um ajuste em `components/AppFrame.tsx` (que o App também usa) → App 3.10.0.
+
 ## 1.10.0 — Recados: um recado curto, a resposta de um toque e o recado some (patch 0101)
 - Nova tela "Recados" (menu, abaixo de Informações): a liderança escolhe uma ou mais pessoas (até 10), diz se quer
   **uma resposta** ("Posso" / "Não posso") ou **só avisar** ("Entendi") e escreve o texto livre (até 300 caracteres).
