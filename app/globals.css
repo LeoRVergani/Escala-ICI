@@ -10650,3 +10650,11 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 .assistente-rolagem, .info-rolagem { display: grid; flex: 1 1 auto; align-content: start; gap: 14px; min-height: 0; padding-right: 4px; overflow-y: auto; }
 .assistente-regra .assistente-rodape, .info-modal .assistente-rodape { position: static; flex: 0 0 auto; margin: 0; padding: 14px 0 0; border-top: 1px solid var(--border); background: transparent; }
 @media (max-width: 720px) { .assistente-regra .assistente-rodape, .info-modal .assistente-rodape { margin: 0; padding: 12px 0 0; } }
+
+/* Respiro: o fim do conteúdo nunca encosta na linha do rodapé das janelas (antes eram só 14px). */
+.assistente-rolagem, .info-rolagem { padding-bottom: 18px; }
+.assistente-regra .assistente-rodape, .info-modal .assistente-rodape { padding-top: 18px; }
+@media (max-width: 720px) {
+  .assistente-rolagem, .info-rolagem { padding-bottom: 14px; }
+  .assistente-regra .assistente-rodape, .info-modal .assistente-rodape { padding-top: 14px; }
+}
