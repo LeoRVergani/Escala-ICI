@@ -159,7 +159,10 @@ describe('rotuloCargoExibicao (PATCH-USUARIOS-CARGO-ESCOPO-PLANTAO-1)', () => {
     expect(rotuloCargoExibicao(usuarioBase({ cargo: '', perfil: 'GESTOR_EQUIPE' }))).toBe('Coordenador');
     expect(rotuloCargoExibicao(usuarioBase({ cargo: '', perfil: 'GESTOR_UNIDADE' }))).toBe('Coordenador');
     expect(rotuloCargoExibicao(usuarioBase({ cargo: '', perfil: 'SUPERVISOR_EQUIPE' }))).toBe('Coordenador');
-    expect(rotuloCargoExibicao(usuarioBase({ cargo: '', perfil: 'ADMIN_SISTEMA' }))).toBe('Coordenador');
+    // O administrador do sistema administra tudo e não tem equipe: nunca é rotulado como "Coordenador".
+    expect(rotuloCargoExibicao(usuarioBase({ cargo: '', perfil: 'ADMIN_SISTEMA' }))).toBe('Administrador do sistema');
+    // ...mas um cargo real cadastrado continua prevalecendo.
+    expect(rotuloCargoExibicao(usuarioBase({ cargo: 'Coordenador Geral', perfil: 'ADMIN_SISTEMA' }))).toBe('Coordenador Geral');
     expect(rotuloCargoExibicao(usuarioBase({ cargo: '', perfil: 'ANALISTA_SOC' }))).toBe('Analista SOC');
     expect(rotuloCargoExibicao(usuarioBase({ cargo: 'Analista Pleno', perfil: 'GESTOR_UNIDADE' }))).toBe('Analista Pleno');
   });

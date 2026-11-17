@@ -11533,6 +11533,7 @@ export function DashboardApp() {
           pessoasDemo={modoDemo ? [usuarioReal, ...usuarios.filter((pessoa) => pessoa.login !== usuarioReal.login)] : undefined}
           autor={usuarioReal}
           minhasEquipes={equipesMinhaEquipe.map((equipe) => equipe.id)}
+          semEquipePropria={souAdmin}
           nomeEquipe={(equipeId) => [...equipesAdmin, ...equipesMinhaEquipe].find((equipe) => equipe.id === equipeId)?.nome ?? equipeId}
         />
       )}

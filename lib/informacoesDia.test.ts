@@ -246,3 +246,14 @@ describe('INFORMACOES-DIA-1 — marcadores na grade da escala', () => {
     expect(marcadoresPorCelula([])).toEqual(new Map());
   });
 });
+
+describe('INFORMACOES-DIA-1 — mensagem quando a leitura falha', () => {
+  it('diz a causa mais provável em português simples', async () => {
+    const { mensagemFalhaDeLeitura } = await import('./informacoesDia');
+    expect(mensagemFalhaDeLeitura({ code: 'permission-denied' })).toContain('Regras do Firestore');
+    expect(mensagemFalhaDeLeitura({ code: 'failed-precondition' })).toContain('índice');
+    expect(mensagemFalhaDeLeitura({ code: 'unavailable' })).toContain('conexão');
+    expect(mensagemFalhaDeLeitura(new Error('qualquer coisa'))).toBe('Não foi possível carregar as informações agora.');
+    expect(mensagemFalhaDeLeitura(null)).toBe('Não foi possível carregar as informações agora.');
+  });
+});

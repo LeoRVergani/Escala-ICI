@@ -413,3 +413,16 @@ export function textoDoMarcador(marcador: MarcadorCelula): string {
     .map((informacao) => `${metaDoTipo(informacao.tipo).rotulo}${informacao.titulo.trim() !== '' ? `: ${informacao.titulo}` : ''} (${descricaoHorario(informacao).replace(/^Dia todo$/u, 'dia todo')})`)
     .join(' · ');
 }
+
+/** O que dizer quando a leitura das informações falha: a causa mais provável, em português simples. */
+export function mensagemFalhaDeLeitura(falha: unknown): string {
+  const codigo = typeof falha === 'object' && falha !== null && 'code' in falha ? String((falha as { code: unknown }).code) : '';
+  if (codigo.includes('permission-denied')) {
+    return 'Sem permissão para ler as informações. Se as Regras do Firestore desta versão ainda não foram publicadas, publique-as (deploy das Regras); se já foram, confira o seu acesso.';
+  }
+  if (codigo.includes('failed-precondition')) {
+    return 'O Firestore ainda não tem — ou está criando — o índice destas consultas. Publique os índices (deploy) e aguarde alguns minutos.';
+  }
+  if (codigo.includes('unavailable')) return 'Sem conexão com o Firestore agora. Tente de novo em instantes.';
+  return 'Não foi possível carregar as informações agora.';
+}

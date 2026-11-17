@@ -3244,6 +3244,15 @@ describe('LIDERANCAS-2 — liderança cadastra pessoa nova já como liderança',
     await assertFails(criar(usuarios.gestor, { promovidoPorLogin: usuarios.admin.login }));
     await assertFails(criar(usuarios.gestor, { equipesPermitidas: ['EQ_COSI_SOC'] }));
   });
+
+  // LIDERANCA-CARGO-1 — liderança nova precisa ter cargo de liderança.
+  it.each(['Analista de SOC', 'Técnico de Redes', 'Estagiário', ''])('não cadastra liderança com o cargo "%s"', async (cargo) => {
+    await assertFails(criar(usuarios.gestor, { cargo }));
+  });
+
+  it.each(['Gerente de Infraestrutura', 'Supervisora', 'Líder de Equipe'])('cadastra liderança com o cargo "%s"', async (cargo) => {
+    await assertSucceeds(criar(usuarios.gestor, { cargo }));
+  });
 });
 
 describe('LIDERANCAS-1 — uma liderança torna outra pessoa liderança (só promove, com registro)', () => {
@@ -3255,8 +3264,29 @@ describe('LIDERANCAS-1 — uma liderança torna outra pessoa liderança (só pro
     },
   );
 
-  it('a liderança torna um colaborador liderança, registrando quem promoveu', async () => {
-    await assertSucceeds(promover(usuarios.gestor, usuarios.colaborador.login));
+  // LIDERANCA-CARGO-1 — o alvo da promoção precisa ter CARGO de liderança.
+  const comCargo = (login: string, cargo: string) => ambiente.withSecurityRulesDisabled(async (contexto) => {
+    await updateDoc(doc(contexto.firestore(), 'usuarios', login), { cargo });
+  });
+
+  it.each(['Coordenador de Redes', 'Supervisor de Operações', 'Líder Técnico', 'LÍDER DE TURNO', 'Gestora de Projetos'])(
+    'a liderança torna liderança quem tem o cargo "%s", registrando quem promoveu',
+    async (cargo) => {
+      await comCargo(usuarios.colaborador.login, cargo);
+      await assertSucceeds(promover(usuarios.gestor, usuarios.colaborador.login));
+    },
+  );
+
+  it.each(['Analista de SOC', 'ANALISTA_SOC_SENIOR', 'Técnico de Redes', 'Assistente de Coordenação', 'Estagiário', ''])(
+    'a liderança NÃO torna liderança quem tem o cargo "%s"',
+    async (cargo) => {
+      await comCargo(usuarios.colaborador.login, cargo);
+      await assertFails(promover(usuarios.gestor, usuarios.colaborador.login));
+    },
+  );
+
+  it('a liderança NÃO torna liderança quem não tem cargo cadastrado', async () => {
+    await assertFails(promover(usuarios.gestor, usuarios.colaborador.login));
   });
 
   it('colaborador não promove ninguém', async () => {

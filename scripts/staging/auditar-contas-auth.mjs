@@ -30,11 +30,24 @@ async function main() {
 
   const contas = [];
   let token;
-  do {
-    const pagina = await auth.listUsers(1000, token);
-    contas.push(...pagina.users);
-    token = pagina.pageToken;
-  } while (token);
+  try {
+    do {
+      const pagina = await auth.listUsers(1000, token);
+      contas.push(...pagina.users);
+      token = pagina.pageToken;
+    } while (token);
+  } catch (erro) {
+    if (/insufficient permission|permission/iu.test(String(erro?.message ?? erro))) {
+      console.error('\nA conta de serviço desta VM não tem permissão para LISTAR as contas do Firebase Authentication.');
+      console.error('Opções (nenhuma altera dados):');
+      console.error('  1) Google Cloud → IAM → dê a essa conta de serviço o papel "Firebase Authentication Viewer"');
+      console.error('     (roles/firebaseauth.viewer, só leitura) e rode este comando de novo;');
+      console.error('  2) ou confira no Console do Firebase → Authentication → Users: procure e-mails fora do domínio da empresa;');
+      console.error('  3) ou, na sua máquina, com o seu próprio login: firebase auth:export contas.json --project escala-ici-staging\n');
+      process.exit(2);
+    }
+    throw erro;
+  }
 
   const contagemDominios = new Map();
   for (const dados of cadastro.values()) {

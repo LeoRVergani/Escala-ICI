@@ -12,6 +12,10 @@ O Dashboard tem a sua própria versão: veja `CHANGELOG-DASHBOARD.md`. O App con
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.8.2 — rótulo do administrador do sistema
+- Sob o nome do administrador do sistema aparece "Administrador do sistema" (antes, "Coordenador", como se ele
+  tivesse uma equipe). Quem tem cargo cadastrado continua vendo o próprio cargo.
+
 ## 3.8.1 — ajuste interno na grade de escalas
 - A grade (que o App também usa) aceita marcadores de informação por célula, usados só pela liderança no
   Dashboard. Sem mudança visível no App.

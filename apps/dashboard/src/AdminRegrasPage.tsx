@@ -206,8 +206,8 @@ export function AdminRegrasPage({
               ? <span className="regra-selo regra-selo-legal" title="Regra da legislação: pode ser endurecida, mas não desligada."><Lock size={12} aria-hidden="true" /> Legal</span>
               : <span className="regra-selo">Da empresa</span>}
             <Alcance regra={regra} />
-            <span className="regra-selo regra-selo-casos" data-casos={casos > 0 ? '' : undefined} title={escalaAberta ?? 'Abra uma escala para ver os casos'}>
-              {!regra.ativa ? 'Desligada — não vale' : escalaAberta === null ? 'Sem escala aberta' : casos === 0 ? 'Nenhum caso na escala aberta' : `${casos} ${casos === 1 ? 'caso' : 'casos'} na escala aberta`}
+            <span className="regra-selo regra-selo-casos" data-casos={casos > 0 ? '' : undefined} title={escalaAberta ?? 'Abra uma escala para ver as ocorrências'}>
+              {!regra.ativa ? 'Desligada — não vale' : escalaAberta === null ? 'Sem escala aberta' : casos === 0 ? 'Nenhuma ocorrência na escala aberta' : `${casos} ${casos === 1 ? 'ocorrência' : 'ocorrências'} na escala aberta`}
             </span>
           </span>
           {salva ? (
@@ -249,15 +249,15 @@ export function AdminRegrasPage({
         <div><Scale size={18} aria-hidden="true" /><span><small>Legais</small><strong>{legais.length}</strong></span></div>
         <div><Sparkles size={18} aria-hidden="true" /><span><small>Da empresa</small><strong>{daEmpresa.length}</strong></span></div>
         <div><FlaskConical size={18} aria-hidden="true" /><span><small>Em teste</small><strong>{emTeste.length}</strong></span></div>
-        <div data-alerta={alertas.length > 0 ? '' : undefined}><AlertTriangle size={18} aria-hidden="true" /><span><small>Casos na escala aberta</small><strong>{escalaAberta === null ? '–' : alertas.length}</strong></span></div>
+        <div data-alerta={alertas.length > 0 ? '' : undefined}><AlertTriangle size={18} aria-hidden="true" /><span><small>Ocorrências na escala aberta</small><strong>{escalaAberta === null ? '–' : alertas.length}</strong></span></div>
       </div>
 
       {erroCarregar && <div className="alert error" role="alert">{erroCarregar}</div>}
       {ignoradas > 0 && <div className="alert warning" role="status">{ignoradas === 1 ? '1 regra salva está inválida e foi ignorada.' : `${ignoradas} regras salvas estão inválidas e foram ignoradas.`}</div>}
       {erroAcao && <div className="alert error" role="alert">{erroAcao}</div>}
       <p className="regras-dica"><Info size={15} aria-hidden="true" /> {escalaAberta === null
-        ? 'Escolha uma escala em Escalas para ver quantos casos cada regra encontra nela.'
-        : <>Os casos são contados na escala <strong>{escalaAberta}</strong>.</>}</p>
+        ? 'Escolha uma escala em Escalas para ver quantas ocorrências cada regra encontra nela.'
+        : <>As ocorrências são contadas na escala <strong>{escalaAberta}</strong>.</>}</p>
 
       <div className="regras-grupo">
         <h2><Scale size={16} aria-hidden="true" /> Regras legais</h2>
@@ -392,11 +392,11 @@ function DetalheRegra({ regra, casos, escalaAberta, onFechar, onCriarVersao }: {
         </div>
 
         <div className="regra-bloco">
-          <h3>Casos {escalaAberta ? `em ${escalaAberta}` : 'na escala aberta'}</h3>
+          <h3>Ocorrências {escalaAberta ? `em ${escalaAberta}` : 'na escala aberta'}</h3>
           {escalaAberta === null ? (
-            <p className="regra-exemplo">Abra uma escala em Escalas para ver os casos.</p>
+            <p className="regra-exemplo">Abra uma escala em Escalas para ver as ocorrências.</p>
           ) : casos.length === 0 ? (
-            <p className="regra-exemplo regra-ok"><CheckCircle2 size={15} aria-hidden="true" /> Nenhum caso: ninguém descumpre esta regra nesta escala.</p>
+            <p className="regra-exemplo regra-ok"><CheckCircle2 size={15} aria-hidden="true" /> Nenhuma ocorrência: ninguém descumpre esta regra nesta escala.</p>
           ) : (
             <ul className="regra-casos">
               {casos.slice(0, 8).map((caso) => (

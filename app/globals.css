@@ -10644,3 +10644,9 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 .aviso-informacoes-dia > ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .aviso-informacoes-dia > ul > li { padding-left: 8px; border-left: 3px solid var(--info-cor, var(--primary-bright)); color: var(--muted); line-height: 1.4; }
 .aviso-informacoes-dia > ul > li > b { color: var(--text); }
+
+/* Janelas com cabeçalho e rodapé fixos: só o miolo rola, então nada fica escondido atrás do rodapé. */
+.assistente-regra, .info-modal { display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
+.assistente-rolagem, .info-rolagem { display: grid; flex: 1 1 auto; align-content: start; gap: 14px; min-height: 0; padding-right: 4px; overflow-y: auto; }
+.assistente-regra .assistente-rodape, .info-modal .assistente-rodape { position: static; flex: 0 0 auto; margin: 0; padding: 14px 0 0; border-top: 1px solid var(--border); background: transparent; }
+@media (max-width: 720px) { .assistente-regra .assistente-rodape, .info-modal .assistente-rodape { margin: 0; padding: 12px 0 0; } }
