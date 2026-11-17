@@ -250,9 +250,9 @@ describe('INFORMACOES-DIA-1 — marcadores na grade da escala', () => {
 describe('INFORMACOES-DIA-1 — mensagem quando a leitura falha', () => {
   it('diz a causa mais provável em português simples', async () => {
     const { mensagemFalhaDeLeitura } = await import('./informacoesDia');
-    expect(mensagemFalhaDeLeitura({ code: 'permission-denied' })).toContain('Regras do Firestore');
-    expect(mensagemFalhaDeLeitura({ code: 'failed-precondition' })).toContain('índice');
-    expect(mensagemFalhaDeLeitura({ code: 'unavailable' })).toContain('conexão');
+    expect(mensagemFalhaDeLeitura({ code: 'permission-denied' })).toContain('administrador do sistema');
+    expect(mensagemFalhaDeLeitura({ code: 'failed-precondition' })).toContain('alguns minutos');
+    expect(mensagemFalhaDeLeitura({ code: 'unavailable' })).toContain('Sem conexão');
     expect(mensagemFalhaDeLeitura(new Error('qualquer coisa'))).toBe('Não foi possível carregar as informações agora.');
     expect(mensagemFalhaDeLeitura(null)).toBe('Não foi possível carregar as informações agora.');
   });

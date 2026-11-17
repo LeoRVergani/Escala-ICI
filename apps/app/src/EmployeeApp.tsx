@@ -212,7 +212,8 @@ import {
 import { InformacoesParaVoce } from './informacoes/InformacoesParaVoce';
 import { RecadosAviso, RecadosTela } from './recados/RecadosTela';
 import { useRecados } from './recados/useRecados';
-import type { PessoaParaRecado } from '@/components/RecadoModal';
+import type { AlvoRecado } from '@/lib/recados';
+import type { PessoaParaRecado } from '@/components/NovaMensagem';
 import { useInformacoesDoColaborador } from './informacoes/useInformacoesDoColaborador';
 import { paraOColaborador } from '@/lib/informacoesDia';
 import { LembretesView } from './lembretes/LembretesView';
@@ -331,7 +332,7 @@ const NAVEGACAO: ItemNavegacao[] = [
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   { id: 'plantao', rotulo: 'Plantão', icone: 'plantao' },
   // RECADOS-2 — recado entre colegas da equipe ou do Plantão (mensagem e resposta livres).
-  { id: 'recados', rotulo: 'Recados', icone: 'recados' },
+  { id: 'recados', rotulo: 'Mensagens', icone: 'recados' },
   { id: 'equipe', rotulo: 'Equipe', icone: 'users' },
   { id: 'perfil', rotulo: 'Perfil', icone: 'user', apenasDesktop: true },
 ];
@@ -3584,15 +3585,23 @@ export function EmployeeApp() {
   const { informacoes: informacoesLiberadasApp } = useInformacoesDoColaborador({ login: loginUsuario, desdeIso: dataHoje, listenersLiberados });
   const informacoesParaVoceApp = loginUsuario === null ? [] : paraOColaborador(informacoesLiberadasApp, loginUsuario, dataHoje);
   // RECADOS-1 — recados da liderança que esperam a resposta deste colaborador (responde com um toque e some).
-  const recadosApp = useRecados({ login: loginUsuario, nome: usuario?.nome ?? '', listenersLiberados });
-  // RECADOS-2 — bolinha na aba "Recados" (esperando minha resposta + respostas para ver), em qualquer aba em que a pessoa esteja.
+  /**
+   * RECADOS-3 — o Plantão para onde posso mandar mensagem: o que está aberto, SE eu participo dele (as Regras só deixam
+   * participante ativo escrever e ler as mensagens do Plantão).
+   */
+  const grupoPlantaoRecado = useMemo(() => {
+    const grupo = gruposPlantaoApp.find((item) => item.grupoId === grupoPlantaoSelecionadoId);
+    const euParticipo = usuario !== null && participantesPlantaoApp.some((participante) => participante.ativo && participante.login === usuario.login);
+    return grupo && euParticipo ? grupo : null;
+  }, [gruposPlantaoApp, grupoPlantaoSelecionadoId, participantesPlantaoApp, usuario]);
+  const recadosApp = useRecados({
+    login: loginUsuario, nome: usuario?.nome ?? '', equipeId: usuario?.equipeId ?? '', plantaoId: grupoPlantaoRecado?.grupoId ?? null, listenersLiberados,
+  });
+  // RECADOS-3 — bolinha na aba "Mensagens" (esperando minha resposta + respostas para ver), em qualquer aba em que a pessoa esteja.
   const navegacaoApp = recadosApp.atencao > 0
     ? NAVEGACAO.map((item) => (item.id === 'recados' ? { ...item, contador: recadosApp.atencao } : item))
     : NAVEGACAO;
-  /**
-   * RECADOS-2 — para quem posso mandar recado: colegas da MINHA equipe e, se eu participo do Plantão aberto, os
-   * participantes ativos dele (mesmo de outras equipes). O servidor confere os dois caminhos nas Regras.
-   */
+  /** Para quem posso mandar UMA pessoa: colegas da MINHA equipe e os participantes ativos do Plantão (mesmo de outras equipes). */
   const pessoasParaRecado = useMemo<PessoaParaRecado[]>(() => {
     if (usuario === null) return [];
     const pessoas = new Map<string, PessoaParaRecado>();
@@ -3600,18 +3609,29 @@ export function EmployeeApp() {
       if (colega.login === usuario.login || colega.ativo === false || !colega.equipeId || colega.equipeId !== usuario.equipeId) continue;
       pessoas.set(colega.login, { login: colega.login, nome: colega.nome, equipeId: colega.equipeId, rotulo: 'Minha equipe' });
     }
-    const grupo = gruposPlantaoApp.find((item) => item.grupoId === grupoPlantaoSelecionadoId);
-    const euParticipo = participantesPlantaoApp.some((participante) => participante.ativo && participante.login === usuario.login);
-    if (grupo && euParticipo) {
+    if (grupoPlantaoRecado) {
       for (const participante of participantesPlantaoApp) {
         if (!participante.ativo || participante.login === usuario.login || pessoas.has(participante.login)) continue;
         const cadastro = usuarios.find((item) => item.login === participante.login);
         if (!cadastro || !cadastro.equipeId) continue;
-        pessoas.set(participante.login, { login: cadastro.login, nome: cadastro.nome, equipeId: cadastro.equipeId, grupoPlantaoId: grupo.grupoId, rotulo: grupo.nome });
+        pessoas.set(participante.login, { login: cadastro.login, nome: cadastro.nome, equipeId: cadastro.equipeId, grupoPlantaoId: grupoPlantaoRecado.grupoId, rotulo: grupoPlantaoRecado.nome });
       }
     }
     return [...pessoas.values()].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-  }, [usuario, usuarios, gruposPlantaoApp, grupoPlantaoSelecionadoId, participantesPlantaoApp]);
+  }, [usuario, usuarios, grupoPlantaoRecado, participantesPlantaoApp]);
+  /** Para quais GRUPOS posso mandar UMA mensagem: a minha equipe e o Plantão em que participo ("Todos" = os dois). */
+  const alvosRecado = useMemo<AlvoRecado[]>(() => {
+    const alvos: AlvoRecado[] = [];
+    if (usuario !== null && usuario.equipeId) {
+      const nomeDaEquipe = equipeUsuarioApp?.nome ?? '';
+      alvos.push({
+        tipo: 'EQUIPE', id: usuario.equipeId, nome: nomeDaEquipe === '' ? 'Minha equipe' : /^equipe/iu.test(nomeDaEquipe) ? nomeDaEquipe : `Equipe ${nomeDaEquipe}`,
+        quantidade: usuarios.filter((item) => item.equipeId === usuario.equipeId && item.ativo !== false).length,
+      });
+    }
+    if (grupoPlantaoRecado) alvos.push({ tipo: 'PLANTAO', id: grupoPlantaoRecado.grupoId, nome: grupoPlantaoRecado.nome, quantidade: participantesPlantaoApp.filter((participante) => participante.ativo).length });
+    return alvos;
+  }, [usuario, usuarios, equipeUsuarioApp, grupoPlantaoRecado, participantesPlantaoApp]);
 
   /**
    * APROVAR-TROCA-APP-1 — quem coordena (coordenador, supervisor, gestor de
@@ -5556,7 +5576,7 @@ export function EmployeeApp() {
             </button>
           )}
           {/* RECADOS-2 — recados esperando sua resposta ou respostas para ver (leva ao menu Recados; some quando não há nada). */}
-          <RecadosAviso esperando={recadosApp.pendentes.length} respostas={recadosApp.respostasParaVer} onAbrir={() => setTela('recados')} />
+          <RecadosAviso esperando={recadosApp.pendentes.length + recadosApp.gruposPendentes.length} respostas={recadosApp.respostasParaVer} onAbrir={() => setTela('recados')} />
           {/* INFORMACOES-DIA-1 — o que a liderança registrou e liberou para você (some quando não há nada). */}
           <InformacoesParaVoce informacoes={informacoesParaVoceApp} hoje={dataHoje} />
           {/* HOJE-COORDENACAO-1 — com equipes carregadas, a visão nova; sem, o painel de estado (carregando/sem equipes). */}
@@ -6555,14 +6575,19 @@ export function EmployeeApp() {
         <section className="employee-screen">
           <RecadosTela
             pendentes={recadosApp.pendentes}
+            gruposPendentes={recadosApp.gruposPendentes}
             enviados={recadosApp.enviados}
+            gruposEnviados={recadosApp.gruposEnviados}
             contagemHoje={recadosApp.contagemHoje}
             pessoas={pessoasParaRecado}
+            alvos={alvosRecado}
             agoraIso={recadosApp.agoraIso}
             erro={recadosApp.erro}
             onEnviar={recadosApp.enviar}
             onResponder={recadosApp.responder}
+            onResponderGrupo={recadosApp.responderGrupo}
             onApagar={recadosApp.apagar}
+            onApagarGrupo={recadosApp.apagarGrupo}
           />
         </section>
       )}

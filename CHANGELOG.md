@@ -12,6 +12,18 @@ O Dashboard tem a sua própria versão: veja `CHANGELOG-DASHBOARD.md`. O App con
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.12.0 — "Mensagens" como no Teams: para uma pessoa, a equipe, o Plantão ou todos
+- O menu agora se chama **Mensagens**. Em **Nova mensagem** você escolhe **para quem**: **Uma pessoa**, **a sua equipe**, **o seu
+  Plantão** ou **Todos**, escreve e envia. Janela mais simples e mais bonita.
+- Para **equipe ou Plantão** é **uma mensagem só**: cada um responde do seu jeito e quem enviou vê **todas as respostas juntas**
+  num cartão ("7 de 13 responderam"). Para uma pessoa continua como antes.
+- As mensagens aparecem em **balões de conversa**; a sua à direita, as respostas à esquerda. O atalho Posso / Não posso /
+  Entendi continua só preenchendo o campo.
+- O limite de 30 por dia conta **uma mensagem por pessoa ou por grupo** (enviar para a equipe inteira gasta 1).
+- O celular avisa todo o grupo quando chega uma mensagem para ele e avisa quem enviou na primeira resposta (sem nome e sem texto).
+- A barra de baixo mostra "Mensagens" inteiro em telas de 320 a 420 pixels.
+- Requer o push-worker 0.4.0 e as Rules novas na VM.
+
 ## 3.11.0 — menu "Recados": mensagem entre colegas, com resposta livre
 - Novo menu **Recados** (barra de baixo): escolha uma ou mais pessoas da **sua equipe** ou do **seu Plantão** (ou
   "Selecionar todos", até 10), escreva do seu jeito e envie. A pessoa responde do jeito dela.

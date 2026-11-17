@@ -998,7 +998,7 @@ const NAVEGACAO: ItemNavegacao[] = [
   // INFORMACOES-DIA-1 — atestado, afastamento por horário, curso e anotações sobre cada colaborador.
   { id: 'informacoes', rotulo: 'Informações', icone: 'notas' },
   // RECADOS-1 — recado curto para um colaborador, com resposta de um toque e limite diário.
-  { id: 'recados', rotulo: 'Recados', icone: 'recados' },
+  { id: 'recados', rotulo: 'Mensagens', icone: 'recados' },
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   { id: 'usuarios', rotulo: 'Usuários', icone: 'users' },
   { id: 'liderancas', rotulo: 'Lideranças', icone: 'user' },
@@ -1019,7 +1019,7 @@ const NAVEGACAO_COORDENACAO: ItemNavegacao[] = [
   { id: 'escalas', rotulo: 'Escalas', icone: 'calendar' },
   { id: 'informacoes', rotulo: 'Informações', icone: 'notas' },
   // RECADOS-1 — recado curto para um colaborador, com resposta de um toque e limite diário.
-  { id: 'recados', rotulo: 'Recados', icone: 'recados' },
+  { id: 'recados', rotulo: 'Mensagens', icone: 'recados' },
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   // LIDERANCAS-1 — toda liderança vê e promove lideranças.
   { id: 'liderancas', rotulo: 'Lideranças', icone: 'user' },
@@ -11538,6 +11538,10 @@ export function DashboardApp() {
         <RecadosPage
           autor={usuarioReal}
           equipes={equipesParaInformacoes}
+          alvosEquipe={souAdmin
+            ? equipesAdmin.filter((equipe) => equipe.ativa !== false).map((equipe) => ({ id: equipe.id, nome: equipe.nome }))
+            : equipesMinhaEquipe.map((equipe) => ({ id: equipe.id, nome: equipe.nome }))}
+          alvosPlantao={gruposMinhaEquipe.map((grupo) => ({ id: grupo.grupoId, nome: grupo.nome }))}
           modoDemo={modoDemo}
           pessoasDemo={modoDemo ? [usuarioReal, ...usuarios.filter((pessoa) => pessoa.login !== usuarioReal.login)] : undefined}
         />

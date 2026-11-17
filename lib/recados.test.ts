@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  chaveLimite, diaDoLimite, enviadosAtivos, estadoParaRemetente, expirou, lerRecado, LIMITE_DIARIO_RECADOS, montarRecado, ordenarParaRemetente,
-  pendentesParaODestinatario, quantidadeQuePedeAtencao, RESPOSTAS_RAPIDAS, restanteHoje, validarEntradaRecado, validarResposta, VALIDADE_DIAS, type Recado,
+  chaveLimite, diaDoLimite, enviadosAtivos, estadoParaRemetente, expirou, gruposEnviadosAtivos, gruposPendentesParaMembro, jaRespondeuGrupo, lerRecado,
+  lerRecadoGrupo, LIMITE_DIARIO_RECADOS, mensagensConsumidas, montarRecado, montarRecadoGrupo, ordenarParaRemetente, pendentesParaODestinatario,
+  quantidadeQuePedeAtencao, RESPOSTAS_RAPIDAS, restanteHoje, rotuloDoAlvo, rotuloRespostasDoGrupo, validarEntradaMensagem, validarResposta, VALIDADE_DIAS,
+  type AlvoRecado, type Recado, type RecadoGrupo,
 } from './recados';
 
 const AGORA = '2026-11-17T15:00:00.000Z';
@@ -10,26 +12,31 @@ const ANA = { login: 'ana', nome: 'Ana  Lima', equipeId: 'EQ_SOC' };
 const MARINA = { login: 'marina', nome: 'Marina Azevedo' };
 const recado = (id: string, ajustes: Partial<Recado> = {}): Recado => ({ ...montarRecado({ texto: 'Pode trocar comigo dia 20?' }, ANA, MARINA, id, AGORA), ...ajustes });
 
-describe('RECADOS-2 — validação (mensagens em português simples)', () => {
-  const ok = { destinatarios: [ANA], texto: 'Pode trocar comigo dia 20?' };
+describe('RECADOS-3 — validação (mensagens em português simples)', () => {
+  const pessoa = { tipo: 'PESSOA' as const, pessoa: ANA };
+  const soc: AlvoRecado = { tipo: 'EQUIPE', id: 'EQ_SOC', nome: 'Equipe SOC', quantidade: 42 };
+  const plantao: AlvoRecado = { tipo: 'PLANTAO', id: 'G1', nome: 'Plantão COSI', quantidade: 3 };
+  const ok = { destino: pessoa, texto: 'Pode trocar comigo dia 20?' };
 
-  it('um recado completo, com limite sobrando, é válido', () => {
-    expect(validarEntradaRecado(ok, 30)).toEqual([]);
+  it('uma mensagem completa, com limite sobrando, é válida — para uma pessoa ou para grupos', () => {
+    expect(validarEntradaMensagem(ok, 30)).toEqual([]);
+    expect(validarEntradaMensagem({ destino: { tipo: 'GRUPOS', alvos: [soc] }, texto: 'Reunião amanhã às 9h' }, 30)).toEqual([]);
   });
 
-  it('pede destinatário e texto; recusa texto longo e destinatários demais', () => {
-    expect(validarEntradaRecado({ destinatarios: [], texto: '' }, 30)).toEqual(['Escolha para quem enviar.', 'Escreva o recado.']);
-    expect(validarEntradaRecado({ ...ok, texto: 'x'.repeat(301) }, 30)).toEqual(['O recado passa de 300 caracteres.']);
-    const onze = Array.from({ length: 11 }, (_, i) => ({ ...ANA, login: `p${i}` }));
-    expect(validarEntradaRecado({ ...ok, destinatarios: onze }, 30)).toEqual(['Escolha no máximo 10 pessoas por recado.']);
+  it('pede o destino e o texto; recusa texto longo', () => {
+    expect(validarEntradaMensagem({ destino: null, texto: '' }, 30)).toEqual(['Escolha para quem enviar.', 'Escreva a mensagem.']);
+    expect(validarEntradaMensagem({ destino: { tipo: 'GRUPOS', alvos: [] }, texto: 'Oi, pessoal' }, 30)).toEqual(['Escolha para quem enviar.']);
+    expect(validarEntradaMensagem({ ...ok, texto: 'x'.repeat(301) }, 30)).toEqual(['A mensagem passa de 300 caracteres.']);
   });
 
-  it('o limite diário conta um recado por destinatário e explica o que sobrou', () => {
-    expect(validarEntradaRecado(ok, 0)).toEqual(['Você já enviou os 30 recados de hoje. Amanhã libera de novo.']);
-    const tres = [ANA, { ...ANA, login: 'b' }, { ...ANA, login: 'c' }];
-    expect(validarEntradaRecado({ ...ok, destinatarios: tres }, 2)).toEqual(['Hoje você ainda pode enviar 2 recados (limite de 30 por dia).']);
-    expect(validarEntradaRecado({ ...ok, destinatarios: tres }, 1)).toEqual(['Hoje você ainda pode enviar 1 recado (limite de 30 por dia).']);
-    expect(validarEntradaRecado({ ...ok, destinatarios: tres }, 3)).toEqual([]);
+  it('o limite conta UMA mensagem por pessoa ou por grupo — nunca por integrante do grupo', () => {
+    expect(mensagensConsumidas(pessoa)).toBe(1);
+    expect(mensagensConsumidas({ tipo: 'GRUPOS', alvos: [soc] })).toBe(1);
+    expect(mensagensConsumidas({ tipo: 'GRUPOS', alvos: [soc, plantao] })).toBe(2);
+    expect(mensagensConsumidas(null)).toBe(1);
+    expect(validarEntradaMensagem(ok, 0)).toEqual(['Você já enviou as 30 mensagens de hoje. Amanhã libera de novo.']);
+    expect(validarEntradaMensagem({ destino: { tipo: 'GRUPOS', alvos: [soc, plantao] }, texto: 'Oi, pessoal' }, 1)).toEqual(['Hoje você ainda pode enviar 1 mensagem (limite de 30 por dia).']);
+    expect(validarEntradaMensagem({ destino: { tipo: 'GRUPOS', alvos: [soc, plantao] }, texto: 'Oi, pessoal' }, 2)).toEqual([]);
   });
 
   it('a resposta é livre: qualquer texto de 1 a 300 caracteres; vazia ou longa demais não', () => {
@@ -100,8 +107,8 @@ describe('RECADOS-2 — o que cada lado enxerga', () => {
     ];
     expect(enviadosAtivos(lista, 'marina', AGORA).map((r) => r.id)).toEqual(['r1', 'p1']);
     // marina: 1 recado esperando a resposta DELA (de caio) + 1 resposta para ver (r1)
-    expect(quantidadeQuePedeAtencao(lista, 'marina', AGORA)).toBe(2);
-    expect(quantidadeQuePedeAtencao(lista, 'ninguem', AGORA)).toBe(0);
+    expect(quantidadeQuePedeAtencao(lista, [], 'marina', AGORA)).toBe(2);
+    expect(quantidadeQuePedeAtencao(lista, [], 'ninguem', AGORA)).toBe(0);
   });
 
   it('expirou só quando a hora de expirar já passou', () => {
@@ -120,5 +127,80 @@ describe('RECADOS-2 — ida e volta com o banco', () => {
     expect(lerRecado('a', { ...cru, destinatarioLogin: '' })).toBeNull();
     expect(lerRecado('a', { ...cru, expiraEm: undefined })).toBeNull();
     expect(lerRecado('a', { id: 'a' })).toBeNull();
+  });
+});
+
+describe('RECADOS-3 — mensagem para um GRUPO (equipe ou Plantão)', () => {
+  const SOC: AlvoRecado = { tipo: 'EQUIPE', id: 'EQ_SOC', nome: 'Equipe SOC', quantidade: 13 };
+  const grupo = (id: string, ajustes: Partial<RecadoGrupo> = {}): RecadoGrupo => ({ ...montarRecadoGrupo({ texto: 'Alguém cobre a noite de sábado?' }, SOC, MARINA, id, AGORA), ...ajustes });
+  const resp = (login: string, em: string, texto = 'Posso') => ({ login, nome: login.toUpperCase(), texto, em });
+
+  it('nasce sem respostas e vence em 3 dias', () => {
+    const g = grupo('g');
+    expect(g).toMatchObject({ schemaVersion: 1, alvoTipo: 'EQUIPE', alvoId: 'EQ_SOC', alvoNome: 'Equipe SOC', respostas: [], remetenteLogin: 'marina' });
+    expect(g.expiraEm).toBe('2026-11-20T15:00:00.000Z');
+    expect(VALIDADE_DIAS).toBe(3);
+  });
+
+  it('o integrante só vê para responder as de OUTRA pessoa, ainda válidas e sem a resposta dele — respondeu, some', () => {
+    const lista = [
+      grupo('nova'),
+      grupo('minha', { remetenteLogin: 'ana' }),
+      grupo('ja-respondi', { respostas: [resp('ana', AGORA)] }),
+      grupo('outro-respondeu', { respostas: [resp('caio', AGORA)] }),
+      grupo('vencida', { expiraEm: '2026-11-17T14:00:00.000Z' }),
+    ];
+    expect(gruposPendentesParaMembro(lista, 'ana', AGORA).map((g) => g.id)).toEqual(['nova', 'outro-respondeu']);
+    expect(jaRespondeuGrupo(lista[2]!, 'ana')).toBe(true);
+    expect(jaRespondeuGrupo(lista[3]!, 'ana')).toBe(false);
+  });
+
+  it('o remetente vê as dele que ainda valem, com respostas primeiro', () => {
+    const lista = [
+      grupo('sem', { criadoEm: '2026-11-17T14:00:00.000Z' }),
+      grupo('com', { criadoEm: '2026-11-17T10:00:00.000Z', respostas: [resp('ana', AGORA)] }),
+      grupo('vencida', { expiraEm: '2026-11-17T14:00:00.000Z' }),
+      grupo('de-outro', { remetenteLogin: 'caio' }),
+    ];
+    expect(gruposEnviadosAtivos(lista, 'marina', AGORA).map((g) => g.id)).toEqual(['com', 'sem']);
+  });
+
+  it('a bolinha soma pessoas e grupos: esperando minha resposta + respostas para ver', () => {
+    const pessoas = [recado('p1', { remetenteLogin: 'marina', status: 'RESPONDIDO', resposta: 'Posso' })];
+    const grupos = [
+      grupo('g1', { respostas: [resp('ana', AGORA)] }),        // marina enviou e já tem resposta: 1
+      grupo('g2', { remetenteLogin: 'caio' }),                  // de caio para a equipe, marina ainda não respondeu: 1
+      grupo('g3'),                                              // marina enviou, sem resposta: 0
+    ];
+    expect(quantidadeQuePedeAtencao(pessoas, grupos, 'marina', AGORA)).toBe(3);
+  });
+
+  it('os rótulos: quantidade do grupo e "N de M responderam"', () => {
+    expect(rotuloDoAlvo(SOC)).toBe('Equipe SOC · 13 pessoas');
+    expect(rotuloDoAlvo({ nome: 'Plantão COSI', quantidade: 1 })).toBe('Plantão COSI · 1 pessoa');
+    expect(rotuloDoAlvo({ nome: 'Plantão COSI' })).toBe('Plantão COSI');
+    expect(rotuloRespostasDoGrupo(grupo('g'), 13)).toBe('Ninguém respondeu ainda');
+    expect(rotuloRespostasDoGrupo(grupo('g', { respostas: [resp('a', AGORA)] }), 13)).toBe('1 de 13 respondeu');
+    expect(rotuloRespostasDoGrupo(grupo('g', { respostas: [resp('a', AGORA), resp('b', AGORA)] }), 13)).toBe('2 de 13 responderam');
+    expect(rotuloRespostasDoGrupo(grupo('g', { respostas: [resp('a', AGORA), resp('b', AGORA)] }))).toBe('2 responderam');
+  });
+
+  it('ida e volta com o banco: o mapa de respostas (chave = login com ponto) vira lista em ordem; malformado é ignorado', () => {
+    const cru = {
+      ...grupo('g'), respostas: {
+        'caio.monteiro': { nome: 'Caio Monteiro', texto: 'Não posso', em: '2026-11-17T16:00:00.000Z' },
+        'ana.lima': { nome: 'Ana Lima', texto: 'Posso', em: '2026-11-17T15:30:00.000Z' },
+        quebrada: { nome: 'X' },
+      },
+    } as unknown as Record<string, unknown>;
+    const lido = lerRecadoGrupo('g', cru);
+    expect(lido?.respostas.map((r) => r.login)).toEqual(['ana.lima', 'caio.monteiro']);
+    expect(lido?.respostas[0]).toEqual({ login: 'ana.lima', nome: 'Ana Lima', texto: 'Posso', em: '2026-11-17T15:30:00.000Z' });
+    expect(lerRecadoGrupo('g', { ...cru, schemaVersion: 2 })).toBeNull();
+    expect(lerRecadoGrupo('g', { ...cru, alvoTipo: 'TODOS' })).toBeNull();
+    expect(lerRecadoGrupo('g', { ...cru, alvoId: '' })).toBeNull();
+    expect(lerRecadoGrupo('g', { ...cru, expiraEm: undefined })).toBeNull();
+    expect(lerRecadoGrupo('g', { ...cru, respostas: undefined })?.respostas).toEqual([]);
+    expect(lerRecadoGrupo('g', { id: 'g' })).toBeNull();
   });
 });

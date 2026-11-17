@@ -10733,3 +10733,90 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 .recado-aviso strong { font-size: 14px; line-height: 1.35; }
 .recado-aviso small { color: var(--muted); font-size: 12px; }
 .recado-aviso-icone { display: inline-grid; flex: 0 0 auto; place-items: center; width: 38px; height: 38px; border-radius: 12px; background: color-mix(in srgb, var(--primary-bright) 18%, var(--surface)); color: var(--primary-bright); }
+
+/* =====================================================================
+ * RECADOS-3 — "Nova mensagem" (estilo Teams) e os cartões em forma de balões de conversa.
+ * ===================================================================== */
+.nova-msg { display: flex; flex-direction: column; gap: 0; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 40px); padding: 0; overflow: hidden; }
+.nova-msg-topo { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 8px; }
+.nova-msg-topo h2 { margin: 0; color: var(--text); font-size: 19px; font-weight: 800; }
+.nova-msg-corpo { gap: 20px; padding: 8px 22px 20px; }
+.nova-msg-campo { display: grid; gap: 10px; }
+.nova-msg-rotulo { color: var(--muted); font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.nova-msg-opcoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.nova-msg-opcoes > button { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 16px; border: 1.5px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; transition: border-color 0.15s ease; }
+.nova-msg-opcoes > button:hover { border-color: var(--primary-bright); }
+.nova-msg-opcoes > button > small { padding: 1px 8px; border-radius: 999px; background: var(--surface-muted); color: var(--muted); font-size: 11.5px; font-weight: 800; }
+.nova-msg-opcoes > button.ativa { border-color: var(--primary-bright); background: color-mix(in srgb, var(--primary-bright) 14%, var(--surface)); color: var(--primary-bright); }
+.nova-msg-busca { display: flex; align-items: center; gap: 8px; padding: 0 14px; border: 1.5px solid var(--border); border-radius: 14px; background: var(--surface-muted); }
+.nova-msg-busca:focus-within { border-color: var(--primary-bright); }
+.nova-msg-busca input { flex: 1 1 auto; min-height: 44px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 14.5px; }
+.nova-msg-busca input:focus { outline: none; }
+.nova-msg-pessoas { display: grid; gap: 2px; max-height: 210px; margin: 0; padding: 4px; overflow-y: auto; list-style: none; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.nova-msg-pessoas > li > button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.nova-msg-pessoas > li > button:hover { background: color-mix(in srgb, var(--primary-bright) 10%, var(--surface)); }
+.nova-msg-pessoas strong { display: block; font-size: 14px; }
+.nova-msg-pessoas small, .nova-msg-escolhida small { color: var(--muted); font-size: 11.5px; }
+.nova-msg-escolhida { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1.5px solid var(--primary-bright); border-radius: 14px; background: color-mix(in srgb, var(--primary-bright) 8%, var(--surface)); }
+.nova-msg-escolhida > span:nth-child(2) { display: grid; flex: 1 1 auto; }
+.nova-msg-escolhida strong { color: var(--text); font-size: 14.5px; }
+.nova-msg-resumo { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.nova-msg-resumo strong { color: var(--text); }
+.nova-msg-texto { width: 100%; min-height: 120px; padding: 14px 16px; border: 1.5px solid var(--border); border-radius: 18px; background: var(--surface-muted); color: var(--text); font: inherit; font-size: 15px; line-height: 1.5; resize: vertical; }
+.nova-msg-texto:focus { outline: none; border-color: var(--primary-bright); }
+.nova-msg-contagem { justify-self: end; margin-top: -4px; color: var(--muted); font-size: 11.5px; }
+.nova-msg-rodape { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 22px; border-top: 1px solid var(--border); }
+.nova-msg-rodape > small { color: var(--muted); font-size: 12px; }
+.nova-msg-rodape > span { display: flex; gap: 8px; }
+.nova-msg-rodape button { display: inline-flex; align-items: center; gap: 6px; }
+
+.msg-cartao { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border); border-left: 4px solid var(--muted); border-radius: 18px; background: var(--surface); }
+.msg-cartao > * { margin: 0; }
+.msg-cartao[data-estado="RESPONDIDO"] { border-left-color: #10b981; }
+.msg-cartao[data-estado="AGUARDANDO"] { border-left-color: #f59e0b; }
+.msg-cartao.msg-recebido { border-left-color: var(--primary-bright); }
+.msg-topo { display: flex; align-items: center; gap: 10px; }
+.msg-quem { display: grid; flex: 1 1 auto; min-width: 0; }
+.msg-quem strong { overflow: hidden; color: var(--text); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.msg-quem small { color: var(--muted); font-size: 11.5px; }
+.msg-quando { flex: 0 0 auto; color: var(--muted); font-size: 11.5px; }
+.msg-avatar-grupo { background: color-mix(in srgb, var(--primary-bright) 22%, var(--surface)); }
+.msg-selo { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; background: var(--surface-muted); color: var(--muted); font-size: 11.5px; font-weight: 800; }
+.msg-selo[data-estado="RESPONDIDO"] { background: color-mix(in srgb, #10b981 15%, var(--surface)); color: #059669; }
+.msg-selo[data-estado="AGUARDANDO"] { background: color-mix(in srgb, #f59e0b 15%, var(--surface)); color: #b45309; }
+[data-theme="dark"] .msg-selo[data-estado="RESPONDIDO"] { color: #34d399; }
+[data-theme="dark"] .msg-selo[data-estado="AGUARDANDO"] { color: #fbbf24; }
+.msg-bolha { max-width: 88%; padding: 10px 14px; border-radius: 16px; font-size: 14.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.msg-bolha > p { margin: 0; white-space: pre-wrap; }
+.msg-bolha > b { display: block; margin-bottom: 2px; font-size: 12px; font-weight: 800; }
+.msg-bolha > time { display: block; margin-top: 4px; font-size: 10.5px; opacity: 0.7; }
+.msg-bolha[data-lado="minha"] { justify-self: end; border-bottom-right-radius: 4px; background: var(--primary); color: #fff; }
+.msg-bolha[data-lado="deles"] { justify-self: start; border: 1px solid var(--border); border-bottom-left-radius: 4px; background: var(--surface-muted); color: var(--text); }
+.msg-acoes { display: flex; justify-content: flex-end; }
+.msg-recebido textarea { width: 100%; padding: 10px 14px; border: 1.5px solid var(--border); border-radius: 14px; background: var(--surface-muted); color: var(--text); font: inherit; font-size: 14px; resize: vertical; }
+.msg-recebido textarea:focus { outline: none; border-color: var(--primary-bright); }
+.msg-rapidas { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.msg-rapidas > button:not(.msg-enviar) { padding: 6px 14px; border: 1.5px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.msg-rapidas > button:not(.msg-enviar):hover:not(:disabled) { border-color: var(--primary-bright); color: var(--primary-bright); }
+.msg-enviar { margin-left: auto; }
+
+@media (max-width: 720px) {
+  .nova-msg-topo, .nova-msg-corpo, .nova-msg-rodape { padding-left: 16px; padding-right: 16px; }
+  .nova-msg-rodape > small { display: none; }
+  .nova-msg-rodape > span { flex: 1 1 auto; }
+  .nova-msg-rodape > span > button { flex: 1 1 0; justify-content: center; }
+  .msg-bolha { max-width: 94%; }
+}
+
+.info-pagina .page-heading > .primary-button { flex: 0 0 auto; white-space: nowrap; }
+
+/* A barra de baixo agora tem o rótulo "Mensagens": menos folga lateral nos botões e fonte menor só em telas bem estreitas, sem cortar nada. */
+@media (max-width: 720px) {
+  .app-shell.product-app .bottom-nav button { padding-left: 2px; padding-right: 2px; }
+}
+@media (max-width: 420px) {
+  .app-shell.product-app .bottom-nav button span { font-size: 8.5px; letter-spacing: -0.01em; }
+}
+@media (max-width: 360px) {
+  .app-shell.product-app .bottom-nav button span { font-size: 8px; }
+}

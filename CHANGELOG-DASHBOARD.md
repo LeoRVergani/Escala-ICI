@@ -15,6 +15,14 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.12.0 — Mensagens para uma pessoa, a equipe, o Plantão ou todos (patch 0104)
+- A tela agora é **Mensagens**. **Nova mensagem** (janela refeita, mais simples): **Para** = Uma pessoa, Equipe X, Plantão Y ou Todos.
+- Para **equipe ou Plantão** é **uma mensagem só**; as respostas de cada pessoa chegam **juntas no mesmo cartão** ("2 de 9
+  responderam"). O limite diário conta uma mensagem por pessoa ou por grupo.
+- Cartões em **balões de conversa**; formulário e cartões compartilhados com o App.
+- As mensagens vermelhas de erro (Informações e Mensagens) agora dizem o que fazer, em linguagem simples.
+- **Requer publicar as Rules e os índices** (nova coleção `recadosGrupo` com limpeza automática; 504 testes de regra esperados na VM).
+
 ## 1.11.0 — Recados com mensagem e resposta livres (patch 0103)
 - A tela "Recados" agora usa **texto livre** na mensagem e mostra a **resposta livre** da pessoa (antes eram só
   "Posso / Não posso"). Sem "tipo" de recado: você escreve e envia.

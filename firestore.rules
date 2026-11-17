@@ -1583,6 +1583,88 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    /**
+     * RECADOS-3 — mensagem para um GRUPO (a equipe ou um Plantão), como escrever no Teams para "todo mundo": UM documento
+     * só, e cada integrante responde UMA vez, do seu jeito, no mapa `respostas` (a chave é o login dele). O remetente
+     * vê todas as respostas no mesmo cartão e apaga; o que vence é apagado sozinho (TTL em `expiraEm`).
+     *
+     * Quem envia: o integrante do próprio grupo (equipe: a sua; Plantão: participante ATIVO) ou quem gerencia o grupo.
+     * Quem lê: o remetente e os integrantes do grupo. O integrante só consegue escrever a PRÓPRIA resposta.
+     * Mesmo LIMITE DIÁRIO das mensagens a uma pessoa (`recadosLimite`): UMA mensagem por grupo, não por integrante.
+     */
+    function souDoAlvoDoRecadoGrupo(dados) {
+      return (dados.alvoTipo == 'EQUIPE'
+          && get(/databases/$(database)/documents/usuarios/$(loginDoAuth())).data.get('equipeId', '') == dados.alvoId)
+        || (dados.alvoTipo == 'PLANTAO' && participanteAtivoDoGrupoPlantao(dados.alvoId, loginDoAuth()));
+    }
+
+    function recadoGrupoValido(dados, id) {
+      return dados.keys().hasOnly([
+          'id', 'schemaVersion', 'alvoTipo', 'alvoId', 'alvoNome', 'remetenteLogin', 'remetenteNome', 'texto', 'criadoEm', 'expiraEm', 'respostas',
+        ])
+        && dados.keys().hasAll([
+          'id', 'schemaVersion', 'alvoTipo', 'alvoId', 'alvoNome', 'remetenteLogin', 'remetenteNome', 'texto', 'criadoEm', 'expiraEm', 'respostas',
+        ])
+        && dados.id == id
+        && dados.schemaVersion == 1
+        && dados.alvoTipo in ['EQUIPE', 'PLANTAO']
+        && dados.alvoId is string && dados.alvoId.size() > 0 && dados.alvoId.size() <= 120
+        && dados.alvoNome is string && dados.alvoNome.size() <= 120
+        && dados.remetenteLogin is string && dados.remetenteLogin.size() > 0
+        && dados.remetenteNome is string && dados.remetenteNome.size() <= 120
+        && dados.texto is string && dados.texto.size() >= 3 && dados.texto.size() <= 300
+        && dados.criadoEm is timestamp
+        && dados.expiraEm is timestamp
+        && dados.respostas is map;
+    }
+
+    match /recadosGrupo/{recadoId} {
+      allow read: if autenticado()
+        && (resource.data.remetenteLogin == loginDoAuth() || souDoAlvoDoRecadoGrupo(resource.data));
+
+      allow create: if autenticado()
+        && recadoGrupoValido(request.resource.data, recadoId)
+        && request.resource.data.remetenteLogin == loginDoAuth()
+        && request.resource.data.respostas.size() == 0
+        && request.resource.data.criadoEm == request.time
+        && request.resource.data.expiraEm > request.time
+        && request.resource.data.expiraEm <= request.time + duration.value(4, 'd')
+        && (
+          (request.resource.data.alvoTipo == 'EQUIPE'
+            && (
+              get(/databases/$(database)/documents/usuarios/$(loginDoAuth())).data.get('equipeId', '') == request.resource.data.alvoId
+              || podeGerirInformacoesDaEquipe(request.resource.data.alvoId)
+            ))
+          || (request.resource.data.alvoTipo == 'PLANTAO'
+            && (
+              participanteAtivoDoGrupoPlantao(request.resource.data.alvoId, loginDoAuth())
+              || podeAdministrarEscalaPlantao(request.resource.data.alvoId)
+            ))
+        )
+        && getAfter(caminhoLimiteRecados()).data.get('contagem', 0) <= 30
+        && getAfter(caminhoLimiteRecados()).data.get('contagem', 0)
+          == (exists(caminhoLimiteRecados()) ? get(caminhoLimiteRecados()).data.get('contagem', 0) + 1 : 1);
+
+      // o integrante só ESCREVE A PRÓPRIA RESPOSTA (uma vez, antes de vencer, texto livre); nada mais no documento muda
+      allow update: if autenticado()
+        && resource.data.remetenteLogin != loginDoAuth()
+        && souDoAlvoDoRecadoGrupo(resource.data)
+        && resource.data.expiraEm > request.time
+        && !(loginDoAuth() in resource.data.respostas)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['respostas'])
+        && request.resource.data.respostas.diff(resource.data.respostas).affectedKeys().hasOnly([loginDoAuth()])
+        && request.resource.data.respostas[loginDoAuth()].keys().hasOnly(['nome', 'texto', 'em'])
+        && request.resource.data.respostas[loginDoAuth()].nome is string
+        && request.resource.data.respostas[loginDoAuth()].nome.size() <= 120
+        && request.resource.data.respostas[loginDoAuth()].texto is string
+        && request.resource.data.respostas[loginDoAuth()].texto.size() >= 1
+        && request.resource.data.respostas[loginDoAuth()].texto.size() <= 300
+        && request.resource.data.respostas[loginDoAuth()].em == request.time;
+
+      // só quem enviou apaga (o que vence some sozinho pelo TTL)
+      allow delete: if autenticado() && resource.data.remetenteLogin == loginDoAuth();
+    }
+
     match /regrasEscala/{regraId} {
       allow read: if autenticado();
 

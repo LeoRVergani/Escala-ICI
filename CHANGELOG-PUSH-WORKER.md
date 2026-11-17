@@ -8,6 +8,12 @@ confere que o número do `package.json` é o da primeira seção deste arquivo.
 Depois de mudar o worker, na VM: `git pull`, `npm run docker:push-worker:staging:build` e
 `npm run docker:push-worker:staging:up` (as Rules do Firestore não mudam por causa do worker).
 
+## 0.4.0 — mensagens para equipe e Plantão: o grupo todo é avisado (patch 0104)
+- Mensagem para uma **equipe** ou um **Plantão**: **todos os integrantes** (menos quem enviou) recebem "Novo recado"; quem enviou
+  recebe "Recado respondido" na **primeira** resposta. Uma vez por pessoa (`RG_<id>_<login>`) e uma vez por mensagem (`RGR_<id>`).
+- Sem nome e sem conteúdo na tela bloqueada. Os integrantes são resolvidos no servidor (equipe: cadastro ativo; Plantão:
+  participantes ativos).
+
 ## 0.3.0 — recados entre colegas: aviso do recado e da resposta (patch 0103)
 - O recado agora é entre colegas (equipe e Plantão), então o aviso é neutro: **"Novo recado — Você recebeu um recado.
   Abra o app para responder."** (antes dizia "da liderança"). Continua **sem nome e sem conteúdo** na tela bloqueada.

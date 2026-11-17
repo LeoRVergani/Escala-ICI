@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { Timestamp } from 'firebase-admin/firestore';
 
 import {
-  decidirPushRecado, decidirPushResposta, inicioDeAtivacao, milissegundos, textoEventoEscala, textoRecado, textoRespostaRecado, textoTrocaPlantao,
+  decidirPushGrupo, decidirPushRecado, decidirPushResposta, decidirPushRespostaGrupo, inicioDeAtivacao, milissegundos, textoEventoEscala, textoRecado, textoRespostaRecado, textoTrocaPlantao,
 } from '../src/outrosSinos.js';
 
 describe('SINOS-NO-CELULAR-1 — textos fixos (sem nomes na tela bloqueada)', () => {
@@ -72,5 +72,30 @@ describe('RECADOS-2 — push do recado novo e da resposta', () => {
     const limite = inicioDeAtivacao('2026-11-17T12:00:00.000Z');
     expect(limite).toBeInstanceOf(Timestamp);
     expect(limite.toMillis()).toBe(Date.parse('2026-11-17T12:00:00.000Z'));
+  });
+});
+
+describe('RECADOS-3 — push da mensagem para um GRUPO', () => {
+  const AGORA = Date.parse('2026-11-17T15:00:00.000Z');
+  const base = { alvoTipo: 'EQUIPE', alvoId: 'EQ_SOC', remetenteLogin: 'marina', expiraEm: Timestamp.fromMillis(AGORA + 86_400_000), respostas: {} };
+
+  it('avisa o grupo só se o alvo é válido (equipe ou Plantão) e a mensagem não venceu', () => {
+    expect(decidirPushGrupo(base, AGORA)).toEqual({ alvoTipo: 'EQUIPE', alvoId: 'EQ_SOC', remetenteLogin: 'marina' });
+    expect(decidirPushGrupo({ ...base, alvoTipo: 'PLANTAO', alvoId: 'G1' }, AGORA)).toMatchObject({ alvoTipo: 'PLANTAO', alvoId: 'G1' });
+    expect(decidirPushGrupo({ ...base, alvoTipo: 'TODOS' }, AGORA)).toBeNull();
+    expect(decidirPushGrupo({ ...base, alvoId: '' }, AGORA)).toBeNull();
+    expect(decidirPushGrupo({ ...base, remetenteLogin: undefined }, AGORA)).toBeNull();
+    expect(decidirPushGrupo({ ...base, expiraEm: Timestamp.fromMillis(AGORA - 1) }, AGORA)).toBeNull();
+  });
+
+  it('quem enviou é avisado quando existe ao menos uma resposta — e só então (o texto é o mesmo, sem nome)', () => {
+    expect(decidirPushRespostaGrupo(base, AGORA)).toBeNull();
+    const comResposta = { ...base, respostas: { 'ana.lima': { nome: 'Ana Lima', texto: 'Posso sim', em: Timestamp.now() } } };
+    const decisao = decidirPushRespostaGrupo(comResposta, AGORA);
+    expect(decisao).toMatchObject({ login: 'marina', texto: { titulo: 'Recado respondido' } });
+    expect(JSON.stringify(decisao)).not.toMatch(/Ana|Posso/u);
+    expect(decidirPushRespostaGrupo({ ...comResposta, expiraEm: Timestamp.fromMillis(AGORA - 1) }, AGORA)).toBeNull();
+    expect(decidirPushRespostaGrupo({ ...comResposta, remetenteLogin: '' }, AGORA)).toBeNull();
+    expect(decidirPushRespostaGrupo({ ...comResposta, respostas: undefined }, AGORA)).toBeNull();
   });
 });

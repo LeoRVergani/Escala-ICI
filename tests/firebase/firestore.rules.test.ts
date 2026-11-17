@@ -4,7 +4,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, runTransaction, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { collection, deleteDoc, doc, FieldPath, getDoc, getDocs, orderBy, query, runTransaction, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { readFile } from 'node:fs/promises';
 import {
   afterAll,
@@ -7871,5 +7871,147 @@ describe('RECADOS-2 — recados', () => {
   it('o remetente não edita o recado depois de enviado', async () => {
     await semearRecado();
     await assertFails(updateDoc(doc(autenticarComo(usuarios.gestor), 'recados', 'rec-1'), { texto: 'Mudei de ideia' }));
+  });
+});
+
+/**
+ * RECADOS-3 — `recadosGrupo`: mensagem para a EQUIPE ou para um PLANTÃO (um documento só); cada integrante escreve a
+ * própria resposta, uma vez. O remetente vê tudo e apaga. Mesmo limite diário (30): uma mensagem por grupo.
+ */
+describe('RECADOS-3 — recadosGrupo', () => {
+  const dia = () => new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10);
+  const em = (dias: number) => Timestamp.fromMillis(Date.now() + dias * 86_400_000);
+  const grupo = (ajustes: Record<string, unknown> = {}) => ({
+    id: 'g-1', schemaVersion: 1, alvoTipo: 'EQUIPE', alvoId: 'EQ_COSI_SOC', alvoNome: 'Equipe SOC',
+    remetenteLogin: usuarios.gestor.login, remetenteNome: 'Marina Azevedo', texto: 'Alguém cobre a noite de sábado?',
+    criadoEm: serverTimestamp(), expiraEm: em(3), respostas: {}, ...ajustes,
+  });
+  function enviar(quem: { login: string; email: string }, ajustes: Record<string, unknown> = {}, contagemAtual = 0, contagemGravada = contagemAtual + 1) {
+    const db = autenticarComo(quem);
+    const lote = writeBatch(db);
+    lote.set(doc(db, 'recadosGrupo', String(ajustes.id ?? 'g-1')), grupo({ remetenteLogin: quem.login, ...ajustes }));
+    lote.set(doc(db, 'recadosLimite', `${quem.login}_${dia()}`), { login: quem.login, dia: dia(), contagem: contagemGravada });
+    return lote.commit();
+  }
+  async function semear(...itens: Array<[string, string, Record<string, unknown>]>) {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      for (const [colecao, id, dados] of itens) await setDoc(doc(contexto.firestore(), colecao, id), dados);
+    });
+  }
+  const semearGrupo = (ajustes: Record<string, unknown> = {}) => semear(['recadosGrupo', String(ajustes.id ?? 'g-1'), grupo({ criadoEm: Timestamp.fromMillis(Date.now() - 1000), ...ajustes })]);
+  async function semearPlantao(grupoId: string, ...participantes: Array<[string, boolean]>) {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      for (const [login, ativo] of participantes) await setDoc(doc(contexto.firestore(), 'gruposPlantao', grupoId, 'participantes', login), { grupoId, login, ativo, contatos: [] });
+    });
+  }
+  /** A resposta de UM integrante: o campo é `respostas.<login>` — e o login tem ponto, então precisa de FieldPath. */
+  const responder = (quem: { login: string; email: string }, valor: Record<string, unknown> = {}, id = 'g-1', chave = quem.login) =>
+    updateDoc(doc(autenticarComo(quem), 'recadosGrupo', id), new FieldPath('respostas', chave), { nome: 'Fulano', texto: 'Posso sim', em: serverTimestamp(), ...valor });
+
+  it('EQUIPE: um integrante envia para a própria equipe, e a liderança que a gerencia também', async () => {
+    await assertSucceeds(enviar(usuarios.colaborador));
+    await assertSucceeds(enviar(usuarios.gestor, { id: 'g-2' }));
+  });
+
+  it('EQUIPE: quem é de outra equipe não envia para ela, e um integrante não envia para outra equipe', async () => {
+    await assertFails(enviar(usuarios.externo));
+    await assertFails(enviar(usuarios.colaborador, { alvoId: 'EQ_CODB_NOC', alvoNome: 'Equipe NOC' }));
+  });
+
+  it('PLANTÃO: participante ATIVO envia; quem não participa ou está inativo não; o administrador do sistema sim', async () => {
+    await semearPlantao('G1', [usuarios.externo.login, true], [usuarios.colega.login, false]);
+    const plantao = { alvoTipo: 'PLANTAO', alvoId: 'G1', alvoNome: 'Plantão COSI' };
+    await assertSucceeds(enviar(usuarios.externo, plantao));
+    await assertFails(enviar(usuarios.colaborador, { ...plantao, id: 'g-2' }));
+    await assertFails(enviar(usuarios.colega, { ...plantao, id: 'g-3' }));
+    await assertSucceeds(enviar(usuarios.admin, { ...plantao, id: 'g-4' }));
+  });
+
+  it('LIMITE: sem o contador no mesmo lote, ou com o contador errado, é recusado; o 30º passa e o 31º não', async () => {
+    await assertFails(setDoc(doc(autenticarComo(usuarios.colaborador), 'recadosGrupo', 'g-1'), grupo({ remetenteLogin: usuarios.colaborador.login })));
+    await assertFails(enviar(usuarios.colaborador, {}, 0, 2));
+    await semear(['recadosLimite', `${usuarios.colaborador.login}_${dia()}`, { login: usuarios.colaborador.login, dia: dia(), contagem: 29 }]);
+    await assertSucceeds(enviar(usuarios.colaborador, { id: 'g-30' }, 29));
+    await assertFails(enviar(usuarios.colaborador, { id: 'g-31' }, 30));
+  });
+
+  it('formato: texto curto ou longo, resposta já na criação, tipo de alvo, validade, hora falsa, remetente forjado e campo extra são recusados', async () => {
+    await assertFails(enviar(usuarios.colaborador, { texto: 'a' }));
+    await assertFails(enviar(usuarios.colaborador, { texto: 'x'.repeat(301) }));
+    await assertFails(enviar(usuarios.colaborador, { respostas: { x: { nome: 'X', texto: 'já respondi', em: Timestamp.now() } } }));
+    await assertFails(enviar(usuarios.colaborador, { alvoTipo: 'TODOS' }));
+    await assertFails(enviar(usuarios.colaborador, { expiraEm: em(-1) }));
+    await assertFails(enviar(usuarios.colaborador, { expiraEm: em(10) }));
+    await assertFails(enviar(usuarios.colaborador, { criadoEm: Timestamp.fromMillis(Date.now() - 86_400_000) }));
+    await assertFails(enviar(usuarios.colaborador, { extra: 'x' }));
+    const db = autenticarComo(usuarios.colaborador);
+    const lote = writeBatch(db);
+    lote.set(doc(db, 'recadosGrupo', 'g-1'), grupo({ remetenteLogin: usuarios.gestor.login }));
+    lote.set(doc(db, 'recadosLimite', `${usuarios.colaborador.login}_${dia()}`), { login: usuarios.colaborador.login, dia: dia(), contagem: 1 });
+    await assertFails(lote.commit());
+  });
+
+  it('LEITURA: o remetente e os integrantes do grupo leem; quem é de fora não; consulta sem filtro é negada', async () => {
+    await semearGrupo();
+    await assertSucceeds(getDoc(doc(autenticarComo(usuarios.gestor), 'recadosGrupo', 'g-1')));
+    await assertSucceeds(getDoc(doc(autenticarComo(usuarios.colaborador), 'recadosGrupo', 'g-1')));
+    await assertSucceeds(getDoc(doc(autenticarComo(usuarios.colega), 'recadosGrupo', 'g-1')));
+    await assertFails(getDoc(doc(autenticarComo(usuarios.externo), 'recadosGrupo', 'g-1')));
+    const daEquipe = await assertSucceeds(getDocs(query(collection(autenticarComo(usuarios.colaborador), 'recadosGrupo'), where('alvoTipo', '==', 'EQUIPE'), where('alvoId', '==', 'EQ_COSI_SOC'))));
+    expect(daEquipe.docs).toHaveLength(1);
+    const doRemetente = await assertSucceeds(getDocs(query(collection(autenticarComo(usuarios.gestor), 'recadosGrupo'), where('remetenteLogin', '==', usuarios.gestor.login))));
+    expect(doRemetente.docs).toHaveLength(1);
+    await assertFails(getDocs(query(collection(autenticarComo(usuarios.externo), 'recadosGrupo'), where('alvoTipo', '==', 'EQUIPE'), where('alvoId', '==', 'EQ_COSI_SOC'))));
+    await assertFails(getDocs(collection(autenticarComo(usuarios.colaborador), 'recadosGrupo')));
+  });
+
+  it('LEITURA do Plantão: só participante ativo lê, por consulta do próprio Plantão', async () => {
+    await semearPlantao('G1', [usuarios.externo.login, true]);
+    await semearGrupo({ alvoTipo: 'PLANTAO', alvoId: 'G1', alvoNome: 'Plantão COSI' });
+    const consulta = (quem: { login: string; email: string }) => getDocs(query(collection(autenticarComo(quem), 'recadosGrupo'), where('alvoTipo', '==', 'PLANTAO'), where('alvoId', '==', 'G1')));
+    expect((await assertSucceeds(consulta(usuarios.externo))).docs).toHaveLength(1);
+    await assertFails(consulta(usuarios.colaborador));
+  });
+
+  it('RESPOSTA: o integrante escreve a PRÓPRIA resposta, com texto livre de 1 a 300 caracteres (login com ponto incluído)', async () => {
+    await semearGrupo();
+    await assertSucceeds(responder(usuarios.colaborador));
+    await assertSucceeds(responder(usuarios.colega, { texto: 'x'.repeat(300) }));
+    const lido = await getDoc(doc(autenticarComo(usuarios.gestor), 'recadosGrupo', 'g-1'));
+    expect(Object.keys(lido.data()?.respostas ?? {}).sort()).toEqual([usuarios.colaborador.login, usuarios.colega.login].sort());
+  });
+
+  it('RESPOSTA: não se responde duas vezes, nem pelo outro, nem por quem não é do grupo, nem o próprio remetente, nem depois de vencer', async () => {
+    await semearGrupo();
+    await assertSucceeds(responder(usuarios.colaborador));
+    await assertFails(responder(usuarios.colaborador, { texto: 'Mudei de ideia' }));
+    await assertFails(responder(usuarios.colega, {}, 'g-1', usuarios.colaborador.login));
+    await assertFails(responder(usuarios.externo));
+    await assertFails(responder(usuarios.gestor));
+    await semearGrupo({ id: 'g-exp', expiraEm: Timestamp.fromMillis(Date.now() - 1000) });
+    await assertFails(responder(usuarios.colega, {}, 'g-exp'));
+  });
+
+  it('RESPOSTA: texto vazio ou longo, hora falsa, campo extra e mexer em outra parte do documento são recusados', async () => {
+    await semearGrupo();
+    await assertFails(responder(usuarios.colaborador, { texto: '' }));
+    await assertFails(responder(usuarios.colaborador, { texto: 'x'.repeat(301) }));
+    await assertFails(responder(usuarios.colaborador, { em: Timestamp.fromMillis(Date.now() - 86_400_000) }));
+    await assertFails(responder(usuarios.colaborador, { extra: 'x' }));
+    await assertFails(updateDoc(doc(autenticarComo(usuarios.colaborador), 'recadosGrupo', 'g-1'),
+      new FieldPath('respostas', usuarios.colaborador.login), { nome: 'Caio', texto: 'Posso', em: serverTimestamp() }, 'texto', 'Mudei a mensagem'));
+    await assertFails(updateDoc(doc(autenticarComo(usuarios.colaborador), 'recadosGrupo', 'g-1'), { texto: 'Mudei a mensagem' }));
+  });
+
+  it('APAGAR: só quem enviou apaga; integrante e quem é de fora não', async () => {
+    await semearGrupo();
+    await assertFails(deleteDoc(doc(autenticarComo(usuarios.colaborador), 'recadosGrupo', 'g-1')));
+    await assertFails(deleteDoc(doc(autenticarComo(usuarios.externo), 'recadosGrupo', 'g-1')));
+    await assertSucceeds(deleteDoc(doc(autenticarComo(usuarios.gestor), 'recadosGrupo', 'g-1')));
+  });
+
+  it('o remetente não edita a mensagem depois de enviada', async () => {
+    await semearGrupo();
+    await assertFails(updateDoc(doc(autenticarComo(usuarios.gestor), 'recadosGrupo', 'g-1'), { texto: 'Mudei de ideia' }));
   });
 });

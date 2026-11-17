@@ -1423,56 +1423,66 @@ test('LIDERANCA-CARGO-1 — só cargo de liderança vira liderança (tela e Rule
   assert.match(sessao, /if \(perfil === 'ADMIN_SISTEMA'\) return 'Administrador do sistema';/u);
 });
 
-test('RECADOS-2 — limite diário no servidor (o mesmo número do código), só remetente e destinatário leem, resposta livre, três caminhos para enviar e texto sempre como texto', async () => {
-  const [rules, lib, repo, hookApp, cartoes, modal, pagina, telaApp, appJs, dashboard, indices] = await Promise.all([
-    ler('firestore.rules'), ler('lib/recados.ts'), ler('lib/firebase/recadosRepository.ts'), ler('apps/app/src/recados/useRecados.ts'),
-    ler('components/RecadoCartoes.tsx'), ler('components/RecadoModal.tsx'), ler('apps/dashboard/src/RecadosPage.tsx'), ler('apps/app/src/recados/RecadosTela.tsx'),
+test('RECADOS-3 — limite no servidor (mesmo número do código), só os envolvidos leem, cada um escreve só a própria resposta, envio por três caminhos e texto sempre como texto', async () => {
+  const [rules, lib, repo, envio, hookApp, cartoes, nova, pagina, telaApp, appJs, dashboard, indices] = await Promise.all([
+    ler('firestore.rules'), ler('lib/recados.ts'), ler('lib/firebase/recadosRepository.ts'), ler('lib/firebase/recadosEnvio.ts'), ler('apps/app/src/recados/useRecados.ts'),
+    ler('components/RecadoCartoes.tsx'), ler('components/NovaMensagem.tsx'), ler('apps/dashboard/src/RecadosPage.tsx'), ler('apps/app/src/recados/RecadosTela.tsx'),
     ler('apps/app/src/EmployeeApp.tsx'), ler('apps/dashboard/src/DashboardApp.tsx'), ler('firestore.indexes.json'),
   ]);
-  // O limite do código e o das Rules são o MESMO número (um não pode ser afrouxado sem o outro).
+  // O limite do código e o das Rules são o MESMO número, nos três pontos (contador, recado a pessoa, mensagem a grupo).
   const limiteCodigo = Number(/LIMITE_DIARIO_RECADOS = (\d+)/u.exec(lib)?.[1]);
   const limitesRules = [...rules.matchAll(/contagem(?:', 0\))? <= (\d+)/gu)].map((achado) => Number(achado[1]));
-  assert.ok(limiteCodigo > 0 && limitesRules.length >= 2, 'limite encontrado no código e nas Rules');
+  assert.ok(limiteCodigo > 0 && limitesRules.length >= 3, 'limite encontrado no código e nas Rules');
   for (const limite of limitesRules) assert.equal(limite, limiteCodigo);
-  // O recado só é criado junto com o contador do dia (getAfter), e o contador só sobe de 1 em 1.
-  assert.match(rules, /getAfter\(caminhoLimiteRecados\(\)\)\.data\.get\('contagem', 0\)/u);
   assert.match(rules, /exists\(caminhoLimiteRecados\(\)\) \? get\(caminhoLimiteRecados\(\)\)\.data\.get\('contagem', 0\) \+ 1 : 1/u);
   assert.match(rules, /request\.resource\.data\.contagem == resource\.data\.contagem \+ 1/u);
-  // Leitura: só remetente e destinatário. Apagar: o remetente; o destinatário só o que já venceu.
-  const bloco = /match \/recados\/\{recadoId\} \{([\s\S]*?)\n    \}\n/u.exec(rules)?.[1] ?? '';
-  assert.match(bloco, /allow read: if autenticado\(\)\s*&& \(resource\.data\.remetenteLogin == loginDoAuth\(\) \|\| resource\.data\.destinatarioLogin == loginDoAuth\(\)\);/u);
-  assert.match(bloco, /resource\.data\.destinatarioLogin == loginDoAuth\(\) && resource\.data\.expiraEm <= request\.time/u);
-  // O destinatário só RESPONDE (texto livre): nada além dos campos da resposta muda.
-  assert.match(bloco, /affectedKeys\(\)\.hasOnly\(\['status', 'resposta', 'respondidoEm', 'expiraEm'\]\)/u);
+  // Recado a UMA pessoa: só remetente e destinatário leem; o destinatário só responde; três caminhos para enviar.
+  const pessoaBloco = /match \/recados\/\{recadoId\} \{([\s\S]*?)\n    \}\n/u.exec(rules)?.[1] ?? '';
+  assert.match(pessoaBloco, /allow read: if autenticado\(\)\s*&& \(resource\.data\.remetenteLogin == loginDoAuth\(\) \|\| resource\.data\.destinatarioLogin == loginDoAuth\(\)\);/u);
+  assert.match(pessoaBloco, /affectedKeys\(\)\.hasOnly\(\['status', 'resposta', 'respondidoEm', 'expiraEm'\]\)/u);
+  assert.match(pessoaBloco, /podeGerirInformacoesDaEquipe\(request\.resource\.data\.equipeId\)/u);
+  assert.match(pessoaBloco, /participanteAtivoDoGrupoPlantao\(request\.resource\.data\.grupoPlantaoId, request\.resource\.data\.destinatarioLogin\)/u);
+  assert.match(pessoaBloco, /usuarios\/\$\(request\.resource\.data\.destinatarioLogin\)\)\.data\.get\('equipeId', null\) == request\.resource\.data\.equipeId/u);
+  // Mensagem a um GRUPO: leem o remetente e os integrantes; cada integrante escreve SÓ a própria resposta, UMA vez; só o remetente apaga.
+  const grupoBloco = /match \/recadosGrupo\/\{recadoId\} \{([\s\S]*?)\n    \}\n/u.exec(rules)?.[1] ?? '';
+  assert.match(grupoBloco, /allow read: if autenticado\(\)\s*&& \(resource\.data\.remetenteLogin == loginDoAuth\(\) \|\| souDoAlvoDoRecadoGrupo\(resource\.data\)\);/u);
+  assert.match(grupoBloco, /!\(loginDoAuth\(\) in resource\.data\.respostas\)/u);
+  assert.match(grupoBloco, /request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\.hasOnly\(\['respostas'\]\)/u);
+  assert.match(grupoBloco, /respostas\.diff\(resource\.data\.respostas\)\.affectedKeys\(\)\.hasOnly\(\[loginDoAuth\(\)\]\)/u);
+  assert.match(grupoBloco, /allow delete: if autenticado\(\) && resource\.data\.remetenteLogin == loginDoAuth\(\);/u);
+  assert.match(grupoBloco, /podeGerirInformacoesDaEquipe\(request\.resource\.data\.alvoId\)/u);
+  assert.match(grupoBloco, /participanteAtivoDoGrupoPlantao\(request\.resource\.data\.alvoId, loginDoAuth\(\)\)/u);
+  assert.match(grupoBloco, /podeAdministrarEscalaPlantao\(request\.resource\.data\.alvoId\)/u);
+  assert.match(grupoBloco, /getAfter\(caminhoLimiteRecados\(\)\)\.data\.get\('contagem', 0\)/u);
   assert.match(rules, /\(dados\.status == 'ENVIADO' \? dados\.resposta == '' : dados\.resposta\.size\(\) >= 1\)/u);
-  // Quem pode enviar: colega da mesma equipe, participante ATIVO do mesmo Plantão, ou a liderança da equipe — nada mais.
-  assert.match(bloco, /usuarios\/\$\(loginDoAuth\(\)\)\)\.data\.get\('equipeId', ''\) == request\.resource\.data\.equipeId/u);
-  assert.match(bloco, /podeGerirInformacoesDaEquipe\(request\.resource\.data\.equipeId\)/u);
-  assert.match(bloco, /participanteAtivoDoGrupoPlantao\(request\.resource\.data\.grupoPlantaoId, loginDoAuth\(\)\)/u);
-  assert.match(bloco, /participanteAtivoDoGrupoPlantao\(request\.resource\.data\.grupoPlantaoId, request\.resource\.data\.destinatarioLogin\)/u);
-  assert.match(bloco, /usuarios\/\$\(request\.resource\.data\.destinatarioLogin\)\)\.data\.get\('equipeId', null\) == request\.resource\.data\.equipeId/u);
-  // App e Dashboard enviam só pelo repositório (que grava recado + contador no mesmo lote).
-  assert.match(hookApp, /await enviarRecado\(montarRecado\(entrada, destinatario, \{ login, nome \}/u);
-  assert.match(pagina, /await enviarRecado\(/u);
+  // O envio é um só (App e Dashboard): pessoa -> recado dela; cada grupo -> UMA mensagem; sempre recado + contador no mesmo lote.
+  assert.match(envio, /enviarRecado\(montarRecado\(entrada, destino\.pessoa, remetente/u);
+  assert.match(envio, /enviarRecadoGrupo\(montarRecadoGrupo\(entrada, alvo, remetente/u);
   assert.match(repo, /const lote = writeBatch\(db\);/u);
-  assert.match(hookApp, /responder: \(recado: Recado, resposta: string\) => responderRecado\(recado\.id, resposta\)/u);
-  // O App só oferece colegas da MINHA equipe e do Plantão em que eu participo.
+  assert.match(hookApp, /await enviarMensagem\(entrada, \{ login, nome \}\)/u);
+  assert.match(pagina, /await enviarMensagem\(entrada, remetente\)/u);
+  assert.match(repo, /new FieldPath\('respostas', login\)/u);
+  // O App só recebe dos grupos DELE (a equipe e o Plantão em que participa) e só oferece esses destinos.
+  assert.match(hookApp, /observarRecadosGrupoDoAlvo\('EQUIPE', equipeId/u);
+  assert.match(hookApp, /observarRecadosGrupoDoAlvo\('PLANTAO', plantaoId/u);
   assert.match(appJs, /colega\.equipeId !== usuario\.equipeId/u);
-  assert.match(appJs, /if \(grupo && euParticipo\)/u);
-  // Texto sempre como TEXTO: nenhuma tela transforma o recado em HTML.
-  for (const fonte of [pagina, modal, cartoes, telaApp]) assert.doesNotMatch(fonte, /dangerouslySetInnerHTML|innerHTML|document\.write/u);
-  // Consultas por igualdade (sem "in"), como as Rules avaliam; limpeza automática (TTL) no mesmo arquivo de índices do deploy.
+  assert.match(appJs, /return grupo && euParticipo \? grupo : null;/u);
+  // Texto sempre como TEXTO: nenhuma tela transforma a mensagem em HTML.
+  for (const fonte of [pagina, nova, cartoes, telaApp]) assert.doesNotMatch(fonte, /dangerouslySetInnerHTML|innerHTML|document\.write/u);
+  // Consultas por igualdade (sem "in"), como as Rules avaliam; limpeza automática (TTL) das duas coleções.
   assert.match(repo, /where\('remetenteLogin', '==', login\)/u);
-  assert.match(repo, /where\('destinatarioLogin', '==', login\)/u);
+  assert.match(repo, /where\('alvoTipo', '==', tipo\), where\('alvoId', '==', alvoId\)/u);
   assert.doesNotMatch(repo, /, 'in', /u);
-  assert.ok(JSON.parse(indices).fieldOverrides.some((item) => item.collectionGroup === 'recados' && item.fieldPath === 'expiraEm' && item.ttl === true));
-  // Os dois menus: Dashboard (liderança) e App (colaborador); a bolinha é da aba Recados.
-  assert.match(dashboard, /\{ id: 'recados', rotulo: 'Recados', icone: 'recados' \}/u);
-  assert.match(appJs, /\{ id: 'recados', rotulo: 'Recados', icone: 'recados' \}/u);
+  for (const colecao of ['recados', 'recadosGrupo']) {
+    assert.ok(JSON.parse(indices).fieldOverrides.some((item) => item.collectionGroup === colecao && item.fieldPath === 'expiraEm' && item.ttl === true), colecao);
+  }
+  // Os dois menus se chamam "Mensagens"; a bolinha é da aba Mensagens.
+  assert.match(dashboard, /\{ id: 'recados', rotulo: 'Mensagens', icone: 'recados' \}/u);
+  assert.match(appJs, /\{ id: 'recados', rotulo: 'Mensagens', icone: 'recados' \}/u);
   assert.match(appJs, /item\.id === 'recados' \? \{ \.\.\.item, contador: recadosApp\.atencao \} : item/u);
 });
 
-test('RECADOS-2 (push) — os avisos do recado e da resposta são genéricos e únicos, o clique abre o App, a data de ativação é Timestamp e o worker tem versão e changelog', async () => {
+test('RECADOS-3 (push) — os avisos são genéricos e únicos (pessoa, grupo e resposta), o clique abre o App, a data de ativação é Timestamp e o worker tem versão e changelog', async () => {
   const [sinos, pacoteWorker, changelogWorker, frame, sw] = await Promise.all([
     ler('apps/push-worker/src/outrosSinos.ts'), ler('apps/push-worker/package.json'), ler('CHANGELOG-PUSH-WORKER.md'),
     ler('components/AppFrame.tsx'), ler('apps/app/src/sw/pushClickRouting.js'),
@@ -1483,18 +1493,21 @@ test('RECADOS-2 (push) — os avisos do recado e da resposta são genéricos e �
     assert.ok(funcao.length > 0, nome);
     assert.doesNotMatch(funcao, /dados\.|remetente|\.texto|nome\b/u, `${nome} lê campo do recado`);
   }
-  // O recado novo avisa o DESTINATÁRIO (ainda sem resposta, não vencido); a resposta avisa o REMETENTE (respondido, não vencido).
+  // Pessoa: avisa o DESTINATÁRIO (sem resposta, não vencido) e, na resposta, o REMETENTE. Grupo: avisa os integrantes e, na 1ª resposta, o remetente.
   assert.match(sinos, /if \(dados\.status !== 'ENVIADO'\) return null;/u);
   assert.match(sinos, /if \(dados\.status !== 'RESPONDIDO'\) return null;/u);
   assert.match(sinos, /if \(expira !== null && expira <= agoraMs\) return null;/u);
-  // Escuta com TIMESTAMP (texto nunca casaria), só recado novo / resposta nova, uma vez cada (RC_ e RR_), e a rota é "recados".
+  assert.match(sinos, /Object\.keys\(dados\.respostas as object\)\.length === 0\) return null;/u);
+  // Escuta com TIMESTAMP (texto nunca casaria), só o que é novo, uma vez cada (RC_, RR_, RG_<id>_<login>, RGR_), e a rota é "recados".
   assert.match(sinos, /\.collection\('recados'\)\s*\.where\('criadoEm', '>=', inicioDeAtivacao\(config\.pushActivatedAt\)\)/u);
   assert.match(sinos, /\.collection\('recados'\)\s*\.where\('respondidoEm', '>=', inicioDeAtivacao\(config\.pushActivatedAt\)\)/u);
+  assert.match(sinos, /\.collection\('recadosGrupo'\)\s*\.where\('criadoEm', '>=', inicioDeAtivacao\(config\.pushActivatedAt\)\)/u);
   assert.match(sinos, /Timestamp\.fromDate\(new Date\(pushActivatedAt\)\)/u);
-  assert.match(sinos, /decidirPushRecado\(mudanca\.doc\.data\(\), Date\.now\(\)\)/u);
-  assert.match(sinos, /decidirPushResposta\(mudanca\.doc\.data\(\), Date\.now\(\)\)/u);
   assert.match(sinos, /enviarUmaVez\(`RC_\$\{mudanca\.doc\.id\}`, decisao\.login, 'RECADO', decisao\.texto, 'recados'\)/u);
   assert.match(sinos, /enviarUmaVez\(`RR_\$\{mudanca\.doc\.id\}`, decisao\.login, 'RECADO_RESPONDIDO', decisao\.texto, 'recados'\)/u);
+  assert.match(sinos, /enviarUmaVez\(`RG_\$\{mudanca\.doc\.id\}_\$\{login\}`, login, 'RECADO', textoRecado\(\), 'recados'\)/u);
+  assert.match(sinos, /enviarUmaVez\(`RGR_\$\{mudanca\.doc\.id\}`, resposta\.login, 'RECADO_RESPONDIDO', resposta\.texto, 'recados'\)/u);
+  assert.match(sinos, /if \(login !== grupo\.remetenteLogin\)/u);
   // Sem isto o toque no aviso não fazia nada (tipo desconhecido = "sem destino"): o prefixo RECADO abre o App.
   assert.match(sw, /PREFIXOS_ABRIR_APP = \[[^\]]*'RECADO'/u);
   // O worker tem versão e changelog próprios, alinhados; o contador do menu é opcional no AppFrame (compartilhado).

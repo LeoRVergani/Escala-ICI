@@ -418,11 +418,9 @@ export function textoDoMarcador(marcador: MarcadorCelula): string {
 export function mensagemFalhaDeLeitura(falha: unknown): string {
   const codigo = typeof falha === 'object' && falha !== null && 'code' in falha ? String((falha as { code: unknown }).code) : '';
   if (codigo.includes('permission-denied')) {
-    return 'Sem permissão para ler as informações. Se as Regras do Firestore desta versão ainda não foram publicadas, publique-as (deploy das Regras); se já foram, confira o seu acesso.';
+    return 'As informações ainda não estão disponíveis para você. Avise o administrador do sistema: pode faltar publicar uma atualização no banco de dados.';
   }
-  if (codigo.includes('failed-precondition')) {
-    return 'O Firestore ainda não tem — ou está criando — o índice destas consultas. Publique os índices (deploy) e aguarde alguns minutos.';
-  }
-  if (codigo.includes('unavailable')) return 'Sem conexão com o Firestore agora. Tente de novo em instantes.';
+  if (codigo.includes('failed-precondition')) return 'As informações ainda estão sendo preparadas no banco de dados. Tente de novo em alguns minutos.';
+  if (codigo.includes('unavailable')) return 'Sem conexão agora. Tente de novo em instantes.';
   return 'Não foi possível carregar as informações agora.';
 }

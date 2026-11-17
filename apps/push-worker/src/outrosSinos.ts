@@ -82,6 +82,31 @@ export function decidirPushResposta(
   return { login: dados.remetenteLogin, texto: textoRespostaRecado() };
 }
 
+/** RECADOS-3 — esta mensagem para um GRUPO merece push agora? Só se ainda não venceu e tem um alvo válido (equipe ou Plantão). */
+export function decidirPushGrupo(
+  dados: { alvoTipo?: unknown; alvoId?: unknown; remetenteLogin?: unknown; expiraEm?: unknown },
+  agoraMs: number,
+): { alvoTipo: 'EQUIPE' | 'PLANTAO'; alvoId: string; remetenteLogin: string } | null {
+  if (dados.alvoTipo !== 'EQUIPE' && dados.alvoTipo !== 'PLANTAO') return null;
+  if (typeof dados.alvoId !== 'string' || dados.alvoId === '') return null;
+  if (typeof dados.remetenteLogin !== 'string' || dados.remetenteLogin === '') return null;
+  const expira = milissegundos(dados.expiraEm);
+  if (expira !== null && expira <= agoraMs) return null;
+  return { alvoTipo: dados.alvoTipo, alvoId: dados.alvoId, remetenteLogin: dados.remetenteLogin };
+}
+
+/** RECADOS-3 — quem enviou para um grupo é avisado quando CHEGA a primeira resposta (uma vez só; o resto ele vê ao abrir). */
+export function decidirPushRespostaGrupo(
+  dados: { remetenteLogin?: unknown; respostas?: unknown; expiraEm?: unknown },
+  agoraMs: number,
+): { login: string; texto: { titulo: string; corpo: string } } | null {
+  if (typeof dados.remetenteLogin !== 'string' || dados.remetenteLogin === '') return null;
+  if (dados.respostas === null || typeof dados.respostas !== 'object' || Object.keys(dados.respostas as object).length === 0) return null;
+  const expira = milissegundos(dados.expiraEm);
+  if (expira !== null && expira <= agoraMs) return null;
+  return { login: dados.remetenteLogin, texto: textoRespostaRecado() };
+}
+
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 
 export function textoTrocaPlantao(tipo: unknown): { titulo: string; corpo: string } | null {
@@ -115,6 +140,16 @@ const logConsole: Logger = {
   info: (mensagem, meta) => console.info(mensagem, meta ?? {}),
   error: (mensagem, meta) => console.error(mensagem, meta ?? {}),
 };
+
+/** Os logins que fazem parte do grupo: a equipe (cadastro ativo) ou os participantes ATIVOS do Plantão. */
+async function membrosDoAlvo(db: Firestore, alvoTipo: 'EQUIPE' | 'PLANTAO', alvoId: string): Promise<string[]> {
+  if (alvoTipo === 'EQUIPE') {
+    const resultado = await db.collection('usuarios').where('equipeId', '==', alvoId).get();
+    return resultado.docs.filter((documento) => documento.data().ativo !== false).map((documento) => documento.id);
+  }
+  const resultado = await db.collection('gruposPlantao').doc(alvoId).collection('participantes').where('ativo', '==', true).get();
+  return resultado.docs.map((documento) => documento.id);
+}
 
 const CODIGO_JA_EXISTE = 6;
 const TTL_MS = 24 * 60 * 60 * 1000;
@@ -228,11 +263,38 @@ export function iniciarOutrosSinos({
       }
     }, (erro) => logger.error('listener de respostas de recados falhou', { erro: erro.message }));
 
+  // RECADOS-3 — mensagem para um GRUPO: avisa TODOS os integrantes (menos quem enviou), uma vez cada (`RG_<id>_<login>`); e avisa
+  // quem enviou quando chega a primeira resposta (`RGR_<id>`). Texto fixo, sem nome e sem conteúdo.
+  const pararGrupos = db.collection('recadosGrupo')
+    .where('criadoEm', '>=', inicioDeAtivacao(config.pushActivatedAt))
+    .onSnapshot((snapshot) => {
+      for (const mudanca of snapshot.docChanges()) {
+        if (mudanca.type === 'removed') continue;
+        const dados = mudanca.doc.data();
+        if (mudanca.type === 'added') {
+          const grupo = decidirPushGrupo(dados, Date.now());
+          if (grupo !== null) {
+            void (async () => {
+              for (const login of await membrosDoAlvo(db, grupo.alvoTipo, grupo.alvoId)) {
+                if (login !== grupo.remetenteLogin) await enviarUmaVez(`RG_${mudanca.doc.id}_${login}`, login, 'RECADO', textoRecado(), 'recados');
+              }
+            })().catch((erro) => logger.error('push de mensagem para grupo falhou', { erro: erro instanceof Error ? erro.message : String(erro) }));
+          }
+        }
+        const resposta = decidirPushRespostaGrupo(dados, Date.now());
+        if (resposta !== null) {
+          void enviarUmaVez(`RGR_${mudanca.doc.id}`, resposta.login, 'RECADO_RESPONDIDO', resposta.texto, 'recados')
+            .catch((erro) => logger.error('push de resposta de grupo falhou', { erro: erro instanceof Error ? erro.message : String(erro) }));
+        }
+      }
+    }, (erro) => logger.error('listener de mensagens para grupos falhou', { erro: erro.message }));
+
   logger.info('push de trocas de plantão, escala publicada e recados iniciado', { pushEnabled: config.pushEnabled });
   return () => {
     pararTrocasPlantao();
     pararEventosEscala();
     pararRecados();
     pararRespostas();
+    pararGrupos();
   };
 }
