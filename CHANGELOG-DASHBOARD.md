@@ -15,6 +15,11 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.9.1 — mais respiro no fim das janelas (patch 0100)
+- Nas janelas "Nova regra" e "Nova informação", o último item não fica mais colado na linha do rodapé: a folga
+  passou de 14px para 32px (no celular, 28px). Só estilo; sem mudança de comportamento.
+- Só Dashboard (App continua na 3.8.2).
+
 ## 1.9.0 — liderança só por cargo, administrador sem equipe e textos mais naturais (patch 0099)
 - **Só cargo de liderança vira liderança**: coordenador, supervisor, líder, gestor (e gerente, diretor, chefe…).
   Analista e técnico não. "Tornar liderança" só aparece para quem tem cargo de liderança, e "Nova liderança" exige
