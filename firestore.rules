@@ -1466,10 +1466,14 @@ service cloud.firestore {
     }
 
     /**
-     * RECADOS-1 — recado curto de uma liderança para um colaborador (não é chat nem histórico).
-     * Quem envia: quem gerencia a EQUIPE do destinatário (mesma regra das Informações). Quem lê: só o
-     * remetente e o destinatário. O destinatário só consegue RESPONDER (posso / não posso / entendi);
-     * o remetente apaga ao dispensar; o que expira é apagado sozinho (TTL em `expiraEm`).
+     * RECADOS-2 — recado curto entre colegas (mesma equipe ou mesmo Plantão) ou da liderança para a equipe.
+     * Mensagem e resposta LIVRES, mas sem conversa nem histórico: o destinatário responde UMA vez; o remetente
+     * apaga ao ver; o que vence é apagado sozinho (TTL em `expiraEm`). Só remetente e destinatário leem.
+     *
+     * Quem pode enviar para quem (cada caminho tem a sua prova, do mais barato ao mais caro):
+     *   1. colegas da MESMA EQUIPE (a equipe do remetente é a do destinatário);
+     *   2. participantes ATIVOS do MESMO PLANTÃO (`grupoPlantaoId` preenchido) — mesmo de equipes diferentes;
+     *   3. a liderança que gerencia a equipe do destinatário (como nas Informações).
      *
      * LIMITE DIÁRIO no servidor: cada recado criado tem de vir num lote com o contador do dia
      * (`recadosLimite/{login}_{AAAA-MM-DD}`, dia de Brasília) incrementado em 1 e nunca acima de 30 —
@@ -1486,27 +1490,25 @@ service cloud.firestore {
 
     function recadoValido(dados, id) {
       return dados.keys().hasOnly([
-          'id', 'schemaVersion', 'equipeId', 'remetenteLogin', 'remetenteNome', 'destinatarioLogin', 'destinatarioNome',
-          'tipo', 'texto', 'status', 'resposta', 'notaResposta', 'criadoEm', 'respondidoEm', 'expiraEm',
+          'id', 'schemaVersion', 'equipeId', 'grupoPlantaoId', 'remetenteLogin', 'remetenteNome', 'destinatarioLogin',
+          'destinatarioNome', 'texto', 'status', 'resposta', 'criadoEm', 'respondidoEm', 'expiraEm',
         ])
         && dados.keys().hasAll([
-          'id', 'schemaVersion', 'equipeId', 'remetenteLogin', 'remetenteNome', 'destinatarioLogin', 'destinatarioNome',
-          'tipo', 'texto', 'status', 'resposta', 'notaResposta', 'criadoEm', 'respondidoEm', 'expiraEm',
+          'id', 'schemaVersion', 'equipeId', 'grupoPlantaoId', 'remetenteLogin', 'remetenteNome', 'destinatarioLogin',
+          'destinatarioNome', 'texto', 'status', 'resposta', 'criadoEm', 'respondidoEm', 'expiraEm',
         ])
         && dados.id == id
-        && dados.schemaVersion == 1
-        && dados.tipo in ['PERGUNTA', 'AVISO']
+        && dados.schemaVersion == 2
         && dados.status in ['ENVIADO', 'RESPONDIDO']
         && dados.equipeId is string && dados.equipeId.size() > 0
+        && dados.grupoPlantaoId is string && dados.grupoPlantaoId.size() <= 120
         && dados.remetenteLogin is string && dados.remetenteLogin.size() > 0
         && dados.destinatarioLogin is string && dados.destinatarioLogin.size() > 0
         && dados.remetenteNome is string && dados.remetenteNome.size() <= 120
         && dados.destinatarioNome is string && dados.destinatarioNome.size() <= 120
         && dados.texto is string && dados.texto.size() >= 3 && dados.texto.size() <= 300
-        && dados.notaResposta is string && dados.notaResposta.size() <= 140
-        && (dados.resposta == null
-          || (dados.tipo == 'PERGUNTA' && dados.resposta in ['POSSO', 'NAO_POSSO'])
-          || (dados.tipo == 'AVISO' && dados.resposta == 'CIENTE'))
+        && dados.resposta is string && dados.resposta.size() <= 300
+        && (dados.status == 'ENVIADO' ? dados.resposta == '' : dados.resposta.size() >= 1)
         && dados.criadoEm is timestamp
         && dados.expiraEm is timestamp
         && (dados.respondidoEm == null || dados.respondidoEm is timestamp);
@@ -1518,35 +1520,42 @@ service cloud.firestore {
 
       allow create: if autenticado()
         && recadoValido(request.resource.data, recadoId)
-        && podeGerirInformacoesDaEquipe(request.resource.data.equipeId)
         && request.resource.data.remetenteLogin == loginDoAuth()
         && request.resource.data.destinatarioLogin != loginDoAuth()
         && request.resource.data.status == 'ENVIADO'
-        && request.resource.data.resposta == null
+        && request.resource.data.resposta == ''
         && request.resource.data.respondidoEm == null
-        && request.resource.data.notaResposta == ''
         && request.resource.data.criadoEm == request.time
         && request.resource.data.expiraEm > request.time
         && request.resource.data.expiraEm <= request.time + duration.value(4, 'd')
         && get(/databases/$(database)/documents/usuarios/$(request.resource.data.destinatarioLogin)).data.get('equipeId', null) == request.resource.data.equipeId
+        && (
+          (request.resource.data.grupoPlantaoId == ''
+            && (
+              get(/databases/$(database)/documents/usuarios/$(loginDoAuth())).data.get('equipeId', '') == request.resource.data.equipeId
+              || podeGerirInformacoesDaEquipe(request.resource.data.equipeId)
+            ))
+          || (request.resource.data.grupoPlantaoId != ''
+            && participanteAtivoDoGrupoPlantao(request.resource.data.grupoPlantaoId, loginDoAuth())
+            && participanteAtivoDoGrupoPlantao(request.resource.data.grupoPlantaoId, request.resource.data.destinatarioLogin))
+        )
         && getAfter(caminhoLimiteRecados()).data.get('contagem', 0) <= 30
         && getAfter(caminhoLimiteRecados()).data.get('contagem', 0)
           == (exists(caminhoLimiteRecados()) ? get(caminhoLimiteRecados()).data.get('contagem', 0) + 1 : 1);
 
-      // o destinatário só RESPONDE (uma vez, antes de expirar); nada além dos campos da resposta muda
+      // o destinatário só RESPONDE (uma vez, antes de vencer), com texto livre; nada além da resposta muda
       allow update: if autenticado()
         && resource.data.destinatarioLogin == loginDoAuth()
         && resource.data.status == 'ENVIADO'
         && resource.data.expiraEm > request.time
         && recadoValido(request.resource.data, recadoId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resposta', 'notaResposta', 'respondidoEm', 'expiraEm'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resposta', 'respondidoEm', 'expiraEm'])
         && request.resource.data.status == 'RESPONDIDO'
-        && request.resource.data.resposta != null
         && request.resource.data.respondidoEm == request.time
         && request.resource.data.expiraEm > request.time
         && request.resource.data.expiraEm <= request.time + duration.value(2, 'd');
 
-      // o remetente apaga quando quiser; o destinatário só limpa o que já expirou
+      // o remetente apaga quando quiser; o destinatário só limpa o que já venceu
       allow delete: if autenticado()
         && (
           resource.data.remetenteLogin == loginDoAuth()

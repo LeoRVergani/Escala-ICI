@@ -1,41 +1,53 @@
 import { useMemo, useState } from 'react';
 import { LoaderCircle, MessageSquareText, Search, X } from 'lucide-react';
 
-import {
-  LIMITE_DIARIO_RECADOS, LIMITE_TEXTO_RECADO, MAXIMO_DESTINATARIOS, restanteHoje, validarEntradaRecado, type EntradaRecado, type TipoRecado,
-} from '@/lib/recados';
 import { semAcento } from '@/lib/informacoesDia';
-import { iniciais } from './pessoasLideranca';
-import type { PessoaDaEquipe } from './InformacaoModal';
+import { LIMITE_DIARIO_RECADOS, LIMITE_TEXTO_RECADO, MAXIMO_DESTINATARIOS, restanteHoje, validarEntradaRecado, type DestinatarioRecado, type EntradaRecado } from '@/lib/recados';
 
 /**
- * RECADOS-1 — "Novo recado": escolher quem recebe, se espera uma resposta (posso / não posso) ou só avisa,
- * e escrever o texto livre. Cada pessoa recebe o seu recado e conta 1 no limite do dia.
+ * RECADOS-2 — "Novo recado" (usado no App pelos colegas e no Dashboard pela liderança): escolher uma ou mais
+ * pessoas da equipe ou do Plantão e escrever do jeito que quiser. Cada pessoa recebe o seu recado e conta 1 no limite do dia.
  */
-export function RecadoModal({ pessoas, nomeEquipe, contagemHoje, onFechar, onEnviar }: {
-  pessoas: readonly PessoaDaEquipe[];
-  nomeEquipe: (equipeId: string) => string;
+export interface PessoaParaRecado extends DestinatarioRecado {
+  /** De onde a pessoa vem: "Minha equipe", o nome do Plantão, o nome da equipe… (vira um filtro). */
+  rotulo: string;
+}
+
+const iniciaisDoNome = (nome: string) => nome.split(/\s+/u).filter(Boolean).slice(0, 2).map((parte) => parte[0]!.toUpperCase()).join('');
+
+export function RecadoModal({ pessoas, contagemHoje, onFechar, onEnviar }: {
+  pessoas: readonly PessoaParaRecado[];
   contagemHoje: number;
   onFechar: () => void;
   onEnviar: (entrada: EntradaRecado) => Promise<void>;
 }) {
-  const [escolhidas, setEscolhidas] = useState<PessoaDaEquipe[]>([]);
-  const [tipo, setTipo] = useState<TipoRecado>('PERGUNTA');
+  const [escolhidas, setEscolhidas] = useState<PessoaParaRecado[]>([]);
   const [texto, setTexto] = useState('');
   const [busca, setBusca] = useState('');
+  const [origem, setOrigem] = useState('');
   const [tentou, setTentou] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [erroEnvio, setErroEnvio] = useState('');
 
   const restante = restanteHoje(contagemHoje);
-  const erros = useMemo(() => validarEntradaRecado({ destinatarios: escolhidas, tipo, texto }, restante), [escolhidas, tipo, texto, restante]);
+  const origens = useMemo(() => [...new Set(pessoas.map((pessoa) => pessoa.rotulo))], [pessoas]);
+  const erros = useMemo(() => validarEntradaRecado({ destinatarios: escolhidas, texto }, restante), [escolhidas, texto, restante]);
   const candidatas = useMemo(() => {
     const termo = semAcento(busca.trim());
-    return pessoas.filter((pessoa) => termo === '' || semAcento(`${pessoa.nome} ${pessoa.login}`).includes(termo));
-  }, [pessoas, busca]);
+    return pessoas.filter((pessoa) => (origem === '' || pessoa.rotulo === origem) && (termo === '' || semAcento(pessoa.nome).includes(termo)));
+  }, [pessoas, busca, origem]);
+  const todasMarcadas = candidatas.length > 0 && candidatas.every((pessoa) => escolhidas.some((item) => item.login === pessoa.login));
 
-  function alternar(pessoa: PessoaDaEquipe) {
+  function alternar(pessoa: PessoaParaRecado) {
     setEscolhidas((atuais) => (atuais.some((item) => item.login === pessoa.login) ? atuais.filter((item) => item.login !== pessoa.login) : [...atuais, pessoa]));
+  }
+  /** "Selecionar todos" marca (ou desmarca) quem está na lista filtrada, até o máximo por recado. */
+  function alternarTodos() {
+    setEscolhidas((atuais) => {
+      if (todasMarcadas) return atuais.filter((item) => !candidatas.some((pessoa) => pessoa.login === item.login));
+      const novos = candidatas.filter((pessoa) => !atuais.some((item) => item.login === pessoa.login));
+      return [...atuais, ...novos].slice(0, MAXIMO_DESTINATARIOS);
+    });
   }
   async function enviar() {
     setTentou(true);
@@ -43,11 +55,11 @@ export function RecadoModal({ pessoas, nomeEquipe, contagemHoje, onFechar, onEnv
     setErroEnvio('');
     setEnviando(true);
     try {
-      await onEnviar({ destinatarios: escolhidas, tipo, texto });
+      await onEnviar({ destinatarios: escolhidas, texto });
     } catch (falha) {
       const mensagem = falha instanceof Error ? falha.message : '';
       setErroEnvio(/permission|insufficient/iu.test(mensagem)
-        ? 'O envio foi recusado. Confira se o limite de hoje não acabou, se a pessoa é da sua equipe e se as Regras do Firestore desta versão já foram publicadas.'
+        ? 'O envio foi recusado. Confira se o limite de hoje não acabou, se a pessoa é da sua equipe ou do seu Plantão e se as Regras do Firestore desta versão já foram publicadas.'
         : mensagem || 'Não foi possível enviar agora. Tente de novo.');
       setEnviando(false);
     }
@@ -60,7 +72,7 @@ export function RecadoModal({ pessoas, nomeEquipe, contagemHoje, onFechar, onEnv
           <span className="criar-equipe-icone"><MessageSquareText size={18} aria-hidden="true" /></span>
           <div>
             <h2>Novo recado</h2>
-            <p>Um recado curto, sem conversa: a pessoa responde com um toque e o recado é apagado depois.</p>
+            <p>Escreva do seu jeito. A pessoa responde do jeito dela, e o recado some depois que você vê a resposta.</p>
           </div>
           <button className="icon-button" type="button" onClick={onFechar} disabled={enviando} aria-label="Fechar"><X size={18} /></button>
         </header>
@@ -77,17 +89,28 @@ export function RecadoModal({ pessoas, nomeEquipe, contagemHoje, onFechar, onEnv
                 ))}
               </div>
             )}
+            {origens.length > 1 && (
+              <div className="info-chips" role="radiogroup" aria-label="De onde">
+                <button type="button" role="radio" aria-checked={origem === ''} className={origem === '' ? 'active' : ''} onClick={() => setOrigem('')}>Todos</button>
+                {origens.map((rotulo) => (
+                  <button key={rotulo} type="button" role="radio" aria-checked={origem === rotulo} className={origem === rotulo ? 'active' : ''} onClick={() => setOrigem(rotulo)}>{rotulo}</button>
+                ))}
+              </div>
+            )}
             <label className="info-busca"><Search size={16} aria-hidden="true" />
-              <input type="search" placeholder="Buscar colaborador pelo nome" value={busca} onChange={(evento) => setBusca(evento.target.value)} /></label>
-            <ul className="info-pessoas" aria-label="Colaboradores">
-              {candidatas.length === 0 && <li className="info-vazio-lista">Ninguém com esse nome.</li>}
+              <input type="search" placeholder="Buscar pelo nome" value={busca} onChange={(evento) => setBusca(evento.target.value)} /></label>
+            {candidatas.length > 1 && (
+              <button type="button" className="assistente-link" onClick={alternarTodos}>{todasMarcadas ? 'Desmarcar todos' : `Selecionar todos (até ${MAXIMO_DESTINATARIOS})`}</button>
+            )}
+            <ul className="info-pessoas" aria-label="Pessoas">
+              {candidatas.length === 0 && <li className="info-vazio-lista">{pessoas.length === 0 ? 'Não encontrei colegas da sua equipe ou do seu Plantão.' : 'Ninguém com esse nome.'}</li>}
               {candidatas.map((pessoa) => {
                 const marcada = escolhidas.some((item) => item.login === pessoa.login);
                 return (
                   <li key={pessoa.login}>
                     <button type="button" aria-pressed={marcada} data-marcada={marcada ? '' : undefined} onClick={() => alternar(pessoa)}>
-                      <span className="info-avatar" aria-hidden="true">{iniciais(pessoa.nome)}</span>
-                      <span><strong>{pessoa.nome}</strong><small>{nomeEquipe(pessoa.equipeId)}</small></span>
+                      <span className="info-avatar" aria-hidden="true">{iniciaisDoNome(pessoa.nome)}</span>
+                      <span><strong>{pessoa.nome}</strong><small>{pessoa.rotulo}</small></span>
                     </button>
                   </li>
                 );
@@ -96,21 +119,9 @@ export function RecadoModal({ pessoas, nomeEquipe, contagemHoje, onFechar, onEnv
           </div>
 
           <div className="info-bloco">
-            <h3><span>2</span> O que você precisa?</h3>
-            <div className="info-tipos" role="radiogroup" aria-label="Tipo de recado">
-              <button type="button" role="radio" aria-checked={tipo === 'PERGUNTA'} data-cor="azul" className={tipo === 'PERGUNTA' ? 'active' : ''} onClick={() => setTipo('PERGUNTA')}>
-                <strong>Uma resposta</strong><small>A pessoa responde “Posso” ou “Não posso”.</small>
-              </button>
-              <button type="button" role="radio" aria-checked={tipo === 'AVISO'} data-cor="roxo" className={tipo === 'AVISO' ? 'active' : ''} onClick={() => setTipo('AVISO')}>
-                <strong>Só avisar</strong><small>A pessoa toca em “Entendi”.</small>
-              </button>
-            </div>
-          </div>
-
-          <div className="info-bloco">
-            <h3><span>3</span> O recado</h3>
+            <h3><span>2</span> O recado</h3>
             <label className="criar-equipe-campo"><span>Escreva do seu jeito <small>{texto.length}/{LIMITE_TEXTO_RECADO}</small></span>
-              <textarea rows={4} maxLength={LIMITE_TEXTO_RECADO} value={texto} placeholder={tipo === 'PERGUNTA' ? 'Ex.: Você pode trocar comigo no dia 20?' : 'Ex.: Amanhã a reunião começa às 9h.'} onChange={(evento) => setTexto(evento.target.value)} /></label>
+              <textarea rows={4} maxLength={LIMITE_TEXTO_RECADO} value={texto} placeholder="Ex.: Você pode trocar comigo no dia 20? Fico com a sua manhã." onChange={(evento) => setTexto(evento.target.value)} /></label>
           </div>
 
           <p className="recado-limite">

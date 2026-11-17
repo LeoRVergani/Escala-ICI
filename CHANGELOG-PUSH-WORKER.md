@@ -8,6 +8,14 @@ confere que o número do `package.json` é o da primeira seção deste arquivo.
 Depois de mudar o worker, na VM: `git pull`, `npm run docker:push-worker:staging:build` e
 `npm run docker:push-worker:staging:up` (as Rules do Firestore não mudam por causa do worker).
 
+## 0.3.0 — recados entre colegas: aviso do recado e da resposta (patch 0103)
+- O recado agora é entre colegas (equipe e Plantão), então o aviso é neutro: **"Novo recado — Você recebeu um recado.
+  Abra o app para responder."** (antes dizia "da liderança"). Continua **sem nome e sem conteúdo** na tela bloqueada.
+- **Novo aviso para quem enviou**: quando a resposta chega, **"Recado respondido — Alguém respondeu o seu recado."**
+  (uma vez por recado, reserva `RR_<id>`; também sem nome e sem a resposta).
+- **Correção importante**: no 0.2.0 o clique no aviso de recado **não abria o App** (o tipo `RECADO` não estava na lista
+  de prefixos do service worker). Corrigido no App 3.11.0.
+
 ## 0.2.0 — push do recado novo (patch 0102)
 - Quando a liderança envia um **recado**, o colaborador recebe a notificação no celular: "Nova mensagem da
   liderança — Você recebeu um recado que espera sua resposta" (ou "um aviso", se for só aviso).

@@ -12,6 +12,19 @@ O Dashboard tem a sua própria versão: veja `CHANGELOG-DASHBOARD.md`. O App con
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.11.0 — menu "Recados": mensagem entre colegas, com resposta livre
+- Novo menu **Recados** (barra de baixo): escolha uma ou mais pessoas da **sua equipe** ou do **seu Plantão** (ou
+  "Selecionar todos", até 10), escreva do seu jeito e envie. A pessoa responde do jeito dela.
+- Quando chegam recados, aparece um aviso na aba **Hoje** e uma **bolinha** no menu Recados (esperando a sua resposta
+  + respostas para você ver). Você vê a resposta e toca em "Ok, apagar"; o recado some.
+- Sem histórico nem conversa: uma mensagem, uma resposta. O recado vence sozinho (3 dias sem resposta). Há um limite
+  de 30 recados por dia.
+- A resposta pode usar os atalhos **Posso / Não posso / Entendi**, que só preenchem o campo.
+- **Correção**: tocar no aviso de recado no celular agora **abre o App** (antes não fazia nada).
+- Substitui o cartão "Recados da liderança" do 3.9.0/3.10.0 e a bolinha da aba Hoje.
+- A barra de baixo agora comporta 6 abas numa linha só (eram 5 colunas fixas), mesmo em telas estreitas.
+- Requer o push-worker 0.3.0 e as Rules novas na VM.
+
 ## 3.10.0 — aviso de recado no celular e bolinha na aba Hoje
 - Quando a sua liderança manda um recado, o celular avisa ("Nova mensagem da liderança"). A notificação **não mostra
   o texto** do recado nem quem mandou — só que há um recado; ao tocar, abre o App.

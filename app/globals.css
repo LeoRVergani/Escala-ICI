@@ -2880,7 +2880,10 @@ button.shift-chip:disabled { cursor: default; }
   }
   .app-shell.product-app .bottom-nav {
     inset: auto 0 0 0;
-    grid-template-columns: repeat(5, 1fr);
+    /* uma coluna por aba, qualquer que seja a quantidade (eram 5 fixas; com o menu Recados são 6) */
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
     min-height: calc(65px + env(safe-area-inset-bottom));
     padding: 5px 5px env(safe-area-inset-bottom);
     border-right: 0;
@@ -10714,3 +10717,19 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 .nav-contador { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px; background: var(--danger); color: #fff; font-size: 10.5px; font-style: normal; font-weight: 800; line-height: 1; box-shadow: 0 0 0 2px var(--surface); }
 .bottom-nav > button > .nav-contador { position: absolute; top: 4px; left: calc(50% + 6px); }
 .sidebar-nav > button > .nav-contador { margin-left: auto; }
+
+/* RECADOS-2 — atalhos que só preenchem a resposta livre; abas e blocos da tela de Recados do App. */
+.recado-rapidas { display: flex; flex-wrap: wrap; gap: 8px; }
+.recado-rapidas > button { padding: 6px 14px; border: 1.5px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.recado-rapidas > button:hover:not(:disabled) { border-color: var(--primary-bright); color: var(--primary-bright); }
+.recado-tela { display: grid; gap: 14px; }
+.recado-tela > * { margin: 0; }
+.recado-tela .recado-app-item > .primary-button { min-height: 44px; }
+.recado-tela-topo { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.recado-tela-topo h1 { margin: 0 0 4px; color: var(--text); font-size: 24px; font-weight: 850; }
+.recado-tela-topo p { margin: 0; max-width: 520px; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+.recado-aviso { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--primary-bright) 50%, var(--border)); border-radius: 16px; background: color-mix(in srgb, var(--primary-bright) 8%, var(--surface)); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.recado-aviso > span:nth-child(2) { display: grid; flex: 1 1 auto; gap: 2px; }
+.recado-aviso strong { font-size: 14px; line-height: 1.35; }
+.recado-aviso small { color: var(--muted); font-size: 12px; }
+.recado-aviso-icone { display: inline-grid; flex: 0 0 auto; place-items: center; width: 38px; height: 38px; border-radius: 12px; background: color-mix(in srgb, var(--primary-bright) 18%, var(--surface)); color: var(--primary-bright); }
