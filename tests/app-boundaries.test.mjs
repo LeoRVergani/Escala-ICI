@@ -1459,3 +1459,27 @@ test('RECADOS-1 — limite diário no servidor (o mesmo número do código), só
   assert.ok(JSON.parse(indices).fieldOverrides.some((item) => item.collectionGroup === 'recados' && item.fieldPath === 'expiraEm' && item.ttl === true));
   assert.match(dashboard, /\{ id: 'recados', rotulo: 'Recados', icone: 'recados' \}/u);
 });
+
+test('RECADOS-1 (push) — o aviso do recado é genérico e único, a data de ativação é Timestamp, o worker tem versão e changelog, e o App só mostra um contador', async () => {
+  const [sinos, pacoteWorker, changelogWorker, frame, appJs] = await Promise.all([
+    ler('apps/push-worker/src/outrosSinos.ts'), ler('apps/push-worker/package.json'), ler('CHANGELOG-PUSH-WORKER.md'),
+    ler('components/AppFrame.tsx'), ler('apps/app/src/EmployeeApp.tsx'),
+  ]);
+  // O texto do push é FIXO: a função do texto nem lê campos do recado (nome de quem enviou, conteúdo).
+  const textoFn = /export function textoRecado[\s\S]*?\n\}/u.exec(sinos)?.[0] ?? '';
+  assert.ok(textoFn.length > 0);
+  assert.doesNotMatch(textoFn, /dados\.|remetente|\.texto|nome/u);
+  // Só avisa o que ainda espera resposta e não venceu.
+  assert.match(sinos, /if \(dados\.status !== 'ENVIADO'\) return null;/u);
+  assert.match(sinos, /if \(expira !== null && expira <= agoraMs\) return null;/u);
+  // Escuta recados novos a partir da ativação — com TIMESTAMP (texto nunca casaria) — e só 'added', uma vez por recado.
+  assert.match(sinos, /\.collection\('recados'\)\s*\.where\('criadoEm', '>=', inicioDeAtivacao\(config\.pushActivatedAt\)\)/u);
+  assert.match(sinos, /Timestamp\.fromDate\(new Date\(pushActivatedAt\)\)/u);
+  assert.match(sinos, /decidirPushRecado\(mudanca\.doc\.data\(\), Date\.now\(\)\)/u);
+  assert.match(sinos, /enviarUmaVez\(`RC_\$\{mudanca\.doc\.id\}`, decisao\.login, 'RECADO', decisao\.texto\)/u);
+  // O worker tem versão e changelog próprios, alinhados.
+  assert.equal(/^## (\d+\.\d+\.\d+)/mu.exec(changelogWorker)?.[1], JSON.parse(pacoteWorker).version, 'versão do worker = primeira seção do CHANGELOG-PUSH-WORKER.md');
+  // App: o contador é opcional no AppFrame (compartilhado) e só a aba "Hoje" o recebe.
+  assert.match(frame, /contador\?: number;/u);
+  assert.match(appJs, /item\.id === 'hoje' \? \{ \.\.\.item, contador: recadosPendentesApp\.length \} : item/u);
+});

@@ -32,6 +32,8 @@ export interface ItemNavegacao {
   id: string;
   rotulo: string;
   icone: 'home' | 'upload' | 'calendar' | 'grid' | 'users' | 'user' | 'trocas' | 'admin' | 'plantao' | 'notas' | 'recados';
+  /** RECADOS-1 — bolinha com a quantidade (ex.: recados esperando resposta); some quando 0 ou ausente. */
+  contador?: number;
   /**
    * FASE-APP-UX-OPERACOES-MOBILE-1 — item some da barra inferior mobile
    * (`.bottom-nav`) mas continua na sidebar (desktop). Usado por "Perfil":
@@ -178,6 +180,7 @@ export function AppFrame({
               >
                 <Icone size={19} />
                 {!recolhida && <span>{item.rotulo}</span>}
+                {item.contador ? <i className="nav-contador" aria-label={`${item.contador} novos`}>{item.contador > 9 ? '9+' : item.contador}</i> : null}
               </button>
             );
           })}
@@ -310,6 +313,7 @@ export function AppFrame({
               >
                 <Icone size={20} />
                 <span>{item.rotulo}</span>
+                {item.contador ? <i className="nav-contador" aria-label={`${item.contador} novos`}>{item.contador > 9 ? '9+' : item.contador}</i> : null}
               </button>
             );
           })}

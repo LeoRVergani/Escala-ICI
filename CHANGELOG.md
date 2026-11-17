@@ -12,6 +12,13 @@ O Dashboard tem a sua própria versão: veja `CHANGELOG-DASHBOARD.md`. O App con
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.10.0 — aviso de recado no celular e bolinha na aba Hoje
+- Quando a sua liderança manda um recado, o celular avisa ("Nova mensagem da liderança"). A notificação **não mostra
+  o texto** do recado nem quem mandou — só que há um recado; ao tocar, abre o App.
+- A aba **Hoje** ganha uma bolinha com o número de recados esperando a sua resposta, mesmo se você estiver em outra
+  aba. Some quando você responde.
+- Requer o push-worker novo na VM (`CHANGELOG-PUSH-WORKER.md`, 0.2.0).
+
 ## 3.9.0 — "Recados da liderança" no Hoje
 - Na aba Hoje aparece o cartão "Recados da liderança" quando a sua liderança manda um recado: você responde com um
   toque ("Posso" / "Não posso", ou "Entendi"), com uma explicação curta opcional, e o recado some do seu App.
