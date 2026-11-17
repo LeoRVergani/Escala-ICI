@@ -15,6 +15,15 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.11.0 — Recados com mensagem e resposta livres (patch 0103)
+- A tela "Recados" agora usa **texto livre** na mensagem e mostra a **resposta livre** da pessoa (antes eram só
+  "Posso / Não posso"). Sem "tipo" de recado: você escreve e envia.
+- O recurso é o mesmo do App, usado pelos colaboradores entre colegas da equipe e do Plantão; a liderança continua
+  mandando para as equipes que gerencia, escolhendo uma ou várias pessoas (ou "Selecionar todos", até 10).
+- Formulário e cartões passam a ser **compartilhados** com o App (`components/RecadoModal.tsx`, `RecadoCartoes.tsx`).
+- **Requer publicar as Rules** (colegas da mesma equipe e participantes do mesmo Plantão passam a poder enviar; a resposta
+  é livre; 492 testes de regra esperados na VM). Recados antigos do modelo anterior são ignorados (duram no máximo 3 dias).
+
 ## 1.10.1 — ajuste interno na barra de navegação (patch 0102)
 - O menu lateral aceita uma bolinha de contador por item (usada só no App). Sem mudança visível no Dashboard.
 - Só um ajuste em `components/AppFrame.tsx` (que o App também usa) → App 3.10.0.

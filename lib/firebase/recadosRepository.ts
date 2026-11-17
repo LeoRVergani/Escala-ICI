@@ -2,7 +2,7 @@ import {
   collection, deleteDoc, doc, getDocs, onSnapshot, query, serverTimestamp, Timestamp, updateDoc, where, writeBatch, type Unsubscribe,
 } from 'firebase/firestore';
 
-import { chaveLimite, diaDoLimite, lerRecado, VALIDADE_APOS_RESPOSTA_HORAS, type Recado, type RespostaRecado } from '../recados';
+import { chaveLimite, diaDoLimite, lerRecado, VALIDADE_APOS_RESPOSTA_HORAS, type Recado } from '../recados';
 import { exigirFirebase } from './shared';
 
 /**
@@ -79,11 +79,11 @@ export async function enviarRecado(recado: Recado, contagemAtual: number): Promi
   return nova;
 }
 
-/** O destinatário responde com um toque; o recado ainda vive 24 h para o remetente ver e depois some. */
-export async function responderRecado(recadoId: string, resposta: RespostaRecado, nota: string): Promise<void> {
+/** O destinatário responde (texto livre); o recado ainda vive 24 h para o remetente ver e depois some. */
+export async function responderRecado(recadoId: string, resposta: string): Promise<void> {
   const { db } = exigirFirebase();
   await updateDoc(doc(db, COLECAO_RECADOS, recadoId), {
-    status: 'RESPONDIDO', resposta, notaResposta: nota.trim(), respondidoEm: serverTimestamp(),
+    status: 'RESPONDIDO', resposta: resposta.trim(), respondidoEm: serverTimestamp(),
     expiraEm: Timestamp.fromMillis(Date.now() + VALIDADE_APOS_RESPOSTA_HORAS * 3_600_000),
   });
 }

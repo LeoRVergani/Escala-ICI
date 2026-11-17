@@ -27,11 +27,14 @@ const TEXTOS_TROCA_PLANTAO: Record<string, { titulo: string; corpo: string }> = 
   TROCA_PLANTAO_CANCELADA: { titulo: 'Troca de plantão cancelada', corpo: 'A solicitação de troca de plantão foi cancelada.' },
 };
 
-/** RECADOS-1 — o push NUNCA leva o nome de quem enviou nem o texto do recado: só avisa que há um recado. */
-export function textoRecado(tipo: unknown): { titulo: string; corpo: string } | null {
-  if (tipo === 'PERGUNTA') return { titulo: 'Nova mensagem da liderança', corpo: 'Você recebeu um recado que espera sua resposta. Abra o app para responder.' };
-  if (tipo === 'AVISO') return { titulo: 'Nova mensagem da liderança', corpo: 'Você recebeu um aviso da liderança. Abra o app para ver.' };
-  return null;
+/** RECADOS-2 — o push NUNCA leva o nome de quem enviou nem o texto do recado: só avisa que há um recado. */
+export function textoRecado(): { titulo: string; corpo: string } {
+  return { titulo: 'Novo recado', corpo: 'Você recebeu um recado. Abra o app para responder.' };
+}
+
+/** RECADOS-2 — para quem ENVIOU: avisa que a resposta chegou, sem dizer quem respondeu nem o que respondeu. */
+export function textoRespostaRecado(): { titulo: string; corpo: string } {
+  return { titulo: 'Recado respondido', corpo: 'Alguém respondeu o seu recado. Abra o app para ver.' };
 }
 
 /** Milissegundos de um Timestamp do Firestore, de uma Date ou de um texto ISO; `null` se não der para ler. */
@@ -57,15 +60,26 @@ export function inicioDeAtivacao(pushActivatedAt: string): Timestamp {
 
 /** Este recado merece push agora? Só os que ainda esperam resposta e não venceram. Nada mais entra no aviso. */
 export function decidirPushRecado(
-  dados: { destinatarioLogin?: unknown; tipo?: unknown; status?: unknown; expiraEm?: unknown },
+  dados: { destinatarioLogin?: unknown; status?: unknown; expiraEm?: unknown },
   agoraMs: number,
 ): { login: string; texto: { titulo: string; corpo: string } } | null {
   if (typeof dados.destinatarioLogin !== 'string' || dados.destinatarioLogin === '') return null;
   if (dados.status !== 'ENVIADO') return null;
   const expira = milissegundos(dados.expiraEm);
   if (expira !== null && expira <= agoraMs) return null;
-  const texto = textoRecado(dados.tipo);
-  return texto === null ? null : { login: dados.destinatarioLogin, texto };
+  return { login: dados.destinatarioLogin, texto: textoRecado() };
+}
+
+/** Esta resposta merece push para quem enviou? Só recado respondido que ainda não venceu. */
+export function decidirPushResposta(
+  dados: { remetenteLogin?: unknown; status?: unknown; expiraEm?: unknown },
+  agoraMs: number,
+): { login: string; texto: { titulo: string; corpo: string } } | null {
+  if (typeof dados.remetenteLogin !== 'string' || dados.remetenteLogin === '') return null;
+  if (dados.status !== 'RESPONDIDO') return null;
+  const expira = milissegundos(dados.expiraEm);
+  if (expira !== null && expira <= agoraMs) return null;
+  return { login: dados.remetenteLogin, texto: textoRespostaRecado() };
 }
 
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
@@ -118,7 +132,7 @@ export function iniciarOutrosSinos({
 }): () => void {
   const loginPorUid = new Map<string, string>();
 
-  async function enviarUmaVez(id: string, login: string, tipo: string, texto: { titulo: string; corpo: string }) {
+  async function enviarUmaVez(id: string, login: string, tipo: string, texto: { titulo: string; corpo: string }, rota = 'hoje') {
     if (!config.pushEnabled || !login) return;
     try {
       await db.collection('pushSinosEnviados').doc(id).create({ login, tipo, status: 'ENVIANDO', criadoEm: new Date().toISOString() });
@@ -133,7 +147,7 @@ export function iniciarOutrosSinos({
     }
     const resultado = await sendToDevices(messaging, {
       fids: dispositivos.map((dispositivo) => dispositivo.fid),
-      data: { eventId: id, tipo, route: 'hoje', titulo: texto.titulo, corpo: texto.corpo },
+      data: { eventId: id, tipo, route: rota, titulo: texto.titulo, corpo: texto.corpo },
       android: { priority: 'high', ttl: TTL_MS },
     });
     for (const [indice, resposta] of resultado.responses.entries()) {
@@ -188,7 +202,7 @@ export function iniciarOutrosSinos({
       }
     }, (erro) => logger.error('listener de eventosEscala falhou', { erro: erro.message }));
 
-  // RECADOS-1 — recado novo da liderança vira push (uma vez por recado: reserva `RC_<id>` em pushSinosEnviados).
+  // RECADOS-2 — recado novo vira push para o destinatário (uma vez por recado: reserva `RC_<id>` em pushSinosEnviados).
   const pararRecados = db.collection('recados')
     .where('criadoEm', '>=', inicioDeAtivacao(config.pushActivatedAt))
     .onSnapshot((snapshot) => {
@@ -196,15 +210,29 @@ export function iniciarOutrosSinos({
         if (mudanca.type !== 'added') continue;
         const decisao = decidirPushRecado(mudanca.doc.data(), Date.now());
         if (decisao === null) continue;
-        void enviarUmaVez(`RC_${mudanca.doc.id}`, decisao.login, 'RECADO', decisao.texto)
+        void enviarUmaVez(`RC_${mudanca.doc.id}`, decisao.login, 'RECADO', decisao.texto, 'recados')
           .catch((erro) => logger.error('push de recado falhou', { erro: erro instanceof Error ? erro.message : String(erro) }));
       }
     }, (erro) => logger.error('listener de recados falhou', { erro: erro.message }));
+
+  // RECADOS-2 — a resposta chegou: avisa quem enviou (uma vez por recado: reserva `RR_<id>`). `respondidoEm` é nulo até responder.
+  const pararRespostas = db.collection('recados')
+    .where('respondidoEm', '>=', inicioDeAtivacao(config.pushActivatedAt))
+    .onSnapshot((snapshot) => {
+      for (const mudanca of snapshot.docChanges()) {
+        if (mudanca.type === 'removed') continue;
+        const decisao = decidirPushResposta(mudanca.doc.data(), Date.now());
+        if (decisao === null) continue;
+        void enviarUmaVez(`RR_${mudanca.doc.id}`, decisao.login, 'RECADO_RESPONDIDO', decisao.texto, 'recados')
+          .catch((erro) => logger.error('push de resposta de recado falhou', { erro: erro instanceof Error ? erro.message : String(erro) }));
+      }
+    }, (erro) => logger.error('listener de respostas de recados falhou', { erro: erro.message }));
 
   logger.info('push de trocas de plantão, escala publicada e recados iniciado', { pushEnabled: config.pushEnabled });
   return () => {
     pararTrocasPlantao();
     pararEventosEscala();
     pararRecados();
+    pararRespostas();
   };
 }

@@ -1423,10 +1423,10 @@ test('LIDERANCA-CARGO-1 — só cargo de liderança vira liderança (tela e Rule
   assert.match(sessao, /if \(perfil === 'ADMIN_SISTEMA'\) return 'Administrador do sistema';/u);
 });
 
-test('RECADOS-1 — limite diário no servidor (o mesmo número do código), só remetente e destinatário leem, o App só responde, texto sempre como texto e TTL declarado', async () => {
-  const [rules, lib, repo, hookApp, cartaoApp, pagina, modal, appJs, dashboard, indices] = await Promise.all([
-    ler('firestore.rules'), ler('lib/recados.ts'), ler('lib/firebase/recadosRepository.ts'), ler('apps/app/src/recados/useRecadosRecebidos.ts'),
-    ler('apps/app/src/recados/RecadosParaVoce.tsx'), ler('apps/dashboard/src/RecadosPage.tsx'), ler('apps/dashboard/src/RecadoModal.tsx'),
+test('RECADOS-2 — limite diário no servidor (o mesmo número do código), só remetente e destinatário leem, resposta livre, três caminhos para enviar e texto sempre como texto', async () => {
+  const [rules, lib, repo, hookApp, cartoes, modal, pagina, telaApp, appJs, dashboard, indices] = await Promise.all([
+    ler('firestore.rules'), ler('lib/recados.ts'), ler('lib/firebase/recadosRepository.ts'), ler('apps/app/src/recados/useRecados.ts'),
+    ler('components/RecadoCartoes.tsx'), ler('components/RecadoModal.tsx'), ler('apps/dashboard/src/RecadosPage.tsx'), ler('apps/app/src/recados/RecadosTela.tsx'),
     ler('apps/app/src/EmployeeApp.tsx'), ler('apps/dashboard/src/DashboardApp.tsx'), ler('firestore.indexes.json'),
   ]);
   // O limite do código e o das Rules são o MESMO número (um não pode ser afrouxado sem o outro).
@@ -1438,48 +1438,66 @@ test('RECADOS-1 — limite diário no servidor (o mesmo número do código), só
   assert.match(rules, /getAfter\(caminhoLimiteRecados\(\)\)\.data\.get\('contagem', 0\)/u);
   assert.match(rules, /exists\(caminhoLimiteRecados\(\)\) \? get\(caminhoLimiteRecados\(\)\)\.data\.get\('contagem', 0\) \+ 1 : 1/u);
   assert.match(rules, /request\.resource\.data\.contagem == resource\.data\.contagem \+ 1/u);
-  assert.match(rules, /allow delete: if false;/u);
-  // Leitura: só remetente e destinatário. Apagar: o remetente; o destinatário só o que já expirou.
+  // Leitura: só remetente e destinatário. Apagar: o remetente; o destinatário só o que já venceu.
   const bloco = /match \/recados\/\{recadoId\} \{([\s\S]*?)\n    \}\n/u.exec(rules)?.[1] ?? '';
   assert.match(bloco, /allow read: if autenticado\(\)\s*&& \(resource\.data\.remetenteLogin == loginDoAuth\(\) \|\| resource\.data\.destinatarioLogin == loginDoAuth\(\)\);/u);
   assert.match(bloco, /resource\.data\.destinatarioLogin == loginDoAuth\(\) && resource\.data\.expiraEm <= request\.time/u);
-  assert.match(bloco, /affectedKeys\(\)\.hasOnly\(\['status', 'resposta', 'notaResposta', 'respondidoEm', 'expiraEm'\]\)/u);
+  // O destinatário só RESPONDE (texto livre): nada além dos campos da resposta muda.
+  assert.match(bloco, /affectedKeys\(\)\.hasOnly\(\['status', 'resposta', 'respondidoEm', 'expiraEm'\]\)/u);
+  assert.match(rules, /\(dados\.status == 'ENVIADO' \? dados\.resposta == '' : dados\.resposta\.size\(\) >= 1\)/u);
+  // Quem pode enviar: colega da mesma equipe, participante ATIVO do mesmo Plantão, ou a liderança da equipe — nada mais.
+  assert.match(bloco, /usuarios\/\$\(loginDoAuth\(\)\)\)\.data\.get\('equipeId', ''\) == request\.resource\.data\.equipeId/u);
   assert.match(bloco, /podeGerirInformacoesDaEquipe\(request\.resource\.data\.equipeId\)/u);
-  // O App só responde e limpa: nunca envia recado.
-  assert.doesNotMatch(`${hookApp}${cartaoApp}${appJs}`, /enviarRecado/u);
-  assert.match(hookApp, /responderRecado\(recado\.id, resposta, nota\)/u);
-  // O Dashboard envia só pelo repositório; o texto nunca vira HTML em nenhuma das telas.
+  assert.match(bloco, /participanteAtivoDoGrupoPlantao\(request\.resource\.data\.grupoPlantaoId, loginDoAuth\(\)\)/u);
+  assert.match(bloco, /participanteAtivoDoGrupoPlantao\(request\.resource\.data\.grupoPlantaoId, request\.resource\.data\.destinatarioLogin\)/u);
+  assert.match(bloco, /usuarios\/\$\(request\.resource\.data\.destinatarioLogin\)\)\.data\.get\('equipeId', null\) == request\.resource\.data\.equipeId/u);
+  // App e Dashboard enviam só pelo repositório (que grava recado + contador no mesmo lote).
+  assert.match(hookApp, /await enviarRecado\(montarRecado\(entrada, destinatario, \{ login, nome \}/u);
   assert.match(pagina, /await enviarRecado\(/u);
-  for (const fonte of [pagina, modal, cartaoApp]) assert.doesNotMatch(fonte, /dangerouslySetInnerHTML|innerHTML|document\.write/u);
-  // Consultas por igualdade (sem "in"), como as Rules avaliam.
+  assert.match(repo, /const lote = writeBatch\(db\);/u);
+  assert.match(hookApp, /responder: \(recado: Recado, resposta: string\) => responderRecado\(recado\.id, resposta\)/u);
+  // O App só oferece colegas da MINHA equipe e do Plantão em que eu participo.
+  assert.match(appJs, /colega\.equipeId !== usuario\.equipeId/u);
+  assert.match(appJs, /if \(grupo && euParticipo\)/u);
+  // Texto sempre como TEXTO: nenhuma tela transforma o recado em HTML.
+  for (const fonte of [pagina, modal, cartoes, telaApp]) assert.doesNotMatch(fonte, /dangerouslySetInnerHTML|innerHTML|document\.write/u);
+  // Consultas por igualdade (sem "in"), como as Rules avaliam; limpeza automática (TTL) no mesmo arquivo de índices do deploy.
   assert.match(repo, /where\('remetenteLogin', '==', login\)/u);
   assert.match(repo, /where\('destinatarioLogin', '==', login\)/u);
   assert.doesNotMatch(repo, /, 'in', /u);
-  // O que vence é apagado sozinho: TTL em expiraEm, declarado no mesmo arquivo de índices que o deploy publica.
   assert.ok(JSON.parse(indices).fieldOverrides.some((item) => item.collectionGroup === 'recados' && item.fieldPath === 'expiraEm' && item.ttl === true));
+  // Os dois menus: Dashboard (liderança) e App (colaborador); a bolinha é da aba Recados.
   assert.match(dashboard, /\{ id: 'recados', rotulo: 'Recados', icone: 'recados' \}/u);
+  assert.match(appJs, /\{ id: 'recados', rotulo: 'Recados', icone: 'recados' \}/u);
+  assert.match(appJs, /item\.id === 'recados' \? \{ \.\.\.item, contador: recadosApp\.atencao \} : item/u);
 });
 
-test('RECADOS-1 (push) — o aviso do recado é genérico e único, a data de ativação é Timestamp, o worker tem versão e changelog, e o App só mostra um contador', async () => {
-  const [sinos, pacoteWorker, changelogWorker, frame, appJs] = await Promise.all([
+test('RECADOS-2 (push) — os avisos do recado e da resposta são genéricos e únicos, o clique abre o App, a data de ativação é Timestamp e o worker tem versão e changelog', async () => {
+  const [sinos, pacoteWorker, changelogWorker, frame, sw] = await Promise.all([
     ler('apps/push-worker/src/outrosSinos.ts'), ler('apps/push-worker/package.json'), ler('CHANGELOG-PUSH-WORKER.md'),
-    ler('components/AppFrame.tsx'), ler('apps/app/src/EmployeeApp.tsx'),
+    ler('components/AppFrame.tsx'), ler('apps/app/src/sw/pushClickRouting.js'),
   ]);
-  // O texto do push é FIXO: a função do texto nem lê campos do recado (nome de quem enviou, conteúdo).
-  const textoFn = /export function textoRecado[\s\S]*?\n\}/u.exec(sinos)?.[0] ?? '';
-  assert.ok(textoFn.length > 0);
-  assert.doesNotMatch(textoFn, /dados\.|remetente|\.texto|nome/u);
-  // Só avisa o que ainda espera resposta e não venceu.
+  // Os textos são FIXOS: as funções dos textos nem leem campos do recado (nome de quem enviou, conteúdo, resposta).
+  for (const nome of ['textoRecado', 'textoRespostaRecado']) {
+    const funcao = new RegExp(`export function ${nome}[\\s\\S]*?\\n\\}`, 'u').exec(sinos)?.[0] ?? '';
+    assert.ok(funcao.length > 0, nome);
+    assert.doesNotMatch(funcao, /dados\.|remetente|\.texto|nome\b/u, `${nome} lê campo do recado`);
+  }
+  // O recado novo avisa o DESTINATÁRIO (ainda sem resposta, não vencido); a resposta avisa o REMETENTE (respondido, não vencido).
   assert.match(sinos, /if \(dados\.status !== 'ENVIADO'\) return null;/u);
+  assert.match(sinos, /if \(dados\.status !== 'RESPONDIDO'\) return null;/u);
   assert.match(sinos, /if \(expira !== null && expira <= agoraMs\) return null;/u);
-  // Escuta recados novos a partir da ativação — com TIMESTAMP (texto nunca casaria) — e só 'added', uma vez por recado.
+  // Escuta com TIMESTAMP (texto nunca casaria), só recado novo / resposta nova, uma vez cada (RC_ e RR_), e a rota é "recados".
   assert.match(sinos, /\.collection\('recados'\)\s*\.where\('criadoEm', '>=', inicioDeAtivacao\(config\.pushActivatedAt\)\)/u);
+  assert.match(sinos, /\.collection\('recados'\)\s*\.where\('respondidoEm', '>=', inicioDeAtivacao\(config\.pushActivatedAt\)\)/u);
   assert.match(sinos, /Timestamp\.fromDate\(new Date\(pushActivatedAt\)\)/u);
   assert.match(sinos, /decidirPushRecado\(mudanca\.doc\.data\(\), Date\.now\(\)\)/u);
-  assert.match(sinos, /enviarUmaVez\(`RC_\$\{mudanca\.doc\.id\}`, decisao\.login, 'RECADO', decisao\.texto\)/u);
-  // O worker tem versão e changelog próprios, alinhados.
+  assert.match(sinos, /decidirPushResposta\(mudanca\.doc\.data\(\), Date\.now\(\)\)/u);
+  assert.match(sinos, /enviarUmaVez\(`RC_\$\{mudanca\.doc\.id\}`, decisao\.login, 'RECADO', decisao\.texto, 'recados'\)/u);
+  assert.match(sinos, /enviarUmaVez\(`RR_\$\{mudanca\.doc\.id\}`, decisao\.login, 'RECADO_RESPONDIDO', decisao\.texto, 'recados'\)/u);
+  // Sem isto o toque no aviso não fazia nada (tipo desconhecido = "sem destino"): o prefixo RECADO abre o App.
+  assert.match(sw, /PREFIXOS_ABRIR_APP = \[[^\]]*'RECADO'/u);
+  // O worker tem versão e changelog próprios, alinhados; o contador do menu é opcional no AppFrame (compartilhado).
   assert.equal(/^## (\d+\.\d+\.\d+)/mu.exec(changelogWorker)?.[1], JSON.parse(pacoteWorker).version, 'versão do worker = primeira seção do CHANGELOG-PUSH-WORKER.md');
-  // App: o contador é opcional no AppFrame (compartilhado) e só a aba "Hoje" o recebe.
   assert.match(frame, /contador\?: number;/u);
-  assert.match(appJs, /item\.id === 'hoje' \? \{ \.\.\.item, contador: recadosPendentesApp\.length \} : item/u);
 });

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import { Timestamp } from 'firebase-admin/firestore';
 
-import { decidirPushRecado, inicioDeAtivacao, milissegundos, textoEventoEscala, textoRecado, textoTrocaPlantao } from '../src/outrosSinos.js';
+import {
+  decidirPushRecado, decidirPushResposta, inicioDeAtivacao, milissegundos, textoEventoEscala, textoRecado, textoRespostaRecado, textoTrocaPlantao,
+} from '../src/outrosSinos.js';
 
 describe('SINOS-NO-CELULAR-1 — textos fixos (sem nomes na tela bloqueada)', () => {
   it('troca de plantão: todos os tipos do App têm texto; desconhecido não vira push', () => {
@@ -25,27 +27,35 @@ describe('SINOS-NO-CELULAR-1 — textos fixos (sem nomes na tela bloqueada)', ()
   });
 });
 
-describe('RECADOS-1 — push do recado novo', () => {
+describe('RECADOS-2 — push do recado novo e da resposta', () => {
   const AGORA = Date.parse('2026-11-17T15:00:00.000Z');
-  const base = { destinatarioLogin: 'ana', tipo: 'PERGUNTA', status: 'ENVIADO', expiraEm: Timestamp.fromMillis(AGORA + 86_400_000) };
+  const base = { destinatarioLogin: 'ana', remetenteLogin: 'marina', status: 'ENVIADO', expiraEm: Timestamp.fromMillis(AGORA + 86_400_000) };
 
-  it('o texto é FIXO: nada do conteúdo do recado nem de quem enviou na tela bloqueada', () => {
-    expect(textoRecado('PERGUNTA')).toEqual({ titulo: 'Nova mensagem da liderança', corpo: 'Você recebeu um recado que espera sua resposta. Abra o app para responder.' });
-    expect(textoRecado('AVISO')).toEqual({ titulo: 'Nova mensagem da liderança', corpo: 'Você recebeu um aviso da liderança. Abra o app para ver.' });
-    expect(textoRecado('CHAT')).toBeNull();
-    // o recado real (com nome e texto) não tem como vazar: a função nem recebe esses campos
-    const decisao = decidirPushRecado({ ...base, texto: 'Pode trocar comigo dia 20?', remetenteNome: 'Marina Azevedo' } as never, AGORA);
-    expect(JSON.stringify(decisao)).not.toMatch(/Marina|trocar|dia 20/u);
+  it('os textos são FIXOS: nada do conteúdo do recado, de quem enviou ou de quem respondeu na tela bloqueada', () => {
+    expect(textoRecado()).toEqual({ titulo: 'Novo recado', corpo: 'Você recebeu um recado. Abra o app para responder.' });
+    expect(textoRespostaRecado()).toEqual({ titulo: 'Recado respondido', corpo: 'Alguém respondeu o seu recado. Abra o app para ver.' });
+    // o recado real (com nomes e texto) não tem como vazar: as funções nem recebem esses campos
+    const dados = { ...base, texto: 'Pode trocar comigo dia 20?', remetenteNome: 'Marina Azevedo', resposta: 'Posso sim', destinatarioNome: 'Ana Lima' };
+    expect(JSON.stringify(decidirPushRecado(dados as never, AGORA))).not.toMatch(/Marina|Ana Lima|trocar|dia 20|Posso/u);
+    expect(JSON.stringify(decidirPushResposta({ ...dados, status: 'RESPONDIDO' } as never, AGORA))).not.toMatch(/Marina|Ana Lima|trocar|dia 20|Posso/u);
   });
 
-  it('avisa só o que ainda espera resposta e não venceu', () => {
-    expect(decidirPushRecado(base, AGORA)).toMatchObject({ login: 'ana', texto: { titulo: 'Nova mensagem da liderança' } });
+  it('o recado novo avisa o DESTINATÁRIO só se ainda espera resposta e não venceu', () => {
+    expect(decidirPushRecado(base, AGORA)).toMatchObject({ login: 'ana', texto: { titulo: 'Novo recado' } });
     expect(decidirPushRecado({ ...base, status: 'RESPONDIDO' }, AGORA)).toBeNull();
     expect(decidirPushRecado({ ...base, expiraEm: Timestamp.fromMillis(AGORA - 1) }, AGORA)).toBeNull();
     expect(decidirPushRecado({ ...base, expiraEm: Timestamp.fromMillis(AGORA) }, AGORA)).toBeNull();
     expect(decidirPushRecado({ ...base, destinatarioLogin: '' }, AGORA)).toBeNull();
     expect(decidirPushRecado({ ...base, destinatarioLogin: undefined }, AGORA)).toBeNull();
-    expect(decidirPushRecado({ ...base, tipo: 'CHAT' }, AGORA)).toBeNull();
+  });
+
+  it('a resposta avisa quem ENVIOU (e só ele), se o recado está respondido e não venceu', () => {
+    const respondido = { ...base, status: 'RESPONDIDO' };
+    expect(decidirPushResposta(respondido, AGORA)).toMatchObject({ login: 'marina', texto: { titulo: 'Recado respondido' } });
+    expect(decidirPushResposta(base, AGORA)).toBeNull();
+    expect(decidirPushResposta({ ...respondido, expiraEm: Timestamp.fromMillis(AGORA - 1) }, AGORA)).toBeNull();
+    expect(decidirPushResposta({ ...respondido, remetenteLogin: '' }, AGORA)).toBeNull();
+    expect(decidirPushResposta({ ...respondido, remetenteLogin: undefined }, AGORA)).toBeNull();
   });
 
   it('a validade pode vir como Timestamp, Date ou texto ISO; ilegível não derruba (só não bloqueia)', () => {
