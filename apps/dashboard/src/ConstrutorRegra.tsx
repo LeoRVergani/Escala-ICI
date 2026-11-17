@@ -259,10 +259,10 @@ export function ConstrutorRegra({ inicial, equipes, documentos, catalogo, escala
                 <div className="construtor-resultado" data-desatualizado={testeDesatualizado ? '' : undefined}>
                   {testeDesatualizado && <p className="construtor-desatualizado"><Info size={14} aria-hidden="true" /> A regra mudou desde este teste — teste de novo.</p>}
                   {teste.resultado.total === 0 ? (
-                    <p className="regra-ok"><CheckCircle2 size={16} aria-hidden="true" /> Nenhum caso: ninguém descumpre esta regra nesta escala.</p>
+                    <p className="regra-ok"><CheckCircle2 size={16} aria-hidden="true" /> Nenhuma ocorrência: ninguém descumpre esta regra nesta escala.</p>
                   ) : (
                     <>
-                      <p className="construtor-total"><strong>{teste.resultado.total}</strong> {teste.resultado.total === 1 ? 'caso' : 'casos'} em <strong>{teste.resultado.pessoasAfetadas}</strong> {teste.resultado.pessoasAfetadas === 1 ? 'pessoa' : 'pessoas'}</p>
+                      <p className="construtor-total"><strong>{teste.resultado.total}</strong> {teste.resultado.total === 1 ? 'ocorrência' : 'ocorrências'} em <strong>{teste.resultado.pessoasAfetadas}</strong> {teste.resultado.pessoasAfetadas === 1 ? 'pessoa' : 'pessoas'}</p>
                       <ul className="construtor-pessoas">
                         {teste.resultado.porPessoa.slice(0, 6).map((pessoa) => <li key={pessoa.login}><span>{pessoa.nome}</span><b>{pessoa.total}</b></li>)}
                       </ul>

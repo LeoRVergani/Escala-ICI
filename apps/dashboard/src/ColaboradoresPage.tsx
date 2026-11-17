@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { CheckCircle2, LoaderCircle, Search, Star, UserPlus } from 'lucide-react';
 
+import { cargoEhDeLideranca } from '@/lib/cargoLideranca';
 import { ehLideranca } from '@/lib/liderancas';
 import type { Usuario } from '@/lib/modelos';
 import { ConfirmarPromocao, iniciais, usePessoas, type Pessoa } from './pessoasLideranca';
@@ -10,16 +11,18 @@ import { ConfirmarPromocao, iniciais, usePessoas, type Pessoa } from './pessoasL
  * liderança, com quem é das MINHAS equipes em destaque (primeiro e com a
  * etiqueta "Sua equipe"). "Tornar liderança" em cada uma.
  */
-export function ColaboradoresPage({ pessoasDemo, autor, minhasEquipes, nomeEquipe }: {
+export function ColaboradoresPage({ pessoasDemo, autor, minhasEquipes, nomeEquipe, semEquipePropria = false }: {
   pessoasDemo?: readonly Usuario[];
   autor: Usuario; minhasEquipes: readonly string[]; nomeEquipe: (equipeId: string) => string;
+  /** O administrador do sistema administra tudo e não tem equipe: sem "Minha equipe" nem "Sua equipe". */
+  semEquipePropria?: boolean;
 }) {
   const { pessoas, erro, recarregar } = usePessoas(pessoasDemo);
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState<'todos' | 'minha'>('todos');
   const [promovendo, setPromovendo] = useState<Pessoa | null>(null);
   const [mensagem, setMensagem] = useState('');
-  const daMinhaEquipe = (pessoa: Pessoa) => pessoa.equipeId !== '' && minhasEquipes.includes(pessoa.equipeId);
+  const daMinhaEquipe = (pessoa: Pessoa) => !semEquipePropria && pessoa.equipeId !== '' && minhasEquipes.includes(pessoa.equipeId);
   const termo = busca.trim().toLowerCase();
   const colaboradores = (pessoas ?? []).filter((pessoa) => !ehLideranca(pessoa));
   const totalMinha = colaboradores.filter(daMinhaEquipe).length;
@@ -34,7 +37,7 @@ export function ColaboradoresPage({ pessoasDemo, autor, minhasEquipes, nomeEquip
         <div>
           <p className="eyebrow">Equipes</p>
           <h1>Colaboradores</h1>
-          <p>Todas as pessoas cadastradas. Quem é das suas equipes aparece primeiro, em destaque.</p>
+          <p>{semEquipePropria ? 'Todas as pessoas cadastradas.' : 'Todas as pessoas cadastradas. Quem é das suas equipes aparece primeiro, em destaque.'}</p>
         </div>
       </header>
 
@@ -43,9 +46,11 @@ export function ColaboradoresPage({ pessoasDemo, autor, minhasEquipes, nomeEquip
           <button type="button" role="tab" aria-selected={filtro === 'todos'} className={filtro === 'todos' ? 'active' : ''} onClick={() => setFiltro('todos')}>
             Todos <span>{colaboradores.length}</span>
           </button>
-          <button type="button" role="tab" aria-selected={filtro === 'minha'} className={filtro === 'minha' ? 'active' : ''} onClick={() => setFiltro('minha')}>
-            <Star size={14} aria-hidden="true" /> Minha equipe <span>{totalMinha}</span>
-          </button>
+          {!semEquipePropria && (
+            <button type="button" role="tab" aria-selected={filtro === 'minha'} className={filtro === 'minha' ? 'active' : ''} onClick={() => setFiltro('minha')}>
+              <Star size={14} aria-hidden="true" /> Minha equipe <span>{totalMinha}</span>
+            </button>
+          )}
         </div>
         <label className="liderancas-busca">
           <Search size={16} aria-hidden="true" />
@@ -54,7 +59,8 @@ export function ColaboradoresPage({ pessoasDemo, autor, minhasEquipes, nomeEquip
       </div>
       {erro && <div className="alert error" role="alert">{erro}</div>}
       {mensagem && <p className="liderancas-ok" role="status"><CheckCircle2 size={15} aria-hidden="true" /> {mensagem}</p>}
-      <p className="liderancas-dica">Pessoa nova na sua equipe? Cadastre em <strong>Minha equipe › Cadastrar pessoa nova</strong>.</p>
+      {!semEquipePropria && <p className="liderancas-dica">Pessoa nova na sua equipe? Cadastre em <strong>Minha equipe › Cadastrar pessoa nova</strong>.</p>}
+      <p className="liderancas-dica"><strong>Tornar liderança</strong> só aparece para quem tem cargo de coordenador, supervisor, líder ou gestor. Analistas e técnicos não podem ser liderança.</p>
 
       {pessoas === null && !erro ? (
         <p className="liderancas-carregando"><LoaderCircle className="spin" size={16} aria-hidden="true" /> Carregando…</p>
@@ -69,7 +75,7 @@ export function ColaboradoresPage({ pessoasDemo, autor, minhasEquipes, nomeEquip
                 <strong>{pessoa.nome}{daMinhaEquipe(pessoa) && <span className="colaboradores-selo"><Star size={11} aria-hidden="true" /> Sua equipe</span>}</strong>
                 <small>{[pessoa.cargo, pessoa.equipeId ? nomeEquipe(pessoa.equipeId) : 'Sem equipe'].filter(Boolean).join(' · ')}</small>
               </span>
-              {pessoa.login !== autor.login && (
+              {pessoa.login !== autor.login && cargoEhDeLideranca(pessoa.cargo) && (
                 <button type="button" className="secondary-button compact-button" onClick={() => { setMensagem(''); setPromovendo(pessoa); }}>
                   <UserPlus size={15} aria-hidden="true" /> Tornar liderança
                 </button>

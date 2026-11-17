@@ -1400,3 +1400,25 @@ test('SEGURANCA-1 — impressão sem HTML cru, sem código morto que confia em c
   assert.match(auditoria, /\.get\(\)/u, 'a auditoria lê o cadastro (somente leitura)');
   assert.match(auditoria, /listUsers\(1000, token\)/u);
 });
+
+test('LIDERANCA-CARGO-1 — só cargo de liderança vira liderança (tela e Rules, mesma lista); administrador sem "Minha equipe"', async () => {
+  const [rules, cargoLib, colaboradores, liderancas, dashboard, sessao] = await Promise.all([
+    ler('firestore.rules'), ler('lib/cargoLideranca.ts'), ler('apps/dashboard/src/ColaboradoresPage.tsx'),
+    ler('apps/dashboard/src/LiderancasPage.tsx'), ler('apps/dashboard/src/DashboardApp.tsx'), ler('lib/sessao.ts'),
+  ]);
+  // A lista de palavras das Rules e a do código são a MESMA (um dos dois não pode "esquecer" um cargo).
+  const daRegra = /cargo\.lower\(\)\.matches\('\.\*\(([^)]+)\)\.\*'\)/u.exec(rules)?.[1]?.split('|').map((palavra) => palavra.replace('l[iíÍ]der', 'lider')).sort();
+  const doCodigo = /PALAVRAS_CARGO_LIDERANCA = \[([\s\S]*?)\] as const/u.exec(cargoLib)?.[1]?.match(/'([a-z]+)'/gu)?.map((palavra) => palavra.replaceAll("'", '')).sort();
+  assert.ok(daRegra && doCodigo, 'listas encontradas');
+  assert.deepEqual(daRegra, doCodigo);
+  // Rules: promoção e cadastro de liderança nova exigem cargo de liderança.
+  assert.match(rules, /&& cargoDeLideranca\(resource\.data\.get\('cargo', ''\)\)/u);
+  assert.match(rules, /&& cargoDeLideranca\(request\.resource\.data\.get\('cargo', ''\)\)/u);
+  // Tela: o botão só aparece para cargo de liderança; "Nova liderança" valida o cargo antes de gravar.
+  assert.match(colaboradores, /pessoa\.login !== autor\.login && cargoEhDeLideranca\(pessoa\.cargo\) && \(/u);
+  assert.match(liderancas, /if \(!cargoEhDeLideranca\(cargo\)\) \{ setErro\(MENSAGEM_CARGO_SEM_LIDERANCA\); return; \}/u);
+  // Administrador do sistema: sem "Minha equipe"/"Sua equipe" e sem se passar por "Coordenador".
+  assert.match(dashboard, /semEquipePropria=\{souAdmin\}/u);
+  assert.match(colaboradores, /!semEquipePropria && pessoa\.equipeId !== ''/u);
+  assert.match(sessao, /if \(perfil === 'ADMIN_SISTEMA'\) return 'Administrador do sistema';/u);
+});

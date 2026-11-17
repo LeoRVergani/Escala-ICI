@@ -4,7 +4,7 @@ import { dataIsoLocal } from '@escala-ici/contrato';
 
 import {
   cobreDia, descricaoHorario, descricaoPeriodo, entradaDaInformacao, entradaEmBranco, filtrarInformacoes, gerarIdInformacao, informacoesDoDia, informacoesDoMes,
-  metaDoTipo, montarDocumentoInformacao, nomeDoMes, ordenarInformacoes, resumoDoPeriodo, resumoPorDia, rotuloDiaRelativo, SEM_FILTROS, semanasDoMes, TIPOS_INFORMACAO,
+  mensagemFalhaDeLeitura, metaDoTipo, montarDocumentoInformacao, nomeDoMes, ordenarInformacoes, resumoDoPeriodo, resumoPorDia, rotuloDiaRelativo, SEM_FILTROS, semanasDoMes, TIPOS_INFORMACAO,
   tituloDoDia, tituloExibicao, type EntradaInformacao, type FiltrosInformacao, type InformacaoDia,
 } from '@/lib/informacoesDia';
 import { excluirInformacao, observarInformacoesDaEquipe, salvarInformacao } from '@/lib/firebase/informacoesDiaRepository';
@@ -70,7 +70,7 @@ export function InformacoesPage({ autor, equipes, modoDemo, pessoasDemo }: {
     const cancelar = idsEquipes.map((equipeId) => observarInformacoesDaEquipe(
       equipeId, desde,
       (lista) => { setPorEquipe((atual) => ({ ...atual, [equipeId]: lista })); setErroCarga(''); },
-      () => setErroCarga('Não foi possível carregar as informações agora.'),
+      (falha) => { console.error('Informações: falha ao carregar', falha); setErroCarga(mensagemFalhaDeLeitura(falha)); },
     ));
     return () => cancelar.forEach((parar) => parar());
   }, [modoDemo, idsEquipes, mes, hoje]);
@@ -192,7 +192,7 @@ export function InformacoesPage({ autor, equipes, modoDemo, pessoasDemo }: {
           {membros.map((pessoa) => <option key={pessoa.login} value={pessoa.login}>{pessoa.nome}</option>)}
         </select>
         <select aria-label="Filtrar por visibilidade" value={filtros.visibilidade} onChange={(evento) => setFiltros((atual) => ({ ...atual, visibilidade: evento.target.value as FiltrosInformacao['visibilidade'] }))}>
-          <option value="TODAS">Quem pode ver: todas</option>
+          <option value="TODAS">Visibilidade: todas</option>
           <option value="VISIVEL">O colaborador vê</option>
           <option value="RESERVADA">Só a liderança vê</option>
         </select>

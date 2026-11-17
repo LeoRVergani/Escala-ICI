@@ -128,7 +128,9 @@ export function rotuloCargoExibicao(usuario: Usuario): string {
     return usuario.cargo;
   }
   const perfil = perfilEfetivo(usuario);
-  return perfil === 'ADMIN_SISTEMA' || perfil === 'GESTOR_EQUIPE' || perfil === 'GESTOR_UNIDADE' || perfil === 'SUPERVISOR_EQUIPE'
+  // O administrador do sistema administra tudo e não tem equipe nem cargo de equipe: nunca "Coordenador".
+  if (perfil === 'ADMIN_SISTEMA') return 'Administrador do sistema';
+  return perfil === 'GESTOR_EQUIPE' || perfil === 'GESTOR_UNIDADE' || perfil === 'SUPERVISOR_EQUIPE'
     ? 'Coordenador'
     : 'Analista SOC';
 }

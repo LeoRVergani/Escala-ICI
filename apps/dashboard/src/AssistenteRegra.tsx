@@ -30,7 +30,7 @@ const PARTES: Record<SituacaoChave, { antes: string; depois: string }> = {
 };
 const DIA_COM_ARTIGO: readonly string[] = ['no domingo', 'na segunda-feira', 'na terça-feira', 'na quarta-feira', 'na quinta-feira', 'na sexta-feira', 'no sábado'];
 const GRAVIDADES: readonly GravidadeRegra[] = ['INFO', 'AVISO', 'CRITICO'];
-const PASSOS = ['O que vigiar', 'O limite', 'Como avisar'] as const;
+const PASSOS = ['Situação', 'Limite', 'Aviso'] as const;
 
 export function AssistenteRegra({ idRegra, inicial, jaSalva, equipes, documentos, catalogo, escalaAberta, nomePorLogin, onFechar, onAvancado, onManterEmTeste, onSalvar }: {
   idRegra: string;
@@ -133,9 +133,10 @@ export function AssistenteRegra({ idRegra, inicial, jaSalva, equipes, documentos
           ))}
         </ol>
 
+        <div className="assistente-rolagem">
         {passo === 1 && (
           <div className="assistente-corpo">
-            <h3>O que você quer vigiar na escala?</h3>
+            <h3>Sobre o que você quer ser avisado?</h3>
             <div className="assistente-situacoes" role="radiogroup" aria-label="Situação a vigiar">
               {SITUACOES.map((situacao) => (
                 <button key={situacao.chave} type="button" role="radio" aria-checked={estado?.situacao === situacao.chave} className={estado?.situacao === situacao.chave ? 'active' : ''} onClick={() => escolherSituacao(situacao.chave)}>
@@ -146,7 +147,7 @@ export function AssistenteRegra({ idRegra, inicial, jaSalva, equipes, documentos
               ))}
             </div>
             <button type="button" className="assistente-link" onClick={() => onAvancado(novaRegraEmBranco(idRegra))}>
-              Preciso de algo diferente <ChevronRight size={14} aria-hidden="true" /> <small>(montar do zero, para quem já conhece)</small>
+              Preciso de outra coisa <ChevronRight size={14} aria-hidden="true" /> <small>(montar do zero — para quem já conhece o sistema)</small>
             </button>
           </div>
         )}
@@ -232,6 +233,7 @@ export function AssistenteRegra({ idRegra, inicial, jaSalva, equipes, documentos
         )}
 
         {erro && <div className="alert error" role="alert">{erro}</div>}
+        </div>
         <footer className="assistente-rodape">
           <button type="button" className="secondary-button" disabled={salvando} onClick={passo === 1 ? onFechar : () => setPasso((passo - 1) as 1 | 2)}>
             {passo === 1 ? 'Cancelar' : <><ChevronLeft size={15} aria-hidden="true" /> Voltar</>}

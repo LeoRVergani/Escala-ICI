@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { cargoEhDeLideranca, MENSAGEM_CARGO_SEM_LIDERANCA } from '@/lib/cargoLideranca';
 import { CheckCircle2, Crown, LoaderCircle, Search, UserMinus, UserPlus, X } from 'lucide-react';
 
 import { cadastrarNovaLideranca, removerLideranca } from '@/lib/firebase/liderancasRepository';
@@ -113,6 +114,7 @@ function NovaLiderancaModal({ autor, pessoas, onFechar, onPronto }: {
   async function cadastrar() {
     setErro('');
     if (jaCadastrada) { setErro(`${jaCadastrada.nome} já tem cadastro — use “Escolher colaborador”.`); return; }
+    if (!cargoEhDeLideranca(cargo)) { setErro(MENSAGEM_CARGO_SEM_LIDERANCA); return; }
     setSalvando(true);
     try {
       await cadastrarNovaLideranca({ nome, email, cargo }, autor.login);
@@ -173,6 +175,7 @@ function NovaLiderancaModal({ autor, pessoas, onFechar, onPronto }: {
               <input type="email" value={email} maxLength={120} placeholder="nome@empresa.com" onChange={(evento) => setEmail(evento.target.value)} /></label>
             <label className="criar-equipe-campo"><span>Cargo</span>
               <input value={cargo} maxLength={80} placeholder="Ex.: Coordenador de Infraestrutura" onChange={(evento) => setCargo(evento.target.value)} /></label>
+            <p className="liderancas-dica">O cargo precisa ser de liderança: coordenador, supervisor, líder ou gestor.</p>
             {jaCadastrada && <p className="liderancas-dica">{jaCadastrada.nome} já tem cadastro com este e-mail — use “Escolher colaborador”.</p>}
             {erro && <div className="alert error" role="alert">{erro}</div>}
             <div className="criar-equipe-acoes">

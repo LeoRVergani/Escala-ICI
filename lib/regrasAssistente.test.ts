@@ -45,7 +45,7 @@ describe('ASSISTENTE-REGRAS-1', () => {
 
   it('o resumo do último passo é uma frase só, sem jargão', () => {
     const estado = { ...estadoInicialDaSituacao('DIAS_SEGUIDOS'), gravidade: 'CRITICO' as const, bloqueiaPublicacao: true };
-    expect(resumoDoAssistente(estado)).toBe('Vou mostrar um alerta sério à liderança quando alguém trabalhar mais de 5 dias seguidos, em todas as equipes, e não vou deixar publicar a escala enquanto isso não for corrigido.');
+    expect(resumoDoAssistente(estado)).toBe('Vou mostrar um alerta grave para a liderança quando alguém trabalhar mais de 5 dias seguidos, em todas as equipes, e não vou deixar publicar a escala enquanto isso não for corrigido.');
     expect(resumoDoAssistente({ ...estadoInicialDaSituacao('TURNO_LONGO'), alcance: { tipo: 'EQUIPE', ids: ['A'] } }, ['NOC'])).toContain('na equipe NOC');
   });
 

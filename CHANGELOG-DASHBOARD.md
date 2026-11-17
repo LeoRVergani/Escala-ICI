@@ -15,6 +15,21 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.9.0 — liderança só por cargo, administrador sem equipe e textos mais naturais (patch 0099)
+- **Só cargo de liderança vira liderança**: coordenador, supervisor, líder, gestor (e gerente, diretor, chefe…).
+  Analista e técnico não. "Tornar liderança" só aparece para quem tem cargo de liderança, e "Nova liderança" exige
+  um cargo de liderança. Vale também nas **Regras do Firestore** (`cargoDeLideranca`) — **requer publicar as Rules**
+  (474 testes de regra esperados na VM). Não é automático de propósito: dar permissão a partir de um texto livre
+  de cargo deixaria quem edita o cargo se promover sozinho.
+- **Administrador sem equipe**: em Colaboradores não há "Minha equipe" nem "Sua equipe" para o administrador do
+  sistema (ele administra tudo), e o papel sob o nome dele é "Administrador do sistema" (antes, "Coordenador").
+- **Textos em português mais natural** no assistente de regras ("Muitos dias seguidos sem folga", "Turno muito
+  longo", "Alerta grave", "Sobre o que você quer ser avisado?") e "ocorrência" no lugar de "caso".
+- **Janelas sem corte**: nova regra e nova informação têm cabeçalho e rodapé fixos; só o miolo rola.
+- **Informações**: o aviso vermelho agora diz a causa (Regras ou índice ainda não publicados, ou sem conexão).
+- A auditoria de contas explica como dar a permissão de leitura à conta de serviço.
+- App 3.8.2 (rótulo do administrador, em `lib/sessao.ts`).
+
 ## 1.8.1 — correção de segurança na impressão da escala + auditoria (patch 0098)
 - Corrige um XSS: a janela "Imprimir escala" montava HTML com login, equipe e competência sem escapar; agora tudo
   é escapado e o documento impresso proíbe script (CSP).

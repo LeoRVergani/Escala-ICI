@@ -76,6 +76,7 @@ export function InformacaoModal({ edicao, entradaInicial, pessoas, nomeEquipe, o
           <button className="icon-button" type="button" onClick={onFechar} disabled={salvando} aria-label="Fechar"><X size={18} /></button>
         </header>
 
+        <div className="info-rolagem">
         <div className="info-bloco">
           <h3><span>1</span> Quem?</h3>
           {edicao || pessoaEscolhida ? (
@@ -171,6 +172,7 @@ export function InformacaoModal({ edicao, entradaInicial, pessoas, nomeEquipe, o
           <ul className="info-erros" role="alert">{erros.map((erro) => <li key={erro}>{erro}</li>)}</ul>
         )}
         {erroGravar && <div className="alert error" role="alert">{erroGravar}</div>}
+        </div>
         <footer className="assistente-rodape">
           <button type="button" className="secondary-button" disabled={salvando} onClick={onFechar}>Cancelar</button>
           <button type="button" className="primary-button" disabled={salvando} onClick={() => void salvar()}>

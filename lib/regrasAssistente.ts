@@ -29,26 +29,26 @@ export interface DefinicaoSituacao {
 
 export const SITUACOES: readonly DefinicaoSituacao[] = [
   {
-    chave: 'DIAS_SEGUIDOS', titulo: 'Trabalhando dias demais seguidos', icone: 'sequencia',
-    descricao: 'Avisar quando alguém fica muitos dias sem folga.',
+    chave: 'DIAS_SEGUIDOS', titulo: 'Muitos dias seguidos sem folga', icone: 'sequencia',
+    descricao: 'Avisar quando alguém trabalha muitos dias em sequência, sem uma folga no meio.',
     numero: { padrao: 5, minimo: 1, maximo: 14, unidade: 'dia', explicacao: 'Conta os dias de trabalho em sequência, sem nenhuma folga no meio.' },
     gravidadePadrao: 'AVISO',
   },
   {
-    chave: 'POUCO_DESCANSO', titulo: 'Pouco descanso entre um turno e outro', icone: 'descanso',
-    descricao: 'Avisar quando o intervalo entre dois turnos seguidos é curto.',
+    chave: 'POUCO_DESCANSO', titulo: 'Descanso curto entre dois turnos', icone: 'descanso',
+    descricao: 'Avisar quando o intervalo entre o fim de um turno e o começo do outro é pequeno.',
     numero: { padrao: 12, minimo: 1, maximo: 48, unidade: 'hora', explicacao: 'Conta as horas entre o fim de um turno e o começo do próximo, em dias seguidos.' },
     gravidadePadrao: 'AVISO',
   },
   {
-    chave: 'TURNO_LONGO', titulo: 'Turno muito comprido', icone: 'relogio',
+    chave: 'TURNO_LONGO', titulo: 'Turno muito longo', icone: 'relogio',
     descricao: 'Avisar quando um único turno passa de um certo número de horas.',
     numero: { padrao: 12, minimo: 1, maximo: 24, unidade: 'hora', explicacao: 'Conta as horas de um turno só, do começo ao fim.' },
     gravidadePadrao: 'AVISO',
   },
   {
-    chave: 'DIA_DA_SEMANA', titulo: 'Trabalho em um dia da semana', icone: 'calendario',
-    descricao: 'Avisar quando alguém é escalado num dia específico, como o domingo.',
+    chave: 'DIA_DA_SEMANA', titulo: 'Trabalho em um dia específico da semana', icone: 'calendario',
+    descricao: 'Avisar quando alguém é escalado em um dia como domingo ou sábado.',
     gravidadePadrao: 'INFO',
   },
 ];
@@ -60,7 +60,7 @@ const COM_ARTIGO: readonly string[] = ['no domingo', 'na segunda-feira', 'na ter
 export const SERIEDADE: Readonly<Record<GravidadeRegra, { titulo: string; texto: string }>> = {
   INFO: { titulo: 'Só informar', texto: 'Aparece na lista, sem chamar atenção.' },
   AVISO: { titulo: 'Chamar a atenção', texto: 'A liderança vê o aviso e decide.' },
-  CRITICO: { titulo: 'Alerta sério', texto: 'Aparece em vermelho, como problema.' },
+  CRITICO: { titulo: 'Alerta grave', texto: 'Aparece em vermelho, como um problema grave.' },
 };
 
 export function definicaoDaSituacao(chave: SituacaoChave): DefinicaoSituacao {
@@ -199,9 +199,9 @@ export function lerEstadoDaRegra(regra: RegraEscala): EstadoAssistente | null {
 export function resumoDoAssistente(estado: EstadoAssistente, nomesEquipes: readonly string[] = []): string {
   const quem = estado.alcance.tipo === 'TODAS' || nomesEquipes.length === 0 ? 'em todas as equipes' : `na equipe ${nomesEquipes.join(', ')}`;
   const o_que = {
-    INFO: 'Vou só informar a liderança',
+    INFO: 'Vou apenas informar a liderança',
     AVISO: 'Vou chamar a atenção da liderança',
-    CRITICO: 'Vou mostrar um alerta sério à liderança',
+    CRITICO: 'Vou mostrar um alerta grave para a liderança',
   }[estado.gravidade];
   const impede = estado.bloqueiaPublicacao ? ', e não vou deixar publicar a escala enquanto isso não for corrigido' : '';
   return `${o_que} quando alguém ${fraseDaSituacao(estado.situacao, estado.parametros)}, ${quem}${impede}.`;
