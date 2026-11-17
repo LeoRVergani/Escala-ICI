@@ -10658,3 +10658,53 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
   .assistente-rolagem, .info-rolagem { padding-bottom: 14px; }
   .assistente-regra .assistente-rodape, .info-modal .assistente-rodape { padding-top: 14px; }
 }
+
+/* =====================================================================
+ * RECADOS-1 — Recados: medidor do dia, cartões do remetente, seleção de pessoas e "Para você" no App.
+ * ===================================================================== */
+.recado-medidor { display: grid; gap: 6px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--text); font-size: 13.5px; }
+.recado-medidor > small { color: var(--muted); font-size: 12px; }
+.recado-medidor[data-cheio] { border-color: color-mix(in srgb, var(--danger) 55%, var(--border)); }
+.recado-barra { height: 8px; overflow: hidden; border-radius: 999px; background: var(--surface-muted); }
+.recado-barra > i { display: block; height: 100%; border-radius: inherit; background: var(--primary-bright); transition: width 0.2s ease; }
+.recado-medidor[data-cheio] .recado-barra > i { background: var(--danger); }
+.recado-grupo { display: grid; gap: 10px; }
+.recado-grupo > h2 { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text); font-size: 15px; font-weight: 800; }
+.recado-grupo > h2 > span { padding: 1px 9px; border-radius: 999px; background: var(--surface-muted); color: var(--muted); font-size: 12px; }
+.recado-cartao { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-left: 4px solid var(--muted); border-radius: 14px; background: var(--surface); }
+.recado-cartao > * { margin: 0; }
+.recado-cartao[data-estado="POSSO"], .recado-cartao[data-estado="CIENTE"] { border-left-color: #10b981; }
+.recado-cartao[data-estado="NAO_POSSO"] { border-left-color: var(--danger); }
+.recado-cartao[data-estado="AGUARDANDO"] { border-left-color: #f59e0b; }
+.recado-cartao > header { display: flex; align-items: center; gap: 10px; }
+.recado-cartao > footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.recado-cartao > footer > small { color: var(--muted); font-size: 11.5px; }
+.recado-texto { color: var(--text); font-size: 14.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.recado-nota { padding: 8px 10px; border-radius: 10px; background: var(--surface-muted); color: var(--text); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.recado-selo { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; background: var(--surface-muted); color: var(--muted); font-size: 11.5px; font-weight: 800; }
+.recado-selo[data-estado="POSSO"], .recado-selo[data-estado="CIENTE"] { background: color-mix(in srgb, #10b981 15%, var(--surface)); color: #059669; }
+.recado-selo[data-estado="NAO_POSSO"] { background: color-mix(in srgb, var(--danger) 13%, var(--surface)); color: var(--danger); }
+.recado-selo[data-estado="AGUARDANDO"] { background: color-mix(in srgb, #f59e0b 15%, var(--surface)); color: #b45309; }
+[data-theme="dark"] .recado-selo[data-estado="POSSO"], [data-theme="dark"] .recado-selo[data-estado="CIENTE"] { color: #34d399; }
+[data-theme="dark"] .recado-selo[data-estado="AGUARDANDO"] { color: #fbbf24; }
+.recado-escolhidas { display: flex; flex-wrap: wrap; gap: 6px; }
+.recado-escolhidas > button { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--primary-bright); border-radius: 999px; background: color-mix(in srgb, var(--primary-bright) 12%, var(--surface)); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.info-pessoas > li > button[data-marcada] { border-color: var(--primary-bright); background: color-mix(in srgb, var(--primary-bright) 12%, var(--surface)); }
+.recado-limite { color: var(--muted); font-size: 12.5px; }
+
+/* App do colaborador: "Recados da liderança" (responde com um toque e o recado some). */
+.recado-app { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--primary-bright) 45%, var(--border)); border-radius: 18px; background: var(--surface); }
+.recado-app > * { margin: 0; }
+.recado-app > header { display: flex; align-items: center; gap: 10px; }
+.recado-app > header h2 { margin: 0; color: var(--text); font-size: 16px; font-weight: 800; }
+.recado-app > header small { color: var(--muted); font-size: 12px; }
+.recado-app-item { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-muted); }
+.recado-app-item > * { margin: 0; }
+.recado-app-item > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.recado-app-item > header strong { color: var(--text); font-size: 14px; }
+.recado-app-item > header small { color: var(--muted); font-size: 11.5px; }
+.recado-app-texto { color: var(--text); font-size: 14.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.recado-app-item textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 13.5px; resize: vertical; }
+.recado-app-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.recado-app-acoes > button { flex: 1 1 120px; min-height: 44px; }
+.recado-app-nota-link { justify-self: start; padding: 2px 0; border: 0; background: none; color: var(--primary-bright); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }

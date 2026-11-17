@@ -4,20 +4,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  orderBy,
-  query,
-  runTransaction,
-  setDoc,
-  updateDoc,
-  where,
-  writeBatch,
-} from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, runTransaction, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { readFile } from 'node:fs/promises';
 import {
   afterAll,
@@ -7696,5 +7683,172 @@ describe('INFORMACOES-DIA-1 — informacoesDia', () => {
     const dela = informacao({ id: 'info-clara', equipeId: 'EQ_GEDSI_TESTE', login: 'clara.teste', nomeColaborador: 'Clara Teste', criadoPorLogin: usuarios.gestorUnidade.login, atualizadoPorLogin: usuarios.gestorUnidade.login });
     await assertSucceeds(setDoc(doc(gestorUnidade, 'informacoesDia', 'info-clara'), dela));
     await assertFails(setDoc(doc(gestorUnidade, 'informacoesDia', ID), informacao({ criadoPorLogin: usuarios.gestorUnidade.login, atualizadoPorLogin: usuarios.gestorUnidade.login })));
+  });
+});
+
+/**
+ * RECADOS-1 — `recados` e `recadosLimite`: recado curto da liderança para um colaborador, com resposta de um
+ * toque e LIMITE DIÁRIO (30) aplicado nas Regras. Só remetente e destinatário leem; o destinatário só responde.
+ */
+describe('RECADOS-1 — recados', () => {
+  const dia = () => new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10);
+  const em = (dias: number) => Timestamp.fromMillis(Date.now() + dias * 86_400_000);
+  const recado = (ajustes: Record<string, unknown> = {}) => ({
+    id: 'rec-1', schemaVersion: 1, equipeId: 'EQ_COSI_SOC',
+    remetenteLogin: usuarios.gestor.login, remetenteNome: 'Marina Azevedo',
+    destinatarioLogin: usuarios.colaborador.login, destinatarioNome: 'Caio Monteiro',
+    tipo: 'PERGUNTA', texto: 'Pode trocar comigo no dia 20?', status: 'ENVIADO', resposta: null, notaResposta: '',
+    criadoEm: serverTimestamp(), respondidoEm: null, expiraEm: em(3), ...ajustes,
+  });
+  /** Envia como a tela envia: o recado e o contador do dia, no MESMO lote. */
+  function enviar(quem: { login: string; email: string }, ajustes: Record<string, unknown> = {}, contagemAtual = 0, contagemGravada = contagemAtual + 1) {
+    const db = autenticarComo(quem);
+    const lote = writeBatch(db);
+    lote.set(doc(db, 'recados', String(ajustes.id ?? 'rec-1')), recado({ remetenteLogin: quem.login, ...ajustes }));
+    lote.set(doc(db, 'recadosLimite', `${quem.login}_${dia()}`), { login: quem.login, dia: dia(), contagem: contagemGravada });
+    return lote.commit();
+  }
+  async function semear(...itens: Array<[string, string, Record<string, unknown>]>) {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      for (const [colecao, id, dados] of itens) await setDoc(doc(contexto.firestore(), colecao, id), dados);
+    });
+  }
+  const semearRecado = (ajustes: Record<string, unknown> = {}) => semear(['recados', String(ajustes.id ?? 'rec-1'), recado({ criadoEm: Timestamp.fromMillis(Date.now() - 1000), ...ajustes })]);
+  const contador = (login: string, contagem: number): [string, string, Record<string, unknown>] => ['recadosLimite', `${login}_${dia()}`, { login, dia: dia(), contagem }];
+  const responder = (quem: { login: string; email: string }, ajustes: Record<string, unknown> = {}, id = 'rec-1') => updateDoc(doc(autenticarComo(quem), 'recados', id), {
+    status: 'RESPONDIDO', resposta: 'POSSO', notaResposta: 'Posso sim', respondidoEm: serverTimestamp(), expiraEm: em(1), ...ajustes,
+  });
+
+  it('o chefe da equipe envia para alguém da própria equipe (recado + contador no mesmo lote)', async () => {
+    await assertSucceeds(enviar(usuarios.gestor));
+  });
+
+  it('colaborador e colega não enviam recado', async () => {
+    await assertFails(enviar(usuarios.colaborador, { destinatarioLogin: usuarios.colega.login, destinatarioNome: 'Bianca Salles' }));
+    await assertFails(enviar(usuarios.colega, { destinatarioLogin: usuarios.colaborador.login }));
+  });
+
+  it('o chefe não envia para quem é de outra equipe, nem com a equipe "emprestada"', async () => {
+    await assertFails(enviar(usuarios.gestor, { equipeId: 'EQ_CODB_NOC', destinatarioLogin: usuarios.externo.login, destinatarioNome: 'Ravi Nogueira' }));
+    await assertFails(enviar(usuarios.gestor, { destinatarioLogin: usuarios.externo.login, destinatarioNome: 'Ravi Nogueira' }));
+  });
+
+  it('não envia para si mesmo nem forja o remetente', async () => {
+    await assertFails(enviar(usuarios.gestor, { destinatarioLogin: usuarios.gestor.login }));
+    const db = autenticarComo(usuarios.gestor);
+    const lote = writeBatch(db);
+    lote.set(doc(db, 'recados', 'rec-1'), recado({ remetenteLogin: usuarios.admin.login }));
+    lote.set(doc(db, 'recadosLimite', `${usuarios.gestor.login}_${dia()}`), { login: usuarios.gestor.login, dia: dia(), contagem: 1 });
+    await assertFails(lote.commit());
+  });
+
+  it('LIMITE: sem o contador no mesmo lote, ou com o contador errado, o recado é recusado', async () => {
+    await assertFails(setDoc(doc(autenticarComo(usuarios.gestor), 'recados', 'rec-1'), recado()));
+    await assertFails(enviar(usuarios.gestor, {}, 0, 2));
+    await assertFails(enviar(usuarios.gestor, {}, 0, 0));
+  });
+
+  it('LIMITE: o 30º recado do dia passa; o 31º é recusado', async () => {
+    await semear(contador(usuarios.gestor.login, 29));
+    await assertSucceeds(enviar(usuarios.gestor, { id: 'rec-30' }, 29));
+    await ambiente.withSecurityRulesDisabled(async (contexto) => { await setDoc(doc(contexto.firestore(), 'recadosLimite', `${usuarios.gestor.login}_${dia()}`), { login: usuarios.gestor.login, dia: dia(), contagem: 30 }); });
+    await assertFails(enviar(usuarios.gestor, { id: 'rec-31' }, 30));
+  });
+
+  it('LIMITE: o contador só sobe de 1 em 1, só do próprio dono, só do dia, e nunca é apagado', async () => {
+    await semear(contador(usuarios.gestor.login, 5));
+    const db = autenticarComo(usuarios.gestor);
+    const ref = doc(db, 'recadosLimite', `${usuarios.gestor.login}_${dia()}`);
+    await assertFails(setDoc(ref, { login: usuarios.gestor.login, dia: dia(), contagem: 4 }));
+    await assertFails(setDoc(ref, { login: usuarios.gestor.login, dia: dia(), contagem: 9 }));
+    await assertFails(deleteDoc(ref));
+    await assertFails(setDoc(doc(db, 'recadosLimite', `${usuarios.gestor.login}_2020-01-01`), { login: usuarios.gestor.login, dia: '2020-01-01', contagem: 1 }));
+    await assertFails(setDoc(doc(db, 'recadosLimite', `${usuarios.colaborador.login}_${dia()}`), { login: usuarios.colaborador.login, dia: dia(), contagem: 1 }));
+    await assertSucceeds(setDoc(ref, { login: usuarios.gestor.login, dia: dia(), contagem: 6 }));
+  });
+
+  it('cada um lê só o próprio contador (por consulta)', async () => {
+    await semear(contador(usuarios.gestor.login, 3));
+    const meu = await assertSucceeds(getDocs(query(collection(autenticarComo(usuarios.gestor), 'recadosLimite'), where('login', '==', usuarios.gestor.login), where('dia', '==', dia()))));
+    expect(meu.docs.map((item) => item.data().contagem)).toEqual([3]);
+    await assertFails(getDocs(query(collection(autenticarComo(usuarios.colaborador), 'recadosLimite'), where('login', '==', usuarios.gestor.login))));
+  });
+
+  it('formato: texto vazio ou longo, tipo, resposta ou status na criação, validade fora do limite, hora falsa e campo extra são recusados', async () => {
+    await assertFails(enviar(usuarios.gestor, { texto: 'a' }));
+    await assertFails(enviar(usuarios.gestor, { texto: 'x'.repeat(301) }));
+    await assertFails(enviar(usuarios.gestor, { tipo: 'CHAT' }));
+    await assertFails(enviar(usuarios.gestor, { status: 'RESPONDIDO' }));
+    await assertFails(enviar(usuarios.gestor, { resposta: 'POSSO' }));
+    await assertFails(enviar(usuarios.gestor, { notaResposta: 'já respondi' }));
+    await assertFails(enviar(usuarios.gestor, { expiraEm: em(-1) }));
+    await assertFails(enviar(usuarios.gestor, { expiraEm: em(10) }));
+    await assertFails(enviar(usuarios.gestor, { criadoEm: Timestamp.fromMillis(Date.now() - 86_400_000) }));
+    await assertFails(enviar(usuarios.gestor, { extra: 'x' }));
+    await assertSucceeds(enviar(usuarios.gestor, { tipo: 'AVISO' }));
+  });
+
+  it('só remetente e destinatário leem; consulta de terceiros ou sem filtro é negada', async () => {
+    await semearRecado();
+    await assertSucceeds(getDoc(doc(autenticarComo(usuarios.gestor), 'recados', 'rec-1')));
+    await assertSucceeds(getDoc(doc(autenticarComo(usuarios.colaborador), 'recados', 'rec-1')));
+    await assertFails(getDoc(doc(autenticarComo(usuarios.colega), 'recados', 'rec-1')));
+    await assertFails(getDoc(doc(autenticarComo(usuarios.externo), 'recados', 'rec-1')));
+    const doDestinatario = await assertSucceeds(getDocs(query(collection(autenticarComo(usuarios.colaborador), 'recados'), where('destinatarioLogin', '==', usuarios.colaborador.login))));
+    expect(doDestinatario.docs).toHaveLength(1);
+    const doRemetente = await assertSucceeds(getDocs(query(collection(autenticarComo(usuarios.gestor), 'recados'), where('remetenteLogin', '==', usuarios.gestor.login))));
+    expect(doRemetente.docs).toHaveLength(1);
+    await assertFails(getDocs(collection(autenticarComo(usuarios.colaborador), 'recados')));
+    await assertFails(getDocs(query(collection(autenticarComo(usuarios.colega), 'recados'), where('destinatarioLogin', '==', usuarios.colaborador.login))));
+  });
+
+  it('o destinatário responde POSSO / NÃO POSSO com uma nota curta; o aviso só aceita ENTENDI', async () => {
+    await semearRecado();
+    await assertSucceeds(responder(usuarios.colaborador));
+    await semearRecado({ id: 'rec-2' });
+    await assertSucceeds(responder(usuarios.colaborador, { resposta: 'NAO_POSSO', notaResposta: '' }, 'rec-2'));
+    await semearRecado({ id: 'rec-3', tipo: 'AVISO' });
+    await assertSucceeds(responder(usuarios.colaborador, { resposta: 'CIENTE', notaResposta: '' }, 'rec-3'));
+    await semearRecado({ id: 'rec-4', tipo: 'AVISO' });
+    await assertFails(responder(usuarios.colaborador, { resposta: 'POSSO' }, 'rec-4'));
+    await semearRecado({ id: 'rec-5' });
+    await assertFails(responder(usuarios.colaborador, { resposta: 'CIENTE' }, 'rec-5'));
+  });
+
+  it('a resposta não mexe no texto, no remetente nem no destinatário; nota longa, hora falsa e validade longa são recusadas', async () => {
+    await semearRecado();
+    await assertFails(responder(usuarios.colaborador, { texto: 'Mudei o recado' }));
+    await assertFails(responder(usuarios.colaborador, { remetenteLogin: usuarios.admin.login }));
+    await assertFails(responder(usuarios.colaborador, { destinatarioLogin: usuarios.colega.login }));
+    await assertFails(responder(usuarios.colaborador, { notaResposta: 'x'.repeat(141) }));
+    await assertFails(responder(usuarios.colaborador, { respondidoEm: Timestamp.fromMillis(Date.now() - 86_400_000) }));
+    await assertFails(responder(usuarios.colaborador, { expiraEm: em(30) }));
+    await assertFails(responder(usuarios.colaborador, { status: 'ENVIADO' }));
+  });
+
+  it('quem não é o destinatário não responde; não se responde duas vezes nem um recado expirado', async () => {
+    await semearRecado();
+    await assertFails(responder(usuarios.gestor));
+    await assertFails(responder(usuarios.colega));
+    await assertSucceeds(responder(usuarios.colaborador));
+    await assertFails(responder(usuarios.colaborador, { resposta: 'NAO_POSSO' }));
+    await semearRecado({ id: 'rec-exp', expiraEm: Timestamp.fromMillis(Date.now() - 1000) });
+    await assertFails(responder(usuarios.colaborador, {}, 'rec-exp'));
+  });
+
+  it('o remetente apaga a qualquer momento; o destinatário só limpa o que já expirou; terceiros nunca', async () => {
+    await semearRecado();
+    await assertFails(deleteDoc(doc(autenticarComo(usuarios.colaborador), 'recados', 'rec-1')));
+    await assertFails(deleteDoc(doc(autenticarComo(usuarios.colega), 'recados', 'rec-1')));
+    await assertSucceeds(deleteDoc(doc(autenticarComo(usuarios.gestor), 'recados', 'rec-1')));
+    await semearRecado({ id: 'rec-exp', expiraEm: Timestamp.fromMillis(Date.now() - 1000) });
+    await assertSucceeds(deleteDoc(doc(autenticarComo(usuarios.colaborador), 'recados', 'rec-exp')));
+    await semearRecado({ id: 'rec-respondido', status: 'RESPONDIDO', resposta: 'POSSO', respondidoEm: Timestamp.now() });
+    await assertSucceeds(deleteDoc(doc(autenticarComo(usuarios.gestor), 'recados', 'rec-respondido')));
+  });
+
+  it('o remetente não edita o recado depois de enviado', async () => {
+    await semearRecado();
+    await assertFails(updateDoc(doc(autenticarComo(usuarios.gestor), 'recados', 'rec-1'), { texto: 'Mudei de ideia' }));
   });
 });

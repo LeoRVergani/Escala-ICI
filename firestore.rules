@@ -1465,6 +1465,115 @@ service cloud.firestore {
       allow delete: if podeGerirInformacoesDaEquipe(resource.data.equipeId);
     }
 
+    /**
+     * RECADOS-1 — recado curto de uma liderança para um colaborador (não é chat nem histórico).
+     * Quem envia: quem gerencia a EQUIPE do destinatário (mesma regra das Informações). Quem lê: só o
+     * remetente e o destinatário. O destinatário só consegue RESPONDER (posso / não posso / entendi);
+     * o remetente apaga ao dispensar; o que expira é apagado sozinho (TTL em `expiraEm`).
+     *
+     * LIMITE DIÁRIO no servidor: cada recado criado tem de vir num lote com o contador do dia
+     * (`recadosLimite/{login}_{AAAA-MM-DD}`, dia de Brasília) incrementado em 1 e nunca acima de 30 —
+     * `getAfter` confere o contador como ficará DEPOIS do lote. Protege a cota gratuita de erro ou abuso.
+     */
+    function dataLocalBrasil() {
+      let t = request.time - duration.value(3, 'h');
+      return string(t.year()) + '-' + (t.month() < 10 ? '0' : '') + string(t.month()) + '-' + (t.day() < 10 ? '0' : '') + string(t.day());
+    }
+
+    function caminhoLimiteRecados() {
+      return /databases/$(database)/documents/recadosLimite/$(loginDoAuth() + '_' + dataLocalBrasil());
+    }
+
+    function recadoValido(dados, id) {
+      return dados.keys().hasOnly([
+          'id', 'schemaVersion', 'equipeId', 'remetenteLogin', 'remetenteNome', 'destinatarioLogin', 'destinatarioNome',
+          'tipo', 'texto', 'status', 'resposta', 'notaResposta', 'criadoEm', 'respondidoEm', 'expiraEm',
+        ])
+        && dados.keys().hasAll([
+          'id', 'schemaVersion', 'equipeId', 'remetenteLogin', 'remetenteNome', 'destinatarioLogin', 'destinatarioNome',
+          'tipo', 'texto', 'status', 'resposta', 'notaResposta', 'criadoEm', 'respondidoEm', 'expiraEm',
+        ])
+        && dados.id == id
+        && dados.schemaVersion == 1
+        && dados.tipo in ['PERGUNTA', 'AVISO']
+        && dados.status in ['ENVIADO', 'RESPONDIDO']
+        && dados.equipeId is string && dados.equipeId.size() > 0
+        && dados.remetenteLogin is string && dados.remetenteLogin.size() > 0
+        && dados.destinatarioLogin is string && dados.destinatarioLogin.size() > 0
+        && dados.remetenteNome is string && dados.remetenteNome.size() <= 120
+        && dados.destinatarioNome is string && dados.destinatarioNome.size() <= 120
+        && dados.texto is string && dados.texto.size() >= 3 && dados.texto.size() <= 300
+        && dados.notaResposta is string && dados.notaResposta.size() <= 140
+        && (dados.resposta == null
+          || (dados.tipo == 'PERGUNTA' && dados.resposta in ['POSSO', 'NAO_POSSO'])
+          || (dados.tipo == 'AVISO' && dados.resposta == 'CIENTE'))
+        && dados.criadoEm is timestamp
+        && dados.expiraEm is timestamp
+        && (dados.respondidoEm == null || dados.respondidoEm is timestamp);
+    }
+
+    match /recados/{recadoId} {
+      allow read: if autenticado()
+        && (resource.data.remetenteLogin == loginDoAuth() || resource.data.destinatarioLogin == loginDoAuth());
+
+      allow create: if autenticado()
+        && recadoValido(request.resource.data, recadoId)
+        && podeGerirInformacoesDaEquipe(request.resource.data.equipeId)
+        && request.resource.data.remetenteLogin == loginDoAuth()
+        && request.resource.data.destinatarioLogin != loginDoAuth()
+        && request.resource.data.status == 'ENVIADO'
+        && request.resource.data.resposta == null
+        && request.resource.data.respondidoEm == null
+        && request.resource.data.notaResposta == ''
+        && request.resource.data.criadoEm == request.time
+        && request.resource.data.expiraEm > request.time
+        && request.resource.data.expiraEm <= request.time + duration.value(4, 'd')
+        && get(/databases/$(database)/documents/usuarios/$(request.resource.data.destinatarioLogin)).data.get('equipeId', null) == request.resource.data.equipeId
+        && getAfter(caminhoLimiteRecados()).data.get('contagem', 0) <= 30
+        && getAfter(caminhoLimiteRecados()).data.get('contagem', 0)
+          == (exists(caminhoLimiteRecados()) ? get(caminhoLimiteRecados()).data.get('contagem', 0) + 1 : 1);
+
+      // o destinatário só RESPONDE (uma vez, antes de expirar); nada além dos campos da resposta muda
+      allow update: if autenticado()
+        && resource.data.destinatarioLogin == loginDoAuth()
+        && resource.data.status == 'ENVIADO'
+        && resource.data.expiraEm > request.time
+        && recadoValido(request.resource.data, recadoId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resposta', 'notaResposta', 'respondidoEm', 'expiraEm'])
+        && request.resource.data.status == 'RESPONDIDO'
+        && request.resource.data.resposta != null
+        && request.resource.data.respondidoEm == request.time
+        && request.resource.data.expiraEm > request.time
+        && request.resource.data.expiraEm <= request.time + duration.value(2, 'd');
+
+      // o remetente apaga quando quiser; o destinatário só limpa o que já expirou
+      allow delete: if autenticado()
+        && (
+          resource.data.remetenteLogin == loginDoAuth()
+          || (resource.data.destinatarioLogin == loginDoAuth() && resource.data.expiraEm <= request.time)
+        );
+    }
+
+    match /recadosLimite/{chave} {
+      // lido por consulta (login + dia), porque um documento ainda inexistente não tem `resource`
+      allow read: if autenticado() && resource.data.login == loginDoAuth();
+      allow create: if autenticado()
+        && chave == loginDoAuth() + '_' + dataLocalBrasil()
+        && request.resource.data.keys().hasOnly(['login', 'dia', 'contagem'])
+        && request.resource.data.login == loginDoAuth()
+        && request.resource.data.dia == dataLocalBrasil()
+        && request.resource.data.contagem == 1;
+      allow update: if autenticado()
+        && chave == loginDoAuth() + '_' + dataLocalBrasil()
+        && request.resource.data.keys().hasOnly(['login', 'dia', 'contagem'])
+        && request.resource.data.login == loginDoAuth()
+        && request.resource.data.dia == dataLocalBrasil()
+        && request.resource.data.contagem is int
+        && request.resource.data.contagem <= 30
+        && request.resource.data.contagem == resource.data.contagem + 1;
+      allow delete: if false;
+    }
+
     match /regrasEscala/{regraId} {
       allow read: if autenticado();
 

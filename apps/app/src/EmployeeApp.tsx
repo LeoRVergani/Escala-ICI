@@ -210,6 +210,8 @@ import {
   temPlantaoPublicado,
 } from './operacoesApp';
 import { InformacoesParaVoce } from './informacoes/InformacoesParaVoce';
+import { RecadosParaVoce } from './recados/RecadosParaVoce';
+import { useRecadosRecebidos } from './recados/useRecadosRecebidos';
 import { useInformacoesDoColaborador } from './informacoes/useInformacoesDoColaborador';
 import { paraOColaborador } from '@/lib/informacoesDia';
 import { LembretesView } from './lembretes/LembretesView';
@@ -3578,6 +3580,8 @@ export function EmployeeApp() {
   // INFORMACOES-DIA-1 — o que a liderança liberou para este colaborador ver (a consulta e as Rules só entregam as dele).
   const { informacoes: informacoesLiberadasApp } = useInformacoesDoColaborador({ login: loginUsuario, desdeIso: dataHoje, listenersLiberados });
   const informacoesParaVoceApp = loginUsuario === null ? [] : paraOColaborador(informacoesLiberadasApp, loginUsuario, dataHoje);
+  // RECADOS-1 — recados da liderança que esperam a resposta deste colaborador (responde com um toque e some).
+  const { pendentes: recadosPendentesApp, responder: responderRecadoApp } = useRecadosRecebidos({ login: loginUsuario, listenersLiberados });
 
   /**
    * APROVAR-TROCA-APP-1 — quem coordena (coordenador, supervisor, gestor de
@@ -5521,6 +5525,8 @@ export function EmployeeApp() {
               <ChevronRight size={18} aria-hidden="true" />
             </button>
           )}
+          {/* RECADOS-1 — recados da liderança esperando resposta (some quando não há nada). */}
+          <RecadosParaVoce recados={recadosPendentesApp} onResponder={responderRecadoApp} />
           {/* INFORMACOES-DIA-1 — o que a liderança registrou e liberou para você (some quando não há nada). */}
           <InformacoesParaVoce informacoes={informacoesParaVoceApp} hoje={dataHoje} />
           {/* HOJE-COORDENACAO-1 — com equipes carregadas, a visão nova; sem, o painel de estado (carregando/sem equipes). */}
