@@ -2,6 +2,7 @@
 
 import { AdminRegrasPage } from './AdminRegrasPage';
 import { InformacoesPage } from './InformacoesPage';
+import { RecadosPage } from './RecadosPage';
 import { informacoesDeExemplo } from './informacoesDemo';
 import { useInformacoesDaEquipe } from './useInformacoesDaEquipe';
 import { descricaoHorario, informacoesDoDia, marcadoresPorCelula, metaDoTipo, TIPOS_INFORMACAO, tituloExibicao } from '@/lib/informacoesDia';
@@ -460,7 +461,7 @@ import type {
   Usuario,
 } from '@/lib/modelos';
 
-type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao' | 'responsaveisEscala' | 'equipe' | 'liderancas' | 'colaboradores' | 'informacoes' | 'escalaPlantao';
+type Tela = 'visao' | 'importar' | 'escalas' | 'grade' | 'usuarios' | 'trocas' | 'plantoes' | 'administracao' | 'responsaveisEscala' | 'equipe' | 'liderancas' | 'colaboradores' | 'informacoes' | 'recados' | 'escalaPlantao';
 
 /**
  * PATCH-CONTEXTO-USUARIOS-FILTRO-SETOR-1 — telas cujo conteúdo é o
@@ -996,6 +997,8 @@ const NAVEGACAO: ItemNavegacao[] = [
   { id: 'escalas', rotulo: 'Escalas', icone: 'calendar' },
   // INFORMACOES-DIA-1 — atestado, afastamento por horário, curso e anotações sobre cada colaborador.
   { id: 'informacoes', rotulo: 'Informações', icone: 'notas' },
+  // RECADOS-1 — recado curto para um colaborador, com resposta de um toque e limite diário.
+  { id: 'recados', rotulo: 'Recados', icone: 'recados' },
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   { id: 'usuarios', rotulo: 'Usuários', icone: 'users' },
   { id: 'liderancas', rotulo: 'Lideranças', icone: 'user' },
@@ -1015,6 +1018,8 @@ const NAVEGACAO_COORDENACAO: ItemNavegacao[] = [
   { id: 'equipe', rotulo: 'Minha equipe', icone: 'users' },
   { id: 'escalas', rotulo: 'Escalas', icone: 'calendar' },
   { id: 'informacoes', rotulo: 'Informações', icone: 'notas' },
+  // RECADOS-1 — recado curto para um colaborador, com resposta de um toque e limite diário.
+  { id: 'recados', rotulo: 'Recados', icone: 'recados' },
   { id: 'trocas', rotulo: 'Trocas', icone: 'trocas' },
   // LIDERANCAS-1 — toda liderança vê e promove lideranças.
   { id: 'liderancas', rotulo: 'Lideranças', icone: 'user' },
@@ -11522,6 +11527,15 @@ export function DashboardApp() {
       {/* INFORMACOES-DIA-1 — o chefe registra e consulta o que aconteceu com cada colaborador. */}
       {tela === 'informacoes' && usuarioReal && (
         <InformacoesPage
+          autor={usuarioReal}
+          equipes={equipesParaInformacoes}
+          modoDemo={modoDemo}
+          pessoasDemo={modoDemo ? [usuarioReal, ...usuarios.filter((pessoa) => pessoa.login !== usuarioReal.login)] : undefined}
+        />
+      )}
+      {/* RECADOS-1 — recado curto para um colaborador; ele responde com um toque e o recado é apagado. */}
+      {tela === 'recados' && usuarioReal && (
+        <RecadosPage
           autor={usuarioReal}
           equipes={equipesParaInformacoes}
           modoDemo={modoDemo}

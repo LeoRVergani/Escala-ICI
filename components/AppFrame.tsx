@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ClipboardList,
   LayoutDashboard,
+  MessageSquareText,
   Table2,
   LogOut,
   Menu,
@@ -30,7 +31,7 @@ import { ThemeToggle } from './ThemeProvider';
 export interface ItemNavegacao {
   id: string;
   rotulo: string;
-  icone: 'home' | 'upload' | 'calendar' | 'grid' | 'users' | 'user' | 'trocas' | 'admin' | 'plantao' | 'notas';
+  icone: 'home' | 'upload' | 'calendar' | 'grid' | 'users' | 'user' | 'trocas' | 'admin' | 'plantao' | 'notas' | 'recados';
   /**
    * FASE-APP-UX-OPERACOES-MOBILE-1 — item some da barra inferior mobile
    * (`.bottom-nav`) mas continua na sidebar (desktop). Usado por "Perfil":
@@ -53,6 +54,7 @@ const ICONES: Record<ItemNavegacao['icone'], LucideIcon> = {
   admin: ShieldCheck,
   plantao: Radio,
   notas: ClipboardList,
+  recados: MessageSquareText,
 };
 
 interface AppFrameProps {

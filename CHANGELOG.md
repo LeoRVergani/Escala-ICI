@@ -12,6 +12,11 @@ O Dashboard tem a sua própria versão: veja `CHANGELOG-DASHBOARD.md`. O App con
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.9.0 — "Recados da liderança" no Hoje
+- Na aba Hoje aparece o cartão "Recados da liderança" quando a sua liderança manda um recado: você responde com um
+  toque ("Posso" / "Não posso", ou "Entendi"), com uma explicação curta opcional, e o recado some do seu App.
+- O recado vence sozinho (3 dias sem resposta). Sem notificação no celular por enquanto: aparece ao abrir o App.
+
 ## 3.8.2 — rótulo do administrador do sistema
 - Sob o nome do administrador do sistema aparece "Administrador do sistema" (antes, "Coordenador", como se ele
   tivesse uma equipe). Quem tem cargo cadastrado continua vendo o próprio cargo.

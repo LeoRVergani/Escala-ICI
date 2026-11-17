@@ -15,6 +15,20 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.10.0 — Recados: um recado curto, a resposta de um toque e o recado some (patch 0101)
+- Nova tela "Recados" (menu, abaixo de Informações): a liderança escolhe uma ou mais pessoas (até 10), diz se quer
+  **uma resposta** ("Posso" / "Não posso") ou **só avisar** ("Entendi") e escreve o texto livre (até 300 caracteres).
+  Serve para "pode trocar comigo no dia 20?" ou "pode atender este chamado?".
+- **Sem histórico nem conversa**: você vê "aguardando" ou a resposta (com a nota curta, se houver) e apaga com
+  "Ok, apagar"; o que vence é apagado sozinho (3 dias sem resposta; 24 h depois de respondido) — pela limpeza ao
+  abrir e pelo TTL do Firestore, para não ocupar armazenamento.
+- **Limite diário de 30 recados por remetente**, aplicado nas Regras do Firestore (o servidor recusa o 31º): protege a
+  cota gratuita de erro ou abuso. O medidor "N de 30 enviados hoje" aparece na tela.
+- Só remetente e destinatário leem o recado; o destinatário só consegue responder.
+- **Requer publicar as Rules e os índices** (coleções `recados` e `recadosLimite`, TTL em `expiraEm`; 489 testes de
+  regra esperados na VM). Sem notificação no celular por enquanto: o colaborador vê ao abrir o App.
+- App 3.9.0 (cartão "Recados da liderança").
+
 ## 1.9.1 — mais respiro no fim das janelas (patch 0100)
 - Nas janelas "Nova regra" e "Nova informação", o último item não fica mais colado na linha do rodapé: a folga
   passou de 14px para 32px (no celular, 28px). Só estilo; sem mudança de comportamento.

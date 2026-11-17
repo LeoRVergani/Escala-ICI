@@ -1422,3 +1422,40 @@ test('LIDERANCA-CARGO-1 — só cargo de liderança vira liderança (tela e Rule
   assert.match(colaboradores, /!semEquipePropria && pessoa\.equipeId !== ''/u);
   assert.match(sessao, /if \(perfil === 'ADMIN_SISTEMA'\) return 'Administrador do sistema';/u);
 });
+
+test('RECADOS-1 — limite diário no servidor (o mesmo número do código), só remetente e destinatário leem, o App só responde, texto sempre como texto e TTL declarado', async () => {
+  const [rules, lib, repo, hookApp, cartaoApp, pagina, modal, appJs, dashboard, indices] = await Promise.all([
+    ler('firestore.rules'), ler('lib/recados.ts'), ler('lib/firebase/recadosRepository.ts'), ler('apps/app/src/recados/useRecadosRecebidos.ts'),
+    ler('apps/app/src/recados/RecadosParaVoce.tsx'), ler('apps/dashboard/src/RecadosPage.tsx'), ler('apps/dashboard/src/RecadoModal.tsx'),
+    ler('apps/app/src/EmployeeApp.tsx'), ler('apps/dashboard/src/DashboardApp.tsx'), ler('firestore.indexes.json'),
+  ]);
+  // O limite do código e o das Rules são o MESMO número (um não pode ser afrouxado sem o outro).
+  const limiteCodigo = Number(/LIMITE_DIARIO_RECADOS = (\d+)/u.exec(lib)?.[1]);
+  const limitesRules = [...rules.matchAll(/contagem(?:', 0\))? <= (\d+)/gu)].map((achado) => Number(achado[1]));
+  assert.ok(limiteCodigo > 0 && limitesRules.length >= 2, 'limite encontrado no código e nas Rules');
+  for (const limite of limitesRules) assert.equal(limite, limiteCodigo);
+  // O recado só é criado junto com o contador do dia (getAfter), e o contador só sobe de 1 em 1.
+  assert.match(rules, /getAfter\(caminhoLimiteRecados\(\)\)\.data\.get\('contagem', 0\)/u);
+  assert.match(rules, /exists\(caminhoLimiteRecados\(\)\) \? get\(caminhoLimiteRecados\(\)\)\.data\.get\('contagem', 0\) \+ 1 : 1/u);
+  assert.match(rules, /request\.resource\.data\.contagem == resource\.data\.contagem \+ 1/u);
+  assert.match(rules, /allow delete: if false;/u);
+  // Leitura: só remetente e destinatário. Apagar: o remetente; o destinatário só o que já expirou.
+  const bloco = /match \/recados\/\{recadoId\} \{([\s\S]*?)\n    \}\n/u.exec(rules)?.[1] ?? '';
+  assert.match(bloco, /allow read: if autenticado\(\)\s*&& \(resource\.data\.remetenteLogin == loginDoAuth\(\) \|\| resource\.data\.destinatarioLogin == loginDoAuth\(\)\);/u);
+  assert.match(bloco, /resource\.data\.destinatarioLogin == loginDoAuth\(\) && resource\.data\.expiraEm <= request\.time/u);
+  assert.match(bloco, /affectedKeys\(\)\.hasOnly\(\['status', 'resposta', 'notaResposta', 'respondidoEm', 'expiraEm'\]\)/u);
+  assert.match(bloco, /podeGerirInformacoesDaEquipe\(request\.resource\.data\.equipeId\)/u);
+  // O App só responde e limpa: nunca envia recado.
+  assert.doesNotMatch(`${hookApp}${cartaoApp}${appJs}`, /enviarRecado/u);
+  assert.match(hookApp, /responderRecado\(recado\.id, resposta, nota\)/u);
+  // O Dashboard envia só pelo repositório; o texto nunca vira HTML em nenhuma das telas.
+  assert.match(pagina, /await enviarRecado\(/u);
+  for (const fonte of [pagina, modal, cartaoApp]) assert.doesNotMatch(fonte, /dangerouslySetInnerHTML|innerHTML|document\.write/u);
+  // Consultas por igualdade (sem "in"), como as Rules avaliam.
+  assert.match(repo, /where\('remetenteLogin', '==', login\)/u);
+  assert.match(repo, /where\('destinatarioLogin', '==', login\)/u);
+  assert.doesNotMatch(repo, /, 'in', /u);
+  // O que vence é apagado sozinho: TTL em expiraEm, declarado no mesmo arquivo de índices que o deploy publica.
+  assert.ok(JSON.parse(indices).fieldOverrides.some((item) => item.collectionGroup === 'recados' && item.fieldPath === 'expiraEm' && item.ttl === true));
+  assert.match(dashboard, /\{ id: 'recados', rotulo: 'Recados', icone: 'recados' \}/u);
+});
