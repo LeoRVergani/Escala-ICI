@@ -5,6 +5,7 @@ import { InformacoesPage } from './InformacoesPage';
 import { informacoesDeExemplo } from './informacoesDemo';
 import { useInformacoesDaEquipe } from './useInformacoesDaEquipe';
 import { descricaoHorario, informacoesDoDia, marcadoresPorCelula, metaDoTipo, TIPOS_INFORMACAO, tituloExibicao } from '@/lib/informacoesDia';
+import { montarHtmlImpressaoEscala } from '@/lib/escaparHtml';
 import { detalheVersaoDashboard, numeroVersaoDashboard } from './versaoDashboard';
 import { PainelProblemasEscala } from './PainelProblemasEscala';
 import { avaliarRegras, bloqueiaPublicacaoPorRegra, diferencaDeProblemas, indexarProblemasPorCelula, type AlertaRegra, type RegraEscala } from '@/lib/regrasEscala';
@@ -8958,22 +8959,18 @@ export function DashboardApp() {
       const documentosEquipe = modoDemo
         ? documentos
         : await carregarEscalasEquipe(equipeExportar, competenciaExportar, true);
-      const linhasHtml = documentosEquipe.map((documento) => {
-        const totais = calcularTotais(documento.dias, catalogo);
-        return `<tr><td>${documento.login}</td><td>${formatarMinutos(totais.min)}</td></tr>`;
-      }).join('');
+      // SEGURANCA-1 — o HTML é montado com TUDO escapado (e com CSP que proíbe script): nunca com texto cru.
+      const html = montarHtmlImpressaoEscala({
+        equipe: equipeExportar,
+        competencia: competenciaExportar,
+        linhas: documentosEquipe.map((documento) => ({ login: documento.login, total: formatarMinutos(calcularTotais(documento.dias, catalogo).min) })),
+      });
       const janela = window.open('', '_blank');
       if (janela === null) {
         setErroAdmin('Não foi possível abrir a janela de impressão (bloqueada pelo navegador?).');
         return;
       }
-      janela.document.write(`
-        <title>Escala ${equipeExportar} — ${competenciaExportar}</title>
-        <table border="1" cellpadding="6" style="border-collapse:collapse;font-family:sans-serif;">
-          <thead><tr><th>Login</th><th>Total</th></tr></thead>
-          <tbody>${linhasHtml}</tbody>
-        </table>
-      `);
+      janela.document.write(html);
       janela.document.close();
       janela.focus();
       janela.print();

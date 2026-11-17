@@ -83,6 +83,7 @@
     "staging:diagnosticar:plantao": "node scripts/staging/diagnosticar-plantao-usuario.mjs",
     "staging:normalizar:nomes": "node scripts/staging/normalizar-nomes-usuarios.mjs",
     "staging:corrigir:equipe-plantao": "node scripts/staging/corrigir-equipe-de-plantao.mjs",
+    "staging:auditar:contas-auth": "node scripts/staging/auditar-contas-auth.mjs",
     "lint": "node scripts/run-local-tool.mjs lint",
     "db:generate": "node scripts/run-local-tool.mjs db-generate",
     "seed": "vite-node seed/seed.ts"
