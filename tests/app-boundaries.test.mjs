@@ -1514,3 +1514,18 @@ test('RECADOS-3 (push) — os avisos são genéricos e únicos (pessoa, grupo e 
   assert.equal(/^## (\d+\.\d+\.\d+)/mu.exec(changelogWorker)?.[1], JSON.parse(pacoteWorker).version, 'versão do worker = primeira seção do CHANGELOG-PUSH-WORKER.md');
   assert.match(frame, /contador\?: number;/u);
 });
+
+test('REGRAS-LIMITE-1 — a checagem do cargo é a ÚLTIMA condição da promoção (limite de 1000 expressões por regra no Firestore)', async () => {
+  const rules = await ler('firestore.rules');
+  const ini = rules.indexOf('LIDERANCAS-1 — uma liderança torna outra pessoa liderança');
+  const fim = rules.indexOf('// Na importação da Jornada', ini);
+  assert.ok(ini > 0 && fim > ini, 'bloco da promoção encontrado');
+  const promocao = rules.slice(ini, fim);
+  const cargo = promocao.indexOf('cargoDeLideranca(');
+  const estrutura = promocao.indexOf(".hasOnly(['perfil', 'nivelHierarquico', 'promovidoPorLogin', 'promovidoEm', 'atualizadoEm'])");
+  assert.ok(cargo > 0 && estrutura > 0, 'cargo e estrutura encontrados');
+  // Antes do cargo: todas as condições baratas que descartam uma atualização que NÃO é promoção (ex.: transferir de equipe).
+  assert.ok(cargo > estrutura, 'cargoDeLideranca() vem DEPOIS de affectedKeys().hasOnly([...]) — se voltar para o começo, a transferência de equipe estoura as 1000 expressões');
+  // (O cadastro de liderança nova é a ÚLTIMA alternativa do `allow create` — só é avaliada se as outras recusarem —, então o
+  // cargo ali não pesa em atualizações; a estrutura dessa alternativa é conferida no teste LIDERANCAS-2.)
+});
