@@ -1571,7 +1571,7 @@ test('CSS-BALANCEADO-1 — o CSS global tem o mesmo número de chaves que abrem 
   assert.equal(abre, fecha, `chaves abrindo (${abre}) e fechando (${fecha})`);
 });
 
-test('VIRADA-CICLO-1 — ciclo 16→15: o aviso do turno busca a janela de competências, a escala mais recente vence nas datas repetidas e publicar simulando é barrado com o motivo certo', async () => {
+test('VIRADA-CICLO-1 — ciclo do ponto: o aviso do turno busca a janela de competências, a escala mais recente vence nas datas repetidas e publicar simulando é barrado com o motivo certo', async () => {
   const [agendador, jornada, dashboard, rules] = await Promise.all([
     ler('apps/push-worker/src/agendadorAlertas.ts'), ler('packages/contrato/src/jornada.ts'), ler('apps/dashboard/src/DashboardApp.tsx'), ler('firestore.rules'),
   ]);
@@ -1588,4 +1588,27 @@ test('VIRADA-CICLO-1 — ciclo 16→15: o aviso do turno busca a janela de compe
   assert.match(publicar, /if \(simulando !== null\) \{\s*setErroPublicacao\(`Você está simulando \$\{simulando\.nome\}\. Saia da simulação para publicar/u);
   // ...porque a Regra exige que quem publica seja a conta logada de verdade (é o que a simulação quebra).
   assert.match(rules, /request\.resource\.data\.publicadoPor == loginDoAuth\(\)/u);
+});
+
+test('CALENDARIO-PONTO-1 — o calendário do ponto é a fonte única do ciclo (Jornada, Plantão, Dashboard) e o worker segue independente do contrato', async () => {
+  const [jornada, plantao, informacoes, docs] = await Promise.all([
+    ler('packages/contrato/src/jornada.ts'), ler('lib/montagemRascunhoPlantao.ts'), ler('lib/informacoesEscala.ts'), ler('docs/spec/CALENDARIO_PONTO.md'),
+  ]);
+  // As exceções do comunicado do RH (10/11/2026) — e só elas — vivem numa tabela.
+  const excecoes = /const EXCECOES_PONTO[^=]*= \{([\s\S]*?)\n\};/u.exec(jornada)?.[1] ?? '';
+  assert.match(excecoes, /'2026-12': \{ periodoInicio: '2026-11-17', periodoFim: '2026-12-15' \}/u);
+  assert.match(excecoes, /'2027-01': \{ periodoInicio: '2026-12-16', periodoFim: '2027-01-16' \}/u);
+  assert.equal((excecoes.match(/periodoInicio:/gu) ?? []).length, 2, 'só as duas exceções do comunicado');
+  assert.match(jornada, /const ULTIMO_ROTULO_CICLO_ANTIGO = '2026-11';/u);
+  // `competenciaOperacional` sem corte explícito segue o calendário; o corte explícito é só a regra simples antiga.
+  assert.match(jornada, /if \(diaCorte === undefined\) return competenciaDoPonto\(dataIso\);/u);
+  // O Plantão e as Informações da escala não têm mais o 26/25 embutido: delegam ao calendário.
+  assert.match(plantao, /return periodoDoPonto\(competencia\);/u);
+  assert.doesNotMatch(plantao.replace(/\/\*[\s\S]*?\*\//gu, ''), /-26`|-25`/u);
+  assert.doesNotMatch(informacoes, /dia 26 do mês anterior/u);
+  // O worker NÃO importa o contrato (a imagem Docker leva só o worker): procura numa janela de competências.
+  const fontesWorker = await Promise.all(['agendadorAlertas', 'alertasTurno', 'index'].map((arquivo) => ler(`apps/push-worker/src/${arquivo}.ts`)));
+  for (const fonte of fontesWorker) assert.doesNotMatch(fonte, /from '@escala-ici\/contrato'/u);
+  // A documentação traz a tabela oficial.
+  for (const trecho of ['10/11/2026', '17/11 a 15/12', '16/12 a 16/01', 'EXCECOES_PONTO']) assert.ok(docs.includes(trecho), trecho);
 });

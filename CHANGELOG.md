@@ -12,6 +12,15 @@ O Dashboard tem a sua própria versão: veja `CHANGELOG-DASHBOARD.md`. O App con
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.12.3 — calendário do ponto: o ciclo passa a seguir o comunicado do RH (17→16, dezembro até 15/12, janeiro de 16/12 a 16/01)
+- O App (e o Dashboard e o Plantão) agora calculam a competência e o período a partir de **uma tabela única** — o calendário do
+  ponto — em vez do ciclo fixo "26 → 25": período regular **17 a 16**, dezembro **17/11 a 15/12**, janeiro **16/12 a 16/01**
+  (32 dias). Novembro continua **26/10 a 25/11**, como já foi publicado; as datas 17 a 25/11 passam a pertencer a dezembro.
+- **Correção do 3.12.2:** o texto dele chamava o ciclo novo de "16→15"; o certo (comunicado do RH de 10/11/2026) é **17→16**,
+  com as duas exceções acima. O que o 3.12.2 corrigiu (dois documentos cobrindo a mesma data) continua valendo.
+- Nada do passado muda: antes de 17/11/2026 a conta é a mesma de sempre (conferido para todas as datas desde 2020).
+- Documentação: `docs/spec/CALENDARIO_PONTO.md`.
+
 ## 3.12.2 — virada de ciclo: quando duas escalas cobrem o mesmo dia, o "Hoje" e a Agenda concordam
 - A nova escala (ciclo 16→15) pode começar antes de a antiga terminar (ex.: dezembro 17/11–15/12 e novembro até 25/11): nos dias
   repetidos, o calendário da Agenda já usava a competência mais recente, mas o card **"Seu turno hoje"** pegava o primeiro

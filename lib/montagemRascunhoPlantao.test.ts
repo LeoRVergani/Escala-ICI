@@ -79,7 +79,15 @@ describe('competenciaDoDia — janela 26→25 (Fase ESCALAS-UX-1A)', () => {
   });
 });
 
-describe('periodoDaCompetencia — janela 26→25 (Fase ESCALAS-UX-1A)', () => {
+describe('periodoDaCompetencia — janela 26→25 até 2026-11 (Fase ESCALAS-UX-1A) e calendário do ponto depois', () => {
+  it('as competências do calendário novo seguem o comunicado do RH: dezembro 17/11–15/12, janeiro 16/12–16/01, depois 17→16', () => {
+    expect(periodoDaCompetencia('2026-11')).toEqual({ periodoInicio: '2026-10-26', periodoFim: '2026-11-25' });
+    expect(periodoDaCompetencia('2026-12')).toEqual({ periodoInicio: '2026-11-17', periodoFim: '2026-12-15' });
+    expect(periodoDaCompetencia('2027-01')).toEqual({ periodoInicio: '2026-12-16', periodoFim: '2027-01-16' });
+    expect(periodoDaCompetencia('2027-02')).toEqual({ periodoInicio: '2027-01-17', periodoFim: '2027-02-16' });
+  });
+
+
   it('periodoInicio é dia 26 do mês anterior; periodoFim é dia 25 do próprio mês', () => {
     expect(periodoDaCompetencia('2026-08')).toEqual({ periodoInicio: '2026-07-26', periodoFim: '2026-08-25' });
   });
@@ -90,7 +98,8 @@ describe('periodoDaCompetencia — janela 26→25 (Fase ESCALAS-UX-1A)', () => {
 
   it('nunca depende de quantos dias o mês tem (fevereiro seria diferente num cálculo de "último dia do mês")', () => {
     expect(periodoDaCompetencia('2026-02')).toEqual({ periodoInicio: '2026-01-26', periodoFim: '2026-02-25' });
-    expect(periodoDaCompetencia('2028-02')).toEqual({ periodoInicio: '2028-01-26', periodoFim: '2028-02-25' });
+    // ciclo novo do ponto (17 → 16): fevereiro de 2028 tem 29 dias e o período continua 17/01 a 16/02
+    expect(periodoDaCompetencia('2028-02')).toEqual({ periodoInicio: '2028-01-17', periodoFim: '2028-02-16' });
   });
 
   it('competência malformada devolve null', () => {

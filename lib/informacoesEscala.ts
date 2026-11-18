@@ -40,7 +40,7 @@
  * fase.
  */
 
-import { dataPertenceCompetencia } from './montagemRascunhoPlantao';
+import { dataPertenceCompetencia, periodoDaCompetencia } from './montagemRascunhoPlantao';
 import { validarDataCivil } from './lembretes';
 
 export type TipoEscalaInformacao = 'JORNADA' | 'PLANTAO';
@@ -163,7 +163,12 @@ export function validarEntradaInformacaoEscala(entrada: EntradaInformacaoEscala)
   if (!validarDataCivil(entrada.data)) {
     erros.push('Data inválida.');
   } else if (validarCompetencia(entrada.competencia) && !dataPertenceCompetencia(entrada.data, entrada.competencia)) {
-    erros.push('A data informada não pertence ao período desta competência (dia 26 do mês anterior a dia 25 do mês do rótulo).');
+    // CALENDARIO-PONTO-1 — mostra o período REAL da competência (ex.: "de 17/11 a 15/12"), não uma regra fixa que mudou.
+    const periodo = periodoDaCompetencia(entrada.competencia);
+    const ddmm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+    erros.push(periodo === null
+      ? 'A data informada não pertence ao período desta competência.'
+      : `A data informada não pertence ao período desta competência (de ${ddmm(periodo.periodoInicio)} a ${ddmm(periodo.periodoFim)}).`);
   }
 
   if (entrada.escopo !== 'DIA' && entrada.escopo !== 'PESSOA_DIA') {
