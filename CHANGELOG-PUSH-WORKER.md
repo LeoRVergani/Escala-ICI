@@ -8,6 +8,13 @@ confere que o número do `package.json` é o da primeira seção deste arquivo.
 Depois de mudar o worker, na VM: `git pull`, `npm run docker:push-worker:staging:build` e
 `npm run docker:push-worker:staging:up` (as Rules do Firestore não mudam por causa do worker).
 
+## 0.5.2 — avisos do turno achando a escala também no ciclo novo 16→15 (patch 0109)
+- O agendador de avisos do turno convertia cada data em UMA competência com a regra antiga (o dia 26 vira o mês seguinte) e
+  buscava só ela. No ciclo novo, o rótulo é o mês em que o período termina e vira no dia **16**: de 16 a 25 de cada mês a escala
+  certa estava no mês seguinte e **nenhum aviso de turno** sairia nesses dias. Agora busca o **mês anterior, o do calendário e o
+  seguinte** (cobre o ciclo antigo, o novo e a transição) e funde as escalas da pessoa como o App faz — competência mais
+  recente vence nas datas repetidas.
+
 ## 0.5.1 — imagem Docker bem mais leve e rápida de construir (patch 0107)
 - O Dockerfile instalava o projeto INTEIRO (React, Vite, Firebase do navegador, planilhas…) e copiava ~800 MB de `node_modules`
   para a imagem final; o `npm prune` não ajudava (ele reinstala as dependências dos outros workspaces). O "exporting layers"

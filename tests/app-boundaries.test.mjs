@@ -1570,3 +1570,22 @@ test('CSS-BALANCEADO-1 — o CSS global tem o mesmo número de chaves que abrem 
   const fecha = (css.match(/\}/gu) ?? []).length;
   assert.equal(abre, fecha, `chaves abrindo (${abre}) e fechando (${fecha})`);
 });
+
+test('VIRADA-CICLO-1 — ciclo 16→15: o aviso do turno busca a janela de competências, a escala mais recente vence nas datas repetidas e publicar simulando é barrado com o motivo certo', async () => {
+  const [agendador, jornada, dashboard, rules] = await Promise.all([
+    ler('apps/push-worker/src/agendadorAlertas.ts'), ler('packages/contrato/src/jornada.ts'), ler('apps/dashboard/src/DashboardApp.tsx'), ler('firestore.rules'),
+  ]);
+  // Worker: janela (mês anterior, do calendário e seguinte) e fusão como o App — nunca a competência única da regra antiga.
+  assert.match(agendador, /datas\.flatMap\(competenciasDaData\)/u);
+  assert.match(agendador, /mesclarDiasDasEscalas\(escalasDaPessoa\)/u);
+  assert.doesNotMatch(agendador, /competenciaDaData/u);
+  // Contrato: com duas escalas cobrindo a mesma data, vale a de competência mais recente (igual a `mesclarDiasEscalas`).
+  const selecionar = /export function selecionarEscalaPorData[\s\S]*?\n\}/u.exec(jornada)?.[0] ?? '';
+  assert.match(selecionar, /\.sort\(\(a, b\) => b\.competencia\.localeCompare\(a\.competencia\)\)\[0\]/u);
+  // Dashboard: o aviso de "simulando" vem ANTES de qualquer escrita da publicação...
+  const publicar = /async function publicar\(\) \{[\s\S]*?await publicarEscalas\(/u.exec(dashboard)?.[0] ?? '';
+  assert.ok(publicar.length > 0, 'função publicar encontrada');
+  assert.match(publicar, /if \(simulando !== null\) \{\s*setErroPublicacao\(`Você está simulando \$\{simulando\.nome\}\. Saia da simulação para publicar/u);
+  // ...porque a Regra exige que quem publica seja a conta logada de verdade (é o que a simulação quebra).
+  assert.match(rules, /request\.resource\.data\.publicadoPor == loginDoAuth\(\)/u);
+});

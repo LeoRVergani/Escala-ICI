@@ -272,6 +272,34 @@ export function competenciaDaData(data: string): string {
   return `${ano}-${String(mes).padStart(2, '0')}`;
 }
 
+/**
+ * VIRADA-CICLO-1 — em que rótulos de competência a escala de uma data pode estar guardada. O rótulo é o mês em que o período
+ * TERMINA: no ciclo antigo (26→25) o dia 20/11 é "2026-11"; no novo (16→15) o dia 20/12 é "2027-01" — e `competenciaDaData`
+ * (que ainda vira no dia 26) diria "2026-12" e o aviso nunca acharia a escala. Procurar o mês anterior, o do calendário e o
+ * seguinte cobre os dois ciclos e a transição entre eles.
+ */
+export function competenciasDaData(data: string): string[] {
+  const [a, m] = data.split('-').map(Number);
+  const ano = a ?? 1970;
+  const mes = m ?? 1;
+  const rotulo = (deslocamento: number) => {
+    const total = ano * 12 + (mes - 1) + deslocamento;
+    return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}`;
+  };
+  return [rotulo(-1), rotulo(0), rotulo(1)];
+}
+
+/**
+ * Funde os `dias` de várias escalas da mesma pessoa. Nas datas que aparecem em dois documentos (a escala nova começa antes de
+ * a antiga terminar) vale a competência mais recente — a mesma regra do App (`mesclarDiasEscalas`) —, nunca a ordem de chegada.
+ */
+export function mesclarDiasDasEscalas<T extends { competencia?: unknown; dias?: Record<string, DiaMin> }>(escalas: readonly T[]): Record<string, DiaMin> {
+  const ordenadas = [...escalas].sort((a, b) => String(a.competencia ?? '').localeCompare(String(b.competencia ?? '')));
+  const dias: Record<string, DiaMin> = {};
+  for (const escala of ordenadas) Object.assign(dias, escala.dias ?? {});
+  return dias;
+}
+
 // ---------------------------------------------------------------------------
 // Envio de UM aviso, uma única vez (dependências injetadas → testável).
 export interface DependenciasEnvio {

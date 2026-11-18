@@ -6729,6 +6729,13 @@ export function DashboardApp() {
       setErroPublicacao('Este ambiente está só para consulta: não é possível publicar aqui.');
       return;
     }
+    // VIRADA-CICLO-1 — publicar grava `publicadoPor` com o usuário EFETIVO e as Regras exigem que seja a conta logada de verdade
+    // (`eventosEscala`: publicadoPor == loginDoAuth()). Simulando outro gestor os dois divergem e o Firestore recusa — com a
+    // mensagem enganosa de "regras não reconhecem a matriz". Avisa o motivo de verdade antes de tentar.
+    if (simulando !== null) {
+      setErroPublicacao(`Você está simulando ${simulando.nome}. Saia da simulação para publicar: a publicação é gravada em nome da sua conta real.`);
+      return;
+    }
     if (conciliacaoBloqueiaPublicacao) {
       setErroPublicacao('Resolva as pendências de conciliação de nomes antes de publicar.');
       return;
