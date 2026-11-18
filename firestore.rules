@@ -931,8 +931,6 @@ service cloud.firestore {
             && souResponsavelOperacionalElegivel()
             && loginDoAuth() != login
             && !(resource.data.get('perfil', '') in ['ADMIN_SISTEMA', 'GESTOR_UNIDADE', 'GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'])
-            // LIDERANCA-CARGO-1 — só se o CARGO da pessoa é de liderança (analista/técnico nunca).
-            && cargoDeLideranca(resource.data.get('cargo', ''))
             // .get(): num pedido SEM estes campos (ex.: só trocar a equipe) a
             // alternativa não se aplica — sem erro que contamine as demais.
             && request.resource.data.get('perfil', '') == 'GESTOR_EQUIPE'
@@ -942,6 +940,11 @@ service cloud.firestore {
             && request.resource.data.get('promovidoEm', null) is string
             && request.resource.data.diff(resource.data)
               .affectedKeys().hasOnly(['perfil', 'nivelHierarquico', 'promovidoPorLogin', 'promovidoEm', 'atualizadoEm'])
+            // LIDERANCA-CARGO-1 — só se o CARGO da pessoa é de liderança (analista/técnico nunca).
+            // ÚLTIMA condição DE PROPÓSITO: o Firestore limita cada regra a 1000 expressões avaliadas e esta regra de
+            // `usuarios` já anda perto disso. Aqui no começo, o custo da função de cargo era pago em TODA atualização que
+            // não é promoção (ex.: transferir alguém de equipe) e estourava o limite. No fim, só é paga numa promoção.
+            && cargoDeLideranca(resource.data.get('cargo', ''))
           )
 
           // Na importação da Jornada, o responsável do alvo pode apenas

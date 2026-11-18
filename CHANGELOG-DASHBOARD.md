@@ -15,6 +15,14 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.12.1 — correção nas Regras: transferir colaborador de equipe voltava a ser negado (patch 0105)
+- A checagem do cargo de liderança (patch 0099) ficava no começo da regra de atualização de `usuarios` e, em toda
+  atualização que não é promoção — como **transferir alguém de equipe** —, gastava expressões do limite de 1000 do Firestore
+  e a regra estourava ("maximum of 1000 expressions to evaluate"): a transferência seria **negada**. Agora a checagem do
+  cargo é a **última** condição da promoção, e só é paga numa promoção de verdade.
+- Descoberto ao rodar os testes de Regras na VM (503 de 504 passavam); um teste de fronteira trava a ordem.
+- **Requer publicar as Rules** (504 testes de regra esperados na VM). Só Dashboard (App e worker não mudam).
+
 ## 1.12.0 — Mensagens para uma pessoa, a equipe, o Plantão ou todos (patch 0104)
 - A tela agora é **Mensagens**. **Nova mensagem** (janela refeita, mais simples): **Para** = Uma pessoa, Equipe X, Plantão Y ou Todos.
 - Para **equipe ou Plantão** é **uma mensagem só**; as respostas de cada pessoa chegam **juntas no mesmo cartão** ("2 de 9
