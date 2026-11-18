@@ -15,6 +15,13 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.13.1 — publicar enquanto simula outro gestor: aviso claro em vez de erro enganoso (patch 0109)
+- Publicar uma escala grava `publicadoPor` com o usuário **efetivo**; as Regras exigem que seja a **conta logada de verdade**.
+  Durante **"Simular gestor"** os dois divergem e o Firestore recusava, com a mensagem enganosa "As regras de escrita ainda não
+  reconhecem a matriz operacional". Agora o Dashboard avisa antes, com o motivo: "Você está simulando …. Saia da simulação para
+  publicar: a publicação é gravada em nome da sua conta real."
+- Sem mudança para quem não está simulando (a mensagem antiga continua para as outras negações).
+
 ## 1.13.0 — "Nova informação": janela larga, em duas colunas, que cabe inteira na tela (patch 0108)
 - A janela de **Nova informação** / **Editar informação** foi refeita: mais larga (até 980 px), em **duas colunas**. À esquerda,
   **Quem**: a lista de colaboradores fica sempre à vista, com a pessoa escolhida destacada, e logo abaixo a opção de **mostrar

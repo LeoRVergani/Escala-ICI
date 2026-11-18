@@ -270,3 +270,25 @@ describe('Hora Extra com turno (HOTFIX-HE-TURNO-1)', () => {
     });
   });
 });
+
+/**
+ * VIRADA-CICLO-1 — a escala de dezembro (17/11–15/12) começa ANTES de a de novembro (26/10–25/11) terminar: nos dias 17 a 25/11
+ * dois documentos cobrem a mesma data. Vale a competência mais recente, na ordem que for, e nada muda onde só um documento cobre.
+ */
+describe('documentos que se sobrepõem na virada de ciclo', () => {
+  const novembro: TurnosMes = { ...documentoBase, competencia: '2026-11', periodoInicio: '2026-10-26', periodoFim: '2026-11-25' };
+  const dezembro: TurnosMes = { ...documentoBase, competencia: '2026-12', periodoInicio: '2026-11-17', periodoFim: '2026-12-15' };
+
+  it('na sobreposição (17 a 25/11) vale a mais recente, em qualquer ordem do array', () => {
+    for (const data of ['2026-11-17', '2026-11-20', '2026-11-25']) {
+      expect(selecionarEscalaPorData([novembro, dezembro], data)?.competencia).toBe('2026-12');
+      expect(selecionarEscalaPorData([dezembro, novembro], data)?.competencia).toBe('2026-12');
+    }
+  });
+
+  it('fora da sobreposição cada data continua com o seu documento', () => {
+    expect(selecionarEscalaPorData([novembro, dezembro], '2026-11-16')?.competencia).toBe('2026-11');
+    expect(selecionarEscalaPorData([novembro, dezembro], '2026-10-26')?.competencia).toBe('2026-11');
+    expect(selecionarEscalaPorData([dezembro, novembro], '2026-12-15')?.competencia).toBe('2026-12');
+  });
+});

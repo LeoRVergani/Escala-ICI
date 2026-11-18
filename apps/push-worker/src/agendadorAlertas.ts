@@ -7,7 +7,8 @@ import {
   alertasDevidos,
   alertasDoTurno,
   CATALOGO_PADRAO,
-  competenciaDaData,
+  competenciasDaData,
+  mesclarDiasDasEscalas,
   enviarAlertaUmaVez,
   resolverTurnoDoDia,
   somarDias,
@@ -81,19 +82,16 @@ export function iniciarAgendadorAlertas({
   async function escalaDe(login: string, datas: string[], agora: number) {
     const cache = escalas.get(login);
     if (cache && agora - cache.em < VALIDADE_ESCALA_MS) return cache;
-    const competencias = [...new Set(datas.map(competenciaDaData))];
+    const competencias = [...new Set(datas.flatMap(competenciasDaData))];
     const resultado = await db.collection('turnosMes')
       .where('login', '==', login)
       .where('status', '==', 'PUBLICADA')
       .where('competencia', 'in', competencias)
       .get();
-    const dias: Record<string, DiaMin> = {};
     let equipeId: string | null = null;
-    for (const doc of resultado.docs) {
-      const dados = doc.data() as { dias?: Record<string, DiaMin>; equipeId?: string };
-      Object.assign(dias, dados.dias ?? {});
-      equipeId = dados.equipeId ?? equipeId;
-    }
+    const escalasDaPessoa = resultado.docs.map((doc) => doc.data() as { competencia?: string; dias?: Record<string, DiaMin>; equipeId?: string });
+    for (const dados of escalasDaPessoa) equipeId = dados.equipeId ?? equipeId;
+    const dias = mesclarDiasDasEscalas(escalasDaPessoa);
     const novo = { em: agora, dias, equipeId };
     escalas.set(login, novo);
     return novo;

@@ -8,6 +8,8 @@ import {
   alertasDoTurno,
   CATALOGO_PADRAO,
   competenciaDaData,
+  competenciasDaData,
+  mesclarDiasDasEscalas,
   enviarAlertaUmaVez,
   idDoAlerta,
   resolverTurnoDoDia,
@@ -204,5 +206,47 @@ describe('AVISO-FOLGA-1 — "Amanhã você está de folga" e "Hoje você está d
     const antes = alertasDoTurno({ ...tudoLigado, avisoAntes: { ativo: true, minutos: 120 } }, '2026-11-10', turno)
       .find((a) => a.tipo === 'ALERTA_TURNO_ANTES');
     expect(antes?.quando).toBe('2026-11-09T23:00');
+  });
+});
+
+describe('VIRADA-CICLO-1 — o aviso do turno acha a escala nos dois ciclos (26→25 e 16→15)', () => {
+  it('procura o mês anterior, o do calendário e o seguinte (inclusive na virada do ano)', () => {
+    expect(competenciasDaData('2026-11-18')).toEqual(['2026-10', '2026-11', '2026-12']);
+    expect(competenciasDaData('2026-12-16')).toEqual(['2026-11', '2026-12', '2027-01']);
+    expect(competenciasDaData('2027-01-10')).toEqual(['2026-12', '2027-01', '2027-02']);
+    expect(competenciasDaData('2026-01-05')).toEqual(['2025-12', '2026-01', '2026-02']);
+    expect(competenciasDaData('2026-12-31')).toEqual(['2026-11', '2026-12', '2027-01']);
+  });
+
+  it('o rótulo certo de QUALQUER data está na janela — no ciclo antigo (vira no 26), no novo (vira no 16) e na transição', () => {
+    const dia = (t: number) => new Date(t).toISOString().slice(0, 10);
+    const rotulo = (data: string, diaDaVirada: number) => {
+      const [a, m, d] = data.split('-').map(Number) as [number, number, number];
+      const total = a * 12 + (m - 1) + (d >= diaDaVirada ? 1 : 0);
+      return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}`;
+    };
+    for (let t = Date.parse('2026-01-01T12:00:00Z'); t <= Date.parse('2028-12-31T12:00:00Z'); t += 86_400_000) {
+      const data = dia(t);
+      expect(competenciasDaData(data)).toContain(rotulo(data, 26));
+      expect(competenciasDaData(data)).toContain(rotulo(data, 16));
+    }
+  });
+
+  it('o motivo da correção: só `competenciaDaData` erra os dias 16 a 25 no ciclo novo (20/12 é "2027-01", e ela diz "2026-12")', () => {
+    expect(competenciaDaData('2026-12-20')).toBe('2026-12');
+    expect(competenciasDaData('2026-12-20')).toContain('2027-01');
+  });
+
+  it('funde as escalas da pessoa: nas datas repetidas vale a competência mais recente, em qualquer ordem', () => {
+    const nov = { competencia: '2026-11', dias: { '2026-11-16': { c: 'M' }, '2026-11-20': { c: 'HE' }, '2026-11-22': { c: 'M' } } };
+    const dez = { competencia: '2026-12', dias: { '2026-11-20': { c: 'FOLGA' }, '2026-11-22': { c: 'DF' }, '2026-12-01': { c: 'N' } } };
+    for (const ordem of [[nov, dez], [dez, nov]]) {
+      const dias = mesclarDiasDasEscalas(ordem as never);
+      expect(dias['2026-11-16']).toEqual({ c: 'M' });
+      expect(dias['2026-11-20']).toEqual({ c: 'FOLGA' });
+      expect(dias['2026-11-22']).toEqual({ c: 'DF' });
+      expect(dias['2026-12-01']).toEqual({ c: 'N' });
+    }
+    expect(mesclarDiasDasEscalas([])).toEqual({});
   });
 });

@@ -12,6 +12,12 @@ O Dashboard tem a sua própria versão: veja `CHANGELOG-DASHBOARD.md`. O App con
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.12.2 — virada de ciclo: quando duas escalas cobrem o mesmo dia, o "Hoje" e a Agenda concordam
+- A nova escala (ciclo 16→15) pode começar antes de a antiga terminar (ex.: dezembro 17/11–15/12 e novembro até 25/11): nos dias
+  repetidos, o calendário da Agenda já usava a competência mais recente, mas o card **"Seu turno hoje"** pegava o primeiro
+  documento da lista e podia mostrar outro turno. Agora os dois usam a **competência mais recente** (em qualquer ordem). Onde só
+  um documento cobre a data, nada muda.
+
 ## 3.12.1 — celulares pequenos: previsão ao lado do horário e textos que não cortam
 - **Seu turno hoje**: em telas de 341 a 420 px (a maioria dos celulares) a **previsão do tempo fica AO LADO do horário**, em
   versão compacta (fonte e ícones menores; só "Curitiba" no lugar de "No seu turno · Curitiba"). O card ficou ~100 px mais

@@ -230,10 +230,12 @@ export function selecionarEscalaPorData(
   escalas: readonly TurnosMes[],
   dataIso: string,
 ): TurnosMes | null {
-  const noPeriodo = escalas.find(
-    ({ periodoInicio, periodoFim }) =>
-      periodoInicio <= dataIso && dataIso <= periodoFim,
-  );
+  // Com a virada de ciclo (ex.: 26→25 para 16→15) dois documentos podem cobrir a MESMA data (a escala nova começa
+  // antes de a antiga terminar). Vale a de competência mais recente — a mesma regra de `mesclarDiasEscalas`, para o
+  // card "Hoje" e o calendário da Agenda nunca discordarem — e nunca a ordem em que os documentos chegaram.
+  const noPeriodo = escalas
+    .filter(({ periodoInicio, periodoFim }) => periodoInicio <= dataIso && dataIso <= periodoFim)
+    .sort((a, b) => b.competencia.localeCompare(a.competencia))[0];
   if (noPeriodo !== undefined) {
     return noPeriodo;
   }
