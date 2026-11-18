@@ -12,6 +12,15 @@ O Dashboard tem a sua própria versão: veja `CHANGELOG-DASHBOARD.md`. O App con
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.12.1 — celulares pequenos: previsão ao lado do horário e textos que não cortam
+- **Seu turno hoje**: em telas de 341 a 420 px (a maioria dos celulares) a **previsão do tempo fica AO LADO do horário**, em
+  versão compacta (fonte e ícones menores; só "Curitiba" no lugar de "No seu turno · Curitiba"). O card ficou ~100 px mais
+  baixo (288 → 183 px). Em telas de até 340 px continua empilhado (não cabe lado a lado).
+- Em telas de até 340 px, textos que eram cortados com "…" (nome do turno em "Próximos dias", "DSR - Final de Semana" na
+  Agenda) agora quebram em duas linhas, e as abas de **Trocas** dividem a largura em vez de passar da tela.
+- Conferido em 320, 360 e 385 px em todas as abas (Hoje, Agenda, Trocas, Plantão, Mensagens, Equipe): sem rolagem lateral e
+  sem texto cortado.
+
 ## 3.12.0 — "Mensagens" como no Teams: para uma pessoa, a equipe, o Plantão ou todos
 - O menu agora se chama **Mensagens**. Em **Nova mensagem** você escolhe **para quem**: **Uma pessoa**, **a sua equipe**, **o seu
   Plantão** ou **Todos**, escreve e envia. Janela mais simples e mais bonita.
