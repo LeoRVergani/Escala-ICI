@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Eye, EyeOff, LoaderCircle, Search, StickyNote, X } from 'lucide-react';
+import { CalendarRange, Check, Eye, EyeOff, LoaderCircle, Search, ShieldAlert, StickyNote, X } from 'lucide-react';
 
 import { ICONE_INFORMACAO } from '@/components/iconesInformacao';
 import {
@@ -10,7 +10,10 @@ import { iniciais } from './pessoasLideranca';
 
 /**
  * INFORMACOES-DIA-1 — janela de "Nova informação" / "Editar informação": escolher a pessoa, o que
- * aconteceu, quando e se o colaborador pode ver. Cada pedaço é um bloco numerado, em linguagem simples.
+ * aconteceu, quando e se o colaborador pode ver, em linguagem simples.
+ * INFORMACOES-MODAL-2 — janela larga em duas colunas, que cabe inteira na tela: à esquerda QUEM (lista sempre visível, com a
+ * pessoa escolhida destacada) e se o colaborador vê; à direita O QUE ACONTECEU (4 cartões numa linha), QUANDO e DETALHES.
+ * Os erros aparecem no rodapé, ao lado dos botões, para a janela não crescer.
  */
 export interface PessoaDaEquipe {
   login: string;
@@ -40,7 +43,6 @@ export function InformacaoModal({ edicao, entradaInicial, pessoas, nomeEquipe, o
     const termo = semAcento(busca.trim());
     return pessoas.filter((pessoa) => termo === '' || semAcento(`${pessoa.nome} ${pessoa.login}`).includes(termo));
   }, [pessoas, busca]);
-  const pessoaEscolhida = pessoas.find((pessoa) => pessoa.login === entrada.login);
   const primeiroNome = (entrada.nomeColaborador || 'o colaborador').split(' ')[0];
 
   function mudar(parte: Partial<EntradaInformacao>) {
@@ -64,11 +66,13 @@ export function InformacaoModal({ edicao, entradaInicial, pessoas, nomeEquipe, o
     }
   }
 
+  const erroNoRodape = erroGravar || (tentou && erros.length > 0 ? erros.join(' · ') : '');
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={salvando ? undefined : onFechar}>
-      <section className="edit-modal info-modal" role="dialog" aria-modal="true" aria-label={edicao ? 'Editar informação' : 'Nova informação'} onMouseDown={(evento) => evento.stopPropagation()}>
-        <header className="criar-equipe-cabecalho">
-          <span className="criar-equipe-icone"><StickyNote size={18} aria-hidden="true" /></span>
+      <section className="edit-modal ninfo" role="dialog" aria-modal="true" aria-label={edicao ? 'Editar informação' : 'Nova informação'} onMouseDown={(evento) => evento.stopPropagation()}>
+        <header className="ninfo-topo">
+          <span className="ninfo-topo-icone" aria-hidden="true"><StickyNote size={20} /></span>
           <div>
             <h2>{edicao ? 'Editar informação' : 'Nova informação'}</h2>
             <p>Registre o que aconteceu com um colaborador. Só você e a liderança veem, a menos que você libere.</p>
@@ -76,104 +80,112 @@ export function InformacaoModal({ edicao, entradaInicial, pessoas, nomeEquipe, o
           <button className="icon-button" type="button" onClick={onFechar} disabled={salvando} aria-label="Fechar"><X size={18} /></button>
         </header>
 
-        <div className="info-rolagem">
-        <div className="info-bloco">
-          <h3><span>1</span> Quem?</h3>
-          {edicao || pessoaEscolhida ? (
-            <div className="info-pessoa-escolhida">
-              <span className="info-avatar" aria-hidden="true">{iniciais(entrada.nomeColaborador)}</span>
-              <span><strong>{entrada.nomeColaborador}</strong><small>{nomeEquipe(entrada.equipeId)}</small></span>
-              {!edicao && <button type="button" className="secondary-button compact-button" onClick={() => mudar({ login: '', nomeColaborador: '', equipeId: '' })}>Trocar</button>}
-            </div>
-          ) : (
-            <>
-              <label className="info-busca"><Search size={16} aria-hidden="true" />
-                <input type="search" placeholder="Buscar colaborador pelo nome" value={busca} onChange={(evento) => setBusca(evento.target.value)} /></label>
-              <ul className="info-pessoas" aria-label="Colaboradores">
-                {candidatas.length === 0 && <li className="info-vazio-lista">Ninguém com esse nome.</li>}
-                {candidatas.map((pessoa) => (
-                  <li key={pessoa.login}>
-                    <button type="button" aria-label={`Escolher ${pessoa.nome}`} onClick={() => mudar({ login: pessoa.login, nomeColaborador: pessoa.nome, equipeId: pessoa.equipeId })}>
-                      <span className="info-avatar" aria-hidden="true">{iniciais(pessoa.nome)}</span>
-                      <span><strong>{pessoa.nome}</strong><small>{nomeEquipe(pessoa.equipeId)}</small></span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-
-        <div className="info-bloco">
-          <h3><span>2</span> O que aconteceu?</h3>
-          <div className="info-tipos" role="radiogroup" aria-label="Tipo da informação">
-            {TIPOS_INFORMACAO.map((tipo) => {
-              const Icone = ICONE_INFORMACAO[tipo.icone];
-              return (
-                <button key={tipo.chave} type="button" role="radio" aria-checked={entrada.tipo === tipo.chave} data-cor={tipo.cor} className={entrada.tipo === tipo.chave ? 'active' : ''} onClick={() => escolherTipo(tipo.chave)}>
-                  <span className="info-tipo-icone" aria-hidden="true"><Icone size={18} /></span>
-                  <strong>{tipo.rotulo}</strong>
-                  <small>{tipo.descricao}</small>
-                </button>
-              );
-            })}
-          </div>
-          {meta.cuidado && <p className="info-cuidado" role="note">{meta.cuidado}</p>}
-        </div>
-
-        <div className="info-bloco">
-          <h3><span>3</span> Quando?</h3>
-          <div className="info-quando">
-            <label className="criar-equipe-campo"><span>{maisDeUmDia ? 'Primeiro dia' : 'Dia'}</span>
-              <input type="date" value={entrada.dataInicio} onChange={(evento) => mudar({ dataInicio: evento.target.value })} /></label>
-            {maisDeUmDia && (
-              <label className="criar-equipe-campo"><span>Último dia</span>
-                <input type="date" value={entrada.dataFim} min={entrada.dataInicio} onChange={(evento) => mudar({ dataFim: evento.target.value })} /></label>
+        <div className="ninfo-corpo">
+          <aside className="ninfo-esq" aria-label="Colaborador">
+            <div className="ninfo-rotulo">Quem</div>
+            {edicao ? (
+              <div className="ninfo-escolhida">
+                <span className="info-avatar" aria-hidden="true">{iniciais(entrada.nomeColaborador)}</span>
+                <span><strong>{entrada.nomeColaborador}</strong><small>{nomeEquipe(entrada.equipeId)}</small></span>
+              </div>
+            ) : (
+              <>
+                <label className="ninfo-busca"><Search size={16} aria-hidden="true" />
+                  <input type="search" placeholder="Buscar pelo nome" value={busca} onChange={(evento) => setBusca(evento.target.value)} /></label>
+                <div className="ninfo-lista-caixa">
+                  <ul className="ninfo-lista" aria-label="Colaboradores">
+                    {candidatas.length === 0 && <li className="info-vazio-lista">Ninguém com esse nome.</li>}
+                    {candidatas.map((pessoa) => {
+                      const marcada = pessoa.login === entrada.login;
+                      return (
+                        <li key={pessoa.login}>
+                          <button type="button" aria-label={`Escolher ${pessoa.nome}`} aria-pressed={marcada} data-marcada={marcada ? '' : undefined} onClick={() => mudar({ login: pessoa.login, nomeColaborador: pessoa.nome, equipeId: pessoa.equipeId })}>
+                            <span className="info-avatar" aria-hidden="true">{iniciais(pessoa.nome)}</span>
+                            <span><strong>{pessoa.nome}</strong><small>{nomeEquipe(pessoa.equipeId)}</small></span>
+                            {marcada && <Check className="ninfo-check" size={16} aria-hidden="true" />}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </>
             )}
+
+            <label className="ninfo-visib" data-ativa={entrada.visivelParaColaborador ? '' : undefined}>
+              <input type="checkbox" role="switch" checked={entrada.visivelParaColaborador} onChange={(evento) => mudar({ visivelParaColaborador: evento.target.checked })} />
+              <span className="info-chave" aria-hidden="true"><i /></span>
+              <span>
+                <strong>{entrada.visivelParaColaborador ? <Eye size={14} aria-hidden="true" /> : <EyeOff size={14} aria-hidden="true" />} Mostrar para o colaborador no App</strong>
+                <small>{entrada.visivelParaColaborador
+                  ? `${primeiroNome} vê esta informação no App, na aba Hoje, até a data passar.`
+                  : 'Só você e as outras lideranças veem. O colaborador não sabe.'}</small>
+              </span>
+            </label>
+          </aside>
+
+          <div className="ninfo-dir">
+            <section className="ninfo-secao" aria-label="O que aconteceu">
+              <div className="ninfo-rotulo">O que aconteceu</div>
+              <div className="ninfo-tipos" role="radiogroup" aria-label="Tipo da informação">
+                {TIPOS_INFORMACAO.map((tipo) => {
+                  const Icone = ICONE_INFORMACAO[tipo.icone];
+                  return (
+                    <button key={tipo.chave} type="button" role="radio" aria-checked={entrada.tipo === tipo.chave} data-cor={tipo.cor} className={entrada.tipo === tipo.chave ? 'active' : ''} onClick={() => escolherTipo(tipo.chave)}>
+                      <span className="ninfo-tipo-icone" aria-hidden="true"><Icone size={17} /></span>
+                      <strong>{tipo.rotulo}</strong>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="ninfo-dica">{meta.descricao}</p>
+              {meta.cuidado && <p className="ninfo-cuidado" role="note"><ShieldAlert size={15} aria-hidden="true" /> {meta.cuidado}</p>}
+            </section>
+
+            <section className="ninfo-secao" aria-label="Quando">
+              <div className="ninfo-rotulo">Quando</div>
+              <div className="ninfo-linha">
+                <label className="ninfo-campo"><span>{maisDeUmDia ? 'Primeiro dia' : 'Dia'}</span>
+                  <input type="date" value={entrada.dataInicio} onChange={(evento) => mudar({ dataInicio: evento.target.value })} /></label>
+                {maisDeUmDia && (
+                  <label className="ninfo-campo"><span>Último dia</span>
+                    <input type="date" value={entrada.dataFim} min={entrada.dataInicio} onChange={(evento) => mudar({ dataFim: evento.target.value })} /></label>
+                )}
+                <label className="ninfo-opcao" data-ativa={maisDeUmDia ? '' : undefined}>
+                  <input type="checkbox" checked={maisDeUmDia} onChange={(evento) => { setMaisDeUmDia(evento.target.checked); mudar({ dataFim: evento.target.checked ? (entrada.dataFim || entrada.dataInicio) : '' }); }} />
+                  <CalendarRange size={15} aria-hidden="true" /> Dura mais de um dia
+                </label>
+              </div>
+              <div className="ninfo-linha">
+                <div className="ninfo-segmento" role="radiogroup" aria-label="Horário">
+                  <button type="button" role="radio" aria-checked={entrada.diaTodo} disabled={meta.exigeHorario} className={entrada.diaTodo ? 'active' : ''} onClick={() => mudar({ diaTodo: true })}>Dia todo</button>
+                  <button type="button" role="radio" aria-checked={!entrada.diaTodo} className={!entrada.diaTodo ? 'active' : ''} onClick={() => mudar({ diaTodo: false })}>Em um horário</button>
+                </div>
+                {!entrada.diaTodo && (
+                  <>
+                    <label className="ninfo-campo ninfo-hora"><span>Das</span>
+                      <input type="time" value={entrada.horaInicio} onChange={(evento) => mudar({ horaInicio: evento.target.value })} /></label>
+                    <label className="ninfo-campo ninfo-hora"><span>Até</span>
+                      <input type="time" value={entrada.horaFim} onChange={(evento) => mudar({ horaFim: evento.target.value })} /></label>
+                  </>
+                )}
+              </div>
+            </section>
+
+            <section className="ninfo-secao" aria-label="Detalhes">
+              <div className="ninfo-rotulo">Detalhes <small>(opcional)</small></div>
+              <div className="ninfo-detalhes">
+                <label className="ninfo-campo"><span>Título {entrada.tipo === 'OUTRO' && <b>(obrigatório)</b>}</span>
+                  <input value={entrada.titulo} maxLength={LIMITE_TITULO} placeholder={meta.placeholderTitulo} onChange={(evento) => mudar({ titulo: evento.target.value })} /></label>
+                <label className="ninfo-campo"><span>Observações <small>{entrada.observacao.length}/{LIMITE_OBSERVACAO}</small></span>
+                  <textarea rows={3} maxLength={LIMITE_OBSERVACAO} value={entrada.observacao} placeholder="Algo que ajude a lembrar depois" onChange={(evento) => mudar({ observacao: evento.target.value })} /></label>
+              </div>
+            </section>
           </div>
-          <label className="info-opcao-simples">
-            <input type="checkbox" checked={maisDeUmDia} onChange={(evento) => { setMaisDeUmDia(evento.target.checked); mudar({ dataFim: evento.target.checked ? (entrada.dataFim || entrada.dataInicio) : '' }); }} />
-            Dura mais de um dia
-          </label>
-          <div className="liderancas-abas info-horario" role="radiogroup" aria-label="Horário">
-            <button type="button" role="radio" aria-checked={entrada.diaTodo} disabled={meta.exigeHorario} className={entrada.diaTodo ? 'active' : ''} onClick={() => mudar({ diaTodo: true })}>Dia todo</button>
-            <button type="button" role="radio" aria-checked={!entrada.diaTodo} className={!entrada.diaTodo ? 'active' : ''} onClick={() => mudar({ diaTodo: false })}>Em um horário</button>
-          </div>
-          {!entrada.diaTodo && (
-            <div className="info-quando">
-              <label className="criar-equipe-campo"><span>Das</span>
-                <input type="time" value={entrada.horaInicio} onChange={(evento) => mudar({ horaInicio: evento.target.value })} /></label>
-              <label className="criar-equipe-campo"><span>Até</span>
-                <input type="time" value={entrada.horaFim} onChange={(evento) => mudar({ horaFim: evento.target.value })} /></label>
-            </div>
-          )}
         </div>
 
-        <div className="info-bloco">
-          <h3><span>4</span> Detalhes <small>(opcional)</small></h3>
-          <label className="criar-equipe-campo"><span>Título {entrada.tipo === 'OUTRO' && <b>(obrigatório)</b>}</span>
-            <input value={entrada.titulo} maxLength={LIMITE_TITULO} placeholder={meta.placeholderTitulo} onChange={(evento) => mudar({ titulo: evento.target.value })} /></label>
-          <label className="criar-equipe-campo"><span>Observações <small>{entrada.observacao.length}/{LIMITE_OBSERVACAO}</small></span>
-            <textarea rows={3} maxLength={LIMITE_OBSERVACAO} value={entrada.observacao} placeholder="Algo que ajude a lembrar depois" onChange={(evento) => mudar({ observacao: evento.target.value })} /></label>
-        </div>
-
-        <label className="info-visibilidade" data-ativa={entrada.visivelParaColaborador ? '' : undefined}>
-          <input type="checkbox" role="switch" checked={entrada.visivelParaColaborador} onChange={(evento) => mudar({ visivelParaColaborador: evento.target.checked })} />
-          <span className="info-chave" aria-hidden="true"><i /></span>
-          <span>
-            <strong>{entrada.visivelParaColaborador ? <Eye size={15} aria-hidden="true" /> : <EyeOff size={15} aria-hidden="true" />} Mostrar para o colaborador no App</strong>
-            <small>{entrada.visivelParaColaborador
-              ? `${primeiroNome} vai ver esta informação no App, na aba Hoje, até a data passar.`
-              : 'Só você e as outras lideranças da equipe veem. O colaborador não sabe.'}</small>
-          </span>
-        </label>
-
-        {tentou && erros.length > 0 && (
-          <ul className="info-erros" role="alert">{erros.map((erro) => <li key={erro}>{erro}</li>)}</ul>
-        )}
-        {erroGravar && <div className="alert error" role="alert">{erroGravar}</div>}
-        </div>
-        <footer className="assistente-rodape">
+        <footer className="ninfo-rodape">
+          <p className="ninfo-erro" role="alert">{erroNoRodape}</p>
           <button type="button" className="secondary-button" disabled={salvando} onClick={onFechar}>Cancelar</button>
           <button type="button" className="primary-button" disabled={salvando} onClick={() => void salvar()}>
             {salvando ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : null} {edicao ? 'Salvar alterações' : 'Salvar informação'}

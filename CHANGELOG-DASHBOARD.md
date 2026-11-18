@@ -15,6 +15,19 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.13.0 — "Nova informação": janela larga, em duas colunas, que cabe inteira na tela (patch 0108)
+- A janela de **Nova informação** / **Editar informação** foi refeita: mais larga (até 980 px), em **duas colunas**. À esquerda,
+  **Quem**: a lista de colaboradores fica sempre à vista, com a pessoa escolhida destacada, e logo abaixo a opção de **mostrar
+  para o colaborador no App**. À direita, **O que aconteceu** (os 4 tipos em cartões numa linha, com ícone colorido),
+  **Quando** (dia, "dura mais de um dia" e "dia todo / em um horário") e **Detalhes**. Sem caixas numeradas dentro de caixas.
+- **Cabe inteira na tela, sem rolagem**: conferido em 1915×919, 1920×1080, 1440×900, 1536×864, 1366×768, 1280×720 e 1366×650,
+  em todos os tipos e nos casos mais altos (vários dias + horário + aviso do CID). Em telas de até 880 px de altura ela fica um pouco
+  mais compacta (ícone ao lado do nome, Título e Observações lado a lado).
+- Os **erros aparecem no rodapé**, ao lado dos botões, sem fazer a janela crescer.
+- No **celular** vira uma coluna só (Quem → O que aconteceu → Quando → Detalhes → visibilidade), com rolagem no corpo e o
+  rodapé fixo.
+- Só visual: o que a janela grava, as regras e as permissões não mudam.
+
 ## 1.12.2 — correção da publicação: TTL do Firestore removido (patch 0106)
 - O `firestore.indexes.json` declarava limpeza automática (TTL) para `recados` e `recadosGrupo`. O TTL exige o plano pago do
   Firebase; no plano gratuito o deploy falhava com **HTTP 403 "billing disabled"** e parava **antes de liberar as Regras**.

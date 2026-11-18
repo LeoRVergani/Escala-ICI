@@ -10862,3 +10862,115 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
   .app-shell.product-app .segmented-control.troca-abas { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
   .app-shell.product-app .segmented-control.troca-abas > button { min-width: 0; padding-left: 6px; padding-right: 6px; font-size: 12px; white-space: normal; line-height: 1.2; }
 }
+
+/* =====================================================================
+ * INFORMACOES-MODAL-2 — "Nova informação": janela larga, em duas colunas, que cabe inteira na tela.
+ * Esquerda: Quem (lista sempre visível) + "mostrar para o colaborador". Direita: O que aconteceu, Quando, Detalhes.
+ * ===================================================================== */
+.ninfo { display: flex; flex-direction: column; gap: 0; width: min(980px, calc(100vw - 48px)); max-height: calc(100vh - 32px); padding: 0; overflow: hidden; }
+.ninfo-topo { display: flex; align-items: center; gap: 14px; padding: 18px 26px 16px; border-bottom: 1px solid var(--border); }
+.ninfo-topo > div { flex: 1 1 auto; min-width: 0; }
+.ninfo-topo h2 { margin: 0; color: var(--text); font-size: 20px; font-weight: 800; }
+.ninfo-topo p { margin: 3px 0 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.ninfo-topo-icone { display: grid; flex: 0 0 auto; place-items: center; width: 44px; height: 44px; border-radius: 14px; background: color-mix(in srgb, var(--primary-bright) 16%, var(--surface)); color: var(--primary-bright); }
+
+.ninfo-corpo { display: grid; grid-template-columns: 310px minmax(0, 1fr); flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.ninfo-esq { display: flex; flex-direction: column; gap: 12px; min-height: 0; padding: 18px 20px 18px 26px; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--surface-muted) 55%, var(--surface)); }
+.ninfo-dir { display: grid; align-content: start; gap: 20px; min-height: 0; padding: 18px 26px; overflow-y: auto; }
+.ninfo-secao { display: grid; gap: 10px; }
+.ninfo-secao > p { margin: 0; }
+.ninfo-rotulo { color: var(--muted); font-size: 11.5px; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase; }
+.ninfo-rotulo small { font-weight: 600; letter-spacing: 0; text-transform: none; }
+
+.ninfo-busca { display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1.5px solid var(--border); border-radius: 12px; background: var(--surface); }
+.ninfo-busca:focus-within { border-color: var(--primary-bright); }
+.ninfo-busca input { flex: 1 1 auto; min-width: 0; min-height: 40px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 14px; }
+.ninfo-busca input:focus { outline: none; }
+.ninfo-lista-caixa { position: relative; flex: 1 1 auto; min-height: 150px; }
+.ninfo-lista { position: absolute; inset: 0; display: grid; align-content: start; gap: 2px; margin: 0; padding: 4px; overflow-y: auto; list-style: none; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.ninfo-lista > li > button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 9px; border: 0; border-radius: 10px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.ninfo-lista > li > button:hover { background: color-mix(in srgb, var(--primary-bright) 9%, var(--surface)); }
+.ninfo-lista > li > button[data-marcada] { background: color-mix(in srgb, var(--primary-bright) 16%, var(--surface)); box-shadow: inset 0 0 0 1.5px var(--primary-bright); }
+.ninfo-lista strong { display: block; font-size: 13.5px; }
+.ninfo-lista small, .ninfo-escolhida small { color: var(--muted); font-size: 11.5px; }
+.ninfo-lista > li > button > span:nth-child(2) { display: grid; flex: 1 1 auto; min-width: 0; }
+.ninfo-check { flex: 0 0 auto; color: var(--primary-bright); }
+.ninfo-escolhida { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1.5px solid var(--primary-bright); border-radius: 14px; background: color-mix(in srgb, var(--primary-bright) 8%, var(--surface)); }
+.ninfo-escolhida > span:nth-child(2) { display: grid; }
+.ninfo-escolhida strong { color: var(--text); font-size: 14.5px; }
+
+.ninfo-visib { display: flex; align-items: center; gap: 12px; margin-top: auto; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 14px; background: var(--surface); cursor: pointer; }
+.ninfo-visib[data-ativa] { border-color: #10b981; background: color-mix(in srgb, #10b981 8%, var(--surface)); }
+.ninfo-visib > input { position: absolute; opacity: 0; pointer-events: none; }
+.ninfo-visib[data-ativa] .info-chave { background: #10b981; }
+.ninfo-visib[data-ativa] .info-chave > i { transform: translateX(18px); }
+.ninfo-visib:has(input:focus-visible) { outline: 2px solid var(--primary-bright); outline-offset: 2px; }
+.ninfo-visib > span:last-child { display: grid; gap: 2px; }
+.ninfo-visib strong { display: inline-flex; align-items: center; gap: 6px; color: var(--text); font-size: 13px; }
+.ninfo-visib small { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+
+.ninfo-tipos { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.ninfo-tipos > button { --cor: var(--primary-bright); display: grid; justify-items: start; align-content: start; gap: 8px; min-height: 82px; padding: 12px; border: 1.5px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease; }
+.ninfo-tipos > button[data-cor="ambar"] { --cor: #f59e0b; }
+.ninfo-tipos > button[data-cor="rosa"] { --cor: #ec4899; }
+.ninfo-tipos > button[data-cor="azul"] { --cor: #3b82f6; }
+.ninfo-tipos > button[data-cor="roxo"] { --cor: #8b5cf6; }
+.ninfo-tipos > button:hover { border-color: color-mix(in srgb, var(--cor) 60%, var(--border)); }
+.ninfo-tipos > button.active { border-color: var(--cor); background: color-mix(in srgb, var(--cor) 11%, var(--surface)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cor) 18%, transparent); }
+.ninfo-tipo-icone { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: color-mix(in srgb, var(--cor) 17%, var(--surface)); color: var(--cor); }
+.ninfo-tipos > button strong { color: var(--text); font-size: 13px; line-height: 1.25; }
+.ninfo-dica { color: var(--muted); font-size: 13px; line-height: 1.4; }
+.ninfo-cuidado { display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px; border-radius: 10px; background: color-mix(in srgb, #f59e0b 13%, var(--surface)); color: #f59e0b; font-size: 12.5px; font-weight: 700; line-height: 1.4; }
+.ninfo-cuidado > svg { flex: 0 0 auto; margin-top: 1px; }
+
+.ninfo-detalhes { display: grid; gap: 10px; }
+.ninfo-linha { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.ninfo-campo { display: grid; gap: 5px; min-width: 0; flex: 1 1 150px; color: var(--text); font-size: 12.5px; font-weight: 700; }
+.ninfo-campo > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ninfo-campo > span small { color: var(--muted); font-weight: 600; }
+.ninfo-campo > span b { color: #f59e0b; font-weight: 700; }
+.ninfo-campo input, .ninfo-campo textarea { width: 100%; min-height: 40px; padding: 0 12px; border: 1.5px solid var(--border); border-radius: 12px; background: var(--surface-muted); color: var(--text); font: inherit; font-size: 14px; font-weight: 500; }
+.ninfo-campo textarea { padding: 10px 12px; line-height: 1.45; resize: none; }
+.ninfo-campo input:focus, .ninfo-campo textarea:focus { outline: none; border-color: var(--primary-bright); }
+.ninfo-hora { flex: 0 1 120px; }
+.ninfo-opcao { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 14px; border: 1.5px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font-size: 13px; font-weight: 700; cursor: pointer; }
+.ninfo-opcao > input { position: absolute; opacity: 0; pointer-events: none; }
+.ninfo-opcao[data-ativa] { border-color: var(--primary-bright); background: color-mix(in srgb, var(--primary-bright) 14%, var(--surface)); color: var(--primary-bright); }
+.ninfo-opcao:has(input:focus-visible) { outline: 2px solid var(--primary-bright); outline-offset: 2px; }
+.ninfo-segmento { display: inline-flex; gap: 4px; padding: 4px; border: 1.5px solid var(--border); border-radius: 999px; background: var(--surface-muted); }
+.ninfo-segmento > button { min-height: 32px; padding: 0 16px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.ninfo-segmento > button.active { background: color-mix(in srgb, var(--primary-bright) 18%, var(--surface)); color: var(--primary-bright); }
+.ninfo-segmento > button:disabled { cursor: not-allowed; opacity: 0.45; }
+
+.ninfo-rodape { display: flex; align-items: center; gap: 10px; padding: 13px 26px; border-top: 1px solid var(--border); }
+.ninfo-rodape > button { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.ninfo-erro { flex: 1 1 auto; min-width: 0; margin: 0; color: #f87171; font-size: 12.5px; font-weight: 700; line-height: 1.35; }
+
+/* Telas mais baixas (notebook, ou monitor com zoom): um pouco mais compacto, para continuar cabendo inteiro (a versão grande precisa de ~870px de altura). */
+@media (max-height: 880px) {
+  .ninfo-topo { padding: 11px 22px 9px; }
+  .ninfo-topo p { display: none; }
+  .ninfo-esq { padding: 12px 16px 12px 22px; gap: 10px; }
+  .ninfo-dir { gap: 12px; padding: 12px 22px; }
+  .ninfo-secao { gap: 7px; }
+  .ninfo-dica { display: none; }
+  .ninfo-tipos > button { display: flex; align-items: center; gap: 9px; min-height: 48px; padding: 8px 10px; }
+  .ninfo-tipo-icone { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 9px; }
+  .ninfo-detalhes { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); align-items: start; gap: 12px; }
+  .ninfo-campo textarea { height: 72px; }
+  .ninfo-rodape { padding: 8px 22px; }
+}
+
+/* Tela estreita (celular / janela pequena): uma coluna só, com rolagem — Quem, depois O que aconteceu/Quando/Detalhes, e por último a visibilidade. */
+@media (max-width: 860px) {
+  .ninfo { width: calc(100vw - 24px); }
+  .ninfo-corpo { display: flex; flex-direction: column; gap: 14px; padding: 16px 18px; overflow-y: auto; }
+  .ninfo-esq { display: contents; }
+  .ninfo-corpo > *, .ninfo-esq > * { flex: 0 0 auto; }
+  .ninfo-lista-caixa { height: 190px; min-height: 190px; }
+  .ninfo-dir { order: 1; overflow: visible; padding: 0; }
+  .ninfo-visib { order: 2; margin-top: 0; }
+  .ninfo-tipos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ninfo-detalhes { grid-template-columns: minmax(0, 1fr); }
+  .ninfo-topo, .ninfo-rodape { padding-left: 18px; padding-right: 18px; }
+}
