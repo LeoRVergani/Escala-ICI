@@ -1541,3 +1541,32 @@ test('RECADOS-3 (limpeza) — o worker apaga o que venceu (as duas coleções e 
   assert.match(indexWorker, /const pararLimpezaDeRecados = iniciarLimpezaDeRecados\(\{ db \}\);/u);
   assert.match(indexWorker, /pararLimpezaDeRecados\(\);\s*process\.exit\(0\);/u);
 });
+
+test('INFORMACOES-MODAL-2 — a janela "Nova informação" tem layout próprio (largo, duas colunas, compacto em tela baixa, uma coluna no celular) e não mexe nas janelas que dividem o estilo antigo', async () => {
+  const [modal, css] = await Promise.all([ler('apps/dashboard/src/InformacaoModal.tsx'), ler('app/globals.css')]);
+  assert.match(modal, /className="edit-modal ninfo"/u);
+  assert.match(modal, /className="ninfo-esq"/u);
+  assert.match(modal, /className="ninfo-dir"/u);
+  // o erro mora no rodapé (a janela não cresce quando ele aparece)
+  assert.match(modal, /<p className="ninfo-erro" role="alert">\{erroNoRodape\}<\/p>/u);
+  assert.doesNotMatch(modal, /dangerouslySetInnerHTML|innerHTML|document\.write|setDoc|deleteDoc|localStorage/u);
+  // largura e altura da janela
+  assert.match(css, /\.ninfo \{[^}]*width: min\(980px, calc\(100vw - 48px\)\); max-height: calc\(100vh - 32px\)/u);
+  // telas baixas: modo compacto; telas estreitas: uma coluna
+  const compacto = /@media \(max-height: 880px\) \{([\s\S]*?)\n\}/u.exec(css)?.[1] ?? '';
+  assert.match(compacto, /\.ninfo-dica \{ display: none; \}/u);
+  assert.match(compacto, /\.ninfo-detalhes \{ grid-template-columns:/u);
+  const estreito = /@media \(max-width: 860px\) \{\s*\.ninfo \{([\s\S]*?)\n\}/u.exec(css)?.[0] ?? '';
+  assert.match(estreito, /\.ninfo-esq \{ display: contents; \}/u);
+  assert.match(estreito, /\.ninfo-visib \{ order: 2;/u);
+  // o estilo antigo continua para as outras janelas (Nova mensagem e assistente de regra usam .info-modal/.info-rolagem)
+  assert.match(css, /\.info-modal \{ display: grid; gap: 14px; width: min\(640px/u);
+  assert.match(css, /\.assistente-rolagem, \.info-rolagem \{/u);
+});
+
+test('CSS-BALANCEADO-1 — o CSS global tem o mesmo número de chaves que abrem e que fecham (uma chave sobrando derruba o build inteiro)', async () => {
+  const css = (await ler('app/globals.css')).replace(/\/\*[\s\S]*?\*\//gu, '');
+  const abre = (css.match(/\{/gu) ?? []).length;
+  const fecha = (css.match(/\}/gu) ?? []).length;
+  assert.equal(abre, fecha, `chaves abrindo (${abre}) e fechando (${fecha})`);
+});
