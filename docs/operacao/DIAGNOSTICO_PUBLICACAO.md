@@ -23,6 +23,9 @@ rm -f /tmp/contexto-regras.json
 
 O `login` é o texto antes do `@` do e-mail (por exemplo, `claudio.lis` de `claudio.lis@empresa.com`).
 
+Quem **não tem equipe própria** (GESTOR_UNIDADE, por exemplo) precisa dizer qual Jornada simular: acrescente `--equipe=<id da equipe>` ao comando do passo 2
+(o script avisa e lista as equipes do contexto exportado se faltar). Um passo marcado `ℹ (informativo)` é só uma comparação e não entra no veredito.
+
 ## O que a saída mostra
 
 - **Contexto lido do staging**: perfil, equipe, `equipesPermitidas`, se existe a Matriz `JORNADA_<equipe>`, se está ativa e quem ela lista.
