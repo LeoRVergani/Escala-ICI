@@ -86,7 +86,9 @@
     "staging:auditar:contas-auth": "node scripts/staging/auditar-contas-auth.mjs",
     "lint": "node scripts/run-local-tool.mjs lint",
     "db:generate": "node scripts/run-local-tool.mjs db-generate",
-    "seed": "vite-node seed/seed.ts"
+    "seed": "vite-node seed/seed.ts",
+    "staging:diagnosticar:publicacao:exportar": "node scripts/staging/exportar-contexto-regras.mjs",
+    "staging:diagnosticar:publicacao:simular": "node scripts/staging/simular-publicacao.mjs"
   },
   "workspaces": [
     "apps/*",
