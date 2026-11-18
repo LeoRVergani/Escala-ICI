@@ -1471,7 +1471,7 @@ service cloud.firestore {
     /**
      * RECADOS-2 — recado curto entre colegas (mesma equipe ou mesmo Plantão) ou da liderança para a equipe.
      * Mensagem e resposta LIVRES, mas sem conversa nem histórico: o destinatário responde UMA vez; o remetente
-     * apaga ao ver; o que vence é apagado sozinho (TTL em `expiraEm`). Só remetente e destinatário leem.
+     * apaga ao ver; o que vence é apagado pelo worker (por `expiraEm`). Só remetente e destinatário leem.
      *
      * Quem pode enviar para quem (cada caminho tem a sua prova, do mais barato ao mais caro):
      *   1. colegas da MESMA EQUIPE (a equipe do remetente é a do destinatário);
@@ -1589,7 +1589,7 @@ service cloud.firestore {
     /**
      * RECADOS-3 — mensagem para um GRUPO (a equipe ou um Plantão), como escrever no Teams para "todo mundo": UM documento
      * só, e cada integrante responde UMA vez, do seu jeito, no mapa `respostas` (a chave é o login dele). O remetente
-     * vê todas as respostas no mesmo cartão e apaga; o que vence é apagado sozinho (TTL em `expiraEm`).
+     * vê todas as respostas no mesmo cartão e apaga; o que vence é apagado pelo worker (por `expiraEm`).
      *
      * Quem envia: o integrante do próprio grupo (equipe: a sua; Plantão: participante ATIVO) ou quem gerencia o grupo.
      * Quem lê: o remetente e os integrantes do grupo. O integrante só consegue escrever a PRÓPRIA resposta.
@@ -1664,7 +1664,7 @@ service cloud.firestore {
         && request.resource.data.respostas[loginDoAuth()].texto.size() <= 300
         && request.resource.data.respostas[loginDoAuth()].em == request.time;
 
-      // só quem enviou apaga (o que vence some sozinho pelo TTL)
+      // só quem enviou apaga (o que vence o worker apaga, por `expiraEm`)
       allow delete: if autenticado() && resource.data.remetenteLogin == loginDoAuth();
     }
 

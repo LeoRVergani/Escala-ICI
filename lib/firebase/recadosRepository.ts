@@ -8,7 +8,7 @@ import { exigirFirebase } from './shared';
 /**
  * RECADOS-1 — `recados` (remetente e destinatário) e `recadosLimite` (contador diário, gravado no MESMO
  * lote do recado — as Regras recusam o recado sem ele). Sem histórico: o remetente apaga ao dispensar e o
- * que expira some sozinho (TTL em `expiraEm`).
+ * que expira é apagado pelo worker (de hora em hora) e ao abrir a tela.
  */
 export const COLECAO_RECADOS = 'recados';
 export const COLECAO_LIMITE_RECADOS = 'recadosLimite';

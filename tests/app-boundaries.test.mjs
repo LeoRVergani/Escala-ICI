@@ -1469,13 +1469,12 @@ test('RECADOS-3 — limite no servidor (mesmo número do código), só os envolv
   assert.match(appJs, /return grupo && euParticipo \? grupo : null;/u);
   // Texto sempre como TEXTO: nenhuma tela transforma a mensagem em HTML.
   for (const fonte of [pagina, nova, cartoes, telaApp]) assert.doesNotMatch(fonte, /dangerouslySetInnerHTML|innerHTML|document\.write/u);
-  // Consultas por igualdade (sem "in"), como as Rules avaliam; limpeza automática (TTL) das duas coleções.
+  // Consultas por igualdade (sem "in"), como as Rules avaliam.
   assert.match(repo, /where\('remetenteLogin', '==', login\)/u);
   assert.match(repo, /where\('alvoTipo', '==', tipo\), where\('alvoId', '==', alvoId\)/u);
   assert.doesNotMatch(repo, /, 'in', /u);
-  for (const colecao of ['recados', 'recadosGrupo']) {
-    assert.ok(JSON.parse(indices).fieldOverrides.some((item) => item.collectionGroup === colecao && item.fieldPath === 'expiraEm' && item.ttl === true), colecao);
-  }
+  // NÃO pode haver TTL no arquivo de índices: o TTL do Firestore exige o plano pago e derrubava a publicação (HTTP 403 billing disabled).
+  assert.ok(JSON.parse(indices).fieldOverrides.every((item) => item.ttl !== true), 'sem ttl:true nos índices — a limpeza é do worker');
   // Os dois menus se chamam "Mensagens"; a bolinha é da aba Mensagens.
   assert.match(dashboard, /\{ id: 'recados', rotulo: 'Mensagens', icone: 'recados' \}/u);
   assert.match(appJs, /\{ id: 'recados', rotulo: 'Mensagens', icone: 'recados' \}/u);
@@ -1528,4 +1527,17 @@ test('REGRAS-LIMITE-1 — a checagem do cargo é a ÚLTIMA condição da promoç
   assert.ok(cargo > estrutura, 'cargoDeLideranca() vem DEPOIS de affectedKeys().hasOnly([...]) — se voltar para o começo, a transferência de equipe estoura as 1000 expressões');
   // (O cadastro de liderança nova é a ÚLTIMA alternativa do `allow create` — só é avaliada se as outras recusarem —, então o
   // cargo ali não pesa em atualizações; a estrutura dessa alternativa é conferida no teste LIDERANCAS-2.)
+});
+
+test('RECADOS-3 (limpeza) — o worker apaga o que venceu (as duas coleções e os contadores antigos), em lotes, e a limpeza é iniciada e parada com o worker', async () => {
+  const [limpeza, indexWorker] = await Promise.all([ler('apps/push-worker/src/limpezaRecados.ts'), ler('apps/push-worker/src/index.ts')]);
+  assert.match(limpeza, /COLECOES_COM_VALIDADE = \['recados', 'recadosGrupo'\] as const/u);
+  assert.match(limpeza, /db\.collection\(colecao\)\.where\(campo, operador, valor\)\.limit\(TAMANHO_DO_LOTE\)/u);
+  assert.match(limpeza, /apagarEmLotes\(db, colecao, 'expiraEm', '<=', limite\)/u);
+  assert.match(limpeza, /apagarEmLotes\(db, 'recadosLimite', 'dia', '<', diaDeCorteDosContadores\(agora\)\)/u);
+  // teto de rodadas: a limpeza nunca fica presa num laço
+  assert.match(limpeza, /rodada < MAXIMO_DE_LOTES/u);
+  // iniciada com o worker e parada no desligamento
+  assert.match(indexWorker, /const pararLimpezaDeRecados = iniciarLimpezaDeRecados\(\{ db \}\);/u);
+  assert.match(indexWorker, /pararLimpezaDeRecados\(\);\s*process\.exit\(0\);/u);
 });
