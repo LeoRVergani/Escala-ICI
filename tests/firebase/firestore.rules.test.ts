@@ -8015,3 +8015,68 @@ describe('RECADOS-3 — recadosGrupo', () => {
     await assertFails(updateDoc(doc(autenticarComo(usuarios.gestor), 'recadosGrupo', 'g-1'), { texto: 'Mudei de ideia' }));
   });
 });
+
+/**
+ * PUBLICACAO-LOTE-1 — `publicarEscalas()` grava, num LOTE só, por colaborador: `turnosMes` + `versoesEscala` + `eventosEscala`, mais
+ * `historicoPublicacoes` e `publicacoesEscala`. Os testes antigos gravam uma coleção por vez; este cobre o lote inteiro (a mesma
+ * autorização avaliada dezenas de vezes na mesma requisição, que é onde os limites de acessos/expressões das Regras aparecem).
+ */
+describe('PUBLICACAO-LOTE-1 — publicação da Jornada em lote, como publicarEscalas()', () => {
+  const COMPETENCIA = '2026-12';
+  const colaboradoresDoLote = Array.from({ length: 9 }, (_, indice) => `diag.colaborador${indice + 1}`);
+
+  async function semearMatrizDaJornada(equipeId: string) {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      await setDoc(doc(contexto.firestore(), 'escoposOperacionais', `JORNADA_${equipeId}`), escopoOperacional({
+        tipo: 'JORNADA', alvoId: equipeId, alvoNome: 'SOC', equipesConsulta: [], responsaveisLogin: [usuarios.gestor.login],
+      }));
+    });
+  }
+
+  function lotePublicacao(quem: { login: string; email: string }, equipeId: string, ajustes: { publicadoPorDoEvento?: string } = {}) {
+    const db = autenticarComo(quem);
+    const lote = writeBatch(db);
+    const chave = `${equipeId}_${COMPETENCIA}`;
+    for (const login of colaboradoresDoLote) {
+      const publicada = { ...escala(login, equipeId, 'PUBLICADA'), competencia: COMPETENCIA, publicadoPor: quem.login };
+      lote.set(doc(db, 'turnosMes', `${chave}_${login}`), publicada);
+      lote.set(doc(db, 'versoesEscala', `${chave}_r1_${login}`), { ...publicada, chavePublicacao: chave, revisao: 1 });
+      lote.set(doc(db, 'eventosEscala', `${chave}_r1_${login}`), {
+        id: `${chave}_r1_${login}`, equipeId, usuarioUid: login, publicadoPor: ajustes.publicadoPorDoEvento ?? quem.login, alteracoes: [],
+      });
+    }
+    lote.set(doc(db, 'historicoPublicacoes', `${chave}_r1`), { id: `${chave}_r1`, chavePublicacao: chave, equipeId, competencia: COMPETENCIA, revisao: 1, publicadoPor: quem.login });
+    lote.set(doc(db, 'publicacoesEscala', chave), { id: chave, equipeId, competencia: COMPETENCIA, revisaoAtual: 1, atualizadoPor: quem.login });
+    return lote.commit();
+  }
+
+  it('responsável da Matriz de JORNADA/EQ_SOC lê o estado anterior e publica o LOTE inteiro (9 colaboradores)', async () => {
+    await semearMatrizDaJornada('EQ_SOC');
+    const db = autenticarComo(usuarios.gestor);
+    await assertSucceeds(getDoc(doc(db, 'publicacoesEscala', `EQ_SOC_${COMPETENCIA}`)));
+    await assertSucceeds(getDocs(query(collection(db, 'turnosMes'), where('equipeId', '==', 'EQ_SOC'), where('competencia', '==', COMPETENCIA))));
+    await assertSucceeds(getDocs(query(collection(db, 'rascunhosTurnosMes'), where('equipeId', '==', 'EQ_SOC'), where('competencia', '==', COMPETENCIA))));
+    await assertSucceeds(lotePublicacao(usuarios.gestor, 'EQ_SOC'));
+  });
+
+  it('sem Matriz para o alvo, o gestor da própria equipe publica o lote inteiro pela ACL histórica', async () => {
+    await assertSucceeds(lotePublicacao(usuarios.gestor, usuarios.gestor.equipeId));
+  });
+
+  it('quem não é responsável (colaborador da equipe) não publica o lote', async () => {
+    await semearMatrizDaJornada('EQ_SOC');
+    await assertFails(lotePublicacao(usuarios.colaborador, 'EQ_SOC'));
+  });
+
+  it('UM evento com `publicadoPor` diferente da conta logada derruba o lote INTEIRO — o que acontece ao publicar simulando outro gestor', async () => {
+    await semearMatrizDaJornada('EQ_SOC');
+    await assertFails(lotePublicacao(usuarios.gestor, 'EQ_SOC', { publicadoPorDoEvento: usuarios.colaborador.login }));
+    // o lote é atômico: nenhum documento foi gravado (lido com as Regras desligadas, que é a única forma de ver o banco por dentro)
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const estado = await getDoc(doc(contexto.firestore(), 'publicacoesEscala', `EQ_SOC_${COMPETENCIA}`));
+      const turno = await getDoc(doc(contexto.firestore(), 'turnosMes', `EQ_SOC_${COMPETENCIA}_${colaboradoresDoLote[0]}`));
+      expect(estado.exists()).toBe(false);
+      expect(turno.exists()).toBe(false);
+    });
+  });
+});

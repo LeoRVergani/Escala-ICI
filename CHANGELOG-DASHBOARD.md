@@ -15,6 +15,18 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.13.3 — ferramenta de diagnóstico da publicação recusada e testes de Regras do lote (patch 0111)
+- A mensagem "as regras de escrita ainda não reconhecem a matriz operacional" aparece para **qualquer** recusa na publicação e não diz
+  qual gravação foi negada. Dois comandos novos respondem isso com os **dados reais do staging** e as **Regras de verdade**, sem gravar
+  nada no staging: `npm run staging:diagnosticar:publicacao:exportar -- --login=<login>` (só leitura) e, dentro do emulador,
+  `node scripts/staging/simular-publicacao.mjs --login=<login>` (mostra cada passo, a linha de `firestore.rules` que negou e um
+  veredito). Guia: `docs/operacao/DIAGNOSTICO_PUBLICACAO.md`.
+- Testes de Regras novos (`PUBLICACAO-LOTE-1`): a publicação **em lote** (9 colaboradores com `turnosMes`, `versoesEscala`, `eventosEscala`,
+  histórico e estado) por responsável da Matriz e pela ACL histórica de gestor, a recusa para quem não é responsável e o lote inteiro
+  caindo quando `publicadoPor` não é a conta logada (o que acontece ao publicar simulando outro gestor). Antes só havia testes de uma
+  coleção por vez.
+- Sem mudança de comportamento no Dashboard nem nas Regras (não precisa reconstruir nem republicar nada para usar a ferramenta).
+
 ## 1.13.2 — calendário do ponto: períodos do assistente, rascunhos e avisos seguem o ciclo novo (patch 0110)
 - O período de uma competência (assistente de criar escala, prévia do calendário, rascunhos de Plantão, "usar período anterior")
   agora vem do **calendário do ponto** (comunicado do RH de 10/11/2026): regular **17 a 16**, dezembro **17/11 a 15/12**, janeiro

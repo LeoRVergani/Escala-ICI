@@ -1612,3 +1612,65 @@ test('CALENDARIO-PONTO-1 — o calendário do ponto é a fonte única do ciclo (
   // A documentação traz a tabela oficial.
   for (const trecho of ['10/11/2026', '17/11 a 15/12', '16/12 a 16/01', 'EXCECOES_PONTO']) assert.ok(docs.includes(trecho), trecho);
 });
+
+test('DIAGNOSTICO-PUBLICACAO-1 — a lógica do diagnóstico (serialização, resumo, leitura do emulador, veredito) e as fronteiras dos dois scripts', async () => {
+  const lib = await import(new URL('../scripts/staging/diagnosticoPublicacaoLib.mjs', import.meta.url).href);
+  class Ts { constructor(ms) { this.ms = ms; } toMillis() { return this.ms; } }
+  // serializar/reviver: ida e volta com Timestamp aninhado
+  const original = { a: 1, quando: new Ts(1700000000000), lista: [new Ts(5), 'x'], aninhado: { t: new Ts(7), n: null } };
+  const json = JSON.parse(JSON.stringify(lib.serializar(original, (v) => v instanceof Ts)));
+  assert.deepEqual(json.quando, { __ts: 1700000000000 });
+  const volta = lib.reviver(json, (ms) => new Ts(ms));
+  assert.equal(volta.quando.toMillis(), 1700000000000);
+  assert.equal(volta.lista[0].toMillis(), 5);
+  assert.equal(volta.aninhado.t.toMillis(), 7);
+  assert.equal(volta.aninhado.n, null);
+  // resumo do contexto: o que importa para decidir quem administra a Jornada
+  const contexto = { colecoes: {
+    usuarios: { 'claudio.lis': { perfil: 'GESTOR_EQUIPE', equipeId: 'EQ_SOC', equipesPermitidas: ['EQ_SOC'], email: 'x@y', ativo: true } },
+    equipes: { EQ_SOC: { unidadeId: 'COSI' } },
+    escoposOperacionais: { JORNADA_EQ_SOC: { ativo: true, responsaveisLogin: ['admin'], responsaveisEquipe: [] } },
+    config: { ambiente: { staging: true } },
+  } };
+  const resumo = lib.resumirContexto(contexto, 'claudio.lis');
+  assert.deepEqual([resumo.perfil, resumo.equipeId, resumo.matrizExiste, resumo.matrizAtiva, resumo.ambienteStaging], ['GESTOR_EQUIPE', 'EQ_SOC', true, true, true]);
+  assert.deepEqual(resumo.matrizResponsaveisLogin, ['admin']);
+  assert.equal(lib.resumirContexto(contexto, 'ninguem').usuarioExiste, false);
+  // leitura das mensagens do emulador: linhas citadas (sem repetir) e o limite de 1000 expressões
+  const linhasRegras = Array.from({ length: 20 }, (_, i) => `linha ${i + 1}`);
+  const negacao = lib.explicarNegacao("7 PERMISSION_DENIED:\nfalse for 'create' @ L5, false for 'create' @ L5, false for 'create' @ L9", linhasRegras);
+  assert.deepEqual(negacao.linhas.map((l) => l.numero), [5, 9]);
+  assert.equal(negacao.linhas[0].trecho, 'linha 5');
+  assert.equal(negacao.limiteDeExpressoes, false);
+  assert.equal(lib.explicarNegacao("Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L905", linhasRegras).limiteDeExpressoes, true);
+  // os documentos da publicação: `publicadoPor` é quem está logado, o evento tem `alteracoes` em lista e o estado usa a chave
+  const p = lib.montarPayloads({ login: 'claudio.lis', equipeId: 'EQ_SOC', competencia: '2026-12', periodoInicio: '2026-11-17', periodoFim: '2026-12-15', agoraIso: '2026-11-18T12:00:00.000Z' });
+  assert.equal(p.chave, 'EQ_SOC_2026-12');
+  assert.equal(p.turnosMes(1).publicadoPor, 'claudio.lis');
+  assert.equal(p.turnosMes(1).status, 'PUBLICADA');
+  assert.equal(p.rascunho(1).status, 'RASCUNHO');
+  assert.ok(Array.isArray(p.evento(1, 1).alteracoes));
+  assert.equal(p.evento(1, 1).publicadoPor, 'claudio.lis');
+  assert.equal(p.estado(1).id, 'EQ_SOC_2026-12');
+  // os quatro vereditos
+  const ok = (id, tipo) => ({ id, tipo, ok: true });
+  const no = (id, tipo, extra = {}) => ({ id, tipo, ok: false, negacao: { limiteDeExpressoes: false, limiteDeAcessos: false, ...extra } });
+  assert.match(lib.montarVeredito([ok('a', 'leitura'), ok('r', 'rascunho'), ok('p', 'publicacao'), ok('l', 'lote')]).join(' '), /Nenhuma recusa/u);
+  assert.match(lib.montarVeredito([ok('a', 'leitura'), no('r', 'rascunho'), no('p', 'publicacao'), no('l', 'lote')]).join(' '), /NÃO reconhecem esse usuário/u);
+  assert.match(lib.montarVeredito([ok('a', 'leitura'), ok('r', 'rascunho'), no('eventosEscala', 'publicacao'), no('l', 'lote')]).join(' '), /rascunho é permitido.*eventosEscala/u);
+  assert.match(lib.montarVeredito([ok('a', 'leitura'), ok('r', 'rascunho'), ok('p', 'publicacao'), no('l', 'lote', { limiteDeExpressoes: true })]).join(' '), /LOTE.*recusado.*1000 expressões/su);
+  // fronteiras dos scripts: a exportação só LÊ; a simulação só usa o emulador (nunca o Admin SDK)
+  const [exportar, simular, pacote, docs] = await Promise.all([
+    ler('scripts/staging/exportar-contexto-regras.mjs'), ler('scripts/staging/simular-publicacao.mjs'), ler('package.json'), ler('docs/operacao/DIAGNOSTICO_PUBLICACAO.md'),
+  ]);
+  assert.doesNotMatch(exportar, /\.(update|delete|create|add)\(|\.doc\([^)]*\)\.set\(|batch\(|runTransaction|deleteUser|updateUser|createUser/u);
+  assert.doesNotMatch(exportar, /rules-unit-testing|firebase\/firestore'/u);
+  assert.match(exportar, /inicializarAdminStaging/u);
+  assert.doesNotMatch(simular, /firebase-admin|inicializarAdminStaging|firebaseAdminStaging/u);
+  assert.match(simular, /initializeTestEnvironment/u);
+  assert.match(simular, /withSecurityRulesDisabled/u);
+  const scripts = JSON.parse(pacote).scripts;
+  assert.equal(scripts['staging:diagnosticar:publicacao:exportar'], 'node scripts/staging/exportar-contexto-regras.mjs');
+  assert.equal(scripts['staging:diagnosticar:publicacao:simular'], 'node scripts/staging/simular-publicacao.mjs');
+  for (const trecho of ['exportar-contexto-regras', 'simular-publicacao', 'emulators:exec', 'rm -f /tmp/contexto-regras.json']) assert.ok(docs.includes(trecho), trecho);
+});
