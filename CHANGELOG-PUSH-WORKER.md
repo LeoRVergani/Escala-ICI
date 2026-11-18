@@ -8,6 +8,13 @@ confere que o número do `package.json` é o da primeira seção deste arquivo.
 Depois de mudar o worker, na VM: `git pull`, `npm run docker:push-worker:staging:build` e
 `npm run docker:push-worker:staging:up` (as Rules do Firestore não mudam por causa do worker).
 
+## 0.5.0 — limpeza dos recados vencidos feita pelo worker (patch 0106)
+- A cada hora (e ~1 min depois de subir) o worker **apaga os recados e as mensagens de grupo que venceram** e os **contadores
+  diários com mais de 2 dias**, em lotes de 200 (teto de 5.000 por rodada). Não custa nada e mantém o armazenamento pequeno
+  mesmo se ninguém abrir o App.
+- **Substitui o TTL do Firestore**, que exige o plano pago: com o projeto no plano gratuito a publicação dos índices parava
+  com "HTTP 403 — billing disabled" (e as Regras não eram liberadas). O arquivo de índices não declara mais TTL.
+
 ## 0.4.0 — mensagens para equipe e Plantão: o grupo todo é avisado (patch 0104)
 - Mensagem para uma **equipe** ou um **Plantão**: **todos os integrantes** (menos quem enviou) recebem "Novo recado"; quem enviou
   recebe "Recado respondido" na **primeira** resposta. Uma vez por pessoa (`RG_<id>_<login>`) e uma vez por mensagem (`RGR_<id>`).

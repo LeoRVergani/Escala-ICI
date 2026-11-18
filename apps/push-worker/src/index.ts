@@ -4,6 +4,7 @@ import { writeHeartbeat } from './health.js';
 import { iniciarAgendadorAlertas } from './agendadorAlertas.js';
 import { iniciarOutrosSinos } from './outrosSinos.js';
 import { iniciarAgendadorLembretes } from './agendadorLembretes.js';
+import { iniciarLimpezaDeRecados } from './limpezaRecados.js';
 import { iniciarWatcher } from './notificationWatcher.js';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -40,6 +41,8 @@ async function main(): Promise<void> {
   const pararOutrosSinos = iniciarOutrosSinos({ db, messaging, config });
   // LEMBRETE-ALARME-1 — lembretes da Agenda viram push na hora escolhida.
   const pararLembretes = iniciarAgendadorLembretes({ db, messaging, config });
+  // RECADOS-3 — apaga de hora em hora o que venceu (no lugar do TTL do Firestore, que exige plano pago).
+  const pararLimpezaDeRecados = iniciarLimpezaDeRecados({ db });
 
   let encerrando = false;
   const shutdown = (signal: string): void => {
@@ -53,6 +56,7 @@ async function main(): Promise<void> {
     pararAgendador();
     pararOutrosSinos();
     pararLembretes();
+    pararLimpezaDeRecados();
     process.exit(0);
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));

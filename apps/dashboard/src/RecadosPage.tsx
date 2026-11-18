@@ -85,7 +85,7 @@ export function RecadosPage({ autor, equipes, alvosEquipe, alvosPlantao, modoDem
     return () => parar.forEach((fn) => fn());
   }, [modoDemo, autor.login]);
 
-  // O que venceu é apagado ao abrir — o TTL do Firestore é só a rede de segurança.
+  // O que venceu é apagado ao abrir — o worker também apaga de hora em hora (o TTL do Firestore exigiria plano pago).
   const jaTentouApagar = useRef(new Set<string>());
   useEffect(() => {
     if (modoDemo) return;

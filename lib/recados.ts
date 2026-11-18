@@ -3,7 +3,7 @@
  * Teams: escolhe o destino, escreve e envia. Para um grupo é UMA mensagem só e cada um responde do seu jeito — o
  * remetente vê todas as respostas juntas. (RECADOS-2: recado entre colegas da mesma equipe ou do mesmo Plantão.)
  * Mensagem LIVRE e resposta LIVRE — mas sem conversa nem histórico: o destinatário responde UMA vez, o remetente
- * vê a resposta e apaga; o que vence é apagado sozinho (TTL do Firestore + limpeza ao abrir). Há limite diário
+ * vê a resposta e apaga; o que vence é apagado sozinho (limpeza ao abrir + limpeza horária do worker). Há limite diário
  * por remetente, aplicado nas Regras do Firestore, para um erro ou abuso nunca estourar a cota gratuita.
  * Módulo PURO: tipos, validação, limite, e o que cada lado enxerga.
  */

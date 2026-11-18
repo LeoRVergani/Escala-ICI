@@ -15,6 +15,12 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.12.2 — correção da publicação: TTL do Firestore removido (patch 0106)
+- O `firestore.indexes.json` declarava limpeza automática (TTL) para `recados` e `recadosGrupo`. O TTL exige o plano pago do
+  Firebase; no plano gratuito o deploy falhava com **HTTP 403 "billing disabled"** e parava **antes de liberar as Regras**.
+  O TTL saiu; a limpeza dos recados vencidos agora é feita pelo worker (0.5.0) e ao abrir a tela.
+- **Requer republicar as Rules e os índices** (`npm run firebase:staging:deploy`) e subir o worker novo.
+
 ## 1.12.1 — correção nas Regras: transferir colaborador de equipe voltava a ser negado (patch 0105)
 - A checagem do cargo de liderança (patch 0099) ficava no começo da regra de atualização de `usuarios` e, em toda
   atualização que não é promoção — como **transferir alguém de equipe** —, gastava expressões do limite de 1000 do Firestore
