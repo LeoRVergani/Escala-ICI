@@ -6569,7 +6569,9 @@ export function DashboardApp() {
         : { ...processado.resultado, ok: false, erros: [...processado.resultado.erros, ...errosFuncaoForaDoGrupo] };
       interpretarPlantao(buffer, file.name, resultadoPlantaoValidado, opcoesPlantaoAjustadas, usuariosDoGrupo);
       if (competenciaFoiAjustada) {
-        setMensagem(`Competência ajustada de ${competenciaInformada} para ${competenciaDetectada} com base nas ocorrências da planilha (janela 26→25).`);
+        const periodoDetectado = periodoDaCompetencia(competenciaDetectada);
+        const ddmm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+        setMensagem(`Competência ajustada de ${competenciaInformada} para ${competenciaDetectada} com base nas ocorrências da planilha${periodoDetectado ? ` (período de ${ddmm(periodoDetectado.periodoInicio)} a ${ddmm(periodoDetectado.periodoFim)})` : ''}.`);
       }
       return true;
     }

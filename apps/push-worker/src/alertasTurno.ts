@@ -260,23 +260,13 @@ export function alertasDevidos(alertas: readonly AlertaAgendado[], agora: string
   });
 }
 
-/** Competência operacional (dia 26 em diante = mês seguinte), como no contrato. */
-export function competenciaDaData(data: string): string {
-  const [a, m, d] = data.split('-').map(Number);
-  let ano = a ?? 1970;
-  let mes = m ?? 1;
-  if ((d ?? 1) >= 26) {
-    mes += 1;
-    if (mes > 12) { mes = 1; ano += 1; }
-  }
-  return `${ano}-${String(mes).padStart(2, '0')}`;
-}
-
 /**
- * VIRADA-CICLO-1 — em que rótulos de competência a escala de uma data pode estar guardada. O rótulo é o mês em que o período
- * TERMINA: no ciclo antigo (26→25) o dia 20/11 é "2026-11"; no novo (16→15) o dia 20/12 é "2027-01" — e `competenciaDaData`
- * (que ainda vira no dia 26) diria "2026-12" e o aviso nunca acharia a escala. Procurar o mês anterior, o do calendário e o
- * seguinte cobre os dois ciclos e a transição entre eles.
+ * VIRADA-CICLO-1 / CALENDARIO-PONTO-1 — em que rótulos de competência a escala de uma data pode estar guardada. O rótulo é o mês
+ * em que o período TERMINA: no ciclo antigo (26→25) o dia 20/11 é "2026-11"; no calendário novo do ponto (17→16, com dezembro
+ * fechando em 15/12 e janeiro de 16/12 a 16/01) o dia 20/12 é "2027-01" — e a regra antiga (virar no dia 26) diria "2026-12" e o
+ * aviso nunca acharia a escala. O rótulo certo é SEMPRE o mês anterior, o do calendário ou o seguinte; procurar os três cobre
+ * os dois ciclos, a transição e qualquer ajuste futuro de calendário. (O worker não importa o contrato — a imagem Docker leva
+ * só o worker —, por isso um teste confere este atalho contra `competenciaDoPonto`, a fonte única.)
  */
 export function competenciasDaData(data: string): string[] {
   const [a, m] = data.split('-').map(Number);

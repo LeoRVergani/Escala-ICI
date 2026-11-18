@@ -10,7 +10,10 @@ describe('competenciaOperacionalAtual — HOTFIX-COMPETENCIA-OPERACIONAL-DINAMIC
     ['2026-09-01', '2026-09'],
     ['2026-09-25', '2026-09'],
     ['2026-09-26', '2026-10'],
-    ['2026-12-25', '2026-12'],
+    // calendário do ponto (RH, 10/11/2026): dezembro fecha em 15/12 e janeiro vai de 16/12 a 16/01
+    ['2026-12-15', '2026-12'],
+    ['2026-12-16', '2027-01'],
+    ['2026-12-25', '2027-01'],
     ['2026-12-26', '2027-01'],
     ['2027-01-01', '2027-01'],
   ])('%s → %s', (dataIso, competenciaEsperada) => {

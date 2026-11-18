@@ -95,8 +95,17 @@ describe('validarEntradaInformacaoEscala — DIA', () => {
   });
 });
 
-describe('validarEntradaInformacaoEscala — data precisa pertencer ao período 26→25 da competência', () => {
-  const MOTIVO_FORA_DO_PERIODO = 'A data informada não pertence ao período desta competência (dia 26 do mês anterior a dia 25 do mês do rótulo).';
+describe('validarEntradaInformacaoEscala — data precisa pertencer ao período da competência', () => {
+  // 2026-09 ainda é do ciclo antigo (26/08 a 25/09); o motivo mostra o período real da competência.
+  const MOTIVO_FORA_DO_PERIODO = 'A data informada não pertence ao período desta competência (de 26/08 a 25/09).';
+
+  it('no calendário novo do ponto o motivo mostra o período de dezembro (17/11 a 15/12) e a data de 16/12 já é de janeiro', () => {
+    expect(validarEntradaInformacaoEscala(entradaDia({ competencia: '2026-12', data: '2026-11-17' }))).toEqual([]);
+    expect(validarEntradaInformacaoEscala(entradaDia({ competencia: '2026-12', data: '2026-12-15' }))).toEqual([]);
+    expect(validarEntradaInformacaoEscala(entradaDia({ competencia: '2026-12', data: '2026-12-16' })))
+      .toContain('A data informada não pertence ao período desta competência (de 17/11 a 15/12).');
+    expect(validarEntradaInformacaoEscala(entradaDia({ competencia: '2027-01', data: '2026-12-16' }))).toEqual([]);
+  });
 
   it('aceita a data inicial do período (dia 26 do mês anterior)', () => {
     expect(validarEntradaInformacaoEscala(entradaDia({ competencia: '2026-09', data: '2026-08-26' }))).toEqual([]);
@@ -125,11 +134,12 @@ describe('validarEntradaInformacaoEscala — data precisa pertencer ao período 
     expect(erros).toContain(MOTIVO_FORA_DO_PERIODO);
   });
 
-  it('vira o ano corretamente: competência 2027-01 vai de 2026-12-26 a 2027-01-25', () => {
-    expect(validarEntradaInformacaoEscala(entradaDia({ competencia: '2027-01', data: '2026-12-26' }))).toEqual([]);
-    expect(validarEntradaInformacaoEscala(entradaDia({ competencia: '2027-01', data: '2027-01-25' }))).toEqual([]);
-    const erros = validarEntradaInformacaoEscala(entradaDia({ competencia: '2027-01', data: '2026-12-25' }));
-    expect(erros).toContain(MOTIVO_FORA_DO_PERIODO);
+  it('vira o ano corretamente: no calendário do ponto a competência 2027-01 vai de 2026-12-16 a 2027-01-16', () => {
+    const MOTIVO_JANEIRO = 'A data informada não pertence ao período desta competência (de 16/12 a 16/01).';
+    expect(validarEntradaInformacaoEscala(entradaDia({ competencia: '2027-01', data: '2026-12-16' }))).toEqual([]);
+    expect(validarEntradaInformacaoEscala(entradaDia({ competencia: '2027-01', data: '2027-01-16' }))).toEqual([]);
+    expect(validarEntradaInformacaoEscala(entradaDia({ competencia: '2027-01', data: '2026-12-15' }))).toContain(MOTIVO_JANEIRO);
+    expect(validarEntradaInformacaoEscala(entradaDia({ competencia: '2027-01', data: '2027-01-17' }))).toContain(MOTIVO_JANEIRO);
   });
 
   it('não reporta erro de período quando competência já é inválida — só o erro de formato', () => {

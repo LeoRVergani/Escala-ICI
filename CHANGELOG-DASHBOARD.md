@@ -15,6 +15,16 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.13.2 — calendário do ponto: períodos do assistente, rascunhos e avisos seguem o ciclo novo (patch 0110)
+- O período de uma competência (assistente de criar escala, prévia do calendário, rascunhos de Plantão, "usar período anterior")
+  agora vem do **calendário do ponto** (comunicado do RH de 10/11/2026): regular **17 a 16**, dezembro **17/11 a 15/12**, janeiro
+  **16/12 a 16/01**; até novembro de 2026, o ciclo antigo (26→25). A competência "atual" que o Dashboard sugere também.
+- Os avisos que citavam "26→25" passam a mostrar o **período real** ("de 17/11 a 15/12"): o de competência ajustada na
+  importação do Plantão e o de "a data não pertence ao período desta competência" das Informações da escala.
+- Importar uma escala de Jornada continuava certo (o período vem das datas do arquivo); o que muda é tudo o que parte só do
+  rótulo da competência. Períodos de 32 dias (janeiro) não esbarram em nenhum limite.
+- Se você criou **antes de hoje** um rascunho de Plantão para 2026-12 (que teria nascido como 26/11–25/12), recrie-o.
+
 ## 1.13.1 — publicar enquanto simula outro gestor: aviso claro em vez de erro enganoso (patch 0109)
 - Publicar uma escala grava `publicadoPor` com o usuário **efetivo**; as Regras exigem que seja a **conta logada de verdade**.
   Durante **"Simular gestor"** os dois divergem e o Firestore recusava, com a mensagem enganosa "As regras de escrita ainda não

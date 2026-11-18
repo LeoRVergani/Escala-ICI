@@ -145,10 +145,74 @@ export function adicionarDias(dataIso: string, quantidade: number): string {
   return data.toISOString().slice(0, 10);
 }
 
+/**
+ * CALENDARIO-PONTO-1 — o calendário do ponto é a FONTE ÚNICA do ciclo das escalas (Jornada e Plantão). Comunicado da Gestão de
+ * Pessoas de 10/11/2026: o fechamento do ponto passa a ser sempre no dia 16 — período de 17 a 16 do mês seguinte —, com duas
+ * exceções de transição: dezembro fecha antecipado em 15/12 (17/11 a 15/12) e janeiro vai de 16/12 a 16/01 (32 dias).
+ *
+ * O rótulo (competência) é SEMPRE o mês em que o período TERMINA. Até 2026-11 vale o ciclo antigo (26 → 25): novembro continua
+ * 26/10 a 25/11, como já foi publicado (há trocas e edições em andamento nesses dias) — e as datas 17 a 25/11 passam a pertencer
+ * a dezembro daqui para frente. De 2027-02 em diante, a regra regular 17 → 16. Novo ajuste de calendário = nova linha em
+ * `EXCECOES_PONTO` (ver docs/spec/CALENDARIO_PONTO.md).
+ */
+export interface PeriodoPonto {
+  periodoInicio: string;
+  periodoFim: string;
+}
+
+/** Períodos que NÃO seguem a regra regular (transição do novo calendário). */
+const EXCECOES_PONTO: Readonly<Record<string, PeriodoPonto>> = {
+  '2026-12': { periodoInicio: '2026-11-17', periodoFim: '2026-12-15' },
+  '2027-01': { periodoInicio: '2026-12-16', periodoFim: '2027-01-16' },
+};
+/** Último rótulo do ciclo antigo (26 → 25) e último dia que ainda é decidido por ele. */
+const ULTIMO_ROTULO_CICLO_ANTIGO = '2026-11';
+const ULTIMA_DATA_CICLO_ANTIGO = '2026-11-16';
+
+function rotuloDoMes(ano: number, mes: number): string {
+  return `${String(ano).padStart(4, '0')}-${String(mes).padStart(2, '0')}`;
+}
+
+/** O período de uma competência (`AAAA-MM`), ou `null` se o rótulo for inválido. */
+export function periodoDoPonto(competencia: string): PeriodoPonto | null {
+  const correspondencia = /^(\d{4})-(\d{2})$/u.exec(competencia);
+  if (correspondencia === null) return null;
+  const ano = Number(correspondencia[1]);
+  const mes = Number(correspondencia[2]);
+  if (mes < 1 || mes > 12) return null;
+  const excecao = EXCECOES_PONTO[competencia];
+  if (excecao !== undefined) return { ...excecao };
+  const anoAnterior = mes === 1 ? ano - 1 : ano;
+  const mesAnterior = mes === 1 ? 12 : mes - 1;
+  const dia = competencia <= ULTIMO_ROTULO_CICLO_ANTIGO ? { inicio: 26, fim: 25 } : { inicio: 17, fim: 16 };
+  return {
+    periodoInicio: `${rotuloDoMes(anoAnterior, mesAnterior)}-${dia.inicio}`,
+    periodoFim: `${rotuloDoMes(ano, mes)}-${String(dia.fim).padStart(2, '0')}`,
+  };
+}
+
+/** A competência a que uma data pertence segundo o calendário do ponto (lança para data malformada). */
+export function competenciaDoPonto(dataIso: string): string {
+  const { ano, mes, dia } = partesData(dataIso);
+  const normalizada = `${rotuloDoMes(ano, mes)}-${String(dia).padStart(2, '0')}`;
+  const mesDaData = rotuloDoMes(ano, mes);
+  const virar = (diaDaVirada: number) => (dia >= diaDaVirada ? adicionarMeses(mesDaData, 1) : mesDaData);
+  if (normalizada <= ULTIMA_DATA_CICLO_ANTIGO) return virar(26);
+  for (const [rotulo, periodo] of Object.entries(EXCECOES_PONTO)) {
+    if (periodo.periodoInicio <= normalizada && normalizada <= periodo.periodoFim) return rotulo;
+  }
+  return virar(17);
+}
+
+/**
+ * Sem `diaCorte`: segue o calendário do ponto (`competenciaDoPonto`). Com `diaCorte` explícito: a regra simples antiga
+ * ("dia >= corte vira o mês seguinte"), só para quem precisa dela de propósito.
+ */
 export function competenciaOperacional(
   dataIso: string,
-  diaCorte = 26,
+  diaCorte?: number,
 ): string {
+  if (diaCorte === undefined) return competenciaDoPonto(dataIso);
   const { ano, mes, dia } = partesData(dataIso);
   const competenciaCalendario = `${ano}-${String(mes).padStart(2, '0')}`;
   return dia >= diaCorte
@@ -158,7 +222,7 @@ export function competenciaOperacional(
 
 export function competenciasCandidatas(
   dataIso: string,
-  diaCorte = 26,
+  diaCorte?: number,
 ): string[] {
   const operacional = competenciaOperacional(dataIso, diaCorte);
   const { ano, mes } = partesData(dataIso);
@@ -230,7 +294,7 @@ export function selecionarEscalaPorData(
   escalas: readonly TurnosMes[],
   dataIso: string,
 ): TurnosMes | null {
-  // Com a virada de ciclo (ex.: 26→25 para 16→15) dois documentos podem cobrir a MESMA data (a escala nova começa
+  // Com a virada de ciclo (26→25 para 17→16) dois documentos podem cobrir a MESMA data (a escala nova começa
   // antes de a antiga terminar). Vale a de competência mais recente — a mesma regra de `mesclarDiasEscalas`, para o
   // card "Hoje" e o calendário da Agenda nunca discordarem — e nunca a ordem em que os documentos chegaram.
   const noPeriodo = escalas

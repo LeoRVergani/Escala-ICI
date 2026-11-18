@@ -1,13 +1,11 @@
-import { CATALOGO_SOC, resolverJornadaDia, type Dia, type TurnosMes } from '@escala-ici/contrato';
+import { CATALOGO_SOC, competenciaDoPonto, resolverJornadaDia, type Dia, type TurnosMes } from '@escala-ici/contrato';
 import { describe, expect, it } from 'vitest';
 
 import {
-  agoraLocal,
   alertasDaFolga,
   alertasDevidos,
   alertasDoTurno,
   CATALOGO_PADRAO,
-  competenciaDaData,
   competenciasDaData,
   mesclarDiasDasEscalas,
   enviarAlertaUmaVez,
@@ -109,13 +107,6 @@ describe('ALERTAS-TURNO-2 — agenda dos avisos', () => {
     expect(alertasDevidos(alertas, '2026-11-09T07:05').map((a) => a.tipo)).toEqual([]);
   });
 
-  it('competência (dia 26 vira o mês) e hora de Brasília', () => {
-    expect(competenciaDaData('2026-11-25')).toBe('2026-11');
-    expect(competenciaDaData('2026-11-26')).toBe('2026-12');
-    expect(competenciaDaData('2026-12-26')).toBe('2027-01');
-    expect(agoraLocal(new Date('2026-11-09T13:30:00Z'))).toBe('2026-11-09T10:30');
-    expect(agoraLocal(new Date('2026-11-10T02:15:00Z'))).toBe('2026-11-09T23:15');
-  });
 });
 
 describe('ALERTAS-TURNO-3 — horário alterado no mesmo dia gera um aviso novo', () => {
@@ -209,7 +200,7 @@ describe('AVISO-FOLGA-1 — "Amanhã você está de folga" e "Hoje você está d
   });
 });
 
-describe('VIRADA-CICLO-1 — o aviso do turno acha a escala nos dois ciclos (26→25 e 16→15)', () => {
+describe('VIRADA-CICLO-1 / CALENDARIO-PONTO-1 — o aviso do turno acha a escala em qualquer ciclo do ponto', () => {
   it('procura o mês anterior, o do calendário e o seguinte (inclusive na virada do ano)', () => {
     expect(competenciasDaData('2026-11-18')).toEqual(['2026-10', '2026-11', '2026-12']);
     expect(competenciasDaData('2026-12-16')).toEqual(['2026-11', '2026-12', '2027-01']);
@@ -218,23 +209,23 @@ describe('VIRADA-CICLO-1 — o aviso do turno acha a escala nos dois ciclos (26�
     expect(competenciasDaData('2026-12-31')).toEqual(['2026-11', '2026-12', '2027-01']);
   });
 
-  it('o rótulo certo de QUALQUER data está na janela — no ciclo antigo (vira no 26), no novo (vira no 16) e na transição', () => {
+  it('PARIDADE com a fonte única: a competência do ponto de QUALQUER data de 2020 a 2032 está dentro da janela', () => {
     const dia = (t: number) => new Date(t).toISOString().slice(0, 10);
-    const rotulo = (data: string, diaDaVirada: number) => {
-      const [a, m, d] = data.split('-').map(Number) as [number, number, number];
-      const total = a * 12 + (m - 1) + (d >= diaDaVirada ? 1 : 0);
-      return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}`;
-    };
-    for (let t = Date.parse('2026-01-01T12:00:00Z'); t <= Date.parse('2028-12-31T12:00:00Z'); t += 86_400_000) {
+    for (let t = Date.parse('2020-01-01T12:00:00Z'); t <= Date.parse('2032-12-31T12:00:00Z'); t += 86_400_000) {
       const data = dia(t);
-      expect(competenciasDaData(data)).toContain(rotulo(data, 26));
-      expect(competenciasDaData(data)).toContain(rotulo(data, 16));
+      expect(competenciasDaData(data), data).toContain(competenciaDoPonto(data));
     }
   });
 
-  it('o motivo da correção: só `competenciaDaData` erra os dias 16 a 25 no ciclo novo (20/12 é "2027-01", e ela diz "2026-12")', () => {
-    expect(competenciaDaData('2026-12-20')).toBe('2026-12');
-    expect(competenciasDaData('2026-12-20')).toContain('2027-01');
+  it('as datas-chave do comunicado do RH (10/11/2026) caem em um dos três rótulos procurados', () => {
+    const chaves: Array<[string, string]> = [
+      ['2026-10-26', '2026-11'], ['2026-11-16', '2026-11'], ['2026-11-17', '2026-12'], ['2026-12-15', '2026-12'],
+      ['2026-12-16', '2027-01'], ['2027-01-16', '2027-01'], ['2027-01-17', '2027-02'], ['2027-02-17', '2027-03'],
+    ];
+    for (const [data, rotulo] of chaves) {
+      expect(competenciaDoPonto(data)).toBe(rotulo);
+      expect(competenciasDaData(data)).toContain(rotulo);
+    }
   });
 
   it('funde as escalas da pessoa: nas datas repetidas vale a competência mais recente, em qualquer ordem', () => {

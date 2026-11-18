@@ -6,6 +6,7 @@ import {
   idAtribuicaoPlantao,
   idCompetenciaPlantao,
   ordenarPadraoHorarioSemanal,
+  periodoDoPonto,
   type AtribuicaoPlantaoBruta,
   type AtribuicaoPlantaoPersistida,
   type CompetenciaPlantao,
@@ -76,27 +77,19 @@ export function competenciaDoDia(dataIso: string): string | null {
 }
 
 /**
- * `periodoInicio` é sempre dia 26 do mês ANTERIOR ao rótulo da competência;
- * `periodoFim` é sempre dia 25 do próprio mês do rótulo — nunca depende de
- * quantos dias o mês tem (diferente do cálculo antigo de "último dia do
- * mês calendário").
+ * CALENDARIO-PONTO-1 — o período de uma competência vem do calendário do ponto (`periodoDoPonto`, no contrato): 17 a 16 do mês
+ * seguinte, com as exceções de dezembro (17/11 a 15/12) e janeiro (16/12 a 16/01); até novembro de 2026 vale o ciclo antigo
+ * (26 → 25). Nunca depende de quantos dias o mês tem.
  */
 export function periodoDaCompetencia(competencia: string): { periodoInicio: string; periodoFim: string } | null {
   const match = /^(\d{4})-(\d{2})$/u.exec(competencia);
   if (match === null) {
     return null;
   }
-  const ano = Number(match[1]);
-  const mes = Number(match[2]);
-  if (!mesAnoValidos(ano, mes)) {
+  if (!mesAnoValidos(Number(match[1]), Number(match[2]))) {
     return null;
   }
-  const mesAnterior = mes === 1 ? 12 : mes - 1;
-  const anoDoMesAnterior = mes === 1 ? ano - 1 : ano;
-  return {
-    periodoInicio: `${String(anoDoMesAnterior).padStart(4, '0')}-${String(mesAnterior).padStart(2, '0')}-26`,
-    periodoFim: `${String(ano).padStart(4, '0')}-${String(mes).padStart(2, '0')}-25`,
-  };
+  return periodoDoPonto(competencia);
 }
 
 /**

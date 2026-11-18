@@ -8,6 +8,14 @@ confere que o número do `package.json` é o da primeira seção deste arquivo.
 Depois de mudar o worker, na VM: `git pull`, `npm run docker:push-worker:staging:build` e
 `npm run docker:push-worker:staging:up` (as Rules do Firestore não mudam por causa do worker).
 
+## 0.5.3 — alinhado ao calendário real do ponto (17→16, com exceções) e correção do 0.5.2 (patch 0110)
+- **Correção do 0.5.2:** ele descrevia o ciclo novo como "16→15 / vira no dia 16". O certo, pelo comunicado do RH de 10/11/2026, é
+  **17→16** (dezembro fecha 15/12; janeiro vai de 16/12 a 16/01). A busca pela janela de três competências do 0.5.2 já cobria isso
+  (o rótulo certo é sempre o mês anterior, o do calendário ou o seguinte) — **nenhum comportamento muda**.
+- Sai a função antiga `competenciaDaData` (virava no dia 26 e não era mais usada). Os testes agora comparam a janela com a fonte
+  única (`competenciaDoPonto`, do contrato) para todas as datas de 2020 a 2032 e para as datas-chave do comunicado.
+- O worker continua sem importar o contrato (a imagem Docker leva só o worker); um teste de fronteira trava isso.
+
 ## 0.5.2 — avisos do turno achando a escala também no ciclo novo 16→15 (patch 0109)
 - O agendador de avisos do turno convertia cada data em UMA competência com a regra antiga (o dia 26 vira o mês seguinte) e
   buscava só ela. No ciclo novo, o rótulo é o mês em que o período termina e vira no dia **16**: de 16 a 25 de cada mês a escala
