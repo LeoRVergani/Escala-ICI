@@ -619,7 +619,7 @@ function TurnoHoje({ contexto, horasPrevisao }: { contexto: ContextoJornada; hor
               {previsao.chuvaMax !== null && previsao.chuvaMax >= 20 && (
                 <span className="tempo-turno-chuva"><Droplets size={12} aria-hidden="true" /> {previsao.chuvaMax}% de chuva</span>
               )}
-              <small>No seu turno · {LOCAL_PREVISAO.nome}</small>
+              <small><span className="tempo-turno-prefixo">No seu turno · </span>{LOCAL_PREVISAO.nome}</small>
             </span>
           </div>
         );

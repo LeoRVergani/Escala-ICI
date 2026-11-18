@@ -116,3 +116,21 @@ test('o Docker do push-worker lê o secret via grupo suplementar, nunca como roo
   );
   assert.doesNotMatch(compose, /^\s*ports:/m, 'push-worker não deve publicar porta');
 });
+
+test('PUSH-WORKER-LEVE-1 — a imagem do worker leva só as dependências de PRODUÇÃO do worker (sem npm prune e sem o projeto inteiro)', async () => {
+  const dockerfile = await ler('deploy/push-worker/Dockerfile');
+  // Compila instalando só o workspace do worker (não o projeto inteiro).
+  assert.match(dockerfile, /RUN npm ci --ignore-scripts --no-audit --no-fund --workspace @escala-ici\/push-worker\n/u);
+  // Produção em estágio próprio, também só do workspace do worker.
+  assert.match(dockerfile, /FROM node:22-alpine AS deps-prod/u);
+  assert.match(dockerfile, /npm ci --omit=dev --ignore-scripts --no-audit --no-fund --workspace @escala-ici\/push-worker/u);
+  // O estágio final copia o node_modules do estágio de PRODUÇÃO — nunca o do estágio de compilação.
+  assert.match(dockerfile, /COPY --from=deps-prod \/workspace\/node_modules \.\/node_modules/u);
+  assert.doesNotMatch(dockerfile, /COPY --from=build \/workspace\/node_modules/u);
+  // `npm prune` refaz a árvore de TODOS os workspaces e reinstala tudo (foi o que deixou a imagem com ~800 MB).
+  assert.doesNotMatch(dockerfile.replace(/^#.*$/gmu, ''), /npm prune/u);
+  // Instalação sem `--workspace` traria o projeto inteiro de volta.
+  for (const linha of dockerfile.split('\n').filter((item) => /RUN npm ci/u.test(item))) {
+    assert.match(linha, /--workspace @escala-ici\/push-worker/u, linha);
+  }
+});

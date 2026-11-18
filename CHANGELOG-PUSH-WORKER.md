@@ -8,6 +8,14 @@ confere que o número do `package.json` é o da primeira seção deste arquivo.
 Depois de mudar o worker, na VM: `git pull`, `npm run docker:push-worker:staging:build` e
 `npm run docker:push-worker:staging:up` (as Rules do Firestore não mudam por causa do worker).
 
+## 0.5.1 — imagem Docker bem mais leve e rápida de construir (patch 0107)
+- O Dockerfile instalava o projeto INTEIRO (React, Vite, Firebase do navegador, planilhas…) e copiava ~800 MB de `node_modules`
+  para a imagem final; o `npm prune` não ajudava (ele reinstala as dependências dos outros workspaces). O "exporting layers"
+  levava de 6 a 13 minutos. Agora a imagem leva só as dependências de **produção do worker** (~83 MB, 157 pacotes): compila
+  instalando só o workspace do worker, instala só produção num estágio à parte e copia só isso. Sem `npm prune`.
+- Sem mudança de comportamento do worker. Conferido fora do Docker: todos os módulos do `dist` carregam só com esse
+  `node_modules`, o ponto de entrada falha por configuração (como antes) e o healthcheck carrega.
+
 ## 0.5.0 — limpeza dos recados vencidos feita pelo worker (patch 0106)
 - A cada hora (e ~1 min depois de subir) o worker **apaga os recados e as mensagens de grupo que venceram** e os **contadores
   diários com mais de 2 dias**, em lotes de 200 (teto de 5.000 por rodada). Não custa nada e mantém o armazenamento pequeno
