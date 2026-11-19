@@ -16,6 +16,16 @@ import type { Usuario } from '@/lib/modelos';
  * disponível. Ver `docs/spec/APP_PLANTAO_VISUALIZACAO.md`.
  */
 
+export interface PeriodoApp {
+  inicio: string;
+  fim: string;
+}
+
+/** Dois períodos (datas ISO, inclusivas) têm ao menos um dia em comum. */
+export function periodosSeSobrepoem(a: PeriodoApp | null | undefined, b: PeriodoApp | null | undefined): boolean {
+  return a != null && b != null && a.inicio <= b.fim && b.inicio <= a.fim;
+}
+
 /** Entrada mínima sobre a Jornada 6x1 do usuário na competência ativa — já resolvida pelo chamador (`minhaEscala` do App). */
 export interface DadosJornadaApp {
   /** `true` quando existe uma Jornada 6x1 PUBLICADA do próprio usuário para o período consultado. */
@@ -32,6 +42,11 @@ export interface DadosPlantaoApp {
   grupo: { grupoId: string; nome: string } | null | undefined;
   /** Competência (chave "AAAA-MM") com atribuições PUBLICADAS para este Grupo, ou `null` se não publicada. */
   competenciaPublicada: string | null;
+  /**
+   * PLANTAO-HOJE-CICLOS-1 — o período (início/fim) da competência publicada acima. Serve para reconhecer o Plantão quando dois ciclos
+   * do ponto se SOBREPÕEM (17–25/11/2026 é do "Novembro" antigo e do "Dezembro" novo): o rótulo difere, mas o Plantão cobre os dias.
+   */
+  periodoPublicado?: PeriodoApp | null;
   /** O próprio usuário aparece como participante ATIVO do Grupo. */
   participante: boolean;
   /** A consulta aos detalhes do Grupo (participantes/atribuições) foi autorizada — `false` só em permission-denied específico. */
@@ -66,6 +81,8 @@ export function resolverOperacoesApp(
   dadosJornada: DadosJornadaApp,
   dadosPlantao: DadosPlantaoApp,
   competencia: string,
+  /** PLANTAO-HOJE-CICLOS-1 — o período da competência consultada; sem ele, só a igualdade do rótulo vale (comportamento de antes). */
+  periodoCompetencia?: PeriodoApp | null,
 ): OperacaoApp[] {
   const operacoes: OperacaoApp[] = [
     {
@@ -80,7 +97,12 @@ export function resolverOperacoesApp(
       tipo: 'PLANTAO',
       grupoId: dadosPlantao.grupo.grupoId,
       nome: dadosPlantao.grupo.nome,
-      status: dadosPlantao.competenciaPublicada === competencia ? 'publicada' : 'sem-escala',
+      // O Plantão publicado conta quando é desta competência OU quando cobre dias dela (ciclos sobrepostos na virada do calendário do ponto).
+      status: dadosPlantao.competenciaPublicada !== null
+        && (dadosPlantao.competenciaPublicada === competencia
+          || periodosSeSobrepoem(dadosPlantao.periodoPublicado, periodoCompetencia))
+        ? 'publicada'
+        : 'sem-escala',
       participante: dadosPlantao.participante,
       consulta: dadosPlantao.consulta,
     });

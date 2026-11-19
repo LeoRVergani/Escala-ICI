@@ -1763,3 +1763,12 @@ test('INVERSAO-ESCALAS-1 — o botão "Inverter escalas" só mexe no RASCUNHO lo
   assert.match(css, /\.inv-corpo > \* \{ flex-shrink: 0; \}/u);
   for (const trecho of ['permuta', 'cobertura', 'Desfazer', 'mesmo assim', 'Salvar alterações']) assert.ok(docs.includes(trecho), trecho);
 });
+
+test('PLANTAO-HOJE-CICLOS-1 — o Plantão publicado vale quando é da competência OU cobre dias dela (ciclos do ponto sobrepostos), e o App passa os períodos', async () => {
+  const [operacoes, app] = await Promise.all([ler('apps/app/src/operacoesApp.ts'), ler('apps/app/src/EmployeeApp.tsx')]);
+  assert.match(operacoes, /dadosPlantao\.competenciaPublicada !== null\s*&&\s*\(dadosPlantao\.competenciaPublicada === competencia\s*\|\|\s*periodosSeSobrepoem\(dadosPlantao\.periodoPublicado, periodoCompetencia\)\)/u);
+  assert.doesNotMatch(operacoes, /status: dadosPlantao\.competenciaPublicada === competencia \? 'publicada'/u, 'a comparação só por texto não volta');
+  assert.match(app, /periodoPublicado: periodoPlantaoApp,/u);
+  assert.match(app, /const periodoDaCompetenciaAtivaApp = periodoDoPonto\(competenciaAtiva\);/u);
+  assert.match(app, /periodoDaCompetenciaAtivaApp === null \? null : \{ inicio: periodoDaCompetenciaAtivaApp\.periodoInicio, fim: periodoDaCompetenciaAtivaApp\.periodoFim \}/u);
+});
