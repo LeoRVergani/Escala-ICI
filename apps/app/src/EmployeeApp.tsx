@@ -26,6 +26,7 @@ import {
   type ParticipantePlantao,
   type TurnosMes,
   ROTULO_FUNCAO_PLANTAO,
+  periodoDoPonto,
 } from '@escala-ici/contrato';
 import {
   ArrowLeftRight,
@@ -5391,18 +5392,22 @@ export function EmployeeApp() {
    * ainda", nunca como "sem Plantão", então nenhuma tela pisca um estado
    * vazio errado enquanto a consulta eager (ver `useEffect` acima) termina.
    */
+  // PLANTAO-HOJE-CICLOS-1 — na virada do calendário do ponto dois rótulos cobrem os mesmos dias; o período decide, não só o texto.
+  const periodoDaCompetenciaAtivaApp = periodoDoPonto(competenciaAtiva);
   const operacoesApp = resolverOperacoesApp(
     usuario,
     { escalaPublicada: minhaEscala !== null },
     {
       grupo: grupoPlantaoApp,
       competenciaPublicada: competenciaPlantaoApp,
+      periodoPublicado: periodoPlantaoApp,
       participante: participantesPlantaoApp.some(
         (participante) => participante.login === usuario.login && participante.ativo,
       ),
       consulta: erroPlantaoApp === '',
     },
     competenciaAtiva,
+    periodoDaCompetenciaAtivaApp === null ? null : { inicio: periodoDaCompetenciaAtivaApp.periodoInicio, fim: periodoDaCompetenciaAtivaApp.periodoFim },
   );
   const jornadaPublicadaApp = temJornadaPublicada(operacoesApp);
   /**

@@ -12,6 +12,11 @@ O Dashboard tem a sua própria versão: veja `CHANGELOG-DASHBOARD.md`. O App con
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.12.6 — correção: o card "De plantão agora / Próximo plantão" voltou na tela Hoje
+- Desde o calendário do ponto do RH (3.12.3), na janela em que dois ciclos se **sobrepõem** (17 a 25/11/2026: do "Novembro" antigo, 26/10–25/11, e do "Dezembro" novo, 17/11–15/12) o App
+  achava o Plantão certo pela data, mas depois comparava a competência **só pelo texto** ("2026-11" ≠ "2026-12") e o tratava como "sem escala": o card de Plantão sumia da tela Hoje.
+- Agora o Plantão publicado conta quando é da competência **ou cobre dias dela**. Competências que não se sobrepõem (mês seguinte, ciclos vizinhos) continuam como antes.
+
 ## 3.12.5 — importação de escala em matriz (turno × data): o App orienta a usar o Dashboard
 - O fluxo de importação do App reconhece a matriz "turno × data" (escala de fim de ano) e diz "importe-a pelo Dashboard", em vez de tratá-la como planilha desconhecida.
 
