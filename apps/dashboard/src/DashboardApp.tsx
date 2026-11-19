@@ -73,6 +73,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowLeftRight,
+  Undo2,
   ArrowUpRight,
   Ban,
   Bell,
@@ -114,6 +115,8 @@ import { ScheduleGrid } from '@/components/ScheduleGrid';
 import { ScheduleImportReview } from '@/components/ScheduleImportReview';
 import { ScheduleLegend } from '@/components/ScheduleLegend';
 import { mesclarTrechoNaBase, type OrigemBase } from '@/lib/importacaoMatrizTurnos';
+import { aplicarInversaoNosDocumentos, conferirRegrasDaInversao, descreverPeriodo, planejarInversao } from '@/lib/inversaoEscalas';
+import { InverterEscalasModal, type ParametrosInversao } from './InverterEscalasModal';
 import {
   conciliarPlanilha,
   ignorarLinha,
@@ -3736,6 +3739,9 @@ export function DashboardApp() {
   const [filtroSetorUsuario, setFiltroSetorUsuario] = useState<string>(FILTRO_SETOR_TODOS);
   const [celulaEditando, setCelulaEditando] = useState<CelulaEditando | null>(null);
   /** REGRAS-ESCALA-2 — mudança de célula à espera de confirmação porque cria problemas nas regras. */
+  /** INVERSAO-ESCALAS-1 — janela "Inverter escalas" e a última inversão (para desfazer enquanto nada mais mudou no rascunho). */
+  const [inverterEscalasAberto, setInverterEscalasAberto] = useState(false);
+  const [ultimaInversao, setUltimaInversao] = useState<{ antes: TurnosMes[]; depois: TurnosMes[]; descricao: string } | null>(null);
   const [alteracaoComProblemas, setAlteracaoComProblemas] = useState<{
     codigo: string; turnoHoraExtra?: string; novos: AlertaRegra[]; resolvidos: AlertaRegra[]; pessoa: string; data: string;
   } | null>(null);
@@ -7098,6 +7104,42 @@ export function DashboardApp() {
     }
     return { tipo, ciclo, documentoAlvo, dias };
   }
+
+  /**
+   * INVERSAO-ESCALAS-1 — aplica a inversão no RASCUNHO local (nada é gravado até "Salvar alterações"), refazendo o plano sobre os documentos
+   * atuais para nunca usar uma prévia velha. A última inversão fica guardada para desfazer.
+   */
+  function aplicarInversaoEscalas(parametros: ParametrosInversao) {
+    if (resultado === null) return;
+    const plano = planejarInversao(resultado.documentos, parametros.loginA, parametros.loginB, parametros.periodo, catalogo);
+    if (!plano.ok) {
+      setMensagem(plano.erro);
+      return;
+    }
+    const { novos, resolvidos } = conferirRegrasDaInversao(resultado.documentos, plano.plano, catalogo, regrasEmVigor, nomePorLoginRegras);
+    const depois = aplicarInversaoNosDocumentos(resultado.documentos, plano.plano);
+    const nomeA = nomePorLoginRegras[parametros.loginA] ?? parametros.loginA;
+    const nomeB = nomePorLoginRegras[parametros.loginB] ?? parametros.loginB;
+    setUltimaInversao({ antes: resultado.documentos, depois, descricao: `${nomeA} ↔ ${nomeB}` });
+    setResultado({ ...resultado, documentos: depois });
+    setJornadaPossuiAlteracoesNaoSalvas(true);
+    setInverterEscalasAberto(false);
+    const dias = plano.plano.trocados.length === 1 ? '1 dia' : `${plano.plano.trocados.length} dias`;
+    const regrasTexto = novos.length > 0
+      ? ` Atenção: criou ${novos.length === 1 ? '1 problema' : `${novos.length} problemas`} nas regras — veja o painel de problemas.`
+      : resolvidos.length > 0 ? ` Resolveu ${resolvidos.length === 1 ? '1 problema' : `${resolvidos.length} problemas`} da escala.` : '';
+    setMensagem(`Escalas de ${nomeA} e ${nomeB} invertidas (${dias}, ${descreverPeriodo(parametros.periodo)}).${regrasTexto} Salve para persistir.`);
+  }
+
+  /** Só desfaz se o rascunho continua exatamente como a inversão o deixou (senão apagaria edições feitas depois). */
+  function desfazerUltimaInversao() {
+    if (resultado === null || ultimaInversao === null || resultado.documentos !== ultimaInversao.depois) return;
+    setResultado({ ...resultado, documentos: ultimaInversao.antes });
+    setJornadaPossuiAlteracoesNaoSalvas(true);
+    setMensagem(`Inversão de ${ultimaInversao.descricao} desfeita.`);
+    setUltimaInversao(null);
+  }
+  const podeDesfazerInversao = resultado !== null && ultimaInversao !== null && resultado.documentos === ultimaInversao.depois;
 
   /** REGRAS-ESCALA-2 — escolher o código na célula: avisa antes se a mudança cria problemas nas regras. */
   function solicitarEdicaoCelula(codigo: string, turnoHoraExtra?: string) {
@@ -11433,6 +11475,14 @@ export function DashboardApp() {
               onRemover={(documento) => setRemoverMembroPendente(documento)}
               headerActions={(
                 <>
+                  <button className="secondary-button" type="button" disabled={escritaBloqueada || documentos.length < 2} onClick={() => setInverterEscalasAberto(true)} title="Trocar a escala de duas pessoas de uma vez">
+                    <ArrowLeftRight size={15} /> Inverter escalas
+                  </button>
+                  {podeDesfazerInversao && ultimaInversao !== null && (
+                    <button className="secondary-button" type="button" onClick={desfazerUltimaInversao} title={`Desfazer a inversão de ${ultimaInversao.descricao}`}>
+                      <Undo2 size={15} /> Desfazer inversão
+                    </button>
+                  )}
                   <button className="secondary-button" type="button" disabled={escritaBloqueada || !usuarios.length} onClick={abrirAdicionarMembroGrade}>
                     <UserPlus size={15} /> Adicionar colaborador
                   </button>
@@ -11469,6 +11519,14 @@ export function DashboardApp() {
                   <span className={`status-badge ${publicados.length === documentos.length && documentos.length ? 'success' : 'warning'}`}>
                     {publicados.length === documentos.length && documentos.length ? 'Revisão publicada' : 'Rascunho não publicado'}
                   </span>
+                  <button className="secondary-button" type="button" disabled={escritaBloqueada || documentos.length < 2} onClick={() => setInverterEscalasAberto(true)} title="Trocar a escala de duas pessoas de uma vez">
+                    <ArrowLeftRight size={16} /> Inverter escalas
+                  </button>
+                  {podeDesfazerInversao && ultimaInversao !== null && (
+                    <button className="secondary-button" type="button" onClick={desfazerUltimaInversao} title={`Desfazer a inversão de ${ultimaInversao.descricao}`}>
+                      <Undo2 size={16} /> Desfazer inversão
+                    </button>
+                  )}
                   <button className="secondary-button" type="button" disabled={escritaBloqueada || !usuarios.length} onClick={abrirAdicionarMembroGrade}>
                     <UserPlus size={16} /> Adicionar colaborador
                   </button>
@@ -13715,6 +13773,17 @@ export function DashboardApp() {
       )}
 
       {/* REGRAS-ESCALA-2 — a mudança escolhida cria problemas nas regras: mostra quais e pede confirmação. */}
+      {inverterEscalasAberto && resultado !== null && (
+        <InverterEscalasModal
+          documentos={resultado.documentos}
+          nomePorLogin={nomePorLoginRegras}
+          catalogo={catalogo}
+          regras={regrasEmVigor}
+          onFechar={() => setInverterEscalasAberto(false)}
+          onAplicar={aplicarInversaoEscalas}
+        />
+      )}
+
       {alteracaoComProblemas && (
         <div className="modal-backdrop modal-backdrop-alto" role="presentation" onMouseDown={() => setAlteracaoComProblemas(null)}>
           <section className="edit-modal alteracao-problemas" role="alertdialog" aria-modal="true" aria-labelledby="alteracao-problemas-titulo"

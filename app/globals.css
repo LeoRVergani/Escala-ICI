@@ -10978,3 +10978,55 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
 /* MATRIZ-TURNOS-1 — "Ver as N pendências restantes" (antes era um parágrafo que apontava para uma tabela que não tem os avisos). */
 button.soc-import-review-alerts-more { width: 100%; border: 0; background: transparent; color: var(--primary-bright); font: inherit; font-size: 11px; font-weight: 700; text-align: left; cursor: pointer; }
 button.soc-import-review-alerts-more:hover { text-decoration: underline; }
+
+/* =====================================================================
+ * INVERSAO-ESCALAS-1 — "Inverter escalas": duas pessoas, um período, prévia dia a dia e conferência das regras.
+ * ===================================================================== */
+.inv { display: flex; flex-direction: column; gap: 0; width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; overflow: hidden; }
+.inv-topo { display: flex; align-items: center; gap: 14px; padding: 18px 24px 16px; border-bottom: 1px solid var(--border); }
+.inv-topo > div { flex: 1 1 auto; min-width: 0; }
+.inv-topo h2 { margin: 0; color: var(--text); font-size: 20px; font-weight: 800; }
+.inv-topo p { margin: 3px 0 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.inv-topo-icone { display: grid; flex: 0 0 auto; place-items: center; width: 44px; height: 44px; border-radius: 14px; background: color-mix(in srgb, var(--primary-bright) 16%, var(--surface)); color: var(--primary-bright); }
+.inv-corpo { display: flex; flex-direction: column; gap: 14px; flex: 1 1 auto; min-height: 0; padding: 18px 24px; overflow-y: auto; }
+.inv-corpo > * { flex-shrink: 0; } /* o corpo ROLA; nunca espreme a prévia (no celular ela sumia) */
+.inv-pessoas { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 12px; }
+.inv-seta { display: grid; place-items: center; width: 40px; height: 42px; color: var(--muted); }
+.inv-campo { display: grid; gap: 5px; min-width: 0; color: var(--text); font-size: 12.5px; font-weight: 700; }
+.inv-campo select, .inv-campo input { width: 100%; min-height: 42px; padding: 0 12px; border: 1.5px solid var(--border); border-radius: 12px; background: var(--surface-muted); color: var(--text); font: inherit; font-size: 14px; font-weight: 600; color-scheme: light dark; }
+.inv-campo select:focus, .inv-campo input:focus { outline: none; border-color: var(--primary-bright); }
+.inv-periodo { display: grid; gap: 8px; }
+.inv-rotulo { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.inv-atalhos { display: flex; flex-wrap: wrap; gap: 8px; }
+.inv-atalho { min-height: 34px; padding: 0 14px; border: 1.5px solid var(--border); border-radius: 999px; background: var(--surface-muted); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.inv-atalho:hover { border-color: color-mix(in srgb, var(--primary-bright) 55%, var(--border)); }
+.inv-atalho[data-ativo] { border-color: var(--primary-bright); background: color-mix(in srgb, var(--primary-bright) 18%, var(--surface)); color: var(--primary-bright); }
+.inv-datas { display: grid; grid-template-columns: repeat(2, minmax(0, 190px)); gap: 12px; }
+.inv-dica { margin: 0; padding: 14px 16px; border: 1.5px dashed var(--border); border-radius: 12px; color: var(--muted); font-size: 13px; text-align: center; }
+.inv-resumo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; color: var(--muted); font-size: 12.5px; }
+.inv-resumo strong { color: var(--text); font-size: 14px; font-weight: 800; }
+.inv-previa { max-height: 270px; overflow: auto; border: 1px solid var(--border); border-radius: 12px; }
+.inv-previa table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.inv-previa thead th { position: sticky; top: 0; z-index: 1; padding: 8px 12px; background: var(--surface-muted); color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .04em; text-align: left; text-transform: uppercase; }
+.inv-previa tbody th { padding: 7px 12px; color: var(--text); font-weight: 600; text-align: left; white-space: nowrap; }
+.inv-previa tbody th small { color: var(--muted); font-size: 11px; font-weight: 600; }
+.inv-previa td { padding: 7px 12px; white-space: nowrap; }
+.inv-previa tbody tr + tr > * { border-top: 1px solid var(--border); }
+.inv-chip { display: inline-grid; place-items: center; min-width: 34px; height: 24px; padding: 0 7px; border-radius: 8px; font-size: 11.5px; font-weight: 800; }
+.inv-para { margin: 0 7px; color: var(--muted); }
+.inv-regras { margin: 0; padding: 11px 14px; border-radius: 12px; font-size: 13px; line-height: 1.45; }
+.inv-regras p { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font-weight: 700; }
+.inv-regras-ok { display: flex; align-items: center; gap: 8px; border: 1px solid color-mix(in srgb, #22c55e 45%, var(--border)); background: color-mix(in srgb, #22c55e 11%, var(--surface)); color: var(--text); font-weight: 600; }
+.inv-regras-ok svg { flex: 0 0 auto; color: #22c55e; }
+.inv-regras-problema { border: 1px solid color-mix(in srgb, #f59e0b 55%, var(--border)); background: color-mix(in srgb, #f59e0b 10%, var(--surface)); color: var(--text); }
+.inv-regras-problema > p:first-child svg { flex: 0 0 auto; color: #f59e0b; }
+.inv-rodape { display: flex; align-items: center; gap: 10px; padding: 13px 24px; border-top: 1px solid var(--border); }
+.inv-rodape > button { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.inv-rodape .primary-button[data-alerta] { background: #d97706; border-color: #d97706; }
+.inv-erro { flex: 1 1 auto; min-width: 0; margin: 0; color: #f87171; font-size: 12.5px; font-weight: 700; line-height: 1.35; }
+@media (max-width: 640px) {
+  .inv-pessoas { grid-template-columns: minmax(0, 1fr); }
+  .inv-seta { display: none; }
+  .inv-datas { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .inv-topo p { display: none; }
+}

@@ -15,6 +15,14 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.15.0 — "Inverter escalas": trocar a escala de duas pessoas de uma vez (patch 0114)
+- Novo botão **"Inverter escalas"** (ao lado de "Adicionar colaborador"): escolha as duas pessoas e o período — padrão **todo o período**, com atalhos **Natal** e **Ano Novo** — e cada
+  dia uma passa a ter o que a outra tinha. Para quando alguém combina de trocar a folga ("já combinei com o Daniel, eu folgo no Natal") e o coordenador não precisa mais trocar célula por célula.
+- A janela mostra a **prévia dia a dia** ("de → para" de cada pessoa) e confere as **regras** antes de aplicar: "Nenhum problema novo" (e quantos já existentes a troca resolve) ou a lista do que
+  ela cria, com o botão **"Inverter mesmo assim"**. A cobertura dos turnos não muda (é uma permuta).
+- Aplicar só altera o **rascunho**; nada é gravado até "Salvar alterações". **"Desfazer inversão"** volta ao que era, enquanto nada mais tiver sido editado.
+- Guia: `docs/spec/INVERSAO_ESCALAS.md`.
+
 ## 1.14.0 — importar a escala de fim de ano (matriz "turno × data") em trecho (patch 0113)
 - O Dashboard agora importa a **escala em matriz** usada no fim de ano: turnos nas linhas, datas nas colunas, **primeiros nomes** nas células. É reconhecida pela estrutura
   (não pelo nome do arquivo) e a tabelinha de totais ao lado é ignorada. Guia: `docs/spec/IMPORTADOR_MATRIZ_TURNOS.md`.

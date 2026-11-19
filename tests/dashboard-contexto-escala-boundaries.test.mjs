@@ -70,7 +70,11 @@ test('6. solicitarTrocaContexto/solicitarTrocaCompetencia usam a MESMA guarda �
 test('7. jornadaPossuiAlteracoesNaoSalvas vira true em editarCelula (mutação local) E nos pontos de importação não salva (aplicarConciliacao/cadastrarFaltantes) — FIX ESCALAS-UX-2A.1: cobertura completa, não só editarCelula', async () => {
   const dashboard = semComentarios(await ler('apps/dashboard/src/DashboardApp.tsx'));
   const ocorrenciasTrue = dashboard.match(/setJornadaPossuiAlteracoesNaoSalvas\(true\)/gu) ?? [];
-  assert.equal(ocorrenciasTrue.length, 4, 'quatro pontos marcam a Jornada como não salva: criação vazia, editarCelula, aplicarConciliacao e cadastrarFaltantes');
+  // INVERSAO-ESCALAS-1 — aplicar e desfazer a inversão também mudam o rascunho local, então também marcam "não salvo".
+  assert.equal(ocorrenciasTrue.length, 6, 'seis pontos marcam a Jornada como não salva: criação vazia, editarCelula, aplicarConciliacao, cadastrarFaltantes, aplicarInversaoEscalas e desfazerUltimaInversao');
+  const desfazer = /function desfazerUltimaInversao\(\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
+  assert.ok(desfazer, 'desfazerUltimaInversao precisa existir');
+  assert.match(desfazer[1], /setJornadaPossuiAlteracoesNaoSalvas\(true\)/u, 'desfazer também muda o rascunho: dirty=true');
   const editarCelula = /function editarCelula\(codigo: string(?:, turnoHoraExtra\?: string)?\) \{([\s\S]*?)\n {2}\}/u.exec(dashboard);
   assert.ok(editarCelula, 'editarCelula precisa existir');
   assert.match(editarCelula[1], /setJornadaPossuiAlteracoesNaoSalvas\(true\)/u, 'a mutação local de célula precisa marcar dirty=true');

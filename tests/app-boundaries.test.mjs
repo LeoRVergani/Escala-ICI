@@ -1731,3 +1731,35 @@ test('MATRIZ-TURNOS-1 — a matriz entra por último na detecção, o Dashboard 
   assert.doesNotMatch(revisao, /na tabela de conciliação acima/u);
   for (const trecho of ['FOLGA', 'DF', 'DU', 'CONFLITO_ALIAS', 'reaplicar', 'nada é importado', 'Mesclagem do trecho']) assert.ok(docs.includes(trecho), trecho);
 });
+
+test('INVERSAO-ESCALAS-1 — o botão "Inverter escalas" só mexe no RASCUNHO local, refaz o plano ao aplicar, desfaz só se nada mudou e a lógica é pura', async () => {
+  const [dashboard, modal, logica, css, docs] = await Promise.all([
+    ler('apps/dashboard/src/DashboardApp.tsx'), ler('apps/dashboard/src/InverterEscalasModal.tsx'), ler('lib/inversaoEscalas.ts'), ler('app/globals.css'), ler('docs/spec/INVERSAO_ESCALAS.md'),
+  ]);
+  // O botão existe nos DOIS cabeçalhos (resumo da importação e grade da equipe) e exige 2+ pessoas e escrita liberada.
+  const botoes = dashboard.match(/disabled=\{escritaBloqueada \|\| documentos\.length < 2\} onClick=\{\(\) => setInverterEscalasAberto\(true\)\}/gu) ?? [];
+  assert.equal(botoes.length, 2, 'um botão em cada cabeçalho');
+  assert.match(dashboard, /\{inverterEscalasAberto && resultado !== null && \(\s*<InverterEscalasModal/u);
+  // O handler: refaz o plano sobre os documentos ATUAIS, só altera o estado local e marca "não salvo" — nunca grava.
+  const handler = /function aplicarInversaoEscalas\(parametros: ParametrosInversao\) \{[\s\S]*?\n  \}\n/u.exec(dashboard)?.[0] ?? '';
+  assert.ok(handler.length > 0, 'aplicarInversaoEscalas encontrada');
+  assert.match(handler, /planejarInversao\(resultado\.documentos, parametros\.loginA, parametros\.loginB, parametros\.periodo, catalogo\)/u);
+  assert.match(handler, /setResultado\(\{ \.\.\.resultado, documentos: depois \}\)/u);
+  assert.match(handler, /setJornadaPossuiAlteracoesNaoSalvas\(true\)/u);
+  assert.match(handler, /Salve para persistir/u);
+  assert.doesNotMatch(handler, /salvarRascunho|publicarEscalas|registrarAuditoriaOperacional|await /u, 'o handler não grava nada');
+  // Desfazer: só quando o rascunho continua exatamente como a inversão o deixou (igualdade de referência), senão apagaria edições.
+  assert.match(dashboard, /resultado\.documentos !== ultimaInversao\.depois\) return;/u);
+  assert.match(dashboard, /const podeDesfazerInversao = resultado !== null && ultimaInversao !== null && resultado\.documentos === ultimaInversao\.depois;/u);
+  // O modal e a lógica não falam com o Firestore; a lógica é pura (sem React).
+  for (const [nome, texto] of [['modal', modal], ['lógica', logica]]) {
+    assert.doesNotMatch(texto, /firebase|Repository|setDoc|writeBatch|localStorage/u, `${nome} não persiste nada`);
+  }
+  assert.doesNotMatch(logica, /from 'react'/u);
+  // A conferência de regras é a MESMA da edição de uma célula (diferencaDeProblemas) e o `seq` dos dias trocados é descartado.
+  assert.match(logica, /diferencaDeProblemas\(antes, depois\)/u);
+  assert.match(logica, /diasA\[data\] = semSeq\(b\);[\s\S]*diasB\[data\] = semSeq\(a\);/u);
+  // CSS: o corpo do modal ROLA e nunca espreme a prévia (no celular ela sumia).
+  assert.match(css, /\.inv-corpo > \* \{ flex-shrink: 0; \}/u);
+  for (const trecho of ['permuta', 'cobertura', 'Desfazer', 'mesmo assim', 'Salvar alterações']) assert.ok(docs.includes(trecho), trecho);
+});
