@@ -188,7 +188,9 @@ test('11/12. lista lateral: login fica sozinho na 1ª linha, badge "Vinculado" �
 test('13. após criar/vincular usuário, o estado local reflete o vínculo sem reload (mapa de login usa a lista já atualizada)', async () => {
   const dashboard = await ler('apps/dashboard/src/DashboardApp.tsx');
   assert.ok(dashboard.includes('usuariosParaMapa: Usuario[] = usuarios) {'));
-  assert.ok(dashboard.includes('? reparsear(buffer, loginParaUidComConciliacao(mapaLogins(usuariosParaMapa), linhas), opcoes)\n      : reparsear(buffer, mapaLogins(usuariosParaMapa), opcoes);'));
+  // MATRIZ-TURNOS-1 — as duas chamadas passam também as `linhas` (a matriz usa nome → login da conciliação); o mapa de login continua
+  // vindo de `usuariosParaMapa` (a lista já atualizada) nos dois ramos.
+  assert.ok(dashboard.includes('? reparsear(buffer, loginParaUidComConciliacao(mapaLogins(usuariosParaMapa), linhas), opcoes, linhas)\n      : reparsear(buffer, mapaLogins(usuariosParaMapa), opcoes, linhas);'));
   assert.ok(dashboard.includes('const usuariosComVinculoAtual = usuarios.some((item) => item.login === usuarioSalvo.login)'));
   assert.ok(dashboard.includes('aplicarConciliacao(\n          arquivo,\n          linhasConciliacao.map((item) => (\n            item === linhaConciliacaoVinculoCadastro ? resolverManualmente(item, usuarioSalvo) : item\n          )),\n          {},\n          usuariosComVinculoAtual,\n        );'));
 });

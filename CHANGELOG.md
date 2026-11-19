@@ -12,6 +12,9 @@ O Dashboard tem a sua própria versão: veja `CHANGELOG-DASHBOARD.md`. O App con
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.12.5 — importação de escala em matriz (turno × data): o App orienta a usar o Dashboard
+- O fluxo de importação do App reconhece a matriz "turno × data" (escala de fim de ano) e diz "importe-a pelo Dashboard", em vez de tratá-la como planilha desconhecida.
+
 ## 3.12.4 — publicar e reverter a escala funcionam também para quem administra pela Matriz sem equipe própria
 - `publicarEscalas()` (que o App também usa ao aprovar/importar) e `reverterPublicacao()` liam os turnos ativos **sem fixar o status**.
   As Regras só liberam essa leitura, para quem administra a Jornada pela Matriz (ex.: GESTOR_UNIDADE), quando o status é conhecido na

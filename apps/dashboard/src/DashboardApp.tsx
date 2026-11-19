@@ -47,6 +47,9 @@ import {
   obterPadraoHorarioGrupoParaData,
   ordenarPadraoHorarioSemanal,
   parsePlanilhaEscala,
+  parsePlanilhaMatrizTurnos,
+  detectarTipoPlanilha,
+  competenciaDoPonto,
   validarContatosPlantonista,
   validarGrupoPlantao,
   type CompetenciaPlantao,
@@ -110,6 +113,7 @@ import { LoginPanel } from '@/components/LoginPanel';
 import { ScheduleGrid } from '@/components/ScheduleGrid';
 import { ScheduleImportReview } from '@/components/ScheduleImportReview';
 import { ScheduleLegend } from '@/components/ScheduleLegend';
+import { mesclarTrechoNaBase, type OrigemBase } from '@/lib/importacaoMatrizTurnos';
 import {
   conciliarPlanilha,
   ignorarLinha,
@@ -3749,7 +3753,11 @@ export function DashboardApp() {
   const [detalhesPublicacao, setDetalhesPublicacao] = useState<Record<string, EventoEscala[]>>({});
   const [linhasConciliacao, setLinhasConciliacao] = useState<LinhaConciliacao[]>([]);
   // --- Preview de Plantão (Fase PLANTÃO-2) — nunca persiste; só prévia em memória ---
-  const [tipoArquivoDetectado, setTipoArquivoDetectado] = useState<'ESCALA_6X1' | 'PLANTAO' | 'DESCONHECIDA' | null>(null);
+  const [tipoArquivoDetectado, setTipoArquivoDetectado] = useState<'ESCALA_6X1' | 'ESCALA_MATRIZ' | 'PLANTAO' | 'DESCONHECIDA' | null>(null);
+  /** MATRIZ-TURNOS-1 — a escala que já existe da competência (rascunho ou publicada), onde o trecho da matriz é mesclado. */
+  const baseMatrizRef = useRef<{ documentos: TurnosMes[]; origem: OrigemBase } | null>(null);
+  /** MATRIZ-TURNOS-1 — aviso de que a competência foi ajustada pelas datas da planilha (mostrado no resumo da importação). */
+  const avisoAjusteCompetenciaMatrizRef = useRef('');
   const [motivoArquivoDesconhecido, setMotivoArquivoDesconhecido] = useState('');
   const [resultadoPlantao, setResultadoPlantao] = useState<ResultadoParsePlantao | null>(null);
   const [vinculosPlantao, setVinculosPlantao] = useState<VinculoPlantao[]>([]);
@@ -5370,7 +5378,37 @@ export function DashboardApp() {
     buffer: ArrayBuffer,
     loginParaUid: Record<string, string>,
     opcoes: OpcoesInicioImportacao = {},
+    linhasConciliadas: readonly LinhaConciliacao[] = [],
   ): ResultadoParse {
+    if (detectarTipoPlanilha(buffer).tipo === 'ESCALA_MATRIZ_TURNOS') {
+      // MATRIZ-TURNOS-1 — a competência vem da importação ou do contexto aberto (as resoluções de nomes chamam sem opções).
+      const equipeIdMatriz = opcoes.equipeId
+        ?? (contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : usuarioEfetivo?.equipeId)
+        ?? EQUIPE_DEMO.id;
+      const competenciaMatriz = opcoes.competencia
+        ?? (contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.competencia : competenciaOperacionalHoje);
+      const lido = parsePlanilhaMatrizTurnos(buffer, {
+        equipeId: equipeIdMatriz,
+        competencia: competenciaMatriz,
+        catalogo,
+        loginParaUid,
+        loginPorNomeFonte: Object.fromEntries(
+          linhasConciliadas.filter((linha) => linha.login !== null && linha.status !== 'IGNORADA').map((linha) => [linha.nomePlanilha, linha.login as string]),
+        ),
+      });
+      const base = baseMatrizRef.current;
+      const mesclado = mesclarTrechoNaBase(lido.documentos, base?.documentos ?? [], { catalogo, competencia: competenciaMatriz, ...(base ? { origemBase: base.origem } : {}) });
+      const periodoDocs = mesclado.documentos[0];
+      const diasDoPeriodo = periodoDocs === undefined ? lido.totalDias
+        : Math.round((Date.parse(`${periodoDocs.periodoFim}T12:00:00Z`) - Date.parse(`${periodoDocs.periodoInicio}T12:00:00Z`)) / 86_400_000) + 1;
+      return {
+        ...lido,
+        documentos: mesclado.documentos,
+        // o que PROTEGE (a escala normal ausente, o que foi mesclado) vem primeiro: a lista de pendências mostra poucos itens
+        avisos: [...mesclado.avisos, ...(avisoAjusteCompetenciaMatrizRef.current === '' ? [] : [avisoAjusteCompetenciaMatrizRef.current]), ...lido.avisos],
+        ...(periodoDocs === undefined ? {} : { periodoInicio: periodoDocs.periodoInicio, periodoFim: periodoDocs.periodoFim, totalDias: diasDoPeriodo }),
+      };
+    }
     return parsePlanilhaEscala(buffer, {
       equipeId: opcoes.equipeId
         ?? (contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : usuarioEfetivo?.equipeId)
@@ -5404,8 +5442,8 @@ export function DashboardApp() {
   function aplicarConciliacao(buffer: ArrayBuffer, linhas: LinhaConciliacao[], opcoes: OpcoesInicioImportacao = {}, usuariosParaMapa: Usuario[] = usuarios) {
     setLinhasConciliacao(linhas);
     const parseado = linhas.some((linha) => linha.login !== null)
-      ? reparsear(buffer, loginParaUidComConciliacao(mapaLogins(usuariosParaMapa), linhas), opcoes)
-      : reparsear(buffer, mapaLogins(usuariosParaMapa), opcoes);
+      ? reparsear(buffer, loginParaUidComConciliacao(mapaLogins(usuariosParaMapa), linhas), opcoes, linhas)
+      : reparsear(buffer, mapaLogins(usuariosParaMapa), opcoes, linhas);
     setResultado(parseado);
     setJornadaPossuiAlteracoesNaoSalvas(true);
     return parseado;
@@ -5416,10 +5454,13 @@ export function DashboardApp() {
     setMensagem('');
     try {
       const primeiraLeitura = reparsear(buffer, mapaLogins(usuarios), opcoes);
-      const linhas = conciliarPlanilha(
-        primeiraLeitura.documentos.map((documento) => documento.login),
-        usuarios,
-      );
+      // MATRIZ-TURNOS-1 — na matriz, só os NOMES da planilha entram na conciliação (os documentos da escala normal que foram
+      // mesclados já têm login) e "Ivan" casa com o usuário pelo primeiro nome SE for único na equipe.
+      const equipeDaConciliacao = opcoes.equipeId
+        ?? (contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : usuarioEfetivo?.equipeId);
+      const linhas = primeiraLeitura.matriz === undefined
+        ? conciliarPlanilha(primeiraLeitura.documentos.map((documento) => documento.login), usuarios)
+        : conciliarPlanilha(primeiraLeitura.matriz.nomesFonte, usuarios, equipeDaConciliacao === undefined ? {} : { primeiroNomeNaEquipe: equipeDaConciliacao });
       setArquivo(buffer);
       setNomeArquivo(nome);
       const parseado = aplicarConciliacao(buffer, linhas, opcoes);
@@ -6480,9 +6521,13 @@ export function DashboardApp() {
         : 'Não foi possível ler a planilha selecionada.');
     }
     setTipoArquivoDetectado(processado.tipo);
-    if (opcoes.tipoEsperado !== undefined && processado.tipo !== opcoes.tipoEsperado) {
+    // MATRIZ-TURNOS-1 — a matriz "turno × data" é uma escala de Jornada: vale onde se espera a Jornada.
+    const tipoCompativel = opcoes.tipoEsperado === undefined
+      || processado.tipo === opcoes.tipoEsperado
+      || (opcoes.tipoEsperado === 'ESCALA_6X1' && processado.tipo === 'ESCALA_MATRIZ');
+    if (!tipoCompativel) {
       const esperado = opcoes.tipoEsperado === 'PLANTAO' ? 'Plantão' : 'Jornada 6x1';
-      const encontrado = processado.tipo === 'PLANTAO' ? 'Plantão' : processado.tipo === 'ESCALA_6X1' ? 'Jornada 6x1' : 'estrutura desconhecida';
+      const encontrado = processado.tipo === 'PLANTAO' ? 'Plantão' : processado.tipo === 'ESCALA_6X1' ? 'Jornada 6x1' : processado.tipo === 'ESCALA_MATRIZ' ? 'Jornada em matriz (turno × data)' : 'estrutura desconhecida';
       return falhar(`O arquivo escolhido não corresponde ao tipo selecionado. Esperado: ${esperado}. Encontrado: ${encontrado}.`);
     }
     if (processado.tipo === 'DESCONHECIDA') {
@@ -6495,6 +6540,53 @@ export function DashboardApp() {
       setNomeArquivo(file.name);
       setMotivoArquivoDesconhecido(processado.motivo);
       return falhar(processado.motivo);
+    }
+    baseMatrizRef.current = null;
+    if (processado.tipo === 'ESCALA_MATRIZ') {
+      // MATRIZ-TURNOS-1 — importação em TRECHO: o trecho é mesclado sobre a escala que já existir da competência (rascunho
+      // primeiro; senão a publicada), para não apagar os outros dias. A competência é a escolhida ou a do próprio trecho
+      // (o rótulo é o mês em que o período termina). Se a escala existente não puder ser lida, NADA é importado.
+      const equipeMatrizId = opcoes.equipeId
+        ?? (contextoEhJornada(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : usuarioEfetivo?.equipeId)
+        ?? EQUIPE_DEMO.id;
+      // Se a competência do assistente (por padrão a ATUAL) não comporta o trecho, vale a do próprio trecho — igual ao Plantão — e
+      // a troca é AVISADA no resumo. Um trecho que atravessa o fechamento não cabe em nenhuma: o parser recusa com o motivo.
+      const trechoInicio = processado.resultado.periodoInicio;
+      const trechoFim = processado.resultado.periodoFim;
+      const trechoCabeEm = (competencia: string) => {
+        const periodo = periodoDaCompetencia(competencia);
+        return periodo !== null && trechoInicio >= periodo.periodoInicio && trechoFim <= periodo.periodoFim;
+      };
+      const competenciaDoTrecho = trechoInicio !== '' ? competenciaDoPonto(trechoInicio) : undefined;
+      const competenciaMatriz = opcoes.competencia !== undefined && trechoCabeEm(opcoes.competencia)
+        ? opcoes.competencia
+        : competenciaDoTrecho !== undefined && trechoCabeEm(competenciaDoTrecho)
+          ? competenciaDoTrecho
+          : (opcoes.competencia ?? competenciaOperacionalHoje);
+      avisoAjusteCompetenciaMatrizRef.current = opcoes.competencia !== undefined && competenciaMatriz !== opcoes.competencia
+        ? `Competência ajustada de ${opcoes.competencia} para ${competenciaMatriz} com base nas datas da planilha (${trechoInicio.slice(8, 10)}/${trechoInicio.slice(5, 7)} a ${trechoFim.slice(8, 10)}/${trechoFim.slice(5, 7)}).`
+        : '';
+      if (!modoDemo) {
+        try {
+          const [rascunhos, publicadas] = await Promise.all([
+            carregarRascunhosEquipe(equipeMatrizId, competenciaMatriz),
+            carregarEscalasEquipe(equipeMatrizId, competenciaMatriz, true),
+          ]);
+          baseMatrizRef.current = rascunhos.length > 0
+            ? { documentos: rascunhos, origem: 'RASCUNHO' }
+            : publicadas.length > 0 ? { documentos: publicadas, origem: 'PUBLICADA' } : null;
+        } catch (falha) {
+          return falhar(mensagemErroFirebase(
+            falha,
+            `Não consegui ler a escala existente de ${competenciaMatriz} para mesclar o trecho. Nada foi importado: tente de novo.`,
+            ambienteFirebaseAtual,
+          ));
+        }
+      }
+      setResultadoPlantao(null);
+      setVinculosPlantao([]);
+      interpretar(buffer, file.name, { ...opcoes, competencia: competenciaMatriz });
+      return true;
     }
     if (processado.tipo === 'PLANTAO') {
       const grupoAtual = contextoEhPlantao(contextoEscalaAtivo) ? contextoEscalaAtivo.alvoId : '';

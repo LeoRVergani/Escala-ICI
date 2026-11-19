@@ -43,7 +43,7 @@ function resumir(caminho: string) {
   if (resultado.tipo === 'DESCONHECIDA') {
     return { arquivo: basename(caminho), tipo: resultado.tipo, motivo: resultado.motivo };
   }
-  if (resultado.tipo === 'ESCALA_6X1') {
+  if (resultado.tipo === 'ESCALA_6X1' || resultado.tipo === 'ESCALA_MATRIZ') {
     return {
       arquivo: basename(caminho),
       tipo: resultado.tipo,

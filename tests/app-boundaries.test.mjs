@@ -1692,3 +1692,42 @@ test('PUBLICACAO-LEITURA-1 — publicar e reverter leem turnosMes COM o status f
   assert.match(leitura, /resource\.data\.status == 'PUBLICADA'\s*\|\|\s*souGestor\(\)/u);
   assert.match(rules, /function souGestor\(\) \{\s*return autenticado\(\) && \(meuPerfil\(\) in \['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'\] \|\| souAdminSistema\(\)\);/u);
 });
+
+test('MATRIZ-TURNOS-1 — a matriz entra por último na detecção, o Dashboard mescla sobre a escala existente (e não importa se não consegue ler), o primeiro nome só vale quando pedido e o App orienta', async () => {
+  const [detector, dashboard, conciliacao, appImport, revisao, parser, docs] = await Promise.all([
+    ler('packages/contrato/src/detectorPlanilha.ts'), ler('apps/dashboard/src/DashboardApp.tsx'), ler('lib/conciliacaoUsuarios.ts'),
+    ler('lib/firebase/importacao6x1App.ts'), ler('components/ScheduleImportReview.tsx'), ler('packages/contrato/src/parserMatrizTurnos.ts'), ler('docs/spec/IMPORTADOR_MATRIZ_TURNOS.md'),
+  ]);
+  // Detecção: a matriz só é testada quando NÃO há 6x1 nem Plantão (nada do que já funcionava muda).
+  const posPlantao = detector.indexOf("if (plantao.status === 'UNICA') {");
+  const posMatriz = detector.indexOf('localizarMatrizTurnos(workbook)');
+  const posDesconhecida = detector.lastIndexOf("tipo: 'DESCONHECIDA'");
+  assert.ok(posPlantao > 0 && posMatriz > posPlantao && posDesconhecida > posMatriz, 'ordem: 6x1, Plantão, matriz, desconhecida');
+  // Dashboard: a base é lida ANTES de interpretar, rascunho primeiro, e falha de leitura aborta a importação.
+  const ramo = /if \(processado\.tipo === 'ESCALA_MATRIZ'\) \{[\s\S]*?\n    \}\n    if \(processado\.tipo === 'PLANTAO'\)/u.exec(dashboard)?.[0] ?? '';
+  assert.ok(ramo.length > 0, 'ramo da matriz encontrado');
+  assert.match(ramo, /carregarRascunhosEquipe\(equipeMatrizId, competenciaMatriz\)/u);
+  assert.match(ramo, /carregarEscalasEquipe\(equipeMatrizId, competenciaMatriz, true\)/u);
+  assert.ok(ramo.indexOf("origem: 'RASCUNHO'") < ramo.indexOf("origem: 'PUBLICADA'"), 'rascunho tem prioridade sobre a publicada');
+  assert.match(ramo, /Nada foi importado/u);
+  assert.ok(ramo.indexOf('catch (falha)') < ramo.indexOf('interpretar(buffer'), 'a falha de leitura retorna antes de interpretar');
+  assert.match(dashboard, /baseMatrizRef\.current = null;\s*if \(processado\.tipo === 'ESCALA_MATRIZ'\)/u);
+  // reparsear: parser próprio, nome → login da conciliação, mesclagem sobre a base; interpretar concilia só os NOMES da matriz.
+  assert.match(dashboard, /detectarTipoPlanilha\(buffer\)\.tipo === 'ESCALA_MATRIZ_TURNOS'/u);
+  assert.match(dashboard, /loginPorNomeFonte: Object\.fromEntries\(/u);
+  assert.match(dashboard, /mesclarTrechoNaBase\(lido\.documentos, base\?\.documentos \?\? \[\]/u);
+  assert.match(dashboard, /conciliarPlanilha\(primeiraLeitura\.matriz\.nomesFonte, usuarios, equipeDaConciliacao === undefined \? \{\} : \{ primeiroNomeNaEquipe: equipeDaConciliacao \}\)/u);
+  // Primeiro nome: só quando pedido, só texto de uma palavra, só ATIVOS da equipe, e depois das regras exatas.
+  const regraPrimeiroNome = /if \(opcoes\.primeiroNomeNaEquipe !== undefined && chave !== '' && !\/\\s\/u\.test\(chave\)\) \{[\s\S]*?\n  \}/u.exec(conciliacao)?.[0] ?? '';
+  assert.ok(regraPrimeiroNome.length > 0, 'regra do primeiro nome');
+  assert.match(regraPrimeiroNome, /usuario\.ativo\s*&&\s*usuario\.equipeId === opcoes\.primeiroNomeNaEquipe/u);
+  assert.ok(conciliacao.indexOf('porAliasOuNome') < conciliacao.indexOf('opcoes.primeiroNomeNaEquipe !== undefined'), 'regras exatas antes do primeiro nome');
+  // O App orienta; o parser não cria login novo; nada de HTML.
+  assert.match(appImport, /processado\.tipo === 'ESCALA_MATRIZ'[\s\S]*?Importe-a pelo Dashboard/u);
+  assert.doesNotMatch(parser, /loginParaUid['"]?\s*:?\s*[^;]*cadastr/iu);
+  assert.doesNotMatch(parser, /dangerouslySetInnerHTML|innerHTML|document\.write/u);
+  // A lista de pendências não esconde mais os avisos.
+  assert.match(revisao, /mostrarTodasPendencias \? alertasOperacionais : alertasOperacionais\.slice\(0, 4\)/u);
+  assert.doesNotMatch(revisao, /na tabela de conciliação acima/u);
+  for (const trecho of ['FOLGA', 'DF', 'DU', 'CONFLITO_ALIAS', 'reaplicar', 'nada é importado', 'Mesclagem do trecho']) assert.ok(docs.includes(trecho), trecho);
+});

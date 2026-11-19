@@ -100,6 +100,11 @@ export interface ResultadoParse {
   documentos: TurnosMes[];
   erros: ErroImportacao[];
   avisos: string[];
+  /**
+   * MATRIZ-TURNOS-1 — só existe quando a planilha é uma matriz "turno × data" (importação em TRECHO): as datas cobertas, os
+   * feriados lidos do cabeçalho e os nomes como estão na planilha. Escalas 6x1 não têm este campo.
+   */
+  matriz?: { aba: string; datas: string[]; feriados: string[]; nomesFonte: string[] };
 }
 
 /**

@@ -15,4 +15,5 @@ export * from './parserPlantaoMultiFonte.js';
 export * from './tipos.js';
 export * from './tiposPlantao.js';
 export * from './totais.js';
+export * from './parserMatrizTurnos.js';
 export * from './alertasTurno.js';

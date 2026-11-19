@@ -183,6 +183,8 @@ export function ScheduleImportReview({
   const indiceDataSelecionada = Math.max(0, datas.indexOf(dataSelecionada));
   const pendenciasSecaoRef = useRef<HTMLElement>(null);
   const [chavePendenciaSelecionada, setChavePendenciaSelecionada] = useState<string | null>(null);
+  /** MATRIZ-TURNOS-1 — a lista mostra 4 pendências; os avisos (ex.: "a escala normal ainda não existe") não podem ficar escondidos. */
+  const [mostrarTodasPendencias, setMostrarTodasPendencias] = useState(false);
   /**
    * HOTFIX-ESCALA-ALERTA-TROCAS-1 — "Ajustar"/"Revisar" numa pendência
    * precisa focar a linha/dia exatos AQUI, dentro desta mesma tela (Grade
@@ -776,7 +778,7 @@ export function ScheduleImportReview({
       <section className="soc-import-review-alerts">
         <div className="soc-import-review-alerts-heading"><div><strong>Pendências da fonte</strong><span>{alertasOperacionais.length}</span></div><small>Validações preservadas da importação local</small></div>
         <div className="soc-import-review-alerts-table">
-          {alertasOperacionais.length === 0 ? <p className="soc-import-review-alerts-empty"><CircleCheck size={15} /> Nenhuma pendência encontrada na fonte.</p> : alertasOperacionais.slice(0, 4).map((alerta, indice) => {
+          {alertasOperacionais.length === 0 ? <p className="soc-import-review-alerts-empty"><CircleCheck size={15} /> Nenhuma pendência encontrada na fonte.</p> : (mostrarTodasPendencias ? alertasOperacionais : alertasOperacionais.slice(0, 4)).map((alerta, indice) => {
             const linhaRelacionada = alerta.nomePlanilha
               ? linhasConciliacao.find((linha) => linha.nomePlanilha === alerta.nomePlanilha) ?? null
               : null;
@@ -812,9 +814,9 @@ export function ScheduleImportReview({
             );
           })}
           {alertasOperacionais.length > 4 && (
-            <p className="soc-import-review-alerts-more">
-              +{alertasOperacionais.length - 4} pendência(s) na tabela de conciliação acima.
-            </p>
+            <button type="button" className="soc-import-review-alerts-more" onClick={() => setMostrarTodasPendencias((atual) => !atual)}>
+              {mostrarTodasPendencias ? 'Mostrar menos' : `Ver as ${alertasOperacionais.length - 4} pendência(s) restantes`}
+            </button>
           )}
         </div>
       </section>

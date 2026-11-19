@@ -116,3 +116,32 @@ describe('processarArquivoImportado (roteador puro 6x1/Plantão)', () => {
     }
   });
 });
+
+describe('processarArquivoImportado — matriz "turno × data" (MATRIZ-TURNOS-1)', () => {
+  function matrizMinima(): ArrayBuffer {
+    const linhas = [
+      ['Escala de Final de Ano 2026'], [],
+      ['Turno', 'Sáb', 'Dom', 'Seg'], ['', '19/12', '20/12', '21/12'],
+      ['Madrugada', 'Ana', 'Bia', 'Caio'], ['Manhã', 'Bia', 'Caio', 'Ana'], ['Tarde', 'Caio', 'Ana', 'Bia'], ['Noite', 'Dani', 'Dani', 'Dani'],
+    ];
+    const livro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet(linhas), 'Planilha1');
+    return XLSX.write(livro, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
+  }
+  const opcoes = { ...OPCOES_6X1_MINIMAS, competencia: '2027-01' };
+
+  it('roteia para ESCALA_MATRIZ (importação em trecho), com um documento por nome da planilha', () => {
+    const resultado = processarArquivoImportado(matrizMinima(), opcoes);
+    expect(resultado.tipo).toBe('ESCALA_MATRIZ');
+    if (resultado.tipo !== 'ESCALA_MATRIZ') return;
+    expect(resultado.resultado.matriz?.nomesFonte).toEqual(['Ana', 'Bia', 'Caio', 'Dani']);
+    expect(resultado.resultado.periodoInicio).toBe('2026-12-19');
+    // nomes sem vínculo: o resultado já sai com erro BLOQUEANTE por nome (a conciliação resolve depois)
+    expect(resultado.resultado.erros.filter((erro) => erro.severidade === 'BLOQUEANTE')).toHaveLength(4);
+  });
+
+  it('as escalas 6x1 e de Plantão continuam sendo reconhecidas como antes', () => {
+    expect(processarArquivoImportado(carregar(FIXTURE_6X1), OPCOES_6X1_MINIMAS).tipo).toBe('ESCALA_6X1');
+    expect(processarArquivoImportado(carregar(FIXTURE_PLANTAO), OPCOES_6X1_MINIMAS).tipo).toBe('PLANTAO');
+  });
+});

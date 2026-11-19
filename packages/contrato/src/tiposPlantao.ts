@@ -13,7 +13,7 @@
  */
 import type { FuncaoPlantao } from './modeloPlantaoPersistente.js';
 
-export type TipoPlanilha = 'ESCALA_6X1' | 'PLANTAO' | 'DESCONHECIDA';
+export type TipoPlanilha = 'ESCALA_6X1' | 'ESCALA_MATRIZ_TURNOS' | 'PLANTAO' | 'DESCONHECIDA';
 
 export interface ResultadoDeteccaoPlanilha {
   tipo: TipoPlanilha;

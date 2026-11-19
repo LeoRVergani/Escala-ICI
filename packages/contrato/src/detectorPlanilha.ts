@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 
 import { obterCelula, valorCelula } from './celulas.js';
 import { normalizarCelula, normalizarChaveEstrutural } from './normalizar.js';
+import { localizarMatrizTurnos } from './parserMatrizTurnos.js';
 import type { ResultadoDeteccaoPlanilha } from './tiposPlantao.js';
 
 export interface LocalizacaoTabelaPlantao {
@@ -185,10 +186,17 @@ export function detectarTipoPlanilha(arquivo: ArrayBuffer): ResultadoDeteccaoPla
     };
   }
 
+  // MATRIZ-TURNOS-1 — só chega aqui quando NÃO há aba "Escalistas" nem tabela de Plantão (nada do que já funcionava muda).
+  const matriz = localizarMatrizTurnos(workbook);
+  if (matriz !== undefined) {
+    return { tipo: 'ESCALA_MATRIZ_TURNOS', abaEncontrada: matriz.aba };
+  }
+
   return {
     tipo: 'DESCONHECIDA',
     motivo: 'Nenhuma estrutura reconhecida: nem a aba "Escalistas" da '
       + 'escala 6x1, nem uma tabela de Plantão (cabeçalho '
-      + '"Plantonista.../Data Início/Data Fim").',
+      + '"Plantonista.../Data Início/Data Fim"), nem uma matriz "Turno × Data" '
+      + '(Madrugada/Manhã/Tarde/Noite nas linhas e as datas nas colunas).',
   };
 }

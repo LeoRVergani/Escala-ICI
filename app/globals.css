@@ -10974,3 +10974,7 @@ button.coord-numero > svg:last-child { margin-left: auto; color: var(--muted); }
   .ninfo-detalhes { grid-template-columns: minmax(0, 1fr); }
   .ninfo-topo, .ninfo-rodape { padding-left: 18px; padding-right: 18px; }
 }
+
+/* MATRIZ-TURNOS-1 — "Ver as N pendências restantes" (antes era um parágrafo que apontava para uma tabela que não tem os avisos). */
+button.soc-import-review-alerts-more { width: 100%; border: 0; background: transparent; color: var(--primary-bright); font: inherit; font-size: 11px; font-weight: 700; text-align: left; cursor: pointer; }
+button.soc-import-review-alerts-more:hover { text-decoration: underline; }

@@ -54,9 +54,20 @@ function classificarCandidatos(
     : { login: null, status: 'USUARIO_INATIVO', candidatos: [unico.login] };
 }
 
+/**
+ * MATRIZ-TURNOS-1 — opções de conciliação. `primeiroNomeNaEquipe`: o id da equipe cujos usuários ATIVOS podem ser achados pelo
+ * PRIMEIRO NOME (a matriz de turnos traz "Ivan", "Thais"…). Só vale quando nenhuma regra exata acima casou, só para texto de uma
+ * palavra e só com correspondência ÚNICA: dois "Carlos" ativos na equipe viram `CONFLITO_ALIAS` para o gestor escolher. Sem a
+ * opção (todas as importações que já existiam), nada muda.
+ */
+export interface OpcoesConciliacao {
+  primeiroNomeNaEquipe?: string;
+}
+
 export function conciliarNome(
   nomePlanilha: string,
   usuarios: readonly Usuario[],
+  opcoes: OpcoesConciliacao = {},
 ): LinhaConciliacao {
   const texto = nomePlanilha.trim();
 
@@ -90,6 +101,19 @@ export function conciliarNome(
     return { nomePlanilha: texto, ...porAliasOuNome };
   }
 
+  if (opcoes.primeiroNomeNaEquipe !== undefined && chave !== '' && !/\s/u.test(chave)) {
+    const porPrimeiroNome = classificarCandidatos(
+      usuarios.filter((usuario) =>
+        usuario.ativo
+        && usuario.equipeId === opcoes.primeiroNomeNaEquipe
+        && normalizarNome(usuario.nome).split(/\s+/u)[0] === chave),
+      'VINCULADO_ALIAS',
+    );
+    if (porPrimeiroNome !== undefined) {
+      return { nomePlanilha: texto, ...porPrimeiroNome };
+    }
+  }
+
   return { nomePlanilha: texto, login: null, status: 'USUARIO_NAO_ENCONTRADO', candidatos: [] };
 }
 
@@ -101,9 +125,10 @@ export function conciliarNome(
 export function conciliarPlanilha(
   nomes: readonly string[],
   usuarios: readonly Usuario[],
+  opcoes: OpcoesConciliacao = {},
 ): LinhaConciliacao[] {
   const distintos = [...new Set(nomes.map((nome) => nome.trim()).filter((nome) => nome !== ''))];
-  return distintos.map((nome) => conciliarNome(nome, usuarios));
+  return distintos.map((nome) => conciliarNome(nome, usuarios, opcoes));
 }
 
 export function publicacaoBloqueadaPorConciliacao(

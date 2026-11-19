@@ -57,6 +57,9 @@ export async function prepararImportacao6x1App(
   if (processado.tipo === 'PLANTAO') {
     return { tipo: 'NAO_6X1', motivo: 'Esta planilha é de Plantão. Importe-a na aba do Plantão.' };
   }
+  if (processado.tipo === 'ESCALA_MATRIZ') {
+    return { tipo: 'NAO_6X1', motivo: 'Esta planilha é uma escala em matriz (turno × data), como a de fim de ano. Importe-a pelo Dashboard.' };
+  }
   if (processado.tipo !== 'ESCALA_6X1') {
     return { tipo: 'NAO_6X1', motivo: processado.motivo || 'Não reconheci esta planilha como uma escala 6x1.' };
   }

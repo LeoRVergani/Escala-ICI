@@ -15,6 +15,17 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.14.0 — importar a escala de fim de ano (matriz "turno × data") em trecho (patch 0113)
+- O Dashboard agora importa a **escala em matriz** usada no fim de ano: turnos nas linhas, datas nas colunas, **primeiros nomes** nas células. É reconhecida pela estrutura
+  (não pelo nome do arquivo) e a tabelinha de totais ao lado é ignorada. Guia: `docs/spec/IMPORTADOR_MATRIZ_TURNOS.md`.
+- **Importação em trecho:** só os dias da planilha são trocados; se já existe escala da competência (rascunho, senão a publicada), os outros dias de janeiro e as pessoas
+  que não estão na matriz são **preservados**. Sem escala normal ainda, o Dashboard **avisa** que ela, ao chegar, apagaria o trecho se o arquivo não for reaplicado por cima.
+  Se a escala existente não puder ser lida, **nada é importado**.
+- **Folgas:** feriado (cabeçalho com "Feriado") → FOLGA; sábado e domingo → DF; dia útil → DU. O ano vem do título e é confirmado pelo dia da semana; vira de dezembro para janeiro.
+- **Nomes:** o primeiro nome liga ao usuário **só quando é único entre os ativos da equipe**; dois "Carlos" viram conflito para você escolher.
+- A **competência** é ajustada pelas datas da planilha (e avisada) quando a do assistente não comporta o trecho.
+- A lista de pendências da revisão ganhou "Ver as N pendências restantes": os avisos além dos 4 primeiros ficavam **escondidos**.
+
 ## 1.13.4 — correção: a publicação da escala não funcionava para o GESTOR_UNIDADE sem equipe (patch 0112)
 - **Causa (achada com a ferramenta de diagnóstico do 1.13.3):** publicar começa lendo os turnos já publicados **sem fixar o status**.
   A Regra de leitura de `turnosMes` é `status == 'PUBLICADA' || souGestor()`, e `souGestor()` só vale para GESTOR_EQUIPE, SUPERVISOR_EQUIPE e

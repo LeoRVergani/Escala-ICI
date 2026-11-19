@@ -3,6 +3,7 @@ import {
   converterAnaliseParaResultadoParsePlantao,
   detectarTipoPlanilha,
   parsePlanilhaEscala,
+  parsePlanilhaMatrizTurnos,
   parsePlanilhaPlantao,
   type OpcoesParse,
   type ResultadoParse,
@@ -32,6 +33,8 @@ import {
  */
 export type ResultadoImportacaoArquivo =
   | { tipo: 'ESCALA_6X1'; resultado: ResultadoParse }
+  /** MATRIZ-TURNOS-1 — matriz "turno × data" (ex.: fim de ano): importação em TRECHO, mesclada pelo chamador. */
+  | { tipo: 'ESCALA_MATRIZ'; resultado: ResultadoParse }
   | { tipo: 'PLANTAO'; resultado: ResultadoParsePlantao }
   | { tipo: 'DESCONHECIDA'; motivo: string };
 
@@ -50,6 +53,10 @@ export function processarArquivoImportado(
 
   if (deteccao.tipo === 'ESCALA_6X1') {
     return { tipo: 'ESCALA_6X1', resultado: parsePlanilhaEscala(arquivo, opcoes6x1) };
+  }
+
+  if (deteccao.tipo === 'ESCALA_MATRIZ_TURNOS') {
+    return { tipo: 'ESCALA_MATRIZ', resultado: parsePlanilhaMatrizTurnos(arquivo, opcoes6x1) };
   }
 
   if (deteccao.tipo === 'PLANTAO') {
