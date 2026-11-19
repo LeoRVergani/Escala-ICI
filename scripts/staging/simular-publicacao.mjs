@@ -28,10 +28,17 @@ async function main() {
   }
   const contexto = JSON.parse(readFileSync(arquivo, 'utf8'));
   const resumo = resumirContexto(contexto, login);
-  const equipeId = argumento('equipe') ?? resumo.equipeId;
-  if (!resumo.usuarioExiste || equipeId === null) {
-    console.error(`Não há usuarios/${login} (ou ele não tem equipeId) no contexto exportado: as Regras negariam tudo.`);
+  if (!resumo.usuarioExiste) {
+    console.error(`Não há usuarios/${login} no contexto exportado: as Regras negariam tudo (o doc ID é o login).`);
     process.exitCode = 1;
+    return;
+  }
+  const equipeId = argumento('equipe') || resumo.equipeId;
+  if (!equipeId) {
+    // GESTOR_UNIDADE e afins não têm equipe própria: sem dizer QUAL Jornada, a simulação rodaria com equipe vazia e não valeria nada.
+    console.error(`"${login}" não tem equipe própria (perfil ${resumo.perfil}): informe a Jornada com --equipe=<id>. Equipes no contexto exportado:`);
+    for (const [id, equipe] of Object.entries(contexto.colecoes.equipes ?? {})) console.error(`  ${id}  (${equipe.nome ?? '?'})`);
+    process.exitCode = 2;
     return;
   }
   const regrasTexto = readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf8');
@@ -63,8 +70,11 @@ async function main() {
 
     // 1) o que publicarEscalas() LÊ antes de escrever
     await passo('ler publicacoesEscala (estado anterior)', 'leitura', () => getDoc(doc(db, 'publicacoesEscala', p.chave)));
-    await passo('listar turnosMes da equipe/competência', 'leitura', () => getDocs(query(collection(db, 'turnosMes'), where('equipeId', '==', equipeId), where('competencia', '==', competencia))));
+    // A consulta como `publicarEscalas()` a faz hoje: com o status FIXADO (as Regras só liberam a quem administra pela Matriz assim).
+    await passo('listar turnosMes da equipe/competência (com status=PUBLICADA, como a publicação faz)', 'leitura', () => getDocs(query(collection(db, 'turnosMes'), where('equipeId', '==', equipeId), where('competencia', '==', competencia), where('status', '==', 'PUBLICADA'))));
     await passo('listar rascunhosTurnosMes da equipe/competência', 'leitura', () => getDocs(query(collection(db, 'rascunhosTurnosMes'), where('equipeId', '==', equipeId), where('competencia', '==', competencia))));
+    // comparação (não entra no veredito): a mesma consulta SEM o status, como era antes da correção
+    await passo('(informativo) a mesma consulta SEM o filtro de status, como era antes', 'informativo', () => getDocs(query(collection(db, 'turnosMes'), where('equipeId', '==', equipeId), where('competencia', '==', competencia))));
     // 2) cada gravação SOZINHA (descobre qual coleção é negada)
     await passo('gravar rascunhosTurnosMes ("Salvar rascunho")', 'rascunho', () => setDoc(doc(db, 'rascunhosTurnosMes', `diag_ind_${p.chave}_1`), p.rascunho(1)));
     await passo('gravar turnosMes', 'publicacao', () => setDoc(doc(db, 'turnosMes', `diag_ind_${p.chave}_1`), p.turnosMes(1)));
@@ -90,7 +100,8 @@ async function main() {
     for (const [chave, valor] of Object.entries(resumo)) console.log(`  ${chave}: ${JSON.stringify(valor)}`);
     console.log('\nResultado de cada passo:');
     for (const resultado of resultados) {
-      console.log(`  ${resultado.ok ? '✓ permitido' : '✗ NEGADO   '}  ${resultado.id}`);
+      const marca = resultado.tipo === 'informativo' ? (resultado.ok ? 'ℹ permitido' : 'ℹ negado   ') : (resultado.ok ? '✓ permitido' : '✗ NEGADO   ');
+      console.log(`  ${marca}  ${resultado.id}`);
       if (!resultado.ok) {
         for (const linha of resultado.negacao.linhas) console.log(`        firestore.rules:L${linha.numero}  ${linha.trecho}`);
         if (resultado.negacao.linhas.length === 0) console.log(`        ${resultado.negacao.curta}`);

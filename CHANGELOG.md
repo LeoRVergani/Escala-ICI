@@ -12,6 +12,12 @@ O Dashboard tem a sua própria versão: veja `CHANGELOG-DASHBOARD.md`. O App con
 ao voltar para a tela e a cada 15 minutos; se a versão publicada for outra,
 mostra **"Nova versão disponível · Atualizar"**.
 
+## 3.12.4 — publicar e reverter a escala funcionam também para quem administra pela Matriz sem equipe própria
+- `publicarEscalas()` (que o App também usa ao aprovar/importar) e `reverterPublicacao()` liam os turnos ativos **sem fixar o status**.
+  As Regras só liberam essa leitura, para quem administra a Jornada pela Matriz (ex.: GESTOR_UNIDADE), quando o status é conhecido na
+  consulta. Agora as duas consultas fixam `status == 'PUBLICADA'`, como as de exibição já faziam. Não muda o resultado: `turnosMes` só
+  guarda escalas publicadas. Quem já publicava (gestor de equipe, administrador) não percebe diferença.
+
 ## 3.12.3 — calendário do ponto: o ciclo passa a seguir o comunicado do RH (17→16, dezembro até 15/12, janeiro de 16/12 a 16/01)
 - O App (e o Dashboard e o Plantão) agora calculam a competência e o período a partir de **uma tabela única** — o calendário do
   ponto — em vez do ciclo fixo "26 → 25": período regular **17 a 16**, dezembro **17/11 a 15/12**, janeiro **16/12 a 16/01**

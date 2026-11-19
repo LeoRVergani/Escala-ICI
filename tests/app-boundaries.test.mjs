@@ -1659,6 +1659,8 @@ test('DIAGNOSTICO-PUBLICACAO-1 — a lógica do diagnóstico (serialização, re
   assert.match(lib.montarVeredito([ok('a', 'leitura'), no('r', 'rascunho'), no('p', 'publicacao'), no('l', 'lote')]).join(' '), /NÃO reconhecem esse usuário/u);
   assert.match(lib.montarVeredito([ok('a', 'leitura'), ok('r', 'rascunho'), no('eventosEscala', 'publicacao'), no('l', 'lote')]).join(' '), /rascunho é permitido.*eventosEscala/u);
   assert.match(lib.montarVeredito([ok('a', 'leitura'), ok('r', 'rascunho'), ok('p', 'publicacao'), no('l', 'lote', { limiteDeExpressoes: true })]).join(' '), /LOTE.*recusado.*1000 expressões/su);
+  // um passo "informativo" negado NÃO derruba o veredito (é só a comparação com a consulta antiga, sem o filtro de status)
+  assert.match(lib.montarVeredito([ok('a', 'leitura'), no('antiga', 'informativo'), ok('r', 'rascunho'), ok('p', 'publicacao'), ok('l', 'lote')]).join(' '), /Nenhuma recusa/u);
   // fronteiras dos scripts: a exportação só LÊ; a simulação só usa o emulador (nunca o Admin SDK)
   const [exportar, simular, pacote, docs] = await Promise.all([
     ler('scripts/staging/exportar-contexto-regras.mjs'), ler('scripts/staging/simular-publicacao.mjs'), ler('package.json'), ler('docs/operacao/DIAGNOSTICO_PUBLICACAO.md'),
@@ -1673,4 +1675,20 @@ test('DIAGNOSTICO-PUBLICACAO-1 — a lógica do diagnóstico (serialização, re
   assert.equal(scripts['staging:diagnosticar:publicacao:exportar'], 'node scripts/staging/exportar-contexto-regras.mjs');
   assert.equal(scripts['staging:diagnosticar:publicacao:simular'], 'node scripts/staging/simular-publicacao.mjs');
   for (const trecho of ['exportar-contexto-regras', 'simular-publicacao', 'emulators:exec', 'rm -f /tmp/contexto-regras.json']) assert.ok(docs.includes(trecho), trecho);
+});
+
+test('PUBLICACAO-LEITURA-1 — publicar e reverter leem turnosMes COM o status fixado (senão o GESTOR_UNIDADE responsável pela Matriz é negado)', async () => {
+  const [escrita, rules] = await Promise.all([ler('lib/firebase/writeRepository.ts'), ler('firestore.rules')]);
+  // As duas consultas de `turnosMes` de writeRepository.ts (publicarEscalas e reverterPublicacao) fixam equipe, competência E status.
+  const consultas = [...escrita.matchAll(/query\(\s*collection\(db, 'turnosMes'\),([\s\S]*?)\)\);/gu)].map((achado) => achado[1]);
+  assert.equal(consultas.length, 2, 'publicarEscalas e reverterPublicacao');
+  for (const restricoes of consultas) {
+    assert.match(restricoes, /where\('equipeId', '==', equipeId\)/u);
+    assert.match(restricoes, /where\('competencia', '==', competencia\)/u);
+    assert.match(restricoes, /where\('status', '==', 'PUBLICADA'\)/u);
+  }
+  // O motivo: a Regra de leitura só libera quem administra pela Matriz quando o status é conhecido, e souGestor() não inclui GESTOR_UNIDADE.
+  const leitura = /match \/turnosMes\/\{docId\} \{\s*allow read:([\s\S]*?);/u.exec(rules)?.[1] ?? '';
+  assert.match(leitura, /resource\.data\.status == 'PUBLICADA'\s*\|\|\s*souGestor\(\)/u);
+  assert.match(rules, /function souGestor\(\) \{\s*return autenticado\(\) && \(meuPerfil\(\) in \['GESTOR_EQUIPE', 'SUPERVISOR_EQUIPE'\] \|\| souAdminSistema\(\)\);/u);
 });

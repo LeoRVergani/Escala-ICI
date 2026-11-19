@@ -16,6 +16,8 @@ const estado = vi.hoisted(() => ({
   rascunhos: [] as Array<{ id: string; data: Record<string, unknown> }>,
   turnosMesAtivos: [] as Array<{ id: string; data: Record<string, unknown> }>,
   operacoes: [] as Array<{ tipo: 'set' | 'delete' | 'update'; colecao: string; id: string; dados?: Record<string, unknown> }>,
+  /** As consultas (coleção + restrições `where`) que a função fez — para conferir o que ela PEDE ao Firestore. */
+  consultas: [] as Array<{ colecao: string; restricoes: Array<{ campo: string; operador: string; valor: unknown }> }>,
 }));
 
 vi.mock('./shared', () => ({
@@ -29,7 +31,7 @@ vi.mock('./shared', () => ({
 vi.mock('firebase/firestore', () => ({
   collection: (_db: unknown, nome: string) => ({ __colecao: nome }),
   where: (campo: string, operador: string, valor: unknown) => ({ campo, operador, valor }),
-  query: (colecaoRef: { __colecao: string }) => ({ __colecao: colecaoRef.__colecao }),
+  query: (colecaoRef: { __colecao: string }, ...restricoes: Array<{ campo: string; operador: string; valor: unknown }>) => ({ __colecao: colecaoRef.__colecao, __restricoes: restricoes }),
   doc: (_db: unknown, colecao: string, id: string) => ({ __colecao: colecao, __id: id }),
   serverTimestamp: () => 'SERVER_TIMESTAMP',
   setDoc: async (ref: { __colecao: string; __id: string }, dados: Record<string, unknown>) => {
@@ -38,7 +40,8 @@ vi.mock('firebase/firestore', () => ({
   updateDoc: async () => {},
   deleteDoc: async () => {},
   getDoc: async () => ({ exists: () => false, data: () => undefined }),
-  getDocs: async (ref: { __colecao: string }) => {
+  getDocs: async (ref: { __colecao: string; __restricoes?: Array<{ campo: string; operador: string; valor: unknown }> }) => {
+    estado.consultas.push({ colecao: ref.__colecao, restricoes: ref.__restricoes ?? [] });
     const fonte = ref.__colecao === 'rascunhosTurnosMes'
       ? estado.rascunhos
       : ref.__colecao === 'turnosMes'
@@ -93,9 +96,28 @@ beforeEach(() => {
   estado.rascunhos = [];
   estado.turnosMesAtivos = [];
   estado.operacoes = [];
+  estado.consultas = [];
 });
 
 describe('publicarEscalas', () => {
+  /**
+   * PUBLICACAO-LEITURA-1 — regressão do caso real: GESTOR_UNIDADE que administra a Jornada pela Matriz (sem equipe própria) não
+   * conseguia publicar. As Regras só liberam a leitura de `turnosMes` a ele quando o `status` está FIXADO na consulta
+   * (`status == 'PUBLICADA' || souGestor()`, e `souGestor()` não inclui GESTOR_UNIDADE). Sem o filtro a consulta era negada
+   * e a publicação parava antes de gravar qualquer coisa. Mesmo filtro das consultas de exibição (`readRepository`).
+   */
+  it('lê os turnosMes ATIVOS com o status fixado em PUBLICADA (senão as Regras negam para quem administra pela Matriz)', async () => {
+    await publicarEscalas([documento('colab-1')], 'gestora-uid');
+
+    const consultaAtivos = estado.consultas.find((consulta) => consulta.colecao === 'turnosMes');
+    expect(consultaAtivos).toBeDefined();
+    expect(consultaAtivos?.restricoes).toEqual([
+      { campo: 'equipeId', operador: '==', valor: EQUIPE },
+      { campo: 'competencia', operador: '==', valor: COMPETENCIA },
+      { campo: 'status', operador: '==', valor: 'PUBLICADA' },
+    ]);
+  });
+
   it('conclui sem tentar apagar rascunho que não existe', async () => {
     await expect(publicarEscalas([documento('colab-1')], 'gestora-uid')).resolves.toBeDefined();
 

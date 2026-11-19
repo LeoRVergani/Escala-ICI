@@ -15,6 +15,17 @@ Regra (versionamento semântico), a mesma do App (`CHANGELOG.md`):
 → sobe o App; mexeu nos dois → sobe os dois. Um teste de fronteira confere que o número do `package.json` é o da
 primeira seção deste arquivo (e do `CHANGELOG.md`, no caso do App).
 
+## 1.13.4 — correção: a publicação da escala não funcionava para o GESTOR_UNIDADE sem equipe (patch 0112)
+- **Causa (achada com a ferramenta de diagnóstico do 1.13.3):** publicar começa lendo os turnos já publicados **sem fixar o status**.
+  A Regra de leitura de `turnosMes` é `status == 'PUBLICADA' || souGestor()`, e `souGestor()` só vale para GESTOR_EQUIPE, SUPERVISOR_EQUIPE e
+  administrador — **GESTOR_UNIDADE fica de fora**. Para quem administra a Jornada só pela Matriz (como o coordenador do SOC, que não tem equipe
+  própria) a consulta era negada (o Firestore chegava a estourar o limite de 1000 expressões) e a publicação parava **antes de gravar qualquer
+  coisa**, com a mensagem enganosa "as regras de escrita ainda não reconhecem a matriz operacional". Todas as gravações da publicação já passavam.
+- **Correção:** `publicarEscalas()` e `reverterPublicacao()` agora fixam `status == 'PUBLICADA'` na consulta — igual às consultas de exibição.
+  O resultado é o mesmo (`turnosMes` só aceita escalas publicadas) e **as Regras não mudam** (não precisa republicar nada).
+- A ferramenta de diagnóstico passou a testar a consulta como a publicação faz agora (mostrando a antiga como "informativo"), e a pedir
+  `--equipe=` quando o usuário não tem equipe própria. Testes de Regras novos cobrem esse perfil.
+
 ## 1.13.3 — ferramenta de diagnóstico da publicação recusada e testes de Regras do lote (patch 0111)
 - A mensagem "as regras de escrita ainda não reconhecem a matriz operacional" aparece para **qualquer** recusa na publicação e não diz
   qual gravação foi negada. Dois comandos novos respondem isso com os **dados reais do staging** e as **Regras de verdade**, sem gravar

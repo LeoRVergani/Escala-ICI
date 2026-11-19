@@ -8068,6 +8068,39 @@ describe('PUBLICACAO-LOTE-1 — publicação da Jornada em lote, como publicarEs
     await assertFails(lotePublicacao(usuarios.colaborador, 'EQ_SOC'));
   });
 
+  /**
+   * PUBLICACAO-LEITURA-1 — o caso real que travou a publicação: GESTOR_UNIDADE SEM equipe própria, responsável pela Jornada só pela
+   * Matriz. Todas as GRAVAÇÕES passam; o que as Regras negam é a LEITURA em lista de `turnosMes` quando o `status` não está fixado
+   * (`status == 'PUBLICADA' || souGestor()` e `souGestor()` não inclui GESTOR_UNIDADE).
+   */
+  const gestorDeUnidade = { login: 'gestor.unidade', email: 'gestor.unidade@teste.local' };
+  async function semearGestorDeUnidadeComMatriz() {
+    await ambiente.withSecurityRulesDisabled(async (contexto) => {
+      const db = contexto.firestore();
+      await setDoc(doc(db, 'usuarios', gestorDeUnidade.login), {
+        login: gestorDeUnidade.login, nome: 'Gestor de Unidade', email: gestorDeUnidade.email, perfil: 'GESTOR_UNIDADE',
+        equipeId: '', unidadesPermitidas: ['COSI'], nivelHierarquico: 4, ativo: true,
+      });
+      await setDoc(doc(db, 'escoposOperacionais', 'JORNADA_EQ_SOC'), escopoOperacional({
+        tipo: 'JORNADA', alvoId: 'EQ_SOC', alvoNome: 'SOC', equipesConsulta: [], responsaveisLogin: [gestorDeUnidade.login],
+      }));
+    });
+  }
+
+  it('GESTOR_UNIDADE sem equipe própria, responsável pela Matriz: a consulta COM status=PUBLICADA (a que a publicação faz) passa e o lote publica', async () => {
+    await semearGestorDeUnidadeComMatriz();
+    const db = autenticarComo(gestorDeUnidade);
+    await assertSucceeds(getDocs(query(collection(db, 'turnosMes'), where('equipeId', '==', 'EQ_SOC'), where('competencia', '==', COMPETENCIA), where('status', '==', 'PUBLICADA'))));
+    await assertSucceeds(getDocs(query(collection(db, 'rascunhosTurnosMes'), where('equipeId', '==', 'EQ_SOC'), where('competencia', '==', COMPETENCIA))));
+    await assertSucceeds(lotePublicacao(gestorDeUnidade, 'EQ_SOC'));
+  });
+
+  it('LIMITAÇÃO CONHECIDA das Regras: o mesmo gestor, SEM fixar o status na consulta, é negado — por isso publicarEscalas() e reverterPublicacao() fixam o status', async () => {
+    await semearGestorDeUnidadeComMatriz();
+    const db = autenticarComo(gestorDeUnidade);
+    await assertFails(getDocs(query(collection(db, 'turnosMes'), where('equipeId', '==', 'EQ_SOC'), where('competencia', '==', COMPETENCIA))));
+  });
+
   it('UM evento com `publicadoPor` diferente da conta logada derruba o lote INTEIRO — o que acontece ao publicar simulando outro gestor', async () => {
     await semearMatrizDaJornada('EQ_SOC');
     await assertFails(lotePublicacao(usuarios.gestor, 'EQ_SOC', { publicadoPorDoEvento: usuarios.colaborador.login }));

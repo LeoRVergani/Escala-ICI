@@ -113,9 +113,11 @@ export function montarPayloads({ login, equipeId, competencia, periodoInicio, pe
 
 /**
  * O veredito, em português, a partir dos resultados dos passos.
- * Cada resultado: `{ id, tipo: 'leitura' | 'rascunho' | 'publicacao' | 'lote', ok, negacao? }`.
+ * Cada resultado: `{ id, tipo: 'leitura' | 'rascunho' | 'publicacao' | 'lote' | 'informativo', ok, negacao? }`.
  */
-export function montarVeredito(resultados) {
+export function montarVeredito(todos) {
+  // Passos `informativo` só mostram uma comparação (ex.: a consulta SEM o filtro de status); não entram no veredito.
+  const resultados = todos.filter((item) => item.tipo !== 'informativo');
   const negados = resultados.filter((item) => !item.ok);
   if (negados.length === 0) {
     return [

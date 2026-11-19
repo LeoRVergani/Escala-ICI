@@ -194,10 +194,15 @@ export async function publicarEscalas(
   const estadoRef = doc(db, 'publicacoesEscala', chavePublicacao);
   const estadoAtual = await getDoc(estadoRef);
   const revisaoAtual = Number(estadoAtual.data()?.revisaoAtual ?? 0);
+  // PUBLICACAO-LEITURA-1 — o `status` PRECISA estar fixado na consulta. As Regras só liberam a leitura de `turnosMes` a quem
+  // administra a Jornada por Matriz (ex.: GESTOR_UNIDADE) quando o status é conhecido de antemão: `status == 'PUBLICADA' || souGestor()`,
+  // e `souGestor()` não inclui GESTOR_UNIDADE. Sem o filtro, a consulta é negada para esse perfil (o Firestore chega a estourar o limite
+  // de expressões) e a publicação para antes de gravar qualquer coisa. Não muda o resultado: `turnosMes` só aceita status PUBLICADA.
   const ativos = await getDocs(query(
     collection(db, 'turnosMes'),
     where('equipeId', '==', equipeId),
     where('competencia', '==', competencia),
+    where('status', '==', 'PUBLICADA'),
   ));
   const documentosAtivos = ativos.docs.map((snapshot) => snapshot.data() as TurnosMes);
   const rascunhosAtuais = await getDocs(query(
@@ -367,10 +372,15 @@ export async function reverterPublicacao(
     throw new Error(`A revisão ${revisaoOrigem} não possui documentos restauráveis.`);
   }
 
+  // PUBLICACAO-LEITURA-1 — o `status` PRECISA estar fixado na consulta. As Regras só liberam a leitura de `turnosMes` a quem
+  // administra a Jornada por Matriz (ex.: GESTOR_UNIDADE) quando o status é conhecido de antemão: `status == 'PUBLICADA' || souGestor()`,
+  // e `souGestor()` não inclui GESTOR_UNIDADE. Sem o filtro, a consulta é negada para esse perfil (o Firestore chega a estourar o limite
+  // de expressões) e a publicação para antes de gravar qualquer coisa. Não muda o resultado: `turnosMes` só aceita status PUBLICADA.
   const ativos = await getDocs(query(
     collection(db, 'turnosMes'),
     where('equipeId', '==', equipeId),
     where('competencia', '==', competencia),
+    where('status', '==', 'PUBLICADA'),
   ));
   const documentosAtivos = ativos.docs.map((snapshot) => snapshot.data() as TurnosMes);
   const alteracoes = calcularAlteracoesEscala(documentosAtivos, documentos);
